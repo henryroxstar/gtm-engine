@@ -1,0 +1,30 @@
+# packs/prospecting/graphs/prospect-outreach.toml
+#
+# The second real pack graph (E-4 generality proof): prospect -> dossier -> outreach.
+# Every node stays on brain_plan — prospect lists, account dossiers, and outreach drafts
+# are customer PII (CLAUDE.md tenant boundary), so this pack has no brain_radar stage,
+# unlike marketing's news-triage nodes.
+
+pack = "prospecting"
+variant = "prospect-outreach"
+
+[[nodes]]
+id = "prospect"
+model_role = "brain_plan"
+skill = "prospect"
+prompt = "Run the prospect skill for the active profile: build a target account list from the configured markets and ICP."
+
+[[nodes]]
+id = "dossier"
+depends_on = ["prospect"]
+model_role = "brain_plan"
+skill = "account-dossier"
+prompt = "Run the account-dossier skill for each prospected account."
+
+[[nodes]]
+id = "outreach"
+depends_on = ["dossier"]
+model_role = "brain_plan"
+skill = "draft-outreach"
+gate = true
+prompt = "Run the draft-outreach skill to draft outreach for each dossiered account and present it for approval before send."

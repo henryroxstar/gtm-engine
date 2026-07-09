@@ -1,0 +1,42 @@
+# Local fast static-analysis layer for gtm-engine.
+#
+# All three tools run at the pre-commit stage (commits stay fast: Ruff/Bandit run
+# only on changed files; the custom Semgrep rules are offline and tiny). The
+# heavy Semgrep *registry* deep-scan (p/python, p/security-audit) is deliberately
+# NOT here — it runs only at the `main` gate in .github/workflows/static-analysis.yml.
+#
+# Setup:
+#   uv sync --extra lint
+#   uv run pre-commit install
+#
+# Pins are mirrored in pyproject.toml ([project.optional-dependencies] lint) and
+# the CI workflow — bump all three together.
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff          # lint (autofix what's safe)
+        args: [--fix]
+      - id: ruff-format   # formatter
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/semgrep/semgrep
+    rev: v1.167.0
+    hooks:
+      - id: semgrep
+        # Custom invariant rules only — offline, no registry fetch, no telemetry.
+        args:
+          - "--config"
+          - ".semgrep/"
+          - "--error"
+          - "--metrics=off"
+          - "--disable-version-check"
+          - "--skip-unknown-extensions"

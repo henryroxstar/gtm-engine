@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/run-manifest.schema.json",
+  "title": "RunManifest",
+  "description": "Per-run status per stage; enables resume-from-failure and Telegram status. Written under content/<profile>/runs/<run-id>.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "trigger", "stages"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "trigger": { "type": "string", "description": "e.g. 'cron:radar', 'telegram', 'manual'." },
+    "profile": { "type": "string", "description": "Active profile this run belongs to (tenant isolation)." },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "ok", "failed", "skipped", "awaiting_approval"] },
+          "started": { "type": "string", "format": "date-time" },
+          "ended": { "type": "string", "format": "date-time" },
+          "error": { "type": ["string", "null"] },
+          "outputs": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Graph-shaped runner (E-1): ids of stages this one depends on. Additive/optional — absent on manifests from before E-1 or on readers that don't know about it." }
+        }
+      }
+    }
+  }
+}

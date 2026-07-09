@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/story-cluster.schema.json",
+  "title": "StoryCluster",
+  "description": "A clustered, pillar-tagged, scored story produced by content-radar. `pillar` is a free string because pillars are defined per active profile (e.g. Acme: AI Trust / AI Policy / Agentic AI).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "pillar", "score", "source_items"],
+  "properties": {
+    "id": { "type": "string" },
+    "pillar": { "type": "string", "description": "Pillar from the active profile." },
+    "score": { "type": "number", "minimum": 0, "maximum": 100, "description": "0-100; blends discovery trending_score with relevance × pillar-fit." },
+    "why_it_matters": { "type": "string" },
+    "angle_seeds": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "platform_fit": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["linkedin", "x", "instagram", "podcast"] },
+      "default": []
+    },
+    "source_items": {
+      "type": "array",
+      "items": { "type": "string", "description": "NewsItem.id" },
+      "minItems": 1
+    }
+  }
+}

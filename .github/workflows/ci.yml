@@ -1,0 +1,175 @@
+name: ci
+
+# CI for the GTM Content OS runtime.
+# Runs on every push and PR to main. Five independent jobs so a single red gate
+# is easy to read in the Checks UI:
+#   gates      — the dependency-free integrity gates (de-brand / resolve / skill manifest)
+#   tests      — the Python contract + content-linter test suite (pytest)
+#   actionlint — lints the workflow YAML in .github/workflows/
+#   gitleaks   — secret scan over full history (needs fetch-depth: 0)
+#
+# Secrets: this CI needs none. The gate scripts and tests are stdlib-only and
+# read source from the checkout; real secrets live in Doppler at runtime only.
+# Security: no job interpolates untrusted event input (PR/issue/commit text)
+# into a run: block — the only ${{ }} expressions used are pinned-action refs
+# and the auto-provided GITHUB_TOKEN.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: read-only token everywhere. No job here writes to the repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch/PR to save runner minutes; never
+# touch other refs. (Each job is independent, so cancelling mid-run is safe.)
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Integrity gates ──────────────────────────────────────────────────────
+  # The three dependency-free shell gates that guard the de-branded plugin:
+  #   - debrand_check.sh   : ZERO hardcoded company tokens in plugin/skills/
+  #   - resolve_check.sh   : every skill ref resolves against a sample profile
+  #   - skill_manifest.sh  : skills parse; product-bound caps satisfied by profile
+  # These run first because they are fast (<1s each) and catch the most common
+  # class of regression (company facts leaking into the engine).
+  gates:
+    name: integrity gates (de-brand / resolve / manifest)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: de-brand lint
+        run: bash tests/lint/debrand_check.sh
+
+      - name: resolve check
+        run: bash tests/lint/resolve_check.sh
+
+      - name: model deprecation lint
+        run: bash tests/lint/model_deprecation_check.sh
+
+      - name: skill manifest smoke
+        run: bash tests/smoke/skill_manifest.sh
+
+  # ── 2. Python tests ─────────────────────────────────────────────────────────
+  # Contract/schema tests + content-linter unit tests. The suite is stdlib-only
+  # apart from the test runner itself (pytest); minijsonschema is a vendored,
+  # dependency-free validator in tests/contracts/. We install pytest, plus the
+  # project itself if a root pyproject.toml exists (it is authored by the
+  # cockpit component) so the agent/ and cockpit/ packages import cleanly.
+  tests:
+    name: pytest (contracts + linter)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install test deps
+        run: |
+          python -m pip install --upgrade pip
+          # pytest is the only hard test-time dependency; the suite is otherwise stdlib.
+          pip install pytest
+          # If the project defines a root package (pyproject.toml — authored by the
+          # cockpit component), install it so agent/ + cockpit/ imports resolve.
+          # Best-effort: deps like claude-agent-sdk may be unavailable in CI, so a
+          # failed editable install must NOT fail the test gate.
+          if [ -f pyproject.toml ]; then
+            pip install -e . || echo "::warning::editable install failed (deps unavailable in CI); running stdlib-only tests"
+          fi
+
+      - name: pytest
+        run: python -m pytest tests/ -q
+
+  # ── 2b. Backend live-DB tenant-isolation tier ───────────────────────────────
+  # The dbtest suite (tests/backend/test_rls_live.py) needs a REAL Postgres to
+  # prove FORCE RLS + the non-owner gtm_api role isolate tenants — mocking the
+  # pool (as the fast `tests` job does) cannot. A postgres:16 service backs it;
+  # the suite self-skips everywhere else (no GTM_TEST_PG_ADMIN_DSN set), so the
+  # `tests` job stays green. This job installs only pytest + asyncpg (the tested
+  # code path, backend.database, needs no Agent SDK) and targets the dbtest file
+  # directly so it never collects the SDK-dependent mocked suites.
+  backend-db:
+    name: pytest (live-DB RLS tier)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gtm_app
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gtm_backend
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gtm_app -d gtm_backend"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest asyncpg
+
+      - name: pytest (dbtest tier)
+        env:
+          GTM_TEST_PG_ADMIN_DSN: postgres://gtm_app:postgres@localhost:5432/gtm_backend
+        run: python -m pytest tests/backend/test_rls_live.py tests/backend/test_cost_reservation_live.py tests/mcp_server/test_mcp_rls_live.py -q
+
+  # ── 3. actionlint ───────────────────────────────────────────────────────────
+  # Static-analyse the workflow YAML itself (shellcheck on run: blocks, expression
+  # syntax, action input validation). Runs against this repo's workflows only.
+  actionlint:
+    name: actionlint (workflows)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: actionlint (official binary)
+        run: |
+          # Run the official actionlint binary directly. The raven-actions wrapper
+          # action broke on the runner (ERR_PACKAGE_PATH_NOT_EXPORTED in its bundled
+          # @actions/tool-cache). The download script fetches the latest binary to
+          # ./actionlint; it lints .github/workflows/*.yml (incl. shellcheck on run:).
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  # ── 4. gitleaks ─────────────────────────────────────────────────────────────
+  # Secret scan over the full commit range — fetch-depth: 0 is REQUIRED so the
+  # scan sees the whole history, not just the tip.
+  #
+  # We run the gitleaks BINARY (Apache-2.0, free), NOT gitleaks/gitleaks-action —
+  # that action requires a PAID GITLEAKS_LICENSE for GitHub *organizations* since
+  # v2 ("[org] is an organization. License key is required."). The binary has no
+  # such gate. `gitleaks detect --exit-code 1` exits non-zero on a finding (fails
+  # the job); 0 = clean.
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          fetch-depth: 0 # full history — gitleaks needs the commit range to scan
+
+      - name: gitleaks (free binary — no org-license gate)
+        run: |
+          # Pinned version avoids hitting the unauthenticated GitHub API rate limit.
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks version
+          ./gitleaks detect --source . --redact --no-banner --exit-code 1
+
+

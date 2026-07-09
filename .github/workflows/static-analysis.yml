@@ -1,0 +1,118 @@
+name: static-analysis
+
+# Python static analysis for the GTM Content OS: Ruff (lint + format), Bandit
+# (security), and Semgrep (custom security invariants + registry deep-scan).
+#
+# Split by design (see docs/RULES.md §R6–R8):
+#   FAST lane  — ruff / bandit / semgrep-invariants run on every push to dev and
+#                claude/** so regressions surface early and cheaply.
+#   ROBUST gate — semgrep-deep (registry rulesets p/python + p/security-audit)
+#                 runs ONLY for the main branch (PRs into main, pushes to main).
+#
+# This is separate from ci.yml because the trigger set differs: ci.yml gates main
+# only, whereas these checks also run on the dev/claude branches.
+#
+# Security: no job interpolates untrusted event input into a run: block — the only
+# ${{ }} expressions used are github.event_name / github.ref / github.workflow.
+# Secrets: none. All tools read source from the checkout. Pins mirror
+# pyproject.toml ([project.optional-dependencies] lint) and .pre-commit-config.yaml.
+on:
+  push:
+    branches: [main, dev, "claude/**"]
+  pull_request:
+    branches: [main]
+
+# Least privilege: read-only token. No job writes to the repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: static-analysis-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Ruff (lint + format check) — FAST, all branches ─────────────────────────
+  ruff:
+    name: ruff (lint + format)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install ruff
+        run: python -m pip install --upgrade pip && pip install ruff==0.15.18
+
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+  # ── Bandit (security linter) — FAST, all branches ───────────────────────────
+  bandit:
+    name: bandit (security)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install bandit
+        run: python -m pip install --upgrade pip && pip install "bandit[toml]==1.9.4"
+
+      - name: bandit (medium+ severity & confidence)
+        # -ll raises the severity floor to MEDIUM+, -ii the confidence floor to
+        # MEDIUM+. Config (skips, excludes) lives in pyproject.toml [tool.bandit].
+        run: bandit -c pyproject.toml -r agent backend cockpit gtm_core mcp_server -ll -ii
+
+  # ── Semgrep custom invariants — FAST, all branches, offline ─────────────────
+  semgrep-invariants:
+    name: semgrep (gtm invariants)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install semgrep
+        run: python -m pip install --upgrade pip && pip install semgrep==1.167.0
+
+      - name: semgrep (custom rules, offline)
+        run: semgrep scan --config .semgrep/ --error --metrics=off --disable-version-check
+
+  # ── Semgrep registry deep-scan — ROBUST, main gate only ─────────────────────
+  # Heavier (downloads + runs hundreds of registry rules). Gated to the main
+  # branch so dev/claude pushes stay fast. Includes the custom rules too.
+  semgrep-deep:
+    name: semgrep (deep — main gate)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.11"
+
+      - name: install semgrep
+        run: python -m pip install --upgrade pip && pip install semgrep==1.167.0
+
+      - name: semgrep (registry + custom)
+        run: >-
+          semgrep scan
+          --config p/python
+          --config p/security-audit
+          --config .semgrep/
+          --error --metrics=off --disable-version-check
