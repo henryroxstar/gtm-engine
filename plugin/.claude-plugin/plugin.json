@@ -1,0 +1,42 @@
+{
+  "name": "gtm-engine",
+  "version": "0.9.0",
+  "description": "Multi-company GTM engine — prospect, write outreach, scan the market, track events, run the news-driven content pipeline (radar → plan → research → studio → human-gated LinkedIn publish), build carousels with AI visuals and motion teasers, prep for calls, research accounts into structured deck dossiers, build branded .pptx decks, produce a friendly forward-to-a-seller account + buyer dossier as a Word doc, plan accounts, run quarterly GTM planning, automate the weekly carousel pipeline, and run the Solution Architect motion — technical discovery, solution design with diagrams, and a per-product setup runbook. Company facts, brand, voice, and product load from the active profile bundle (per-company); skills carry zero hardcoded company strings. 33 skills: setup, prospect, draft-outreach, email-sequence, market-scan, events-tracker, content-radar, content-plan, content-research, content-studio, content-publish, carousel-pdf, carousel-visuals, carousel-auto, call-prep, deck-research, build-deck, account-dossier, account-plan, gtm-planning, solution-discovery, solution-design, gateway-runbook, infographic-data, infographic-handwritten, linkedin-engagers, linkedin-reply, reddit-reply, airq-scan, builder-radar, builder-evidence, builder-studio, profile-onboard.",
+  "author": {
+    "name": "Henry Roxas"
+  },
+  "keywords": [
+    "gtm",
+    "prospecting",
+    "outreach",
+    "sales",
+    "market-scan",
+    "events",
+    "call-prep",
+    "deck-research",
+    "deck",
+    "dossier",
+    "account-dossier",
+    "buyer",
+    "meeting-prep",
+    "docx",
+    "account-plan",
+    "gtm-planning",
+    "quarterly-plan",
+    "carousel-visuals",
+    "carousel-auto",
+    "motion-teaser",
+    "higgsfield",
+    "pptx",
+    "voice",
+    "solution-architect",
+    "solution-discovery",
+    "solution-design",
+    "gateway-runbook",
+    "architecture",
+    "technical-deep-dive",
+    "reddit",
+    "reddit-reply",
+    "engagement"
+  ]
+}

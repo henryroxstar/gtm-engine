@@ -1,0 +1,5 @@
+{
+  "last_processed_sha": "c0f15e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+  "backfill_done": true,
+  "series_spine": ["jc-20260614-feat-foundation", "jc-20260615-feat-pipeline"]
+}

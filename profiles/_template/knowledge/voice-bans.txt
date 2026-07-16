@@ -1,0 +1,18 @@
+# Profile-specific banned words/phrases — the machine-readable owner of this profile's ban list.
+# One entry per line. Case-insensitive, matched as a whole word/phrase.
+# Loaded by the prose linter via:  content_linter.py <asset.json> --ban-file <this file>
+# These are ADDED to the linter's built-in AI-tells list (delve, seamless, em dashes, etc.) —
+# put here only the words/phrases THIS company must never say. Lines starting with # are comments.
+#
+# Reconcile with knowledge/voice.md: that file explains the voice in prose and links here for the
+# machine-checkable list, so the list lives in exactly one place (no drift).
+#
+# Starter set (generic business clichés — curate for the real brand during profile-onboard):
+excited to
+thrilled to
+synergy
+circle back
+touch base
+reach out
+at the end of the day
+in today's fast-paced world
