@@ -1,0 +1,30 @@
+# packs/marketing/inputs.toml — information requirements (§5's two-class inputs).
+#
+# settings -> PROFILE.md, resolved by key. knowledge -> the knowledge/ corpus
+# ("second brain"), resolved by topic via gtm_core.paths.resolve_knowledge_file
+# (product-first, profile-fallback). Never flatten knowledge into PROFILE.md keys.
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = true
+
+[[knowledge]]
+topic = "company"
+required = true
+freshness = "90d"      # funding/leadership drifts — re-verify at use
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "product"
+required = false
+freshness = "evergreen"

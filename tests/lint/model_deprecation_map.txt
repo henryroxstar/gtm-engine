@@ -1,0 +1,13 @@
+# Vendored model-deprecation denylist (model routing PRD §7, open-q §12: static map +
+# monthly refresh — chosen over a live provider Models API so the CI gate is air-gapped
+# and deterministic). Any model id listed here that ALSO appears in gtm_core/models.toml
+# fails tests/lint/model_deprecation_check.sh — pin the registry to the successor before
+# the retirement date. This is the "prevent" layer; the runtime fallback chain is the
+# "tolerate" layer (gtm_core/models.py:call_with_fallback).
+#
+# Maintenance: when a provider announces a retirement, add a row here (monthly review).
+# format:  <model-id>  <retirement-date-ISO>  <note / successor>
+#
+deepseek-chat                 2026-07-24  alias retires; pin to deepseek-v4-flash
+claude-3-5-sonnet-20240620    2025-10-22  retired; use a claude-sonnet-4-x id
+claude-3-opus-20240229        2025-06-30  retired; use a claude-opus-4-x id

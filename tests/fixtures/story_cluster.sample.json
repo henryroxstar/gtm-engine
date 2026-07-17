@@ -1,0 +1,9 @@
+{
+  "id": "cluster-001",
+  "pillar": "AI Policy",
+  "score": 78,
+  "why_it_matters": "Sets a precedent for agent-identity disclosure that affects every builder shipping autonomous agents.",
+  "angle_seeds": ["What the rule means for agent builders", "The identity gap it exposes"],
+  "platform_fit": ["linkedin", "x"],
+  "source_items": ["11111111-1111-1111-1111-111111111111"]
+}
