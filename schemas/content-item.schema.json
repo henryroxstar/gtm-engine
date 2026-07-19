@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/content-item.schema.json",
+  "title": "ContentItem",
+  "description": "A single planned content unit from content-plan; carried through research → studio → review (spec §7.2-§7.4, §12).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "pillar", "story_id", "platform", "format", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "pillar": { "type": "string" },
+    "story_id": { "type": "string", "description": "StoryCluster.id" },
+    "platform": { "type": "string", "enum": ["linkedin", "x", "facebook", "instagram", "podcast"] },
+    "format": { "type": "string", "enum": ["carousel", "text", "infographic", "infographic-handwritten", "thread", "single", "reel", "episode", "clip"] },
+    "slot": { "type": "string", "description": "Calendar slot, e.g. 'Mon AM'." },
+    "locale": { "type": "string", "description": "BCP-47-ish locale tag; primary if omitted." },
+    "status": { "type": "string", "enum": ["planned", "researched", "drafted", "review", "approved", "published", "rejected"] },
+    "research_ref": { "type": "string", "description": "Path to the content-research output." },
+    "asset_refs": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "brief": {
+      "type": "object",
+      "description": "Pre-generation steering written at Gate 1. Consumed by content-studio.",
+      "additionalProperties": false,
+      "properties": {
+        "angle":          { "type": "string", "description": "The specific take or argument for this piece." },
+        "hook_direction": { "type": "string", "description": "How to open (stat-first, failure-story, question, etc.)." },
+        "key_points":     { "type": "array", "items": { "type": "string" }, "description": "3-5 bullets the asset must land." },
+        "tone":           { "type": "string", "description": "Voice/style note, e.g. 'strategic informality, peer not vendor'." },
+        "avoid":          { "type": "array", "items": { "type": "string" }, "description": "Phrases, claims, or framings to exclude." },
+        "audience":       { "type": "string", "description": "Who this piece is for — a segment name from icp-personas.md or a short free-form description. Optional; operator-steerable at Gate 1." }
+      }
+    }
+  }
+}

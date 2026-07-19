@@ -1,0 +1,172 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GTM Engine — runtime
+#
+# This file is GENERIC and self-contained. Host-specific bits (attaching to an
+# existing DB network, a real NEWS_DB_DSN, extra mounts) belong in a gitignored
+# `docker-compose.override.yml` that Compose auto-merges — copy the committed
+# `docker-compose.override.yml.example` to start. See docs/DEPLOY.md.
+#
+# HOW TO RUN (secrets are injected by your secret manager, NEVER a committed .env):
+#
+#     # via a secret manager (e.g. Doppler):
+#     doppler run -- docker compose up -d --build
+#     # or a sourced, gitignored .env:
+#     set -a; source .env; set +a; docker compose up -d --build
+#
+# Secrets are substituted into ${VAR} refs at parse time. There is deliberately NO
+# `env_file:` — that keeps secrets off the box. `.env.example` is documentation
+# only (generic placeholders) — see its header.
+#
+# COMPOSE OPS GOTCHAS:
+#   - `docker compose restart` does NOT re-read this file. To pick up changes:
+#         doppler run -- docker compose up -d --no-deps --force-recreate gtm-agent
+#   - EVERY invocation needs the env present (Doppler or a sourced .env), else
+#     all ${VAR} resolve to empty strings and the agent starts broken.
+#
+# SOURCE-vs-STATE DISCIPLINE (the #1 deploy trap):
+#   - SOURCE  (./plugin, ./profiles) is bind-mounted READ-ONLY from the git
+#     checkout. `git pull` on the host IS the source deploy — there is no baked
+#     or seed-once copy to go stale.
+#   - STATE   (./content) is the ONLY writable mount: per-profile ledgers/runs.
+#     It is gitignored and lives on the box.
+#
+# ONE-TIME HOST PREP (state dir ownership):
+#   The container runs as the non-root `gtm` user (uid 10001). Docker auto-creates
+#   a MISSING bind source as ROOT, which the container then cannot write. Create
+#   ./content with the right owner BEFORE the first `up` (idempotent):
+#         mkdir -p content && sudo chown -R 10001:10001 content
+#   Verify writes land (serving-layer check, not `docker ps` green):
+#         docker exec gtm-agent sh -c 'touch /app/content/.wtest && rm /app/content/.wtest && echo OK'
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  gtm-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gtm-agent:local
+    container_name: gtm-agent
+    restart: unless-stopped
+    # tini as PID 1 reaps reparented children (Agent SDK MCP servers, git → gpg
+    # helpers) that the Python entrypoint never wait()'s — otherwise zombies leak
+    # ~1/hour and accumulate unbounded over this long-lived container.
+    init: true
+
+    # --- Environment (secret-manager-injected; explicit allow-list, NO env_file) --
+    # Each value is a ${VAR} reference. Compose pulls it from the environment of
+    # the `docker compose` invocation. Keep this list in sync with .env.example
+    # and agent/config.Config.from_env().
+    environment:
+      # Orchestrator (the Claude brain — the Agent SDK + Claude Code CLI)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+      # Worker model (cheap bulk generation behind MCP; Claude always reviews)
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+
+      # Cockpit (Telegram)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID}
+
+      # News — optional read-only DSN for a `discovery_items` table (Postgres news
+      # MCP). Unset → the radar uses the keyless web-sweep fallback. To reach a DB
+      # on an existing Docker network, set NEWS_DB_DSN and attach the network in
+      # docker-compose.override.yml (see the .example).
+      NEWS_DB_DSN: ${NEWS_DB_DSN:-}
+
+      # Research / web tools (firecrawl MCP referenced by plugin/.mcp.json)
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
+
+      # Voice + podcast TTS (cockpit/bot.py)
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+
+      # LinkedIn publish (Gate 2) — the agent POSTs ONLY to this dedicated,
+      # write-only, account-pinned webhook. It NEVER holds the platform key.
+      # Kill switch defaults OFF: inert until an operator sets it true.
+      HERMES_PUBLISH_URL: ${HERMES_PUBLISH_URL:-}
+      HERMES_PUBLISH_SECRET: ${HERMES_PUBLISH_SECRET:-}
+      HERMES_PUBLISH_ENABLED: ${HERMES_PUBLISH_ENABLED:-false}
+
+      # Google Workspace (self-hosted CLI-MCP, localhost-only, agent-global)
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${GOOGLE_OAUTH_REFRESH_TOKEN}
+
+      # Default profile (per-chat /profile overrides this; no global switch).
+      # `template` = profiles/_template — replace with your own profile slug.
+      ACTIVE_PROFILE: ${ACTIVE_PROFILE:-template}
+
+      # Journey engine repo access. gtm_core is `pip install`'d into site-packages
+      # (non-editable), so gitscan can't derive the repo root from __file__ — point
+      # it at /app, where ./.git is mounted (below). safe.directory + OPTIONAL_LOCKS
+      # let the uid-10001 container read the root-owned, read-only .git without git's
+      # "dubious ownership" refusal or opportunistic index writes.
+      GTM_REPO_ROOT: ${GTM_REPO_ROOT:-/app}
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /app
+      GIT_OPTIONAL_LOCKS: "0"
+
+    # --- Mounts: source READ-ONLY, state READ-WRITE --------------------------
+    volumes:
+      # SOURCE — bind-mounted from the checkout, read-only (`:ro`).
+      # The agent reads company/product facts from here; it must never write.
+      - type: bind
+        source: ./plugin
+        target: /app/plugin
+        read_only: true
+      - type: bind
+        source: ./profiles
+        target: /app/profiles
+        read_only: true
+
+      # SOURCE — the content linter (content-studio runs it as a CLI gate before
+      # surfacing any asset). It lives under tests/ but is a runtime dependency of
+      # the studio skill, so we mount just tests/linter read-only (source, not
+      # baked — `git pull` updates it). Keeps the path `tests/linter/content_linter.py`
+      # valid in the container exactly as in the checkout.
+      - type: bind
+        source: ./tests/linter
+        target: /app/tests/linter
+        read_only: true
+
+      # STATE — the only writable mount. Per-profile history.jsonl / costs.jsonl
+      # / runs/<run_id>.json land here. Bind to ./content so it survives
+      # container recreation and is inspectable on the host (it's gitignored).
+      - type: bind
+        source: ./content
+        target: /app/content
+        read_only: false
+
+      # SOURCE — git history + docs for the journey engine. journey-radar/gitscan
+      # reads commits via `git -C /app …` (needs .git); skills read the craft and
+      # platform-playbook docs directly. Both read-only.
+      - type: bind
+        source: ./.git
+        target: /app/.git
+        read_only: true
+      - type: bind
+        source: ./docs
+        target: /app/docs
+        read_only: true
+
+    # --- Healthcheck (liveness; serving-layer check is out-of-band) ----------
+    # Mirrors the Dockerfile HEALTHCHECK so it applies even when the image's
+    # default is overridden. Confirms the cockpit package imports cleanly.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import cockpit.bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    networks:
+      - default
+
+# NOTE (OSS cut): the optional deck-renderer sidecar (Slidev/Playwright headless
+# deck export) is not included in this release — deck skills fall back to their
+# no-renderer paths. It ships in a later cut after its own de-brand pass.
+
+networks:
+  default:
+    name: gtm-engine

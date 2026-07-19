@@ -1,0 +1,10 @@
+# packs/knowledge-refresh/inputs.toml — information requirements (§5's two-class inputs).
+#
+# The refresh skill operates over WHICHEVER topics are due (read at runtime from each file's
+# freshness metadata), not a fixed topic list — so no per-topic `knowledge` inputs are declared.
+# It reads the profile's budget cap before any metered fetch.
+
+[[settings]]
+key = "monthly_tool_budget_usd"
+source = "ask"
+required = false
