@@ -1,0 +1,136 @@
+[build-system]
+# setuptools is stdlib-adjacent and ships with every uv/pip toolchain — no extra
+# build backend to vendor. We declare two top-level packages: agent/ (the brain)
+# and cockpit/ (the Telegram bot — named cockpit, NOT telegram, to avoid shadowing
+# the python-telegram-bot import name `telegram`).
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtm-engine-runtime"
+version = "0.1.0"
+description = "GTM Content OS runtime: headless Claude Code (Agent SDK) brain + Telegram cockpit."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Henry Roxas" }]
+
+dependencies = [
+  # The brain: headless Claude Code via the official Python Agent SDK.
+  # The SDK model is always Claude (never DeepSeek — DeepSeek is a downstream
+  # worker reached as an MCP tool, see agent/mcp_config.py).
+  "claude-agent-sdk>=0.2.101",
+  # The cockpit: the Telegram bot. Import name is `telegram`, which is exactly
+  # why our bot package is `cockpit/` and not `telegram/` (no shadowing).
+  "python-telegram-bot>=21",
+  # The DeepSeek worker MCP (agent/mcp/worker): a thin FastMCP stdio server. `mcp`
+  # is the official MCP Python SDK (FastMCP lives at mcp.server.fastmcp); `httpx`
+  # makes the DeepSeek REST call (also a transitive PTB dep — pinned here so the
+  # worker's import surface is explicit).
+  "mcp>=1.2",
+  "httpx>=0.27",
+  "fastapi[standard]>=0.111",
+  "uvicorn>=0.29",
+  "pytest>=9.1.0",
+  # Backend API runtime (Phase D): async Postgres driver, JWT auth, password hashing.
+  "asyncpg>=0.29",
+  "PyJWT>=2.8",
+  "bcrypt>=4.0",
+  "email-validator>=2.0",
+  "pydantic[email]>=2.0",
+  "higgsfield-client>=0.1.0",
+  # PDF text extraction for onboarding ingest. Image-only pages fall back to the vision MCP.
+  "pypdf>=4.0",
+  "markitdown[pptx]>=0.1.6",
+  "python-docx>=1.2.0",
+  "reportlab>=5.0.0",
+  "slowapi>=0.1.10",
+  "matplotlib>=3.11.0",
+]
+
+[project.optional-dependencies]
+# Dev/test only. The unit tests under tests/agent/ are SDK-independent and run on
+# pure stdlib + pytest — they never import claude_agent_sdk, so `pytest` is the
+# only dev dependency needed to exercise them.
+dev = ["pytest>=8"]
+# Static-analysis toolchain (Ruff lint+format, Bandit security, Semgrep, the
+# pre-commit runner). Install with `uv sync --extra lint`. Kept out of the
+# runtime deps so the production image stays lean. Pins are mirrored in
+# .pre-commit-config.yaml and .github/workflows/static-analysis.yml — bump all
+# three together.
+lint = ["ruff>=0.15", "bandit[toml]>=1.9", "semgrep>=1.167", "pre-commit>=4"]
+# Error tracking (backend). Optional so the base image + unit suites stay lean;
+# backend/observability.py no-ops when this is absent or SENTRY_DSN is unset.
+# Install in the deployed image with `uv sync --extra observability`.
+observability = ["sentry-sdk[fastapi]>=2.0"]
+
+[project.scripts]
+# Headless / cron entrypoint for one-shot skill runs, e.g.:
+#   gtm-agent --profile _template "run the market-scan skill"
+gtm-agent = "agent.__main__:main"
+# Telegram cockpit — the long-running bot service (also: python -m cockpit.bot).
+gtm-cockpit = "cockpit.bot:main"
+
+[tool.setuptools]
+# Explicit package list — the two runtime packages plus the in-repo MCP worker
+# subpackages (the Dockerfile does a non-editable `pip install .`, so subpackages
+# must be listed or `agent.mcp.worker` won't be importable to spawn). `tests` is
+# dev-only and intentionally excluded from the distribution.
+packages = ["agent", "agent.mcp", "agent.mcp.worker", "cockpit", "gtm_core", "gtm_core.skills", "backend", "backend.routers", "backend.schema", "mcp_server"]
+
+[tool.pytest.ini_options]
+# Keep test discovery scoped to tests/ and quiet about the SDK packages, which
+# may not be importable in a bare unit-test environment.
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "dbtest: live-Postgres tenant-isolation tests (FORCE RLS + gtm_api role); skipped unless GTM_TEST_PG_ADMIN_DSN is set — see tests/backend/conftest.py + the backend-db CI job",
+]
+
+# ── Ruff (lint + format) ─────────────────────────────────────────────────────
+# Fast Python linter + formatter. Runs locally (pre-commit) and in CI
+# (static-analysis.yml). Bandit owns security scanning, so the Ruff "S"
+# (flake8-bandit) ruleset is intentionally NOT enabled — avoids double-reporting.
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+  ".venv",
+  "content",                            # runtime state tree (per-tenant content)
+  "n8n",
+  "*.egg-info",
+  "tests/contracts/minijsonschema.py",  # vendored, intentionally minimal validator
+  "plugin/skills/*/references/assets",  # vendored JS, not Python
+]
+
+[tool.ruff.lint]
+# Pragmatic starter set: real bugs (E/F/W/B), import order (I), modernization
+# (UP), comprehension cleanups (C4). Expand later (SIM, PTH, RUF) once green.
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+# Line length is handled by the formatter; remaining long lines (URLs, tables,
+# long string literals) are intentional and shouldn't fail the lint gate.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # re-exports are deliberate
+"tests/**" = ["B", "E402"] # test scaffolding: asserts, late imports
+# Reference/documentation CLI snippets — not production code, not our style target.
+"plugin/skills/*/references/*.py" = ["B904", "E702"]
+# Intentional single-line alignment in the connector-status banner method.
+# UP042 (StrEnum migration): (str, Enum) → StrEnum changes auto() behaviour;
+# deferring until we audit all auto() usages across the tier/capability enums.
+"gtm_core/capabilities.py" = ["E701", "UP042"]
+"gtm_core/tiers.py" = ["UP042"]
+
+[tool.ruff.format]
+# Ruff formatter defaults (double quotes, magic trailing comma).
+
+# ── Bandit (security linter) ─────────────────────────────────────────────────
+# Scans the runtime packages for common security issues. CI invokes with
+# `-ll -ii` (medium+ severity & confidence) to keep noise low; accepted findings
+# are annotated inline with `# nosec <ID>` + reason, not blanket-skipped here.
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "content", "n8n"]
+# B101 (assert_used): asserts outside tests are used as invariants, not control
+# flow. Subprocess use is reviewed in agent/permissions.py (deny-list classifier).
+skips = ["B101"]

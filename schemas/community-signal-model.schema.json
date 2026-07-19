@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/community-signal-model.schema.json",
+  "title": "Community signal model",
+  "description": "Generic, company-agnostic data model for the community-signal-analysis HTML dashboard. Rendered by gtm_core.community_signal.render. Quantitative sections are produced by gtm_core.community_signal.score. Every section except meta.title is optional.",
+  "type": "object",
+  "required": ["meta"],
+  "additionalProperties": true,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "subtitle": {"type": "string"},
+        "kicker": {"type": "string"},
+        "brandmark": {"type": "string"},
+        "source_label": {"type": "string"},
+        "date": {"type": "string"},
+        "bluf_sub": {"type": "string"},
+        "metabar": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"k": {"type": "string"}, "v": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "bluf": {
+      "type": "object",
+      "properties": {
+        "lead": {"type": "string"},
+        "pillars": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {"type": "string"},
+              "title": {"type": "string"},
+              "body": {"type": "string"},
+              "color": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "kpis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "val": {"type": ["number", "string"]},
+          "label": {"type": "string"},
+          "foot": {"type": "string"},
+          "accent": {"type": "boolean"}
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "count"],
+        "properties": {
+          "key": {"type": "string"},
+          "label": {"type": "string"},
+          "count": {"type": "number"},
+          "color": {"type": "string"}
+        }
+      }
+    },
+    "share_of_voice": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "value": {"type": "number"},
+          "category": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "momentum": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "series"],
+        "properties": {
+          "name": {"type": "string"},
+          "series": {"type": "array", "items": {"type": "number"}},
+          "sub": {"type": "string"},
+          "trend": {"type": "string"},
+          "state": {"type": "string", "enum": ["up", "fx", "cool"]}
+        }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "value": {"type": "number"},
+          "pct": {"type": "number"},
+          "state": {"type": "string", "enum": ["jx", "lx"]}
+        }
+      }
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "tag": {"type": "string", "enum": ["open", "threat", "demand", "white", "move"]},
+          "tag_label": {"type": "string"},
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "why": {"type": "string"},
+          "source_url": {"type": "string"},
+          "source_label": {"type": "string"}
+        }
+      }
+    },
+    "moves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "who": {"type": "string"},
+          "color": {"type": "string"}
+        }
+      }
+    },
+    "plays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["audience"],
+        "properties": {
+          "audience": {"type": "string"},
+          "badge_color": {"type": "string"},
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {"title": {"type": "string"}, "detail": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    "filter_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["add", "replace", "remove", "tune"]},
+          "filter": {"type": "string"},
+          "rationale": {"type": "string"},
+          "noise_before": {"type": ["string", "number"]},
+          "noise_after": {"type": ["string", "number"]},
+          "evidence": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "properties": {
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "caveats": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "footer": {
+      "type": "object",
+      "properties": {"left": {"type": "string"}, "right": {"type": "string"}}
+    },
+    "per_filter": {"type": "object"},
+    "totals": {"type": "object"}
+  }
+}

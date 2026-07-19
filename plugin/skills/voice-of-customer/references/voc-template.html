@@ -1,0 +1,481 @@
+<!--
+  VOICE-OF-CUSTOMER — generic HTML companion template (company/product agnostic).
+
+  The reusable "trust-ledger / data-room" design system, shared with campaign-plan and adapted to a
+  demand-intelligence brief. Copy this file, then:
+    1. Replace every {{PLACEHOLDER}} with the content from the paired .md brief (the source of truth).
+    2. Set the accent tokens from the ACTIVE PROFILE's brand — resolve profiles/<active>/knowledge/brand/
+       and override ONLY --accent / --accent-ink / --accent-soft (light + dark blocks). The default
+       below is a NEUTRAL PLACEHOLDER slate-blue — replace it with the tenant's brand accent.
+    3. Keep it self-contained: no external fetch, no CDN, no network fonts.
+    4. Delete section blocks you don't need; the CSS covers all of them.
+
+  Art direction (commit to it — do NOT soften back toward generic AI output):
+    · document-cover masthead + mono dossier meta-strip   · fixed section-index rail (>=1440px)
+    · de-carded flat regions ruled with 1px top borders    · prospectus tables (2px rules, mono heads)
+    · sharp corners (radius 3px), zero box-shadow           · oversized display type, mono utility layer
+    · THREE SPEAKERS ALWAYS DISTINCT — customer-voice / bd-focus / expert-lens chips, never merged
+  Banned (AI-tells): serif body, side-stripe accent borders, hero-metric cliche, gradients,
+  decorative emoji, mixed radii, border+heavy-shadow, eyebrows on every section, motion as polish.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{Voice of the Customer}} · {{MONTH YEAR}}</title>
+<style>
+  :root{
+    --paper:#fbfbfa; --card:#ffffff; --well:#f4f4f1; --ink:#20241f; --ink-2:#474d45; --strong:#0c0f0b;
+    --muted:#606559; --faint:#8b9086; --hair:rgba(18,22,16,.10); --hair-2:rgba(18,22,16,.055);
+    /* --- PLACEHOLDER ACCENT (neutral slate-blue) — override from profiles/<active>/knowledge/brand/ --- */
+    --accent:#4f5d75; --accent-ink:#3d4a60; --accent-soft:rgba(79,93,117,.09);
+    --good:#1f7a3c; --warn:#956008; --crit:#ad3030; --good-soft:rgba(31,122,60,.10);
+    --warn-soft:rgba(149,96,8,.10); --crit-soft:rgba(173,48,48,.09);
+    /* speaker series — reuse across chips, divergence, evidence */
+    --cust:var(--accent); --cust-soft:var(--accent-soft);
+    --bd:#606559; --bd-soft:rgba(96,101,89,.11);
+    --exp:#7d5fac; --exp-soft:rgba(125,95,172,.13);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --shadow:none; --shadow-lg:none; --r:3px; --r-sm:2px; --rule:2px solid var(--strong);
+  }
+  @media (prefers-color-scheme: dark){:root{
+    --paper:#0f110e; --card:#171a15; --well:#14170f; --ink:#e6e9e2; --ink-2:#c2c7bb; --strong:#f6f8f2;
+    --muted:#939a8c; --faint:#6a7164; --hair:rgba(236,240,228,.12); --hair-2:rgba(236,240,228,.06);
+    --accent:#8698b5; --accent-ink:#a7b6cd; --accent-soft:rgba(134,152,181,.12);
+    --good:#54b56a; --warn:#d49a2e; --crit:#e06767; --good-soft:rgba(84,181,106,.13);
+    --warn-soft:rgba(212,154,46,.12); --crit-soft:rgba(224,103,103,.12);
+    --bd:#939a8c; --bd-soft:rgba(147,154,140,.14); --exp:#a98cd8; --exp-soft:rgba(169,140,216,.15);
+    --shadow:none; --shadow-lg:none;
+  }}
+  :root[data-theme="light"]{
+    --paper:#fbfbfa; --card:#ffffff; --well:#f4f4f1; --ink:#20241f; --ink-2:#474d45; --strong:#0c0f0b;
+    --muted:#606559; --faint:#8b9086; --hair:rgba(18,22,16,.10); --hair-2:rgba(18,22,16,.055);
+    --accent:#4f5d75; --accent-ink:#3d4a60; --accent-soft:rgba(79,93,117,.09);
+    --good:#1f7a3c; --warn:#956008; --crit:#ad3030; --good-soft:rgba(31,122,60,.10);
+    --warn-soft:rgba(149,96,8,.10); --crit-soft:rgba(173,48,48,.09);
+    --bd:#606559; --bd-soft:rgba(96,101,89,.11); --exp:#7d5fac; --exp-soft:rgba(125,95,172,.13);
+    --shadow:none; --shadow-lg:none;
+  }
+  :root[data-theme="dark"]{
+    --paper:#0f110e; --card:#171a15; --well:#14170f; --ink:#e6e9e2; --ink-2:#c2c7bb; --strong:#f6f8f2;
+    --muted:#939a8c; --faint:#6a7164; --hair:rgba(236,240,228,.12); --hair-2:rgba(236,240,228,.06);
+    --accent:#8698b5; --accent-ink:#a7b6cd; --accent-soft:rgba(134,152,181,.12);
+    --good:#54b56a; --warn:#d49a2e; --crit:#e06767; --good-soft:rgba(84,181,106,.13);
+    --warn-soft:rgba(212,154,46,.12); --crit-soft:rgba(224,103,103,.12);
+    --bd:#939a8c; --bd-soft:rgba(147,154,140,.14); --exp:#a98cd8; --exp-soft:rgba(169,140,216,.15);
+    --shadow:none; --shadow-lg:none;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.65; font-size:16px; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; font-feature-settings:"kern","liga","cv05"}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 28px}
+  h1,h2,h3,h4{font-family:var(--sans); letter-spacing:-.022em; line-height:1.14; margin:0; color:var(--strong); text-wrap:balance}
+  a{color:var(--accent-ink); text-decoration:none; border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent); transition:border-color .15s} a:hover{border-bottom-color:var(--accent)}
+  .mono{font-family:var(--mono)} .tnum{font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  p{margin:0 0 12px} b,strong{color:var(--strong); font-weight:600} em{font-style:italic}
+
+  .topbar{position:sticky; top:0; z-index:40; background:color-mix(in srgb,var(--paper) 82%,transparent); backdrop-filter:blur(14px) saturate(1.4); border-bottom:1px solid var(--hair)}
+  .topbar .wrap{display:flex; align-items:center; gap:14px; height:52px}
+  .brand{font-weight:600; font-size:12px; letter-spacing:.02em; color:var(--strong); display:flex; align-items:center; gap:9px}
+  .brand .tick{width:8px; height:8px; border-radius:50%; background:var(--accent)}
+  .topbar .spacer{flex:1} .topbar .m{font-family:var(--mono); font-size:10.5px; color:var(--faint); letter-spacing:.02em}
+
+  .mast{padding:40px 0 6px}
+  .dossier{display:grid; grid-template-columns:repeat(4,minmax(0,auto)); gap:14px 40px; justify-content:start; padding:14px 0; border-top:var(--rule); border-bottom:1px solid var(--hair); margin-bottom:44px}
+  .dossier div{display:flex; flex-direction:column; gap:4px; font-family:var(--mono); font-size:11px; line-height:1.3}
+  .dossier .dk{color:var(--faint); text-transform:uppercase; letter-spacing:.11em; font-size:9px}
+  .dossier .dv{color:var(--ink)} .dossier .dv.acc{color:var(--accent-ink)}
+  .kicker{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:24px}
+  .mast h1{font-size:clamp(35px,6.4vw,68px); font-weight:560; letter-spacing:-.037em; line-height:.99; max-width:16ch; color:var(--strong)}
+  .mast .dek{font-size:clamp(17px,1.9vw,22px); color:var(--ink-2); max-width:60ch; margin-top:28px; line-height:1.4; font-weight:400}
+  .keys{display:flex; flex-wrap:wrap; gap:10px; margin-top:26px}
+  .key{display:inline-flex; align-items:center; gap:9px; font-family:var(--mono); font-size:11px; color:var(--ink-2); border:1px solid var(--hair); border-radius:var(--r-sm); padding:7px 12px}
+  .key i{width:8px;height:8px;border-radius:50%;display:block} .key b{color:var(--strong);font-weight:600; font-family:var(--sans)}
+  .key.k-c i{background:var(--cust)} .key.k-b i{background:var(--bd)} .key.k-e i{background:var(--exp)}
+  .mast::after{content:""; display:block; border-bottom:var(--rule); margin-top:40px}
+
+  /* exec frame — the one framed element */
+  .exec{background:var(--card); border:1px solid var(--ink-2); border-top:3px solid var(--accent); border-radius:0; padding:36px 38px; margin-top:40px}
+  .exec::before{content:"Executive read"; display:block; font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-bottom:16px}
+  .exec .elead{font-size:clamp(16.5px,1.7vw,19px); line-height:1.55; font-weight:420; color:var(--ink); margin:0; max-width:70ch}
+  .exec .elead b{color:var(--strong); font-weight:600}
+  .ekpis{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin:26px 0 4px; background:var(--hair); border:1px solid var(--hair); border-radius:var(--r-sm); overflow:hidden}
+  .ekpi{background:var(--card); padding:17px 18px}
+  .ekpi .v{font-size:clamp(19px,2.2vw,24px); font-weight:620; letter-spacing:-.03em; line-height:1.05; color:var(--strong)}
+  .ekpi .l{margin-top:9px; font-size:12px; color:var(--muted); line-height:1.4}
+  .eglance{display:grid; grid-template-columns:repeat(3,1fr); gap:22px; margin-top:26px; padding-top:22px; border-top:1px solid var(--hair)}
+  .eg .ek{font-size:12px; font-weight:600; color:var(--accent-ink); margin-bottom:6px}
+  .eg .ev{font-size:13.5px; color:var(--ink-2); line-height:1.5} .eg .ev b{color:var(--strong)}
+  .enot{margin-top:24px; padding-top:18px; border-top:1px solid var(--hair); font-size:12.5px; color:var(--muted); line-height:1.55} .enot b{color:var(--ink)}
+
+  section{padding:60px 0; border-top:1px solid var(--hair); scroll-margin-top:64px}
+  section.appx{background:linear-gradient(180deg,var(--well),transparent 40%)}
+  .shead{display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:start; margin-bottom:32px}
+  .shead .n{font-family:var(--mono); font-size:clamp(24px,3.4vw,38px); font-weight:400; line-height:1; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .shead h2{font-size:clamp(24px,3.1vw,36px); font-weight:560; letter-spacing:-.032em; line-height:1.03}
+  .shead .sub{color:var(--muted); font-size:14.5px; margin-top:12px; max-width:78ch; line-height:1.55}
+  .shead .tag{font-family:var(--mono); font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.05em; margin-top:9px}
+  h3.blk{font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--accent-ink); margin:38px 0 15px}
+  .lead{font-size:14.5px; color:var(--ink-2); line-height:1.6; max-width:80ch; margin:0 0 22px}
+
+  .punch{background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 20%,transparent); border-radius:var(--r); padding:18px 22px; font-size:14.5px; line-height:1.55; color:var(--ink); margin-bottom:22px} .punch b{color:var(--accent-ink)}
+  .note{background:var(--well); border:1px solid var(--hair); border-radius:var(--r-sm); padding:15px 18px; font-size:12.5px; color:var(--ink-2); line-height:1.6; margin:18px 0} .note b{color:var(--strong)}
+  .note .cl{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--accent-ink); display:inline-block; margin-right:10px; vertical-align:1px}
+  .note.teal{background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 18%,transparent)}
+  .note.warn{background:var(--warn-soft); border-color:color-mix(in srgb,var(--warn) 24%,transparent)} .note.warn .cl{color:var(--warn)}
+  .note.crit{background:var(--crit-soft); border-color:color-mix(in srgb,var(--crit) 22%,transparent)} .note.crit .cl{color:var(--crit)}
+
+  /* prospectus tables */
+  .tblwrap{overflow-x:auto; border-top:var(--rule); border-bottom:var(--rule); background:none}
+  table.tbl{width:100%; border-collapse:collapse; font-size:13px; min-width:560px}
+  table.tbl th{font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:left; padding:15px 15px 13px; border-bottom:1px solid var(--ink-2); background:none}
+  table.tbl td{padding:13px 15px; border-bottom:1px solid var(--hair-2); color:var(--ink-2); vertical-align:top; line-height:1.5} table.tbl td b{color:var(--strong)}
+  table.tbl tbody tr{transition:background .12s} table.tbl tbody tr:hover td{background:color-mix(in srgb,var(--well) 55%,transparent)} table.tbl tr:last-child td{border-bottom:0}
+  .conf{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:3px 7px; border-radius:6px; white-space:nowrap}
+  .conf.high{background:var(--good-soft); color:var(--good)} .conf.med{background:var(--warn-soft); color:var(--warn)} .conf.low{background:var(--crit-soft); color:var(--crit)}
+  .ref{font-family:var(--mono); font-size:10px; white-space:nowrap; border-bottom:1px dotted color-mix(in srgb,var(--accent) 50%,transparent)}
+
+  /* speaker chips — sharp mono, one per speaker */
+  .spk{display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:4px 8px; border-radius:6px; white-space:nowrap}
+  .spk::before{content:""; width:6px; height:6px; border-radius:50%}
+  .spk.customer{background:var(--cust-soft); color:var(--accent-ink)} .spk.customer::before{background:var(--cust)}
+  .spk.bd{background:var(--bd-soft); color:var(--muted)} .spk.bd::before{background:var(--bd)}
+  .spk.expert{background:var(--exp-soft); color:var(--exp)} .spk.expert::before{background:var(--exp)}
+  .spk.mixed{background:var(--warn-soft); color:var(--warn)} .spk.mixed::before{background:linear-gradient(90deg,var(--cust) 50%,var(--bd) 50%)}
+
+  /* de-carded flat blocks (composition, divergence, evidence, io) */
+  .dblock{background:none; border:0; border-top:1px solid var(--ink-2); border-radius:0; padding:16px 0 2px}
+  .dblock .dh{font-weight:600; font-size:14px; color:var(--strong); margin-bottom:4px; display:flex; justify-content:space-between; gap:12px; align-items:baseline}
+  .dblock .dh .n{font-family:var(--mono); font-size:10px; color:var(--faint); font-weight:400; letter-spacing:.02em; text-transform:none}
+  .dbars{display:flex; flex-direction:column; gap:11px; margin-top:14px}
+  .dbar{display:grid; grid-template-columns:1fr 42px; gap:13px; align-items:center; font-size:12.5px}
+  .dseg{display:flex; height:9px; overflow:hidden; box-shadow:inset 0 0 0 1px var(--hair-2)} .dseg i{display:block; height:100%}
+  .dbar .dv{font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--strong); text-align:right; font-variant-numeric:tabular-nums}
+  .dlegend{display:flex; flex-wrap:wrap; gap:8px 15px; font-size:11.5px; color:var(--ink-2); margin-top:11px}
+  .dlegend span{display:inline-flex; align-items:center; gap:7px} .dlegend span::before{content:""; width:9px; height:9px; background:var(--sw,var(--accent))}
+  .rank{list-style:none; margin:14px 0 0; padding:0; font-size:13px}
+  .rank li{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--hair-2)} .rank li:last-child{border-bottom:0}
+  .rank .w{font-family:var(--mono); font-size:10.5px; color:var(--muted); white-space:nowrap}
+  .fine{font-size:11.5px; color:var(--muted); margin:12px 0 0; line-height:1.5}
+  .comp{display:grid; grid-template-columns:1fr 1fr; gap:26px 40px}
+
+  /* market-voice elements — share-of-voice bars, dated signal cards, sourced stats */
+  .sigs{display:grid; grid-template-columns:1fr 1fr; gap:24px 40px; margin-top:4px}
+  .sig{border-top:1px solid var(--ink-2); padding:15px 0 2px}
+  .sig .st{font-weight:600; font-size:13.5px; color:var(--strong); display:flex; align-items:center; gap:9px; line-height:1.35; margin-bottom:8px}
+  .stag{font-family:var(--mono); font-size:8.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:4px 7px; border-radius:6px; white-space:nowrap}
+  .stag.reg{background:var(--warn-soft); color:var(--warn)} .stag.comp{background:var(--crit-soft); color:var(--crit)} .stag.std{background:var(--accent-soft); color:var(--accent-ink)} .stag.cat{background:var(--good-soft); color:var(--good)} .stag.inc{background:var(--crit-soft); color:var(--crit)}
+  .sig p{font-size:12.5px; color:var(--ink-2); margin:0; line-height:1.55} .sig p b{color:var(--strong)}
+  .sig .dt{font-family:var(--mono); font-size:9.5px; color:var(--faint); margin-top:9px}
+  .sv{display:flex; flex-direction:column; gap:10px; margin-top:14px}
+  .svrow{display:grid; grid-template-columns:170px 1fr 46px; gap:13px; align-items:center; font-size:12.5px}
+  .svrow .svn{color:var(--ink-2); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .svrow .svt{position:relative; height:8px; background:var(--hair-2); overflow:hidden} .svrow .svf{position:absolute; left:0; top:0; bottom:0; background:var(--accent)}
+  .svrow .svv{font-family:var(--mono); font-size:11px; font-weight:600; color:var(--strong); text-align:right; font-variant-numeric:tabular-nums}
+  .svrow.gap .svn{color:var(--crit)} .svrow.gap .svf{background:var(--crit)} .svrow.gap .svv{color:var(--crit)}
+  .dsub{font-family:var(--mono); font-size:9.5px; letter-spacing:.02em; color:var(--faint); margin:2px 0 0; text-transform:uppercase}
+
+  /* divergence — three flat ruled columns with a coloured header dot */
+  .divg{display:grid; grid-template-columns:repeat(3,1fr); gap:26px}
+  .dq{border-top:2px solid var(--dc,var(--accent)); padding:15px 0 0}
+  .dqh{display:flex; align-items:center; gap:9px; margin-bottom:4px} .dqh i{width:9px; height:9px; background:var(--dc,var(--accent))} .dqh h3{font-size:15px; font-weight:600; color:var(--strong)}
+  .dq .qsub{font-family:var(--mono); font-size:9.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--muted); margin-bottom:14px}
+  .dq ul{margin:0; padding-left:16px; font-size:12.5px; color:var(--ink-2); line-height:1.5} .dq li{margin-bottom:9px} .dq li b{color:var(--strong)}
+  .dq.val{--dc:var(--cust)} .dq.bet{--dc:var(--warn)} .dq.pull{--dc:var(--good)}
+
+  /* two-column lists */
+  .cols2{display:grid; grid-template-columns:1fr 1fr; gap:26px}
+  .colhd{font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:16px}
+  .clist{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:11px}
+  .clist li{font-size:13px; color:var(--ink-2); line-height:1.55} .clist li b{color:var(--strong)}
+
+  /* demand-vs-capability blocks */
+  .oc{border-top:1px solid var(--ink-2); padding:18px 0 2px}
+  .oc h3{font-size:15px; font-weight:600; color:var(--strong); margin-bottom:9px; max-width:36ch}
+  .state{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:4px 8px; border-radius:6px; margin-bottom:11px; display:inline-block}
+  .state.ship{background:var(--good-soft); color:var(--good)} .state.impl{background:var(--warn-soft); color:var(--warn)} .state.absent{background:var(--crit-soft); color:var(--crit)}
+  .oc p{font-size:12.5px; color:var(--ink-2); margin:0 0 9px; line-height:1.55} .oc .lbl{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent-ink); margin-right:7px}
+  .oc .gate{font-size:12px; color:var(--ink-2); background:var(--warn-soft); border:1px solid color-mix(in srgb,var(--warn) 20%,transparent); border-radius:var(--r-sm); padding:10px 12px; margin-top:4px} .oc .gate b{color:var(--warn)}
+  .oc .ceil{font-size:11.5px; color:var(--muted); margin-top:9px; line-height:1.5}
+
+  /* evidence library */
+  .ev{border-top:1px solid var(--ink-2); padding:18px 0 4px; margin-bottom:6px}
+  .ev h4{font-size:14px; font-weight:600; color:var(--strong); margin-bottom:9px}
+  .ev .meta{font-family:var(--mono); font-size:10px; color:var(--muted); margin-bottom:12px; display:flex; flex-wrap:wrap; gap:7px 14px; align-items:center}
+  .evq{background:var(--well); border:1px solid var(--hair); border-radius:var(--r-sm); padding:14px 16px; font-size:13.5px; color:var(--ink); line-height:1.55}
+  .evq .ql{display:block; font-family:var(--mono); font-size:8.5px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; color:var(--faint); margin-bottom:8px}
+  .ev .brd{font-size:11.5px; color:var(--muted); margin-top:11px; line-height:1.55}
+
+  /* glossary */
+  .gloss{border-top:var(--rule); border-bottom:var(--rule)}
+  .gloss div{display:grid; grid-template-columns:210px 1fr; gap:20px; padding:14px 4px; border-bottom:1px solid var(--hair-2)} .gloss div:last-child{border-bottom:0}
+  .gloss dt{font-weight:600; color:var(--strong); font-size:13.5px; margin:0} .gloss dd{margin:0; font-size:13px; color:var(--ink-2); line-height:1.55}
+
+  footer{padding:40px 0 64px; font-size:11px; color:var(--faint); line-height:1.7; border-top:1px solid var(--hair); margin-top:16px}
+  footer .wrap{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap} footer b{color:var(--muted); font-weight:600}
+
+  .rail{position:fixed; top:0; left:0; height:100vh; width:170px; display:none; flex-direction:column; justify-content:center; gap:1px; padding-left:28px; z-index:30; pointer-events:none}
+  .rail a{font-family:var(--mono); font-size:10.5px; letter-spacing:.01em; color:var(--faint); text-decoration:none; border:0; padding:6px 0; display:flex; gap:10px; align-items:baseline; pointer-events:auto; transition:color .18s}
+  .rail a .rn{color:var(--accent); opacity:.55; font-variant-numeric:tabular-nums} .rail a:hover{color:var(--ink)} .rail a:hover .rn{opacity:1}
+  @media (min-width:1440px){ .rail{display:flex} }
+
+  @media (max-width:860px){
+    .ekpis{grid-template-columns:1fr 1fr} .eglance,.cols2,.comp,.divg{grid-template-columns:1fr}
+    .shead{grid-template-columns:1fr; gap:6px} .shead .n{font-size:24px} .exec{padding:24px 22px} .mast{padding:40px 0 20px}
+    .gloss div{grid-template-columns:1fr; gap:3px}
+  }
+  @media (prefers-reduced-motion: reduce){*{animation:none!important; transition:none!important}}
+  @media print{ .topbar,.rail{display:none} body{background:#fff} section{break-inside:avoid-page} }
+</style>
+
+<div class="topbar"><div class="wrap">
+  <div class="brand"><span class="tick"></span>{{COMPANY · SHORT}} · Voice of the Customer</div>
+  <div class="spacer"></div>
+  <div class="m">DEMAND INTELLIGENCE · {{DD MON YYYY}} · INTERNAL · DIRECTIONAL</div>
+</div></div>
+
+<nav class="rail" aria-label="Sections">
+  <a href="#s1"><span class="rn">01</span> Sample</a>
+  <a href="#s2"><span class="rn">02</span> Sources</a>
+  <a href="#s3"><span class="rn">03</span> Customer voice</a>
+  <a href="#s4"><span class="rn">04</span> BD focus</a>
+  <a href="#s5"><span class="rn">05</span> Divergence</a>
+  <a href="#s6"><span class="rn">06</span> Validate</a>
+  <a href="#s7"><span class="rn">07</span> Demand vs build</a>
+  <a href="#s8"><span class="rn">08</span> Market conversation</a>
+  <a href="#s9"><span class="rn">09</span> Pain · Claim · Gain</a>
+  <a href="#appendix"><span class="rn">A</span> Evidence</a>
+</nav>
+
+<div class="wrap">
+
+<header class="mast">
+  <div class="dossier">
+    <div><span class="dk">Prepared for</span><span class="dv">{{COMPANY}} · Product &amp; Strategy</span></div>
+    <div><span class="dk">Document</span><span class="dv">Voice of the Customer</span></div>
+    <div><span class="dk">Date</span><span class="dv">{{DD Month YYYY}}</span></div>
+    <div><span class="dk">Classification</span><span class="dv acc">Internal · directional</span></div>
+  </div>
+  <div class="kicker">Demand intelligence</div>
+  <h1>{{THE ONE-LINE READ — e.g. "What the market is telling us"}}</h1>
+  <p class="dek">{{2 sentences: a read of N live signals, kept honest by one rule — customer voice never blurs into BD focus. Markets in scope. Every claim auditable at the back.}}</p>
+  <div class="keys">
+    <span class="key k-c"><i></i><b>Customer voice</b> · what the market says &amp; does</span>
+    <span class="key k-b"><i></i><b>BD focus</b> · where we're pointed</span>
+    <span class="key k-e"><i></i><b>Expert lens</b> · real practitioners, synthesized</span>
+  </div>
+</header>
+
+<!-- EXECUTIVE READ -->
+<div class="exec">
+  <p class="elead">{{The read in 3–4 sentences: strongest demand, the sharpest divergence, and the call = discovery not engineering. Bold the load-bearing phrases.}}</p>
+  <div class="ekpis">
+    <div class="ekpi"><div class="v tnum">{{6}}</div><div class="l">{{sources · all 0–1 days fresh}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{3 / 3 / 1}}</div><div class="l">{{external signal / our framing / expert-synthesis}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{403}}</div><div class="l">{{on-topic public posts sampled}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{307}}</div><div class="l">{{accounts in the scored pipeline}}</div></div>
+  </div>
+  <div class="eglance">
+    <div class="eg"><div class="ek">Strongest demand</div><div class="ev">{{one line + confidence + evidence ref}}</div></div>
+    <div class="eg"><div class="ek">Sharpest divergence</div><div class="ev">{{what the market pulls on that our motion isn't leading with}}</div></div>
+    <div class="eg"><div class="ek">What to do about it</div><div class="ev"><b>Discovery, not engineering.</b> {{validate the top signals before any build}}</div></div>
+  </div>
+  <div class="enot"><b>Caution:</b> {{nothing here is confirmed paid demand — a directional read whose job is to aim discovery, not justify a roadmap commitment.}}</div>
+</div>
+
+<!-- 01 SAMPLE / SKEWS -->
+<section id="s1">
+  <div class="shead"><div class="n">01</div><div><h2>Who this is pulled from — and where it's skewed</h2><div class="sub">{{The actual sample by geography, stage, industry, persona, and listening channel — biases stated plainly, not hidden.}}</div><div class="tag">read before trusting anything below</div></div></div>
+  <div class="comp">
+    <div class="dblock">
+      <div class="dh">Geography <span class="n">{{2 markets only}}</span></div>
+      <div class="dseg" style="margin-top:14px"><i style="width:70%;background:var(--accent)"></i><i style="width:30%;background:var(--bd)"></i></div>
+      <div class="dlegend"><span style="--sw:var(--accent)">{{US (primary)}}</span><span style="--sw:var(--bd)">{{Singapore}}</span></div>
+      <p class="fine">{{Emphasis, not exact count. Name the regions ABSENT — that is the skew.}}</p>
+    </div>
+    <div class="dblock">
+      <div class="dh">Company stage <span class="n">{{target 70/30}}</span></div>
+      <div class="dseg" style="margin-top:14px"><i style="width:70%;background:var(--accent)"></i><i style="width:30%;background:var(--bd)"></i></div>
+      <div class="dlegend"><span style="--sw:var(--accent)">{{Startup (target 70%)}}</span><span style="--sw:var(--bd)">{{Enterprise (30%)}}</span></div>
+      <p class="fine">{{Flag if a recent run over-represents one.}}</p>
+    </div>
+    <div class="dblock">
+      <div class="dh">Industries worked <span class="n">{{N pipeline · N dossiers}}</span></div>
+      <ul class="rank"><li><span>{{segment}}</span><span class="w">heaviest</span></li><li><span>{{segment}}</span><span class="w">heavy</span></li></ul>
+      <p class="fine">{{Name the concentration.}}</p>
+    </div>
+    <div class="dblock">
+      <div class="dh">Buyer personas heard <span class="n">{{targeted / spoke}}</span></div>
+      <ul class="rank"><li><span>{{persona}}</span><span class="w">dominant</span></li><li><span>{{persona}}</span><span class="w">secondary</span></li></ul>
+      <p class="fine">{{Flag the dominant seat.}}</p>
+    </div>
+  </div>
+  <div class="dblock" style="margin-top:26px">
+    <div class="dh">Listening-channel mix <span class="n">{{n = N on-topic · ~N-day window}}</span></div>
+    <div class="dseg" style="margin-top:14px"><i style="width:35%;background:var(--accent)"></i><i style="width:20%;background:var(--us)"></i><i style="width:18%;background:var(--exp)"></i><i style="width:16%;background:var(--warn)"></i><i style="width:11%;background:var(--faint)"></i></div>
+    <div class="dlegend"><span style="--sw:var(--accent)">{{Blogs N}}</span><span style="--sw:var(--exp)">{{Reddit N}}</span><span style="--sw:var(--warn)">{{Bluesky N}}</span><span style="--sw:var(--faint)">{{other · LinkedIn 0}}</span></div>
+    <p class="fine">{{What this channel is NOT — e.g. practitioner not buyer voice; no LinkedIn coverage.}}</p>
+  </div>
+  <div class="note crit"><span class="cl">Skews</span>{{3–5 one-liners a reader should discount for: geography, buyer seat, industry concentration, how many sources are ours vs external, listening window.}}</div>
+</section>
+
+<!-- 02 SIX SOURCES -->
+<section id="s2">
+  <div class="shead"><div class="n">02</div><div><h2>How to read the sources</h2><div class="sub">{{N carry raw external signal; N are our own sales framing; one is real external expert thinking synthesized by us. Every source is speaker-tagged in code.}}</div></div></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Source</th><th>Speaker</th><th>What this corpus actually contains</th><th>Fresh</th></tr></thead>
+    <tbody>
+      <tr><td>{{source}}</td><td><span class="spk customer">customer-voice</span></td><td>{{what it is}}</td><td class="mono">0d</td></tr>
+      <tr><td>{{source}}</td><td><span class="spk bd">bd-focus</span></td><td>{{our targeting, not demand}}</td><td class="mono">0d</td></tr>
+      <tr><td>{{source}}</td><td><span class="spk expert">expert-lens</span></td><td>{{real named practitioners' frameworks, synthesized + hedged by us}}</td><td class="mono">0d</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note teal"><span class="cl">Rule</span><b>Confidence:</b> {{a demand is High only when ≥2 independent customer-voice sources agree. Anything only our BD output asserts is a bet, not demand.}}</div>
+</section>
+
+<!-- 03 CUSTOMER VOICE -->
+<section id="s3">
+  <div class="shead"><div class="n">03</div><div><h2>Customer voice — what the market says &amp; does</h2><div class="sub">{{The market's own words and behaviour; each row links to the verbatim evidence. No BD framing here.}}</div><div class="tag">customer-voice only</div></div></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>What the market is saying</th><th>Plain-language meaning</th><th>Breadth</th><th>Conf.</th></tr></thead>
+    <tbody>
+      <tr><td>{{the market's words}} <a class="ref" href="#ev-x">↓</a></td><td>{{plain meaning}}</td><td>{{N independent}}</td><td><span class="conf high">High</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 04 BD FOCUS -->
+<section id="s4">
+  <div class="shead"><div class="n">04</div><div><h2>BD focus — where our sales motion is pointed</h2><div class="sub">Our strategy, reported as-is. It makes no demand claim.</div><div class="tag">our bet, not demand</div></div></div>
+  <div class="cols2">
+    <div><div class="colhd">Where BD is working</div><ul class="clist"><li>{{segments / named accounts}}</li></ul></div>
+    <div><div class="colhd">The hooks BD leads with</div><ul class="clist"><li>{{hook}}</li></ul></div>
+  </div>
+</section>
+
+<!-- 05 DIVERGENCE -->
+<section id="s5">
+  <div class="shead"><div class="n">05</div><div><h2>Alignment &amp; divergence</h2><div class="sub">Where market pull and our motion meet — or don't. Populated by comparing §03 and §04, never merging them.</div></div></div>
+  <div class="divg">
+    <div class="dq val"><div class="dqh"><i></i><h3>Validated</h3></div><div class="qsub">market signal + we're on it</div><ul><li>{{item}}</li></ul></div>
+    <div class="dq bet"><div class="dqh"><i></i><h3>Leading bet</h3></div><div class="qsub">we push it, signal thin — pressure-test</div><ul><li>{{item}}</li></ul></div>
+    <div class="dq pull"><div class="dqh"><i></i><h3>Missed pull</h3></div><div class="qsub">market asking, we're not leading — the opportunity</div><ul><li>{{item}}</li></ul></div>
+  </div>
+</section>
+
+<!-- 06 SIGNALS TO VALIDATE -->
+<section id="s6">
+  <div class="shead"><div class="n">06</div><div><h2>Signals to validate — before we build anything</h2><div class="sub">Top-of-funnel signals, not confirmed demand. The next step for every row is a discovery conversation, not a build ticket.</div><div class="tag">discovery, not engineering</div></div></div>
+  <div class="note warn"><span class="cl">Read first</span>{{These are directional signals from listening, intent, and early outreach — not pipeline. Committing engineering off this data would be building ahead of evidence.}}</div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Signal</th><th>What we've seen (and how thin)</th><th>What would confirm real demand</th><th>Don't do yet</th></tr></thead>
+    <tbody><tr><td><b>{{signal}}</b></td><td>{{evidence}} <span class="conf med">directional</span></td><td>{{the validation test}}</td><td>{{the premature build}}</td></tr></tbody>
+  </table></div>
+</section>
+
+<!-- 07 DEMAND vs CAPABILITY -->
+<section id="s7">
+  <div class="shead"><div class="n">07</div><div><h2>Demand hypotheses vs. what we can build today</h2><div class="sub">The demand hypothesis (with evidence) against current capability, and the bar to clear before investing. A distance map, not a roadmap.</div></div></div>
+  <div class="comp">
+    <div class="oc"><h3>{{capability}}</h3><span class="state impl">Capability · in build</span>
+      <p><span class="lbl">Evidence</span>{{which evidence items, N sources, confidence}}</p>
+      <p><span class="lbl">Today</span>{{what ships now vs what's missing}}</p>
+      <div class="gate"><b>Before investing:</b> {{the earliness gate}}</div>
+      <p class="ceil">Honest ceiling: {{what it does not solve}}</p>
+    </div>
+  </div>
+</section>
+
+<!-- 08 THE MARKET CONVERSATION (share-of-voice + dated signals + sourced stats) -->
+<section id="s8">
+  <div class="shead"><div class="n">08</div><div><h2>The market conversation — share of voice &amp; signals</h2><div class="sub">{{Beyond what individual buyers say (§03), what the WHOLE market discusses and the events moving it — same listening corpus + the news file. The tell is the whitespace: does the exact problem your top demand names have share of voice, or none?}}</div><div class="tag">customer-voice · market-level</div></div></div>
+  <div class="comp">
+    <div class="dblock">
+      <div class="dh">Who the market is talking about</div>
+      <div class="dsub">On-topic mentions · listening corpus</div>
+      <div class="sv">
+        <div class="svrow"><div class="svn">{{entity}}</div><div class="svt"><div class="svf" style="width:100%"></div></div><div class="svv">{{N}}</div></div>
+        <div class="svrow gap"><div class="svn">{{the problem you solve}}</div><div class="svt"><div class="svf" style="width:2%"></div></div><div class="svv">{{~0}}</div></div>
+      </div>
+      <p class="fine">{{The insight: which vendors dominate, and that the exact problem your top demand names has near-zero share.}}</p>
+    </div>
+    <div class="dblock">
+      <div class="dh">And what they talk about — the lanes vs the gap</div>
+      <div class="dsub">Share of voice by category</div>
+      <div class="sv">
+        <div class="svrow"><div class="svn">{{category}}</div><div class="svt"><div class="svf" style="width:100%"></div></div><div class="svv">{{%}}</div></div>
+        <div class="svrow gap"><div class="svn">{{your lane}}</div><div class="svt"><div class="svf" style="width:2%"></div></div><div class="svv">~0%</div></div>
+      </div>
+      <p class="fine">{{The crowded lanes vs the empty one — the whitespace behind §03's top demand.}}</p>
+    </div>
+  </div>
+  <h3 class="blk">Recent market signals — the dated events behind the demand</h3>
+  <div class="sigs">
+    <div class="sig"><div class="st"><span class="stag reg">Regulation</span> {{headline}}</div><p>{{the dated regulatory trigger}}</p><div class="dt">{{date · single-source? flag it}}</div></div>
+    <div class="sig"><div class="st"><span class="stag comp">Competitor</span> {{headline}}</div><p>{{a named entrant's move}}</p><div class="dt">{{date · verification}}</div></div>
+    <!-- .stag classes = reg | comp | std | cat | inc -->
+  </div>
+  <h3 class="blk">The market, by the numbers</h3>
+  <div class="ekpis" style="margin:0">
+    <div class="ekpi"><div class="v tnum">{{stat}}</div><div class="l">{{what it measures (source)}}</div></div>
+  </div>
+  <div class="note"><span class="cl">Sources</span>{{inline dated source links for every stat; flag any unverified figure and say so — never fabricate a citation.}}</div>
+</section>
+
+<!-- 09 PAIN → CLAIM → GAIN (pain = customer-voice; claim/gain = the mapping) -->
+<section id="s9">
+  <div class="shead"><div class="n">09</div><div><h2>Pain → Claim → Gain</h2><div class="sub">The bridge from what customers say to what they'd need, mapped to the profile's buyer personas. The <b>Pain</b> is customer-voice (traceable to §03 / the evidence library); the <b>Claim</b> is the capability that pain implies; the <b>Gain</b> is the outcome.</div><div class="tag">pain = customer-voice · claim/gain = the mapping</div></div></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Persona × industry</th><th>Pain (customer-voice)</th><th>Claim (capability it implies)</th><th>Gain</th><th>Lens</th></tr></thead>
+    <tbody><tr><td><b>{{persona}}</b> × {{industry}}</td><td>{{customer's own words}}</td><td>{{capability implied}}</td><td>{{outcome}}</td><td class="mono">{{which expert lens}}</td></tr></tbody>
+  </table></div>
+</section>
+
+<!-- APPENDICES -->
+<section id="appendix" class="appx">
+  <div class="shead"><div class="n">A</div><div><h2>Source manifest</h2><div class="sub">Generated by the collector — dates/counts read from the filesystem, not typed by hand.</div><div class="tag">the un-fakeable coverage</div></div></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Source</th><th>Speaker</th><th>Latest</th><th>Age</th><th>Corpus size</th></tr></thead>
+    <tbody><tr><td>{{source}}</td><td><span class="spk customer">customer-voice</span></td><td class="mono tnum">{{date}}</td><td class="mono">0d</td><td>{{count}}</td></tr></tbody>
+  </table></div>
+</section>
+
+<section id="evidence" class="appx">
+  <div class="shead"><div class="n">B</div><div><h2>Verbatim evidence library</h2><div class="sub">The raw quotes behind the customer-voice claims. Single-source items are flagged and not for external citation.</div><div class="tag">prove, don't say</div></div></div>
+  <div class="ev" id="ev-x">
+    <h4>{{the claim}}</h4>
+    <div class="meta"><span class="spk customer">customer-voice</span><span>{{class}}</span><span>breadth: {{N}}</span><span class="conf high">High</span></div>
+    <div class="evq"><span class="ql">Verbatim</span>{{the raw quote}} — {{who / where / date}}</div>
+    <div class="brd">Corroborated by: {{other independent sources}}.</div>
+  </div>
+</section>
+
+<section id="corpus" class="appx">
+  <div class="shead"><div class="n">C</div><div><h2>Corpus detail</h2><div class="sub">Named accounts, channels, and the expert-lens roster.</div></div></div>
+  <div class="cols2">
+    <div><div class="colhd">Named accounts by segment</div><ul class="clist"><li>{{segment: accounts}}</li></ul></div>
+    <div><div class="colhd">Listening channels</div><ul class="clist"><li>{{channel — N}}</li></ul></div>
+  </div>
+  <div class="note crit" style="margin-top:22px"><span class="cl">Verdict</span>{{what this read IS and is NOT — the representativeness statement.}}</div>
+  <h3 class="blk" id="lenses">The expert lenses — real, named sources</h3>
+  <p class="lead">{{Each is a lens built from a real practitioner's published framework — hedged syntheses, not verified statements, not demand.}}</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Source (real, published)</th><th>Axis it covers</th><th>Buyer archetype</th></tr></thead>
+    <tbody><tr><td>{{person — framework}}</td><td>{{axis}}</td><td>{{archetype}}</td></tr></tbody>
+  </table></div>
+</section>
+
+<section id="glossary" class="appx">
+  <div class="shead"><div class="n">D</div><div><h2>Glossary</h2><div class="sub">Every product/market/tool term, defined for a reader with no engine context.</div><div class="tag">plain language</div></div></div>
+  <dl class="gloss"><div><dt>{{term}}</dt><dd>{{plain-language definition}}</dd></div></dl>
+</section>
+
+<section class="appx">
+  <div class="shead"><div class="n">E</div><div><h2>Method &amp; caveats</h2></div></div>
+  <div class="note"><span class="cl">Method</span>{{speaker tagging is deterministic (collector) — customer-voice / bd-focus / expert-lens, so they can't merge; confidence graded by independent customer-voice agreement. Flags carried through: single-source items; empty intent pre-cycle; listening window; expert lenses are hedged synthesis of real published frameworks, not demand. Not read: no CRM data (off-by-default future source).}}</div>
+</section>
+
+</div>
+
+<footer><div class="wrap">
+  <span>{{COMPANY}} · Voice of the Customer · internal, directional read for Product &amp; Strategy — not a customer document, not committed demand.</span>
+  <span><b>Source of truth:</b> the paired .md brief. Every quote and number here traces to it.</span>
+</div></footer>

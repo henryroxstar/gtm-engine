@@ -1,0 +1,10 @@
+# packs/outcomes-loop/inputs.toml — information requirements (§5's two-class inputs).
+#
+# The outcomes-sync skill reads results from the connected sequencer + the content/ history ledger,
+# not the knowledge corpus, so no per-topic `knowledge` inputs are declared. brand_name frames the
+# operator-facing learnings note.
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = false
