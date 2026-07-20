@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "profile-draft.schema.json",
+  "title": "ProfileDraft",
+  "description": "Single JSON contract emitted by extract(); rendered deterministically by render().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "confidence", "company", "voice", "icp", "competitors", "pillars", "products", "brand", "gaps"],
+  "properties": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {"type": "string", "enum": ["url", "file", "text"]},
+        "value": {"type": "string", "minLength": 1},
+        "crawled_pages": {"type": "integer", "minimum": 0}
+      }
+    },
+    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    "company": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "slug", "brand_name", "description", "markets", "social_handle"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$",
+          "description": "Kebab-case profile slug. 1-40 chars. Output of slugify()."
+        },
+        "brand_name": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 10},
+        "markets": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "social_handle": {"type": "string"}
+      }
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tone", "principles", "ban_list", "examples"],
+      "properties": {
+        "tone": {"type": "string", "minLength": 5},
+        "principles": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 3,
+          "description": "At least 3 specific voice principles."
+        },
+        "ban_list": {"type": "array", "items": {"type": "string"}},
+        "examples": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "icp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["personas", "verticals", "company_size"],
+      "properties": {
+        "personas": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "pain_points", "goals"],
+            "properties": {
+              "title": {"type": "string", "minLength": 1},
+              "pain_points": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+              "goals": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+            }
+          }
+        },
+        "verticals": {"type": "array", "items": {"type": "string"}},
+        "company_size": {"type": "string"}
+      }
+    },
+    "competitors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "differentiator"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "differentiator": {"type": "string", "minLength": 5}
+        }
+      }
+    },
+    "pillars": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 2,
+      "description": "Content pillars — at least 2."
+    },
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "slug", "description", "capabilities", "use_cases", "references"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "slug": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"},
+          "flagship": {"type": "boolean"},
+          "description": {"type": "string", "minLength": 10},
+          "technical_notes": {"type": "string"},
+          "capabilities": {"type": "array", "items": {"type": "string"}},
+          "use_cases": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+          "source_pages": {"type": "array", "items": {"type": "string"}},
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "title"],
+              "properties": {
+                "url": {"type": "string", "minLength": 1},
+                "title": {"type": "string", "minLength": 1},
+                "summary": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "brand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["palette"],
+      "properties": {
+        "palette": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "description": "Hex colour codes sampled from the website (best-effort)."
+        },
+        "assets_note": {"type": "string"}
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Operator-supplied config from the interview. Optional; render() supplies defaults when absent.",
+      "properties": {
+        "title": {"type": "string"},
+        "email_signature": {"type": "string"},
+        "segment_mix": {"type": "string", "description": "e.g. '70% startup / 30% enterprise'"},
+        "monthly_tool_budget_usd": {"type": "number", "minimum": 0},
+        "per_run_cap_usd": {"type": "number", "minimum": 0},
+        "language": {"type": "string"},
+        "home_base": {"type": "string"},
+        "content_root": {"type": "string"}
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Fields the brain couldn't fill from the source. Empty = no gaps."
+    }
+  }
+}
