@@ -1,0 +1,114 @@
+# gtm-engine security invariants — custom Semgrep rules.
+#
+# These turn the cross-tenant security contract in CLAUDE.md and docs/RULES.md
+# into hard gates. Run offline (no registry) and fast:
+#
+#   semgrep scan --config .semgrep/ --error --metrics=off
+#
+# Messages quote docs/RULES.md so a failure points straight at the rule it broke.
+# Scoping was verified against the codebase: zero false positives on the current
+# tree (see the allowlists below). If a rule fires on legitimate code, fix the
+# rule's `paths`, not the invariant. Path globs are repo-root-anchored (leading
+# "/") per the Semgrepignore v2 / gitignore spec.
+rules:
+  # ── §R8 — never bypass permissions ──────────────────────────────────────────
+  - id: gtm-no-bypass-permissions
+    languages: [python]
+    severity: ERROR
+    message: >-
+      §R8: agent/session.py must always use permission_mode="default" with a
+      can_use_tool callback. bypassPermissions is a security regression
+      (OWASP ASI02/ASI05; NIST AC-6) regardless of how headless the run is.
+      Use the default-mode + can_use_tool pattern in agent/session.py.
+    # Semgrep normalizes Python string quotes, so this matches both quote styles.
+    pattern: permission_mode="bypassPermissions"
+
+  # ── §R6 — all external I/O via MCP (no raw egress in the brain) ──────────────
+  # The brain (agent orchestration + de-branded skills) never makes raw HTTP
+  # calls — egress goes through named MCP tools that carry pinned credentials and
+  # an audit trail. The exclude list is the documented allowlist of infra layers
+  # that legitimately perform I/O.
+  - id: gtm-no-raw-egress-in-brain
+    languages: [python]
+    severity: ERROR
+    message: >-
+      §R6: the brain never makes raw HTTP calls. requests/httpx/urllib/aiohttp
+      are not imported in agent/ or plugin/. Route external I/O through a named
+      MCP tool (pinned credentials + audit trail); if a tool is denied, surface
+      the blocker — do not route around it.
+    pattern-either:
+      - pattern: import httpx
+      - pattern: import requests
+      - pattern: import aiohttp
+      - pattern: import urllib.request
+      - pattern: from httpx import $X
+      - pattern: from requests import $X
+      - pattern: from aiohttp import $X
+      - pattern: from urllib.request import $X
+    paths:
+      include:
+        - "/agent/**"
+        - "/plugin/**"
+      exclude:
+        - "/agent/mcp/worker/**"          # DeepSeek worker MCP (downstream worker)
+        - "/agent/mcp/vision/**"          # vision worker MCP (image->text)
+        - "/agent/mcp/gemini_image/**"    # Gemini image worker MCP (headless image)
+        - "/agent/mcp/higgsfield_video/**" # Higgsfield video worker MCP (headless video)
+        - "/agent/mcp/tts/**"             # ElevenLabs TTS worker MCP (podcast audio render)
+        - "/agent/mcp/rocketreach/**"     # RocketReach worker MCP (contact-data lookups)
+        - "/agent/mcp/saleshandy/**"      # Saleshandy worker MCP (email-sequence staging; staging+read+config only, no send/activate tool)
+        - "/agent/mcp/deck/**"             # deck renderer MCP (Slidev/Playwright headless export)
+        - "/agent/mcp/syften/**"          # Syften worker MCP (community-signal read-only pull)
+        - "/agent/publish.py"        # publish path (lazy httpx, behind Gate 2)
+        - "/agent/voice.py"          # shared ElevenLabs STT/TTS helper (cockpit transport, not brain)
+        - "/agent/gate_notify.py"    # Gate 1 Telegram push (lazy httpx; moved from cockpit/push.py in
+                                     # E-0.2 — same fire-and-forget notification-transport shape as
+                                     # voice.py above, not brain orchestration
+        # Reference/example CLI snippets bundled with skills are documentation,
+        # not executed brain orchestration (executable skill code lives in
+        # scripts/, which stays gated). firecrawl_scrape.py here makes raw
+        # urllib egress — flagged for review, not silently endorsed.
+        - "/plugin/skills/*/references/**"
+
+  # ── §R7 — autopublish: false always (future-proofing guard) ─────────────────
+  # NOTE: the `autopublish` field is documented but not yet implemented in code,
+  # so this matches NOTHING on the current tree — it locks the invariant before
+  # the field exists, so the first PR that adds `autopublish: true` is blocked.
+  # `generic` mode so it scans PROFILE.md frontmatter, YAML, and JSON alike.
+  - id: gtm-no-autopublish-true
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      §R7: every profile must keep autopublish: false. Gate 2 (publish) is
+      permanent — no code path or config may auto-approve it.
+    pattern-regex: 'autopublish"?\s*[:=]\s*(true|True)'
+    paths:
+      include:
+        - "/profiles/**"
+        - "/schemas/**"
+
+  # ── tenant boundary — knowledge paths must go through the resolver ───────────
+  # Advisory (WARNING) to start: the pattern is broad and may need tuning before
+  # it blocks. Flags hand-built knowledge/profile paths that bypass
+  # gtm_core.paths.resolve_knowledge_file() / _safe_segment (the single source of
+  # truth for product-first, profile-fallback resolution). Directory traversal
+  # here is the highest-risk tenant error.
+  - id: gtm-knowledge-path-no-resolver
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Tenant boundary: build knowledge/profile paths via
+      gtm_core.paths.resolve_knowledge_file() (product-first, profile-fallback,
+      _safe_segment-guarded). Do not hand-concatenate knowledge/<file> or
+      profiles/<profile>/ paths.
+    pattern-either:
+      - pattern: f"knowledge/{...}"
+      - pattern: f"profiles/{...}/..."
+    paths:
+      include:
+        - "/agent/**"
+        - "/plugin/**"
+        - "/backend/**"
+        - "/cockpit/**"
+      exclude:
+        - "/gtm_core/paths.py"  # the resolver itself

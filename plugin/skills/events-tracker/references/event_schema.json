@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "events": {
+      "type": "array",
+      "description": "Every distinct event listed on the page.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Event title" },
+          "date": { "type": "string", "description": "Start date, ISO YYYY-MM-DD if shown" },
+          "end_date": { "type": "string", "description": "End date if multi-day, else empty" },
+          "time": { "type": "string", "description": "Start–end time as shown, e.g. '5:00–9:30 PM'" },
+          "venue": { "type": "string", "description": "Venue name and/or address" },
+          "city": { "type": "string", "description": "City, e.g. 'New York' or 'San Francisco'" },
+          "format": { "type": "string", "description": "In-person, Hybrid, or Online" },
+          "price": { "type": "string", "description": "Cheapest ticket price, or 'Free'" },
+          "url": { "type": "string", "description": "Direct link to the event page" },
+          "host": { "type": "string", "description": "Organizer / host" }
+        },
+        "required": ["name", "url"]
+      }
+    }
+  },
+  "required": ["events"]
+}

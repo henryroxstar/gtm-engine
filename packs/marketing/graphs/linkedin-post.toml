@@ -1,0 +1,48 @@
+# packs/marketing/graphs/linkedin-post.toml
+#
+# The existing news content pipeline (radar -> plan -> research -> studio -> publish),
+# expressed as pack data (docs/prds/2026-07-06-engine-pack-tenant-three-layer.md §6).
+# Deliberately identical in shape, model_role, and prompt text to
+# agent.pipeline.DEFAULT_GRAPH + agent.pipeline_executor.STAGE_PROMPTS/_STAGE_ROLES —
+# see tests/contracts/test_pack_loader.py's golden-equivalence test, which proves this
+# TOML drives the exact same run as the hardcoded pipeline it replaces.
+
+pack = "marketing"
+variant = "linkedin-post"
+
+[[nodes]]
+id = "radar"
+model_role = "brain_radar"
+skill = "content-radar"
+prompt = "Run the content-radar skill for the active profile."
+
+[[nodes]]
+id = "plan"
+depends_on = ["radar"]
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill. Propose this week's content plan for the active profile and present it for approval."
+
+[[nodes]]
+id = "research"
+depends_on = ["plan"]
+model_role = "brain_radar"
+skill = "content-research"
+prompt = "Run the content-research skill for all planned items in the approved plan for the active profile."
+
+[[nodes]]
+id = "studio"
+depends_on = ["research"]
+model_role = "brain_plan"
+skill = "content-studio"
+prompt = "Run the content-studio skill for all researched items in the approved plan for the active profile. For each item, produce and lint the asset for its platform (LinkedIn, X, or Instagram) and locale. Copy/brief only — do NOT generate any paid visuals in this automated stage. Report any item that fails to lint rather than skipping it."
+
+[[nodes]]
+id = "publish"
+depends_on = ["studio"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Phase 1 publish is manual — log this stage as skipped."

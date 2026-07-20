@@ -1,0 +1,71 @@
+# Model registry — the single source of truth for model selection.
+#
+# Committed, NON-SECRET config-as-code (co-located with gtm_core/models.py, the
+# resolver). This file replaces three hardcoded model ids: the brain default
+# (agent/session.py), the DeepSeek worker (agent/mcp/worker/server.py), and the
+# Haiku vision worker (agent/mcp/vision/server.py).
+#
+# SECRETS RULE (enforced by gtm_core/models.py, see PRD §5.4): a provider stores
+# `api_key_env` — the NAME of the env var that holds the key (Doppler-injected) —
+# NEVER the key itself. The resolver raises if it finds an inline `api_key` or a
+# secret-shaped value. Doppler stays the only secret source; keys resolve at call
+# time via os.getenv(api_key_env). Do NOT add this file to .gitignore — committing
+# it is the design (the P5 deprecation CI gate reads it).
+#
+# Design doc: docs/prds/2026-06-21-model-routing-cost-reduction.md
+
+[providers.anthropic]
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"   # NAME of the env var (Doppler-injected), not the key
+
+[providers.deepseek]
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"    # NAME of the env var (Doppler-injected), not the key
+
+# Roles map a logical name -> physical model + capabilities + fallback chain.
+# Capability flags gate request params so a swapped-in model can't 400 on an
+# unsupported field (fixes the effort/thinking 400 in agent/session.py).
+
+[roles.brain_plan]            # plan, studio, publish  (judgment + gate-critical + PII)
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+supports_effort = true
+supports_adaptive_thinking = true
+input_usd_per_1k = 0.003      # claude-sonnet-4-6 list pricing ($3 / 1M in)
+output_usd_per_1k = 0.015     # claude-sonnet-4-6 list pricing ($15 / 1M out)
+fallbacks = ["brain_cheap"]
+
+[roles.brain_radar]           # radar, research  (mechanical, untrusted news upstream)
+# NOTE: the Claude Code CLI validates model names against its allowlist; non-Claude model ids
+# (e.g. deepseek-v4-flash) are rejected before the API call even fires. brain_radar therefore
+# uses Haiku (3–5× cheaper than Sonnet, same provider path). DeepSeek cost savings flow through
+# the worker_draft MCP role (httpx-based, not the SDK subprocess) which is unaffected.
+provider = "anthropic"
+model = "claude-haiku-4-5"
+supports_effort = false
+supports_adaptive_thinking = false
+input_usd_per_1k = 0.001      # claude-haiku-4-5 list pricing ($1 / 1M in)
+output_usd_per_1k = 0.005     # claude-haiku-4-5 list pricing ($5 / 1M out)
+fallbacks = ["brain_cheap"]
+
+[roles.brain_cheap]           # shared cross-provider fallback
+provider = "anthropic"
+model = "claude-haiku-4-5"
+supports_effort = false
+supports_adaptive_thinking = false
+input_usd_per_1k = 0.001      # claude-haiku-4-5 list pricing ($1 / 1M in)
+output_usd_per_1k = 0.005     # claude-haiku-4-5 list pricing ($5 / 1M out)
+
+[roles.worker_draft]          # DeepSeek worker MCP (bulk first drafts)
+provider = "deepseek"
+model = "deepseek-v4-flash"   # pinned off the deprecating `deepseek-chat` alias (retires 2026-07-24)
+input_usd_per_1k = 0.00014    # V4 Flash — consumed by the worker (replaces stale 0.00027 default)
+output_usd_per_1k = 0.00028   # V4 Flash — consumed by the worker (replaces stale 0.00110 default)
+
+[roles.vision]                # Haiku vision worker MCP (image->text OCR)
+provider = "anthropic"
+model = "claude-haiku-4-5"
+supports_effort = false
+supports_adaptive_thinking = false
+input_usd_per_1k = 0.001      # claude-haiku-4-5 list pricing ($1 / 1M in); image tokens billed as input
+output_usd_per_1k = 0.005     # claude-haiku-4-5 list pricing ($5 / 1M out)
