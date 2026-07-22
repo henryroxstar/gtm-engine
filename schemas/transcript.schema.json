@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/transcript.schema.json",
+  "title": "Transcript",
+  "description": "Podcast script handoff; both Mode A (Claude) and Mode B (Hermes) emit this shape (spec §8, §12). FORWARD CONTRACT — consumed in Phase 4, defined now so stages stay decoupled.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode", "topic", "cast", "segments"],
+  "properties": {
+    "episode": { "type": "string" },
+    "topic": { "type": "string" },
+    "length_target_min": { "type": "number", "minimum": 0 },
+    "cast": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "voice_id"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "voice_id": { "type": "string", "description": "ElevenLabs voice_id." }
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agenda_item", "turns"],
+        "properties": {
+          "agenda_item": { "type": "string" },
+          "slide": { "type": ["string", "integer", "null"] },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["speaker", "text"],
+              "properties": {
+                "speaker": { "type": "string" },
+                "text": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

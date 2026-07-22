@@ -1,0 +1,30 @@
+# docker-compose.override.yml — HOST-SPECIFIC overrides (TEMPLATE)
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this to `docker-compose.override.yml` (which is GITIGNORED) and fill in
+# your real values. Docker Compose auto-merges docker-compose.override.yml on top
+# of the committed docker-compose.yml — so your host details (DB network, real
+# DSN, extra mounts) stay private while the base file stays generic & shareable.
+#
+#     cp docker-compose.override.yml.example docker-compose.override.yml
+#     # edit docker-compose.override.yml with your real values
+#     docker compose up -d --build      # base + override are merged automatically
+#
+# This example shows the common case: attaching the agent to an EXISTING external
+# Docker network so the news MCP can reach a Postgres DB by container DNS.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  gtm-agent:
+    networks:
+      # `default` comes from the base file; this ADDS your external DB network.
+      - my-db-net
+
+networks:
+  # Declare the external network you attach to above. `external: true` means
+  # Compose attaches to a network created elsewhere — it never creates it.
+  my-db-net:
+    external: true
+    name: my-db-net      # the real network name on your host (docker network ls)
+
+# Set the real NEWS_DB_DSN in your secret manager or gitignored .env, e.g.:
+#   NEWS_DB_DSN=postgresql://readonly_user:password@db-host:5432/dbname
