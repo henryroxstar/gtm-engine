@@ -1,0 +1,5 @@
+{
+  "strict": false,
+  "notes": "Stub — not yet populated. Pull the live filter list with mcp__syften__syften_get_filters, add each filter this tenant owns as a key under filters{} with its {entity, category} label, then set strict to true so community-signal-analysis drops any match on a filter that belongs to another profile instead of scoring it. See CLAUDE.md 'Tenant boundary' and docs/content-os-build-spec.md 'Tenant isolation' for why this file exists — the Syften account itself is shared across all profiles.",
+  "filters": {}
+}

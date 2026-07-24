@@ -1,0 +1,54 @@
+# packs/marketing/graphs/long-form-blog.toml
+#
+# A marketing channel variant (PRD §8, Level 1) with a real fan-out: research splits
+# into two independent nodes that both join at studio. Proves the engine's parallel
+# frontier execution (E-4) on a genuine branching pack graph, not just a synthetic test
+# fixture — studio cannot start until BOTH research-evidence and research-competitive
+# are complete.
+
+pack = "marketing"
+variant = "long-form-blog"
+
+[[nodes]]
+id = "radar"
+model_role = "brain_radar"
+skill = "content-radar"
+prompt = "Run the content-radar skill for the active profile."
+
+[[nodes]]
+id = "plan"
+depends_on = ["radar"]
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill. Propose this week's long-form blog plan for the active profile and present it for approval."
+
+[[nodes]]
+id = "research-evidence"
+depends_on = ["plan"]
+model_role = "brain_radar"
+skill = "content-research"
+prompt = "Run the content-research skill to gather primary-source evidence for the approved long-form items."
+
+[[nodes]]
+id = "research-competitive"
+depends_on = ["plan"]
+model_role = "brain_radar"
+skill = "content-research"
+prompt = "Run the content-research skill to gather competitive/market context for the approved long-form items."
+
+[[nodes]]
+id = "studio"
+depends_on = ["research-evidence", "research-competitive"]
+model_role = "brain_plan"
+skill = "content-studio"
+prompt = "Run the content-studio skill to draft the long-form blog post from the combined evidence and competitive research."
+
+[[nodes]]
+id = "publish"
+depends_on = ["studio"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Phase 1 publish is manual — log this stage as skipped."

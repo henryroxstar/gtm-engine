@@ -1,0 +1,7 @@
+# de-brand lint allowlist — KNOWN-LEGIT matches the RELEASE scan should not flag.
+# One fixed-string pattern per line (substring of the offending grep hit line).
+# '#' comments and blank lines are ignored. Keep entries SPECIFIC (a full phrase or
+# path) so a real company/host leak is never masked. Empty by default.
+#
+# Example (illustrative — not active):
+#   docs/RULES.md:    example.com is the canonical placeholder host
