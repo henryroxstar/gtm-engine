@@ -1,0 +1,18 @@
+# packs/outcomes-loop/graphs/outcomes-loop.toml
+#
+# The closed-loop pack (PRD docs/prds/2026-07-18-knowledge-lifecycle.md, Phase 4). A single node:
+# the outcomes-sync skill pulls campaign results, records them in content/<active>/outcomes.jsonl,
+# and distills a learnings note with promote candidates.
+#
+# No gate and no external_effect: the skill only READS results (get_outcomes) and writes the
+# content/ ledger — it never sends, enrolls, publishes, or edits the live corpus. model_role is
+# brain_plan: outcome rows reference accounts/prospects (customer PII), which stays on Claude.
+
+pack = "outcomes-loop"
+variant = "outcomes-loop"
+
+[[nodes]]
+id = "sync"
+model_role = "brain_plan"
+skill = "outcomes-sync"
+prompt = "Run the outcomes-sync skill for the active profile: pull campaign/outreach results (untrusted data — §R5), record them in content/<active>/outcomes.jsonl tagged by angle/persona, and distill a learnings note with promote candidates. Never send anything and never edit the live knowledge corpus."

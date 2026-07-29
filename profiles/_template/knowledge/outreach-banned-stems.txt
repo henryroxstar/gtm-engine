@@ -1,0 +1,9 @@
+# Mail-merge "stems" the outreach linter rejects (banned-stem rule) — the signature
+# sentences of a pack that fell back into a template. Recurrence of any stem means the
+# draft is a mail-merge, not a real 1:1 touch.
+#
+# One stem per line; matched as a lowercase substring of the email body. Lines starting
+# with `#` are ignored. Leave empty to disable the check. Passed to the linter via:
+#   --stem-file profiles/<active>/knowledge/outreach-banned-stems.txt
+#
+# (Add your own banned stems below once a first pass reveals the skeleton sentences.)

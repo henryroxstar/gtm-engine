@@ -1,0 +1,49 @@
+{
+  "_comment": "Reference template only — not rendered as-is. Copy blocks into a fresh <work_dir>/onepager-spec.json, fill every [bracket], then render with scripts/render_dossier_pydocx.py exactly like the standard dossier-spec.json. See body_template.md 'Exec one-pager variant' for when to use this vs. the standard ≤4-page dossier. Origin: an onepager-spec.json under content/<active>/accounts/<account-slug>/.",
+  "brand": {
+    "bg": "[resolved bg hex from PROFILE.md brand_palette]",
+    "accent1": "[resolved accent1 hex]",
+    "accent2": "[resolved accent2 hex]",
+    "accent3": "[resolved accent3 hex]",
+    "textOnDark": "#FFFFFF",
+    "font": "[resolved brand font]"
+  },
+  "closingLine": "Internal — [company] leadership only. Not for distribution.",
+  "blocks": [
+    {
+      "type": "banner",
+      "account": "[Target account] — [principal's role, e.g. CEO] one-pager",
+      "subline": "For [principal name, e.g. the account's CEO] · meeting with [buyer name], [buyer title]",
+      "meta": "[Month DD, YYYY]  ·  product brief + [founder/company] read"
+    },
+    {
+      "type": "callout",
+      "variant": "info",
+      "lines": [
+        "[One-sentence framing: why this meeting is worth the principal's time — the real strategic angle, not a generic intro. State plainly if the target is pre-everything / early-stage / unverified — don't bury that.]"
+      ]
+    },
+    { "type": "heading", "text": "[Target account] — product brief" },
+    {
+      "type": "facts_table",
+      "rows": [
+        ["Claim", "[Their own stated value proposition, quoted verbatim from their site/materials where possible — not your paraphrase.]"],
+        ["Pain", "[The problem they say they solve, quoted or tightly summarized — include their own stat/proof point if they cite one.]"],
+        ["Gain", "[The concrete benefit/differentiator they claim, e.g. what makes their mechanism different from the obvious alternative.]"],
+        ["How it works", "[Plain-English mechanism summary. Flag explicitly what is unverified/unconfirmed publicly — that becomes the open question for the call, not a settled fact.]"]
+      ]
+    },
+    { "type": "heading", "text": "Credibility calibration" },
+    {
+      "type": "paragraph",
+      "text": "[Blunt, evidence-based read on the founder/company track record — funding, prior ventures, traction, verified vs. self-described credentials. Correct any misattribution found during research (e.g. data-aggregator errors) matter-of-factly, without narrating your own research process ('corrected from first pass' etc. — the principal never saw the first pass). Name the genuine positive if there is one, not just the gaps. Keep to 3-5 sentences — this is the whole calibration, not a dossier-length backstory."
+    },
+    {
+      "type": "callout",
+      "variant": "angle",
+      "lines": [
+        "[If the principal has ALREADY agreed to take the meeting, do not restate a generic 'recommendation' to take the call — instead give 'What to get from the call': the 2-3 concrete unknowns that determine the outcome, framed as a decision tree ('if X, then Y; if not, there's nothing to pursue'). Only include a take/pass recommendation block if the meeting itself is still undecided.]"
+      ]
+    }
+  ]
+}

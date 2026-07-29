@@ -1,0 +1,35 @@
+# packs/solution-architecture/graphs/solution-architecture.toml
+#
+# The third real pack graph (E-4 generality proof): discovery -> design -> runbook -> deck.
+# No external gate — this pack produces documents, it doesn't publish or send anything
+# (docs/prds/2026-07-06-engine-pack-tenant-three-layer.md §7).
+
+pack = "solution-architecture"
+variant = "solution-architecture"
+
+[[nodes]]
+id = "discovery"
+model_role = "brain_plan"
+skill = "solution-discovery"
+prompt = "Run the solution-discovery skill for the active account/engagement."
+
+[[nodes]]
+id = "design"
+depends_on = ["discovery"]
+model_role = "brain_plan"
+skill = "solution-design"
+prompt = "Run the solution-design skill using the discovery output."
+
+[[nodes]]
+id = "runbook"
+depends_on = ["design"]
+model_role = "brain_plan"
+skill = "gateway-runbook"
+prompt = "Run the gateway-runbook skill to produce the implementation runbook."
+
+[[nodes]]
+id = "deck"
+depends_on = ["runbook"]
+model_role = "brain_plan"
+skill = "build-deck"
+prompt = "Run the build-deck skill to produce the solution architecture deck."

@@ -1,0 +1,502 @@
+<!--
+  CAMPAIGN-PLAN — generic HTML exec-companion template (company/product agnostic).
+
+  This is the reusable "trust-ledger / data-room prospectus" design system, extracted from a
+  worked instance and fully de-branded. Copy this file, then:
+    1. Replace every {{PLACEHOLDER}} with the numbers/text from the .md plan (the source of truth).
+    2. Set the accent tokens from the ACTIVE PROFILE's brand — resolve
+       profiles/<active>/knowledge/brand/ and override ONLY --accent / --accent-ink / --accent-soft
+       (light + dark blocks). The default below is a NEUTRAL PLACEHOLDER slate-blue on purpose —
+       it must be replaced with the tenant's brand accent before delivery.
+    3. Keep it self-contained: no external fetch, no CDN, no fonts loaded over the network.
+    4. Delete section blocks you don't need; the CSS covers all of them.
+
+  Art direction (commit to it — do NOT soften back toward generic AI output):
+    · document-cover masthead + mono dossier meta-strip   · fixed section-index rail (≥1440px)
+    · de-carded flat regions ruled with 1px top borders    · prospectus tables (2px rules, mono heads)
+    · sharp corners (radius 3px), zero box-shadow           · oversized display type, mono utility layer
+  Banned (AI-tells): serif body, side-stripe accent borders, hero-metric cliché, gradients,
+  decorative emoji, mixed radii, border+heavy-shadow, eyebrows on every section.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{PROGRAM TITLE}} · {{MONTH YEAR}}</title>
+<style>
+  :root{
+    --paper:#fbfbfa; --card:#ffffff; --well:#f4f4f1; --ink:#20241f; --ink-2:#474d45; --strong:#0c0f0b;
+    --muted:#606559; --faint:#8b9086; --hair:rgba(18,22,16,.10); --hair-2:rgba(18,22,16,.055);
+    /* --- PLACEHOLDER ACCENT (neutral slate-blue) — override from profiles/<active>/knowledge/brand/ --- */
+    --accent:#4f5d75; --accent-ink:#3d4a60; --accent-soft:rgba(79,93,117,.09);
+    --good:#1f7a3c; --warn:#956008; --crit:#ad3030; --good-soft:rgba(31,122,60,.10);
+    --warn-soft:rgba(149,96,8,.10); --crit-soft:rgba(173,48,48,.09);
+    --us:#3f6f9e; --sg:#4f5d75; --eu:#7d5fac;
+    --us-soft:rgba(63,111,158,.12); --sg-soft:rgba(79,93,117,.11); --eu-soft:rgba(125,95,172,.13);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --shadow:none; --shadow-lg:none;
+    --r:3px; --r-sm:2px; --rule:2px solid var(--strong);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#0f110e; --card:#171a15; --well:#14170f; --ink:#e6e9e2; --ink-2:#c2c7bb; --strong:#f6f8f2;
+      --muted:#939a8c; --faint:#6a7164; --hair:rgba(236,240,228,.12); --hair-2:rgba(236,240,228,.06);
+      /* --- PLACEHOLDER ACCENT (dark) — override with the tenant brand's dark-mode accent --- */
+      --accent:#8698b5; --accent-ink:#a7b6cd; --accent-soft:rgba(134,152,181,.12);
+      --good:#54b56a; --warn:#d49a2e; --crit:#e06767; --good-soft:rgba(84,181,106,.13);
+      --warn-soft:rgba(212,154,46,.12); --crit-soft:rgba(224,103,103,.12);
+      --us:#6a9fd5; --sg:#8698b5; --eu:#a98cd8;
+      --us-soft:rgba(106,159,213,.14); --sg-soft:rgba(134,152,181,.14); --eu-soft:rgba(169,140,216,.15);
+      --shadow:none; --shadow-lg:none;
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#fbfbfa; --card:#ffffff; --well:#f4f4f1; --ink:#20241f; --ink-2:#474d45; --strong:#0c0f0b;
+    --muted:#606559; --faint:#8b9086; --hair:rgba(18,22,16,.10); --hair-2:rgba(18,22,16,.055);
+    --accent:#4f5d75; --accent-ink:#3d4a60; --accent-soft:rgba(79,93,117,.09);
+    --good:#1f7a3c; --warn:#956008; --crit:#ad3030; --good-soft:rgba(31,122,60,.10);
+    --warn-soft:rgba(149,96,8,.10); --crit-soft:rgba(173,48,48,.09);
+    --us:#3f6f9e; --sg:#4f5d75; --eu:#7d5fac;
+    --us-soft:rgba(63,111,158,.12); --sg-soft:rgba(79,93,117,.11); --eu-soft:rgba(125,95,172,.13);
+    --shadow:none; --shadow-lg:none;
+  }
+  :root[data-theme="dark"]{
+    --paper:#0f110e; --card:#171a15; --well:#14170f; --ink:#e6e9e2; --ink-2:#c2c7bb; --strong:#f6f8f2;
+    --muted:#939a8c; --faint:#6a7164; --hair:rgba(236,240,228,.12); --hair-2:rgba(236,240,228,.06);
+    --accent:#8698b5; --accent-ink:#a7b6cd; --accent-soft:rgba(134,152,181,.12);
+    --good:#54b56a; --warn:#d49a2e; --crit:#e06767; --good-soft:rgba(84,181,106,.13);
+    --warn-soft:rgba(212,154,46,.12); --crit-soft:rgba(224,103,103,.12);
+    --us:#6a9fd5; --sg:#8698b5; --eu:#a98cd8;
+    --us-soft:rgba(106,159,213,.14); --sg-soft:rgba(134,152,181,.14); --eu-soft:rgba(169,140,216,.15);
+    --shadow:none; --shadow-lg:none;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.65; font-size:16px; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; font-feature-settings:"kern","liga","cv05"}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 28px}
+  h1,h2,h3,h4{font-family:var(--sans); letter-spacing:-.022em; line-height:1.14; margin:0; color:var(--strong); text-wrap:balance}
+  a{color:var(--accent-ink); text-decoration:none; border-bottom:1px solid color-mix(in srgb,var(--accent) 35%, transparent); transition:border-color .15s}
+  a:hover{border-bottom-color:var(--accent)}
+  .mono{font-family:var(--mono)}
+  .tnum{font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  p{margin:0 0 12px}
+  b,strong{color:var(--strong); font-weight:600}
+  em{font-style:italic}
+
+  .topbar{position:sticky; top:0; z-index:40; background:color-mix(in srgb,var(--paper) 82%, transparent); backdrop-filter:blur(14px) saturate(1.4); border-bottom:1px solid var(--hair)}
+  .topbar .wrap{display:flex; align-items:center; gap:14px; height:52px}
+  .brand{font-weight:600; font-size:12px; letter-spacing:.02em; color:var(--strong); display:flex; align-items:center; gap:9px}
+  .brand .tick{width:8px; height:8px; border-radius:50%; background:var(--accent)}
+  .topbar .spacer{flex:1}
+  .topbar .m{font-family:var(--mono); font-size:10.5px; color:var(--faint); letter-spacing:.02em}
+
+  .mast{padding:40px 0 6px; margin-bottom:0}
+  .dossier{display:grid; grid-template-columns:repeat(4,minmax(0,auto)); gap:14px 40px; justify-content:start; padding:14px 0; border-top:var(--rule); border-bottom:1px solid var(--hair); margin-bottom:44px}
+  .dossier div{display:flex; flex-direction:column; gap:4px; font-family:var(--mono); font-size:11px; line-height:1.3}
+  .dossier .dk{color:var(--faint); text-transform:uppercase; letter-spacing:.11em; font-size:9px}
+  .dossier .dv{color:var(--ink)} .dossier .dv.acc{color:var(--accent-ink)}
+  .kicker{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:24px}
+  .mast h1{font-size:clamp(35px,6.4vw,68px); font-weight:560; letter-spacing:-.037em; line-height:.99; max-width:15ch; color:var(--strong)}
+  .mast .dek{font-size:clamp(17px,1.9vw,22px); color:var(--ink-2); max-width:58ch; margin-top:28px; line-height:1.4; font-weight:400}
+  .mast::after{content:""; display:block; border-bottom:var(--rule); margin-top:40px}
+
+  .exec{background:var(--card); border:1px solid var(--ink-2); border-top:3px solid var(--accent); border-radius:0; padding:36px 38px; margin-top:40px}
+  .exec::before{content:"Executive summary"; display:block; font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-bottom:16px}
+  .exec .elead{font-size:clamp(16.5px,1.7vw,19px); line-height:1.55; font-weight:420; color:var(--ink); margin:0; max-width:68ch}
+  .exec .elead b{color:var(--strong); font-weight:600}
+  .ekpis{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin:26px 0 4px; background:var(--hair); border:1px solid var(--hair); border-radius:var(--r-sm); overflow:hidden}
+  .ekpi{background:var(--card); padding:17px 18px}
+  .ekpi .v{font-size:clamp(20px,2.3vw,25px); font-weight:620; letter-spacing:-.03em; line-height:1.05; color:var(--strong)}
+  .ekpi .l{margin-top:9px; font-size:12px; color:var(--muted); line-height:1.4}
+  .eglance{display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:26px; padding-top:22px; border-top:1px solid var(--hair)}
+  .eg .ek{font-size:12px; font-weight:600; color:var(--accent-ink); margin-bottom:6px}
+  .eg .ev{font-size:13.5px; color:var(--ink-2); line-height:1.5}
+  .eg .ev b{color:var(--strong)}
+  .enot{margin-top:24px; padding-top:18px; border-top:1px solid var(--hair); font-size:12.5px; color:var(--muted); line-height:1.55}
+  .enot b{color:var(--ink)}
+
+  section{padding:60px 0; border-top:1px solid var(--hair); scroll-margin-top:64px}
+  .shead{display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:start; margin-bottom:32px}
+  .shead .n{font-family:var(--mono); font-size:clamp(24px,3.4vw,38px); font-weight:400; line-height:1; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .shead h2{font-size:clamp(24px,3.1vw,36px); font-weight:560; letter-spacing:-.032em; line-height:1.03}
+  .shead .sub{color:var(--muted); font-size:14.5px; margin-top:12px; max-width:74ch; line-height:1.55}
+  h3.blk{font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--accent-ink); margin:38px 0 15px}
+
+  .punch{background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 20%, transparent); border-radius:var(--r); padding:18px 22px; font-size:14.5px; line-height:1.55; color:var(--ink); margin-bottom:22px}
+  .punch b{color:var(--accent-ink)}
+  .note{background:var(--well); border:1px solid var(--hair); border-radius:var(--r-sm); padding:15px 18px; font-size:12.5px; color:var(--ink-2); line-height:1.6; margin:18px 0}
+  .note b{color:var(--strong)}
+  .note.teal{background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 18%, transparent)}
+  .note.crit{background:var(--crit-soft); border-color:color-mix(in srgb,var(--crit) 22%, transparent)}
+
+  .tblwrap{overflow-x:auto; border-top:var(--rule); border-bottom:var(--rule); background:none}
+  table.tbl{width:100%; border-collapse:collapse; font-size:13px}
+  table.tbl th{font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:left; padding:15px 15px 13px; border-bottom:1px solid var(--ink-2); background:none}
+  table.tbl td{padding:13px 15px; border-bottom:1px solid var(--hair-2); color:var(--ink-2); vertical-align:top; line-height:1.5}
+  table.tbl td b{color:var(--strong)}
+  table.tbl tbody tr{transition:background .12s}
+  table.tbl tbody tr:hover td{background:color-mix(in srgb,var(--well) 55%, transparent)}
+  table.tbl tr:last-child td{border-bottom:0}
+  table.tbl .scen{font-variant-numeric:tabular-nums; font-weight:600; color:var(--ink)}
+  table.tbl .base{color:var(--accent-ink); font-weight:640}
+  .chain{font-family:var(--mono); font-size:10.5px; color:var(--muted); white-space:nowrap}
+  .chain .arw{color:var(--accent); font-weight:700}
+  .stars{font-size:10px; color:var(--accent); letter-spacing:.5px; white-space:nowrap}
+  .clustrow td{background:var(--well); font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-ink)}
+
+  /* signal cards */
+  .sigs{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .sig{background:none; border:0; border-top:1px solid var(--ink-2); border-radius:0; padding:16px 0 2px; display:flex; flex-direction:column; gap:9px}
+  .sig .st{font-weight:600; font-size:14px; color:var(--strong); display:flex; align-items:center; gap:9px; line-height:1.35}
+  .sig .stag{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:4px 8px; border-radius:6px; white-space:nowrap}
+  .stag.comp{background:var(--crit-soft); color:var(--crit)} .stag.reg{background:var(--warn-soft); color:var(--warn)} .stag.pay{background:var(--accent-soft); color:var(--accent-ink)} .stag.tam{background:var(--good-soft); color:var(--good)} .stag.why{background:var(--crit-soft); color:var(--crit)}
+  .sig p{font-size:12.5px; color:var(--ink-2); margin:0; line-height:1.55}
+  .sig p b{color:var(--strong)}
+  .sig .dt{font-family:var(--mono); font-size:10px; color:var(--faint); margin-top:auto; padding-top:8px}
+
+  /* data bars */
+  .dblock{background:none; border:0; border-top:1px solid var(--ink-2); border-radius:0; padding:16px 0 2px}
+  .dblock .dh{font-weight:600; font-size:14px; color:var(--strong); margin-bottom:4px}
+  .dblock .dsub{font-family:var(--mono); font-size:10px; letter-spacing:.02em; color:var(--faint); margin-bottom:18px}
+  .dbars{display:flex; flex-direction:column; gap:11px}
+  .dbar{display:grid; grid-template-columns:118px 1fr 42px; gap:13px; align-items:center; font-size:12.5px}
+  .dbar .dn{color:var(--ink-2); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .dbar .dtrack{position:relative; height:7px; background:var(--hair-2); border-radius:0; overflow:hidden}
+  .dbar .dfill{position:absolute; left:0; top:0; bottom:0; border-radius:0; background:var(--accent)}
+  .dbar .dv{font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--strong); text-align:right; font-variant-numeric:tabular-nums}
+  .ekpi.warn .v{color:var(--warn)}
+
+  .split2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .logos{display:flex; flex-wrap:wrap; gap:9px}
+  .logo{display:inline-flex; align-items:center; gap:8px; background:var(--well); border:1px solid var(--hair); border-radius:var(--r-sm); padding:8px 13px; font-size:13px; color:var(--ink-2)}
+  .logo b{color:var(--strong); font-weight:600}
+  .logo.hot{background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 28%, transparent)}
+  .logo.hot b{color:var(--accent-ink)}
+  .logo .sc{font-family:var(--mono); font-size:10px; color:var(--muted); white-space:nowrap; border-left:1px solid var(--hair); padding-left:8px}
+
+  .eflow{display:flex; gap:10px; margin-bottom:16px}
+  .estep{flex:1; background:none; border:0; border-top:1px solid var(--ink-2); border-radius:0; padding:13px 0 0}
+  .estep .sn{font-family:var(--mono); font-size:11px; font-weight:600; color:var(--accent); margin-bottom:9px}
+  .estep .snm{font-weight:600; font-size:13.5px; color:var(--strong); display:block}
+  .estep .sd{font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; display:block}
+  .io{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .ecol{background:none; border:0; border-top:1px solid var(--ink-2); border-radius:0; padding:16px 0 2px}
+  .ecol .eh{font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:14px}
+  .ecol ul{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:11px}
+  .ecol li{font-size:13px; color:var(--ink-2); line-height:1.45}
+  .ecol li b{color:var(--strong)}
+  .pcg{display:flex; flex-direction:column; gap:5px; font-size:11.5px; line-height:1.4; min-width:220px}
+  .pcg span.row{color:var(--ink-2)}
+  .pcg .pl{font-family:var(--mono); font-size:9px; font-weight:700; color:var(--accent-ink); margin-right:6px}
+  .guardstrip{display:flex; flex-wrap:wrap; gap:9px; margin-top:16px}
+  .gchip{font-family:var(--mono); font-size:11.5px; background:var(--well); border:1px solid var(--hair); border-radius:2px; padding:8px 13px; color:var(--ink-2)}
+  .gchip b{color:var(--strong)}
+  .gchip.lock{border-color:color-mix(in srgb,var(--accent) 32%, transparent); background:var(--accent-soft); color:var(--accent-ink)}
+
+  .cols2{display:grid; grid-template-columns:1fr 1fr; gap:26px}
+  .clist{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:14px}
+  .clist li{display:grid; grid-template-columns:auto 1fr; gap:13px; font-size:13px; color:var(--ink-2); line-height:1.55}
+  .clist li .tag{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:4px 7px; border-radius:6px; height:fit-content; white-space:nowrap}
+  .tag.crit{background:var(--crit-soft); color:var(--crit)} .tag.warn{background:var(--warn-soft); color:var(--warn)} .tag.ok{background:var(--good-soft); color:var(--good)} .tag.acc{background:var(--accent-soft); color:var(--accent-ink)}
+  .clist li b{color:var(--strong)}
+  .colhd{font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:16px}
+
+  .funnel{display:flex; flex-direction:column; gap:8px; margin-top:4px}
+  .frow{display:grid; grid-template-columns:200px 1fr; gap:15px; align-items:center}
+  .frow .fk{font-size:13px; color:var(--ink-2)}
+  .frow .fk small{font-family:var(--mono); font-size:10px; color:var(--faint); display:block; margin-top:2px}
+  .fbar{position:relative; height:30px; background:var(--hair-2); border-radius:var(--r-sm); overflow:hidden; display:flex; align-items:center}
+  .fbar .ff{position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:var(--r-sm)}
+  .fbar .fnum{position:relative; font-family:var(--mono); font-size:12px; font-weight:600; color:#fff; padding-left:13px; font-variant-numeric:tabular-nums}
+  .fbar.lite .ff{background:var(--accent-soft)}
+  .fbar.lite .fnum{color:var(--ink); }
+
+  footer{padding:40px 0 64px; font-size:11px; color:var(--faint); line-height:1.7; border-top:1px solid var(--hair); margin-top:16px}
+  footer .wrap{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap}
+  footer b{color:var(--muted); font-weight:600}
+
+  .rail{position:fixed; top:0; left:0; height:100vh; width:158px; display:none; flex-direction:column; justify-content:center; gap:1px; padding-left:28px; z-index:30; pointer-events:none}
+  .rail a{font-family:var(--mono); font-size:10.5px; letter-spacing:.01em; color:var(--faint); text-decoration:none; border:0; padding:6px 0; display:flex; gap:10px; align-items:baseline; pointer-events:auto; transition:color .18s}
+  .rail a .rn{color:var(--accent); opacity:.55; font-variant-numeric:tabular-nums}
+  .rail a:hover{color:var(--ink)} .rail a:hover .rn{opacity:1}
+  @media (min-width:1440px){ .rail{display:flex} }
+
+  @media (max-width:860px){
+    .ekpis{grid-template-columns:1fr 1fr} .eglance,.cols2,.io,.sigs,.split2{grid-template-columns:1fr}
+    .eflow{flex-wrap:wrap} .estep{flex:1 1 140px}
+    .frow{grid-template-columns:130px 1fr} .dbar{grid-template-columns:100px 1fr 38px}
+    .shead{grid-template-columns:1fr; gap:6px} .shead .n{font-size:24px}
+    .exec{padding:24px 22px} .mast{padding:48px 0 26px}
+  }
+  @media (prefers-reduced-motion: reduce){*{animation:none!important; transition:none!important}}
+  @media print{
+    .topbar{display:none} body{background:#fff} .exec,.sig,.dblock,.ecol,.estep,.tblwrap{box-shadow:none}
+    section{break-inside:avoid-page}
+  }
+</style>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><span class="tick"></span>{{PROGRAM NAME · SHORT}}</div>
+    <div class="spacer"></div>
+    <div class="m">EXEC BRIEF · {{DD MON YYYY}} · INTERNAL · v1</div>
+  </div>
+</div>
+
+<nav class="rail" aria-label="Sections">
+  <a href="#s1"><span class="rn">01</span> Why now</a>
+  <a href="#s2"><span class="rn">02</span> The wedge</a>
+  <a href="#s3"><span class="rn">03</span> Pipeline</a>
+  <a href="#s4"><span class="rn">04</span> The engine</a>
+  <a href="#s5"><span class="rn">05</span> The plan</a>
+  <a href="#s6"><span class="rn">06</span> The numbers</a>
+  <a href="#s7"><span class="rn">07</span> Guardrails</a>
+  <a href="#s8"><span class="rn">08</span> Tools &amp; budget</a>
+</nav>
+
+<div class="wrap">
+
+<header class="mast">
+  <div class="dossier">
+    <div><span class="dk">Prepared for</span><span class="dv">{{COMPANY}} · Executive team</span></div>
+    <div><span class="dk">Document</span><span class="dv">GTM outbound program</span></div>
+    <div><span class="dk">Date</span><span class="dv">{{DD Month YYYY}}</span></div>
+    <div><span class="dk">Classification</span><span class="dv acc">Internal · v1</span></div>
+  </div>
+  <div class="kicker">Go-to-market proposal</div>
+  <h1>{{THE ONE-LINE BET — plain language, no insider jargon}}</h1>
+  <p class="dek">{{2–3 sentences: the staged outbound program, the segment/workflow it targets, and the timing argument from the market signals.}}</p>
+</header>
+
+<!-- EXECUTIVE SUMMARY -->
+<div class="exec">
+  <p class="elead">{{The bet in 3–4 sentences. Lead with the timing argument, name the differentiation wedge, and state the north-star = SQLs (base-case SQL → pilot count). Bold the numbers.}}</p>
+  <div class="ekpis">
+    <div class="ekpi"><div class="v tnum">{{~N,NNN}}</div><div class="l">{{prospects across ~N accounts (built from N already qualified)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{~N SQLs}}</div><div class="l">{{base case → ~N pilots · north-star metric}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{$N}}</div><div class="l">{{category size / TAM datapoint (cited)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{N}}</div><div class="l">{{the "unowned lane" datapoint}}</div></div>
+  </div>
+  <div class="eglance">
+    <div class="eg"><div class="ek">How we de-risk it</div><div class="ev">{{Test → gate → ramp: what runs in the test window vs what ships only after the winning message is locked.}}</div></div>
+    <div class="eg"><div class="ek">Why now, not later</div><div class="ev">{{The dated timing argument — the window and why it is closing.}}</div></div>
+  </div>
+  <div class="enot"><b>Guardrails built in:</b> {{no volume blast on an unproven message · every send is human-approved · validate-first geos · rates are hypotheses to test, not forecasts.}}</div>
+</div>
+
+<!-- 01 WHY NOW -->
+<section id="s1">
+  <div class="shead"><div class="n">01</div><div><h2>Why now — {{the market-timing headline}}</h2><div class="sub">{{One-paragraph framing: the signals all point one way, and the gap they open is the wedge.}}</div></div></div>
+  <div class="sigs">
+    <div class="sig">
+      <div class="st"><span class="stag comp">Competitor</span> {{signal headline}}</div>
+      <p>{{The signal + our counter. Bold the names/facts.}}</p>
+      <div class="dt">{{date · verification note}}</div>
+    </div>
+    <div class="sig">
+      <div class="st"><span class="stag reg">Regulation</span> {{signal headline}}</div>
+      <p>{{The dated regulatory trigger.}}</p>
+      <div class="dt">{{date · single-source? flag it}}</div>
+    </div>
+    <!-- add .sig blocks as needed: .stag classes = comp | reg | pay | tam | why -->
+  </div>
+
+  <h3 class="blk">Market structure — {{sub-headline}}</h3>
+  <div class="ekpis" style="margin-top:0">
+    <div class="ekpi"><div class="v tnum">{{stat}}</div><div class="l">{{what it measures (source)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{stat}}</div><div class="l">{{what it measures (source)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{stat}}</div><div class="l">{{what it measures (source)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{stat}}</div><div class="l">{{what it measures (source)}}</div></div>
+  </div>
+  <div class="note" style="margin-top:11px"><b>Sources.</b> {{Inline dated source links for every stat above. Flag any unverified figure in var(--warn) and say so — never fabricate a citation.}}</div>
+
+  <div class="punch" style="margin:16px 0 0"><b>So the focus is:</b> {{the one-line strategic read that falls out of the signals.}}</div>
+</section>
+
+<!-- 02 THE WEDGE -->
+<section id="s2">
+  <div class="shead"><div class="n">02</div><div><h2>The wedge: {{what we win on}}</h2><div class="sub">{{Why this segment/workflow and not a vertical — the structural reason only we fit.}}</div></div></div>
+  <div class="punch"><b>Why only us:</b> {{the differentiation in one tight paragraph — what incumbents do vs the gap we own, with proof.}}</div>
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead><tr><th>Use case &amp; party chain</th><th>Pain → Claim → Gain</th><th>Named accounts in pipeline</th></tr></thead>
+      <tbody>
+        <tr class="clustrow"><td colspan="3">{{Cohort / cluster name}}</td></tr>
+        <tr><td><b>{{Use case}}</b> <span class="stars">★★★★★</span><br><span class="chain">{{party A}} <span class="arw">⇄</span> {{party B}} <span class="arw">⇄</span> {{party C}}</span></td><td class="pcg"><span class="row"><span class="pl">P</span>{{pain}}</span><span class="row"><span class="pl">C</span>{{claim}}</span><span class="row"><span class="pl">G</span>{{gain}}</span></td><td>{{named accounts — must already be in the pipeline}}</td></tr>
+        <!-- repeat rows / clustrow per cohort. Never invent logos. -->
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 03 PIPELINE SNAPSHOT (from prospects/latest.json) -->
+<section id="s3">
+  <div class="shead"><div class="n">03</div><div><h2>{{What the top-of-funnel pipeline shows}}</h2><div class="sub">{{N accounts in the deduped ledger, buyer-intent scored. Read as a density map — it dictates geo weighting, cohort order, and who is in-market now.}}</div></div></div>
+  <div class="note crit"><b>{{Week-0 reality, stated honestly}}</b> — {{e.g. not yet in the CRM; a feed not yet switched on. Only real gaps — do not invent.}}</div>
+  <div class="ekpis" style="margin-top:0">
+    <div class="ekpi"><div class="v tnum">{{N}}</div><div class="l">{{accounts tracked}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{N}}</div><div class="l">{{Tier-A (+ N Tier-B)}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{a/b/c}}</div><div class="l">{{Tier-A by geo}}</div></div>
+    <div class="ekpi"><div class="v tnum">{{N}}</div><div class="l">{{accounts scored heat +2 — in-market}}</div></div>
+  </div>
+  <div class="cols2" style="margin-top:6px">
+    <div class="dblock">
+      <div class="dh">{{Where the qualified accounts concentrate}}</div>
+      <div class="dsub">BY CLUSTER · N≈{{N}} · indicative</div>
+      <div class="dbars">
+        <div class="dbar"><div class="dn">{{cluster}}</div><div class="dtrack"><div class="dfill" style="width:100%"></div></div><div class="dv">{{~N}}</div></div>
+        <!-- repeat .dbar; set width % proportionally -->
+      </div>
+    </div>
+    <div class="dblock">
+      <div class="dh">{{Geo reality}}</div>
+      <div class="dsub">TIER-A ACCOUNTS BY GEO</div>
+      <div class="dbars">
+        <div class="dbar"><div class="dn">{{market}}</div><div class="dtrack"><div class="dfill" style="width:100%;background:var(--us)"></div></div><div class="dv">{{N}}</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 HOW THE ENGINE WORKS (mirrors the `prospect` skill — do not overstate it) -->
+<section id="s4">
+  <div class="shead"><div class="n">04</div><div><h2>How the prospecting engine works</h2><div class="sub">Context on the machine that builds this list. Feed it who we sell to and a budget; it returns ranked accounts, named buyers, and drafted outreach. Claude is the brain; two paid data feeds plus a free web floor do discovery/contacts/signal; a human approves every gate.</div></div></div>
+  <div class="eflow">
+    <div class="estep"><span class="sn">1</span><span class="snm">Discover</span><span class="sd">ICP-matching companies (Vibe)</span></div>
+    <div class="estep"><span class="sn">2</span><span class="snm">Qualify</span><span class="sd">ICP gate + dated "why-now"</span></div>
+    <div class="estep"><span class="sn">3</span><span class="snm">Score</span><span class="sd">rubric, tiered</span></div>
+    <div class="estep"><span class="sn">4</span><span class="snm">Enrich</span><span class="sd">named committee + verified email</span></div>
+    <div class="estep"><span class="sn">5</span><span class="snm">Draft</span><span class="sd">signal × persona + proof + one ask</span></div>
+  </div>
+  <div class="io">
+    <div class="ecol">
+      <div class="eh">Inputs</div>
+      <ul>
+        <li><b>ICP</b> — {{who we sell to, from icp-personas.md}}</li>
+        <li><b>Markets</b> — {{from PROFILE target_markets}}</li>
+        <li><b>Budget</b> — checked before any paid call; a hard stop</li>
+      </ul>
+    </div>
+    <div class="ecol">
+      <div class="eh">Outputs</div>
+      <ul>
+        <li><b>Scored brief</b> — ranked, dated why-now + matched proof</li>
+        <li><b>Outreach packs</b> — drafts per top account, never auto-sent</li>
+        <li><b>CRM CSV</b> — one clean row per contact (no live CRM)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="guardstrip">
+    <span class="gchip lock"><b>Claude</b> = the brain</span>
+    <span class="gchip"><b>Vibe</b> — discovery + company intent</span>
+    <span class="gchip"><b>RocketReach</b> — contacts + person intent</span>
+    <span class="gchip">free web = the floor</span>
+    <span class="gchip">drafts only</span>
+    <span class="gchip">human on every gate</span>
+  </div>
+
+  <h3 class="blk">What it reads — sources &amp; how fresh each is</h3>
+  <p style="font-family:var(--sans); font-size:12.5px; color:var(--ink-2); margin:0 0 12px; max-width:78ch">Two paid feeds plus a free web floor for <em>live</em> signal, and the profile's own knowledge files for the <em>durable</em> facts (who we sell to, what proof to cite). Live feeds are timestamped; knowledge is maintained by us, not fetched — so a stale number always traces to a feed, never to the rubric.</p>
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead><tr><th>Source</th><th>What it provides</th><th>Freshness</th></tr></thead>
+      <tbody>
+        <tr><td><b>Vibe Prospecting</b> <span style="color:var(--muted)">(Explorium)</span><br><span class="mono" style="font-size:10px; color:var(--faint)">metered · discovery engine</span></td><td>Cold company discovery, firmographics, <b>topic buyer-intent</b> (company-level, scored 0–100), and business events.</td><td><b>Near-live.</b> Intent scores read inline per row; discovery pulls on demand.</td></tr>
+        <tr><td><b>RocketReach</b><br><span class="mono" style="font-size:10px; color:var(--faint)">lookups free · exports metered</span></td><td>The named buyer's <b>verified email + direct phone</b>, <b>company topic-intent</b> (Intentsify), news/hiring <b>triggers</b>, and <b>job-change</b> timing. Primary for contact resolution.</td><td>Contacts on demand. <b>Intentsify = weekly snapshot</b> (filter-only, treated fresh &lt;10 days).</td></tr>
+        <tr><td><b>Free web sweep</b><br><span class="mono" style="font-size:10px; color:var(--faint)">6-source · 0 credits</span></td><td>The dated public <b>"why-now" trigger</b> — the feeds pre-flag intent, the sweep <b>confirms and dates</b> it (outreach cites the public source, never the feed).</td><td><b>Per-run.</b> Gate: dated hit &lt;90 days (enterprise) / &lt;18 months (startup), else dropped.</td></tr>
+        <tr><td><b>Profile knowledge</b><br><span class="mono" style="font-size:10px; color:var(--faint)">profiles/&lt;active&gt;/knowledge/</span></td><td><b>ICP gates + scoring rubric</b> (icp-personas.md, source of truth), matched <b>proof</b> (case-studies.md), <b>hooks</b> (hook-matrix.md), <b>tracked intent topics</b> (market-scan-config.md), and per-vertical <b>industry packs</b>.</td><td><b>Maintained by us</b> — refined, not fetched. Rubric + proof stay stable across runs.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="blk">The ICP gate &amp; scoring — how an account earns its place</h3>
+  <p style="font-family:var(--sans); font-size:12.5px; color:var(--ink-2); margin:0 0 12px; max-width:78ch">Three gates, in order: an <b>ICP gate</b>, a dated <b>"why-now"</b>, then a <b>rubric score</b>. {{Publish threshold + Tier-A bar — from the profile's icp-personas.md. Two scorecards if segmented (enterprise vs startup).}}</p>
+  <div class="note"><b>Auto-disqualify (fail any):</b> {{the profile's hard exclusions.}}</div>
+
+  <h3 class="blk">The heat axis — scoring <em>when</em>, not just <em>who</em> (the intent layer)</h3>
+  <p style="font-family:var(--sans); font-size:12.5px; color:var(--ink-2); margin:0 0 12px; max-width:78ch">The rubric scores <b>fit</b> (who to work); the connected feeds score <b>heat</b> (when they're in-market). Intent is <b>never quoted in outreach</b> — it only times the touch and picks the angle.</p>
+  <div class="guardstrip" style="margin-bottom:14px">
+    <span class="gchip lock">Heat 0–3</span>
+    <span class="gchip">topic surge ≥75 (either feed) → <b>+2</b></span>
+    <span class="gchip">double-intent (both feeds) → <b>+3</b></span>
+    <span class="gchip">triggers &amp; new-in-seat → <b>not heat</b></span>
+  </div>
+</section>
+
+<!-- 05 THE PLAN -->
+<section id="s5">
+  <div class="shead"><div class="n">05</div><div><h2>The plan — universe, calendar, hypotheses</h2><div class="sub">{{N prospects ≈ ~N accounts × committee. One cohort per week, sequenced by readiness and the §03 density map.}}</div></div></div>
+  <h3 class="blk">Universe — a pyramid, not all Tier-A</h3>
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead><tr><th>Tier</th><th>Prospects</th><th>What</th><th>Geo split (data-driven)</th></tr></thead>
+      <tbody>
+        <tr><td><b>Tier-A</b></td><td class="scen">{{~N}}</td><td>{{named, high-fit, dated why-now}}</td><td rowspan="3">{{geo split}}</td></tr>
+        <tr><td><b>Tier-B</b></td><td class="scen">{{~N}}</td><td>{{good fit, softer trigger}}</td></tr>
+        <tr><td><b>Tier-C</b></td><td class="scen">{{~N}}</td><td>{{use-case-matched, thinner signal}}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3 class="blk">The hypotheses — the learning agenda</h3>
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Hypothesis</th><th>How we measure (sample → pass bar)</th><th>Tripwire (fail → do)</th></tr></thead>
+      <tbody>
+        <tr><td class="base"><b>H1</b></td><td>{{hypothesis}}</td><td>{{sample size → pass bar}}</td><td class="mono" style="color:var(--crit)">{{fail action}}</td></tr>
+        <!-- repeat per hypothesis -->
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 06 THE NUMBERS -->
+<section id="s6">
+  <div class="shead"><div class="n">06</div><div><h2>The numbers — assumed conversion</h2><div class="sub">Modeled tier-by-tier (reply rates fall down the pyramid). Assumptions to test, not forecasts.</div></div></div>
+  <div class="funnel">
+    <div class="frow"><div class="fk">{{Stage}} <small>{{rate assumption}}</small></div><div class="fbar"><div class="ff" style="width:100%"></div><span class="fnum">{{N}}</span></div></div>
+    <!-- repeat .frow down to SQLs → pilots -->
+  </div>
+  <div class="tblwrap" style="margin-top:22px">
+    <table class="tbl">
+      <thead><tr><th>Scenario</th><th>Replies</th><th>SQLs</th><th>Pilots</th></tr></thead>
+      <tbody>
+        <tr><td>Conservative</td><td class="scen">{{N}}</td><td class="scen">{{N}}</td><td class="scen">{{N}}</td></tr>
+        <tr><td>Base</td><td class="scen base">{{N}}</td><td class="scen base">{{N}}</td><td class="scen base">{{N}}</td></tr>
+        <tr><td>Stretch</td><td class="scen">{{N}}</td><td class="scen">{{N}}</td><td class="scen">{{N}}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 07 GUARDRAILS -->
+<section id="s7">
+  <div class="shead"><div class="n">07</div><div><h2>Guardrails &amp; decision gates</h2><div class="sub">What keeps the program honest and bounded.</div></div></div>
+  <ul class="clist">
+    <li><span class="tag crit">Bind</span><span><b>Deliverability</b> is the binding constraint — {{warm-up / volume ramp discipline.}}</span></li>
+    <li><span class="tag acc">Gate</span><span><b>Human send-gate</b> — every send is approved before it goes out; sequences build paused.</span></li>
+    <li><span class="tag ok">Honesty</span><span>Sell the pilot, not the product; verify single-source signals before customer-facing use.</span></li>
+    <li><span class="tag warn">Dedup</span><span>De-dupe against already-contacted lists before enrolling.</span></li>
+  </ul>
+</section>
+
+<!-- 08 TOOLS & BUDGET -->
+<section id="s8">
+  <div class="shead"><div class="n">08</div><div><h2>Tools &amp; budget</h2><div class="sub">The stack and its economics (from costs.jsonl). Fixed core vs metered.</div></div></div>
+  <div class="tblwrap">
+    <table class="tbl">
+      <thead><tr><th>Tool</th><th>Role</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><b>{{tool}}</b></td><td>{{what it does}}</td><td class="scen">{{$/mo}}</td></tr>
+        <!-- repeat -->
+        <tr><td colspan="2"><b>Cost per SQL</b> {{vs a labeled industry range}}</td><td class="scen base">{{~$N}}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>{{COMPANY}} · GTM outbound program · internal working document · v1</span>
+    <span><b>Source of truth:</b> the paired .md plan. Every number here traces to it.</span>
+  </div>
+</footer>

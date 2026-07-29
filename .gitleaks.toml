@@ -1,0 +1,17 @@
+# gitleaks configuration — extends default ruleset with project-specific allowlist.
+# Real secrets must be rotated and scrubbed from history; never allowlisted.
+
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "False-positive suppression"
+
+  # .env.example initial commit: empty placeholder lines HIGGSFIELD_API_KEY= and
+  # ELEVENLABS_API_KEY= (no value) triggered the generic-api-key rule.
+  commits = ["ffe4d9799dc785b59e7401197363264d5d28564e"]
+
+  # VTA how-to docs: "p256-key-derivation" is a PUBLIC HMAC domain-separation
+  # label documented in an algorithm — HMAC-SHA512(key="p256-key-derivation", …).
+  # It is not a credential; the generic-api-key rule matches the key="…" shape.
+  regexes = ['''p256-key-derivation''']

@@ -1,0 +1,7 @@
+# knowledge-dupcheck suppression list — sanctioned, known-legitimate repeated blocks.
+# One fixed-string pattern per line (a substring of the flagged block text on either side of the
+# pair). '#' comments and blank lines are ignored. Advisory only — this file is never CI-gated;
+# it only cleans the report at docs/knowledge-dup-report.md. Empty by default.
+#
+# Example (illustrative — not active):
+#   the same disclaimer paragraph shared verbatim by design across every guidance/*-alignment.md

@@ -1,0 +1,37 @@
+# packs/planning/graphs/planning.toml
+#
+# The planning pack: quarterly GTM plan, strategic account plan, and event planning.
+#
+# DELIBERATELY a batch of THREE INDEPENDENT root nodes, NOT a chain. gtm-planning,
+# account-plan, and events-tracker each produce a complete, standalone deliverable —
+# there is no real data dependency between them, so none is declared. Do NOT add a
+# depends_on edge here to make it "look like" a pipeline: a false prerequisite would stop
+# a reader from producing an account plan without first running a quarterly plan, which is
+# not how these skills work. With no edges, all three nodes sit in the initial frontier and
+# the engine dispatches them concurrently under one profile_lock (the E-4 fan-out path).
+#
+# The pack's value is real without a chain: it groups these skills for tenant activation +
+# reachability and declares their shared inputs/readiness contract (inputs.toml). No
+# external gate — like solution-architecture, it only produces documents/spreadsheets,
+# nothing is published or sent (docs/prds/2026-07-06-engine-pack-tenant-three-layer.md §7).
+
+pack = "planning"
+variant = "planning"
+
+[[nodes]]
+id = "gtm-plan"
+model_role = "brain_plan"
+skill = "gtm-planning"
+prompt = "Run the gtm-planning skill to build or refresh the quarterly GTM plan for the active profile's market."
+
+[[nodes]]
+id = "account-plan"
+model_role = "brain_plan"
+skill = "account-plan"
+prompt = "Run the account-plan skill to build a strategic account plan for the target company under discussion."
+
+[[nodes]]
+id = "event-plan"
+model_role = "brain_plan"
+skill = "events-tracker"
+prompt = "Run the events-tracker skill: scan conferences/meetups in the active profile's category and cost them against the profile's travel policy (skip the cost step if no travel policy is set)."

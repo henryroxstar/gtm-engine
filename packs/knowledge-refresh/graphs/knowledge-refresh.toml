@@ -1,0 +1,22 @@
+# packs/knowledge-refresh/graphs/knowledge-refresh.toml
+#
+# The knowledge-lifecycle refresh pack (PRD docs/prds/2026-07-18-knowledge-lifecycle.md, Phase 3).
+# A single maintenance node: the knowledge-refresh skill finds topics that are DUE (Phase-1
+# freshness metadata), re-fetches their sources, and STAGES re-condensed candidates under
+# content/<active>/knowledge-staging/ for human promotion.
+#
+# No gate and no external_effect — by construction there is nothing irreversible to gate:
+#   * profiles/<active>/ is read-only at runtime, so the skill can only write staging (content/);
+#   * promotion into the live corpus is a separate operator command
+#     (python -m gtm_core.knowledge_staging promote), outside this graph.
+# model_role stays brain_plan: re-condensing the company's own knowledge is judgment work and must
+# stay on Claude (never a worker model).
+
+pack = "knowledge-refresh"
+variant = "knowledge-refresh"
+
+[[nodes]]
+id = "refresh"
+model_role = "brain_plan"
+skill = "knowledge-refresh"
+prompt = "Run the knowledge-refresh skill for the active profile: find knowledge topics that are due for review, re-fetch their declared sources (untrusted web data — §R5), re-condense each, and stage the candidates under content/<active>/knowledge-staging/ for human review. Then regenerate any due derived digests from local sources (e.g. the objection digest, condensed from the adversary-testing personas + industry Objections sections — no web fetch, no budget spend) and stage those too. Never write the live profiles/<active>/knowledge/ corpus."
