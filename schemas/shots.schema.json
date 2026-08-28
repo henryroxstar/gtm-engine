@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/shots.schema.json",
+  "title": "ShotList",
+  "description": "A long-form video's shot-by-shot script \u2014 <slug>.shots.json, written by video-script and read by video-render. Written only for a multi-shot request past one clip's ~5-15s ceiling (Phase E); a normal single-clip short never has one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_item",
+    "total_duration_s",
+    "style_scaffold",
+    "shots"
+  ],
+  "properties": {
+    "source_item": {
+      "type": "string",
+      "description": "The ContentItem id from the plan."
+    },
+    "hook_id": {
+      "type": "string",
+      "description": "Stable id from hook-matrix.md, copied from the source ContentItem for attribution. Optional."
+    },
+    "synthetic_disclosure": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Declares that the finished render will carry the tenant's synthetic-media disclosure line (BRAND.toml [disclosure].line), per EU AI Act Art. 50. Optional, and a DECLARATION only \u2014 the binding checks that the text is present and matches the tenant's configured line live in gtm_core.video_finish (plan time) and agent/publish.py:validate_disclosure (the gate). Its effect here is that the presenter role resolves an engine: gtm_core/render_engines.toml binds it to heygen_avatar, which carries requires_disclosure=true and so serves DISCLOSED renders only. Omit it and a speaking presenter shot fails the lint before any spend, which is the closed default."
+    },
+    "total_duration_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "style_scaffold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "look",
+        "provider_model"
+      ],
+      "properties": {
+        "look": {
+          "type": "string",
+          "description": "Written once \u2014 what stays constant across every shot (grade, depth of field, camera character). Seeded from the brand kit's [imagery].style when the kit carries one."
+        },
+        "provider_model": {
+          "type": "string",
+          "description": "The video model id every shot renders through."
+        },
+        "negative": {
+          "type": "string",
+          "description": "Plain nouns/short noun phrases to exclude (never 'no X' phrasing here \u2014 the render recipe decides whether this rides a negative param or a trailing exclusion block). Seeded from the brand kit's [imagery].negative plus per-script additions."
+        }
+      }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "n",
+          "duration_s",
+          "camera",
+          "motion_prompt",
+          "visual"
+        ],
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based shot order."
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "camera": {
+            "type": "string",
+            "description": "From this beat's [CAMERA] tag \u2014 never omitted, never inferred."
+          },
+          "motion_prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action \u2014 what the SUBJECT does, varying per shot even under one style_scaffold. Distinct from `camera`, which is what the LENS does; a motion_prompt that restates the camera move leaves the subject with nothing to do. REQUIRED since 2026-08-19: this field was optional and every shot of the 2026-08-18 asset omitted it, so the model received a start frame and a camera note with no action and rendered a person sitting still \u2014 V9 found 3 of 6 shots motionless across 47% of the runtime."
+          },
+          "visual": {
+            "type": "string",
+            "description": "The scene."
+          },
+          "spoken": {
+            "type": "string",
+            "description": "This beat's [SPOKEN] line verbatim, or omitted/empty if the beat is silent."
+          },
+          "lighting": {
+            "type": "string",
+            "description": "This shot's lighting when it differs from the scaffold look \u2014 direction and quality ('single soft key from camera left'), stated positively."
+          },
+          "lens": {
+            "type": "string",
+            "description": "Lens/optics character when it matters ('shallow depth of field', '35mm feel', 'macro'). Omit to inherit the scaffold look."
+          },
+          "wardrobe": {
+            "type": "string",
+            "description": "The intended wardrobe, stated explicitly whenever the identity anchor's source photos might carry a different one \u2014 wardrobe is prompt text, not luck."
+          },
+          "expression": {
+            "type": "string",
+            "description": "The on-camera facial expression/energy for THIS beat, stated positively and varying with the beat's narrative function (curiosity at a setup, a wry or surprised beat at a reveal, gravity at a stakes moment, warmth at a payoff) \u2014 required for a presenter shot in a narrative/educational script unless the beat is genuinely neutral. A single blanket adjective (e.g. 'calm') reused across every shot is the documented failure mode: it renders as flat or disengaged even when the words are right, because 'calm' describes prose tone, not a face. Expression is prompt text, not luck, the same lesson wardrobe already carries."
+          },
+          "stability": {
+            "type": "string",
+            "description": "What must not change across this shot, stated positively ('wardrobe, framing, and background stay exactly as the start frame')."
+          },
+          "sfx": {
+            "type": "string",
+            "description": "Diegetic sound cues for a native-audio model ('SFX: pen tap, room tone'), or omitted. Ignored by models without generated audio; VO still comes from `spoken`."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "presenter",
+              "broll",
+              "screen"
+            ],
+            "default": "presenter",
+            "description": "presenter = the trained identity anchor is on-camera and lip-sync applies (the historical, and default, shape). broll/screen = NOT the presenter \u2014 video-render skips the identity anchor AND the lip-sync check entirely for this shot; a b-roll or screen-capture insert has no face to anchor or sync. Omitting this field means presenter, so every shot written before this field existed keeps its historical behavior unchanged."
+          },
+          "vo_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Measured length of this shot's rendered VO, in seconds. Written by video-render once the VO exists. When present it REPLACES the word-count estimate in gtm_core.shots_lint's parity check, which then applies the same tail/atempo ceilings gtm_core.video_finish.mux enforces \u2014 the estimate band spans two TTS engines (2.76-3.51 words/sec) and is too wide to adjudicate a single integer duration."
+          },
+          "audio_bed": {
+            "type": "string",
+            "description": "What this shot SOUNDS like when nobody is speaking in it \u2014 room tone, a music cue, an SFX. Required by gtm_core.shots_lint on any shot with no `spoken` line, because a shot with neither is silent and a run of them is what makes a finished film read as broken (2026-08-28: 39% of three-questions-p1 was digital silence, and no gate had an opinion). Distinct from `sfx`, which is a diegetic cue handed to a native-audio MODEL; this is a direction for the finishing mix. Deliberate silence is legitimate and is declared as \"silent \u2014 <why>\": only the reason separates it from the accidental kind."
+          }
+        }
+      }
+    },
+    "deliverable_ratios": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "9:16",
+          "16:9",
+          "4:5",
+          "1:1"
+        ]
+      },
+      "minItems": 1,
+      "description": "Which delivery ratios this shot list is cut for. Read by gtm_core.shots_lint against each identity binding's native source pixels: a portrait look rendered into a 16:9 frame leaves ~32% real picture and fills the rest with a scaled copy of itself."
+    },
+    "identity_bindings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "avatar_look_id": {
+            "type": "string"
+          },
+          "source_px": {
+            "type": "string",
+            "description": "The look's NATIVE pixel dimensions, e.g. '1920x1080 landscape'."
+          }
+        }
+      },
+      "description": "Per-role record of which identity/look each speaking part resolved to, and at what native resolution. The resolution is the part that is checkable before any spend."
+    }
+  }
+}

@@ -1,0 +1,146 @@
+# PII-check allowlist — the SINGLE source of truth for "this address identifies nobody".
+#
+# Consumed by BOTH:
+#   - tests/lint/pii_check.py        (pre-commit + CI: blocks a real contact at commit time)
+#   - scripts/oss-export.sh          (release gate: blocks a real contact reaching the public cut)
+# Keeping one file avoids the drift footgun that has bitten the SHIPPING_DOCS /
+# EXPECT_SKILLS_PUBLIC mirrors repeatedly — never copy these values into a second list.
+#
+# WHY THIS EXISTS. Prospecting features are written against real, messy data, so the
+# tempting fixture is the row that actually broke the parser — a real person at a real
+# company, pulled from a live RocketReach/Apollo run. That shipped to the public repo in
+# v0.8.0 (see CHANGELOG 0.9.1). The de-brand token lint cannot catch it: the tenant's name
+# is absent, so every gate passes. Hence a rule about OTHER people's identities.
+#
+# THE RULE. An email address in the shippable source surface must be provably non-real:
+#   - an RFC-2606 reserved domain  (*.example, *.invalid, *.test, *.localhost, example.com)
+#   - a single-letter placeholder  (a@x.com, b@y.com)
+#   - a fictional domain declared below
+#   - a full address declared below
+# Anything else is treated as a real person until a human says otherwise.
+#
+# ADDING AN ENTRY. Prefer inventing a new .example domain over allowlisting a real one.
+# Only add a real domain when it is a vendor/protocol shape with no person attached
+# (an API host, a BCC ingest address), and say why on the comment line above it.
+# NEVER add a free-mail domain wholesale — a real prospect's gmail is exactly what this
+# gate exists to catch; pin the specific fixture address instead.
+
+[fictional-domains]
+# Generic placeholders already used across the suite.
+acme
+acmebank
+acmerobotics
+nimbuslabs
+widget
+company
+yourcompany
+work
+blocked
+allowed
+evil
+nowhere
+dossiered
+nodossier
+tierbco
+compiler
+analytical
+# Fictional university, for the one shape .example can't stand in for: the
+# academic-domain gate (gtm_core.account_integrity) matches on a real `.edu`/`.ac.xx`
+# suffix, so its test fixtures need a domain that actually carries one.
+riverbend
+# Fictional companies introduced when real prospects were removed (v0.9.1).
+summitline
+brightpath
+forgeworks
+eastvale
+medipath
+cascade
+devtrial
+wavelet
+wideloop
+seniorpath
+datacore
+relay
+# Fictional vendors replacing the tenant's real competitive watchlist (v0.9.1).
+northwind
+halyard
+cirrus
+
+[known-good-addresses]
+# Placeholder-person LinkedIn slugs. A personal LinkedIn URL is otherwise always a finding —
+# there is no "reserved" form of one — so the standard stand-in names are pinned here.
+linkedin.com/in/jane-doe
+linkedin.com/in/janedoe
+linkedin.com/in/jane
+linkedin.com/in/john-doe
+linkedin.com/in/johndoe
+linkedin.com/in/john
+linkedin.com/in/someone
+linkedin.com/in/your-profile
+linkedin.com/in/firstname-lastname
+linkedin.com/in/your-handle
+# Publish identity — the maintainer, published on purpose.
+register.henry@gmail.com
+# Vendor/protocol shapes: an API host or ingest address, no person attached.
+noreply@
+@anthropic.com
+@apollo.io
+# Sentry DSNs are host-shaped ("public@<org>.ingest.sentry.io"), not addressed to anyone.
+sentry.io
+bcc.hubspot.com
+git@github.com
+# Documentation placeholders that read as addresses.
+first.last@
+@domain.com
+exec@mail.other.com
+# The one free-mail RULE-INPUT fixture: tests/test_merge_hygiene.py asserts the
+# "email-freemail" rule fires, which needs a literal free-mail domain. Pinned as a full
+# address so a genuine prospect's gmail still fails the gate.
+chris@gmail.com
+
+[fixture-url-domains]
+# URL hosts allowed inside tests/ (suffix match: an entry covers its subdomains).
+# The rule this feeds exists because a real practitioner's blog domain — carrying their
+# verbatim published words — shipped as a parser fixture on 2026-08-11: no email, no
+# tenant token, so every other gate passed it. Inside tests/, any http(s) host must be
+# RFC-2606-reserved, a declared fictional domain, or listed here.
+# ADDING AN ENTRY: only vendor APIs, public infrastructure, or standards bodies — shapes
+# with no person attached. A blog, newsletter, or personal site is exactly what this
+# section must never hold; fictionalize the fixture onto .example instead.
+# Vendor APIs the code under test actually calls (mocked in tests, never fetched):
+anthropic.com
+apollo.io
+calendly.com
+deepseek.com
+rocketreach.co
+vibeprospecting.ai
+explorium.ai
+s3.amazonaws.com
+googleapis.com
+# Higgsfield's result CDN — vendor infrastructure, no person attached (gtm_core/media_fetch.py's
+# host allowlist; fixtures use it in tests/test_media_fetch.py).
+cloudfront.net
+# Reap's user-upload S3 bucket (and the sibling-bucket NEGATIVE fixture asserting a pinned
+# allowlist does not admit the provider's whole namespace). Vendor storage infrastructure, no
+# person attached — gtm_core/reap_upload.py's ALLOWED_UPLOAD_HOSTS, tests/test_reap_upload.py.
+amazonaws.com
+# Search engines, as the NEGATIVE fixture for gtm_core.signal_record's
+# `signal-source-is-search` rule: a results page is where research went looking, not the
+# source that carries the fact, and it returns something different next month. A search
+# host has no person attached; the fixtures assert the URL is REJECTED.
+google.com
+bing.com
+duckduckgo.com
+# Public infrastructure / standards bodies / platform hosts used as inert URL shapes:
+github.com
+githubusercontent.com
+json-schema.org
+sec.gov
+linkedin.com
+lnkd.in
+# Provider CDN hosts pinned in gtm_core/media_fetch.py's egress allowlist. They appear in
+# tests/test_media_fetch.py as the positive and negative controls for that allowlist — a
+# vendor's own infrastructure, identifying no person. resource2 is listed because the test
+# asserts it is REFUSED (the negative control that distinguishes a per-host pin from a
+# *.heygen.ai wildcard), so it must stay spellable in the fixture.
+heygen.ai

@@ -1,0 +1,50 @@
+# packs/creator/inputs.toml — information requirements (§5's two-class inputs).
+#
+# settings -> PROFILE.md, resolved by key. knowledge -> the knowledge/ corpus, resolved by topic
+# via gtm_core.paths.resolve_knowledge_file (product-first, profile-fallback). Never flatten
+# knowledge into PROFILE.md keys.
+#
+# The brand kit (BRAND.toml) is deliberately NOT declared here. It is not a knowledge topic
+# resolved by this mechanism — it is read through gtm_core.brandkit, which merges a product kit
+# over a company kit per key, and a pack that has no kit still runs (the skills degrade and say
+# so). Declaring it as a required topic would make the whole pack fail closed on a file whose
+# absence is survivable.
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = true
+
+[[settings]]
+key = "monthly_tool_budget_usd"
+source = "ask"
+required = true          # this pack spends render credits; the cap is not optional
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "audience-psychology"
+required = true          # short-form lives or dies on the first three seconds
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "content-priority"
+required = false         # supplies the journey/goal/cadence mixes; absent = plan as before
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "social-tuning"  # content-plan's per-platform objective read; retention-rubric Part B too
+required = false         # absent = objective unknown, say so rather than guessing (rubric's own rule)
+freshness = "evergreen"
+
+# `company` and `product` were declared here but read by NO creator-pack node skill (checked
+# against docs/knowledge-usage.md) — a required 90d-freshness topic nothing consumes just fails
+# pack readiness on an unused file. Removed 2026-08-15; re-add only alongside a node that reads it.

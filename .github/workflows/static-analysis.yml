@@ -1,0 +1,235 @@
+name: static-analysis
+
+# Python static analysis for the GTM Content OS: Ruff (lint + format), Bandit
+# (security), and Semgrep (custom security invariants + registry deep-scan).
+#
+# Split by design (see docs/RULES.md §R6–R8):
+#   FAST lane  — ruff / bandit / pip-audit / semgrep-invariants run on every PR,
+#                including feature PRs into dev, so regressions surface early.
+#   ROBUST gate — semgrep-deep (registry rulesets p/python + p/security-audit)
+#                 runs ONLY for main (PRs into main, pushes to main).
+#
+# Trigger shape — PR-driven, exactly-once (2026-08-22). Previously this listed
+# `push: [main, dev, claude/**]` AND `pull_request: [main]`, so a push to dev with
+# the long-lived dev→main PR open ran all six jobs TWICE (17 check runs on PR #171
+# for 11 distinct checks — ~35% of the runner minutes wasted, and a duplicated
+# `semgrep (deep)` reporting both `pass` and `skipping` in the same PR UI).
+# Ref-keyed concurrency cannot collapse the pair: a push is refs/heads/dev while
+# its PR is refs/pull/N/merge, so the two never share a group. Dropping the push
+# lane for non-main branches is what makes it exactly-once; feature branches keep
+# their fast feedback via `pull_request: [dev]`, which `auto-pr-claude-branches.yml`
+# opens (`--base dev`) immediately after the first push.
+#
+# ci.yml now carries the same shape; the two stay separate because this file also
+# runs the main-only deep scan and ci.yml carries the ffmpeg/Postgres-backed tiers.
+#
+# PR AUTHORSHIP (2026-08-24, resolved). `claude/** → PR into dev` initially did
+# NOT get a `pull_request` run: the PR was opened by `auto-pr-claude-branches.yml`
+# with GITHUB_TOKEN, authored by `app/github-actions`, and GitHub parks such a
+# PR's `opened` run in `action_required` pending a maintainer click — proven on
+# PR #175 (runs 32653580453/32653580460, `action_required`, 0s, zero jobs). Fixed
+# by minting an installation token from a repo-scoped GitHub App in
+# auto-pr-claude-branches.yml; App-authored PRs are not gated. Verified on
+# PR #177: `opened` run completed `success` with real job durations (runs
+# 32655744480/32655744505). A `claude/**` push fallback lane
+# briefly covered the gap (PR #175 → #176) and was removed once the App path was
+# confirmed live — reintroducing it would resurrect the double-run tradeoff the
+# 2026-08-22 shape removed. If `auto-pr-claude-branches.yml`'s AUTOPR_APP_ID
+# variable or AUTOPR_APP_PRIVATE_KEY secret is ever removed, this hole reopens.
+#
+# Security: no job interpolates untrusted event input into a run: block — the only
+# ${{ }} expressions used are github.base_ref / github.ref / github.workflow.
+# `base_ref` is a branch name validated by GitHub (a ref, never free text) and is
+# used only in an `if:` condition, never inside a run: block.
+# Secrets: none. All tools read source from the checkout. Pins mirror
+# pyproject.toml ([project.optional-dependencies] lint) and .pre-commit-config.yaml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, dev]
+
+# Least privilege: read-only token. No job writes to the repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: static-analysis-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Ruff (lint + format check) — FAST, all branches ─────────────────────────
+  ruff:
+    name: ruff (lint + format)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install ruff
+        run: python -m pip install --upgrade pip && pip install ruff==0.15.18
+
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+  # ── Bandit (security linter) — FAST, all branches ───────────────────────────
+  bandit:
+    name: bandit (security)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install bandit
+        run: python -m pip install --upgrade pip && pip install "bandit[toml]==1.9.4"
+
+      - name: bandit (medium+ severity & confidence)
+        # -ll raises the severity floor to MEDIUM+, -ii the confidence floor to
+        # MEDIUM+. Config (skips, excludes) lives in pyproject.toml [tool.bandit].
+        run: bandit -c pyproject.toml -r agent backend cockpit gtm_core mcp_server -ll -ii
+
+  # ── pip-audit (dependency CVE scan) — FAST, all branches ────────────────────
+  # Scans the locked runtime dependencies (uv.lock) against the PyPI/OSV advisory
+  # DB (NIST RA-5; OWASP ASI04 supply chain). Fails on ANY known vulnerability not
+  # explicitly triaged — no WARN-only lane (matches the repo's "QA must escalate"
+  # discipline). Because Dependabot can introduce a fresh, third-party CVE disclosure
+  # at any time (not just from a change in this repo), a specific CVE can be accepted
+  # via .github/pip-audit-ignore.txt instead of a blanket skip or disabling the gate —
+  # see that file for the format. Each entry carries a mandatory expiry date; once it
+  # passes, this job fails again until a human re-triages, so an accepted CVE can never
+  # silently become a permanent suppression. Runs against the exact locked versions via
+  # `uv run`, so it audits what actually ships, not a re-resolved set.
+  pip-audit:
+    name: pip-audit (dependency CVEs)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install uv
+        run: python -m pip install --upgrade pip && pip install uv==0.10.10
+
+      - name: sync locked dependencies
+        # --frozen: fail if uv.lock is stale vs pyproject.toml (also a lockfile-drift gate).
+        run: uv sync --frozen
+
+      - name: pip-audit (fail on any known CVE not explicitly triaged)
+        # No untrusted input: reads only the checked-in ignore file (local), never
+        # ${{ github.event.* }}.
+        run: |
+          set -eu
+          IGNORE_FILE=".github/pip-audit-ignore.txt"
+          TODAY=$(date -u +%Y-%m-%d)
+          ARGS=()
+          if [ -f "$IGNORE_FILE" ]; then
+            while read -r id expires reason; do
+              [ -z "${id:-}" ] && continue
+              case "$id" in \#*) continue ;; esac
+              if [ -z "${expires:-}" ] || [ -z "${reason:-}" ]; then
+                echo "::error::pip-audit-ignore entry for $id is missing an expiry date or reason"
+                exit 1
+              fi
+              if [[ "$expires" < "$TODAY" ]]; then
+                echo "::error::pip-audit-ignore entry for $id expired on $expires — re-triage required (reason: $reason)"
+                exit 1
+              fi
+              echo "Accepting $id until $expires: $reason"
+              ARGS+=(--ignore-vuln "$id")
+            done < "$IGNORE_FILE"
+          fi
+          uv run --with pip-audit==2.10.1 pip-audit "${ARGS[@]}"
+
+  # ── Security self-assessment freshness — FAST, advisory ─────────────────────
+  # The self-assessment is the recurring risk-assessment artifact (NIST CA-7 / RA-3);
+  # a stale one silently drifts from reality. This is a WARNING (not a gate): the doc
+  # is event-driven, so an old timestamp is a nudge to re-review, not a build failure.
+  # No untrusted input: the run: block reads only `git log`/`date` (local), never a
+  # ${{ github.event.* }} field.
+  assessment-freshness:
+    name: assessment freshness (advisory)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # need history for the last-commit date of the doc
+
+      - name: warn if the self-assessment is older than 90 days
+        run: |
+          DOC="docs/SECURITY-SELF-ASSESSMENT.md"
+          # The self-assessment is a private-tree doc: it is not in the OSS carve's
+          # SHIPPING_DOCS, so in a public cut this job has nothing to date. Skip
+          # rather than warn on every run about a file that is absent by design.
+          if [ ! -f "$DOC" ]; then echo "$DOC not present — skipping."; exit 0; fi
+          LAST=$(git log -1 --format=%ct -- "$DOC")
+          if [ -z "$LAST" ]; then echo "::warning::$DOC has no git history"; exit 0; fi
+          NOW=$(date -u +%s)
+          DAYS=$(( (NOW - LAST) / 86400 ))
+          echo "Last touched $DAYS days ago."
+          if [ "$DAYS" -gt 90 ]; then
+            echo "::warning file=$DOC::Security self-assessment is $DAYS days old (>90) — re-review and re-date it."
+          fi
+
+  # ── Semgrep custom invariants — FAST, all branches, offline ─────────────────
+  semgrep-invariants:
+    name: semgrep (gtm invariants)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install semgrep
+        run: python -m pip install --upgrade pip && pip install semgrep==1.167.0
+
+      - name: semgrep (custom rules, offline)
+        run: semgrep scan --config .semgrep/ --error --metrics=off --disable-version-check
+
+  # ── Semgrep registry deep-scan — ROBUST, main gate only ─────────────────────
+  # Heavier (downloads + runs hundreds of registry rules). Gated to main so
+  # feature/dev work stays fast. Includes the custom rules too.
+  # The guard tests base_ref, NOT event_name: once `pull_request` includes dev
+  # (2026-08-22), the old `event_name == 'pull_request'` would have pulled this
+  # ~75s scan into every claude/**→dev feature PR — the opposite of "main gate".
+  # base_ref is set only on pull_request (the TARGET branch) and is empty on push,
+  # where the second clause matches refs/heads/main instead.
+  semgrep-deep:
+    name: semgrep (deep — main gate)
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: install semgrep
+        run: python -m pip install --upgrade pip && pip install semgrep==1.167.0
+
+      - name: semgrep (registry + custom)
+        run: >-
+          semgrep scan
+          --config p/python
+          --config p/security-audit
+          --config .semgrep/
+          --error --metrics=off --disable-version-check

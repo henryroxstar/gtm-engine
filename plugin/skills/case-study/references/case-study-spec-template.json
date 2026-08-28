@@ -1,0 +1,112 @@
+{
+  "_comment": "Reference template only — not rendered as-is. Copy the blocks into a fresh <work_dir>/case-study-spec.json, fill every [bracket], drop the page-2 blocks for --onepager, drop the front-half-only blocks for --onepager, then render with the committed python-docx renderer: uv run python \"${CLAUDE_PLUGIN_ROOT}/skills/account-dossier/scripts/render_dossier_pydocx.py\" <work_dir>/case-study-spec.json <out>.docx . Block vocabulary and field names come from that renderer — banner{account,subline,meta}, callout{lines,variant}, heading{text}, paragraph{text}, facts_table{rows:[[label,value]]}, table{header,rows}, two_col{leftTitle,rightTitle,left,right}, sources{external:[{text,url}], internal:[string]}, spacer, pagebreak. Note the asymmetry in `sources`: external entries are OBJECTS with text+url, internal entries are plain strings. Section numbering and the banned-pattern list live in case-study-structure.md. Titles must match the evidence tier: Case Study (deployed) / Pilot Story (pilot) / Solution Story (design-stage).",
+  "brand": {
+    "bg": "[resolved bg hex from PROFILE.md brand_palette — omit the whole brand object to take the renderer defaults]",
+    "accent1": "[resolved accent1 hex]",
+    "accent2": "[resolved accent2 hex]",
+    "accent3": "[resolved accent3 hex]",
+    "textOnDark": "#FFFFFF",
+    "font": "[resolved brand font]"
+  },
+  "closingLine": "[Approval status — e.g. 'Draft — pending [Customer] approval. Not for external distribution.' Replace with the cleared line only once the operator confirms sign-off.]",
+  "blocks": [
+    {
+      "type": "banner",
+      "account": "[Headline — the CUSTOMER's outcome, customer as the grammatical subject. Deployed/Pilot: 'How [Customer] [verb-past] [outcome]'. Design-stage: 'How [Customer] is [verb-ing] [outcome]'. Never 'We helped…'.]",
+      "subline": "[Industry] · [Region] · [Company size] · [Product]",
+      "meta": "[Month DD, YYYY]  ·  [TIER BADGE: 'Case study — deployed' | 'Pilot story' | 'Solution story — modeled outcomes']"
+    },
+    {
+      "_note": "Results strip — ONE row, three columns. Measured: this single-row form buys ~40 more prose words on page 1 than the same three metrics as a 3-row facts_table. Put the basis on a second line inside the cell with \\n.",
+      "type": "table",
+      "header": ["[Metric 1 label, ≤6 words]", "[Metric 2 label]", "[Metric 3 label]"],
+      "rows": [
+        ["[Number]\n[basis: measured | customer-reported | modeled | (~unverified~)]", "[Number]\n[basis]", "[Number]\n[basis]"]
+      ]
+    },
+    { "type": "heading", "text": "Why now" },
+    {
+      "type": "paragraph",
+      "text": "[One paragraph: the industry shift that makes a lookalike buyer feel the same pressure — regulatory deadline, category shift, cost pressure, new class of risk. Anchor it with ONE sourced, dated stat. This comes before the customer's own problem so the reader recognises their own situation first.]"
+    },
+    { "type": "heading", "text": "The challenge" },
+    {
+      "type": "paragraph",
+      "text": "[What broke, in the customer's own vocabulary. Concrete and specific: the manual process, the volume, the risk, the cost, the person doing it. No product language yet.]"
+    },
+    {
+      "type": "callout",
+      "variant": "info",
+      "lines": [
+        "[What they tried first, and why it failed. One short paragraph naming the alternative approach and the concrete reason it didn't hold. Highest credibility per word in the document — do not omit it.]"
+      ]
+    },
+    { "type": "heading", "text": "The solution" },
+    {
+      "type": "paragraph",
+      "text": "[What was deployed — or, design-stage, what was designed — in 3-5 concrete steps as a sequence of what happens. Name the components. Plain English a reader outside the category can follow. State what made this different from the alternative above. NOT a feature list.]"
+    },
+    { "type": "heading", "text": "[The outcome | Expected outcome — use 'Expected outcome' for design-stage]" },
+    {
+      "type": "paragraph",
+      "text": "[The quantified result expanded from the strip: baseline → after → delta → measurement window. Design-stage: show the baseline AND the assumption inline, in conditional tense. Close with ONE qualitative outcome — what changed for an actual person.]"
+    },
+    {
+      "type": "callout",
+      "variant": "angle",
+      "lines": [
+        "“[Verbatim quote about the change, not about the vendor. If you do not have it: [QUOTE PENDING — request from <name>, <title>] — never compose a substitute.]”",
+        "— [Name], [Title], [Customer]"
+      ]
+    },
+    {
+      "_note": "NO pagebreak block here — deliberate, and verified. An explicit pagebreak emits a BLANK page between the two halves (measured: 3 pages with it, 2 without, at identical content). Let the content flow; the front/back split below is a length budget, not a forced break.",
+      "type": "heading",
+      "text": "How it works"
+    },
+    {
+      "type": "table",
+      "header": ["Step", "What happens"],
+      "rows": [
+        ["1", "[Concrete step — enough that an engineer can tell it's real, not so much that it becomes the solution design.]"],
+        ["2", "[…]"],
+        ["3", "[…]"],
+        ["4", "[…]"]
+      ]
+    },
+    { "type": "heading", "text": "Why [Customer] chose [brand_name]" },
+    {
+      "type": "paragraph",
+      "text": "[The alternatives genuinely considered and the deciding factor. Naming a real alternative is what makes this credible — if no alternative was considered, cut this section rather than padding it.]"
+    },
+    { "type": "heading", "text": "What's next" },
+    {
+      "type": "paragraph",
+      "text": "[The expansion path, in the customer's words where possible — proves the deployment stuck. For design-stage, this is the V1 → V2 cut from the solution design.]"
+    },
+    {
+      "type": "callout",
+      "variant": "info",
+      "lines": [
+        "This applies to you if…",
+        "• [Condition a reader can test against their own situation — not a benefit restated.]",
+        "• [Second condition.]",
+        "• [Third condition.]"
+      ]
+    },
+    { "type": "heading", "text": "Evidence & sources" },
+    {
+      "type": "table",
+      "header": ["Claim", "Number", "Basis", "Source & date"],
+      "rows": [
+        ["[Claim 1]", "[Number]", "[measured | customer-reported | modeled | (~unverified~)]", "[Source, DD Mon YYYY]"],
+        ["[Claim 2]", "[Number]", "[basis]", "[Source, DD Mon YYYY]"],
+        ["[Claim 3]", "[Number]", "[basis]", "[Source, DD Mon YYYY]"]
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "[One plain sentence stating the tier — e.g. 'Outcomes are modeled from the current-state baseline captured in discovery on [date]; the solution has not yet been deployed.' External sources go in the table's Source & date column above; a separate `sources` block would duplicate it and costs page-2 room the story needs.]"
+    }
+  ]
+}

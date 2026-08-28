@@ -1,0 +1,53 @@
+# packs/creator/graphs/demo-clips.toml
+#
+# The demo-clips lane (Phase C). Fourth variant
+# in this pack — pack-layer only, zero engine change.
+#
+# NO RADAR NODE, DELIBERATELY, same reasoning as restyle-shorts.toml: the source is a screen
+# recording the operator already captured, not a signal to discover.
+#
+# NO FINISH NODE, DELIBERATELY: Reap owns finishing for this lane (captions, reframe, export all
+# happen inside create_clips) — a second finishing pass here would double-caption exactly the
+# failure short-form-video.toml's own finish node exists to prevent.
+#
+# TWO GATES BEFORE SCORE, DELIBERATELY. "plan" approves editorial intent (which footage, which
+# platform). "capture" is a SEPARATE gate approving the actual egress action — uploading real
+# bytes to Reap's servers is a more consequential, specific decision than approving intent, and
+# collapsing the two would mean the operator never explicitly approves the exact file about to
+# leave the machine. `external_effect` stays unset on "capture": in this codebase that field means
+# "reaches an audience" (see content-publish's `external_effect="publish"`), and uploading footage
+# to a private processing pipeline is not that — setting it would be a lie the loader would accept.
+
+pack = "creator"
+variant = "demo-clips"
+
+[[nodes]]
+id = "plan"
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill for the demo-clips lane, planning from the operator's OWN screen recording and stated intent — not from a radar digest, which this variant does not run. Confirm at this gate: which footage (already on disk under content/<active>/video/demo/<slug>/raw/), the target platform, and the clip angle. Present for approval."
+
+[[nodes]]
+id = "capture"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "demo-capture"
+gate = true
+prompt = "Run the demo-capture skill on the approved footage. This node holds BOTH the upload egress decision and the create_clips spend — stay on brain_plan. Get explicit approval on the exact source file before minting an upload URL or touching the network (a separate gate from 'plan', which only approved intent). Upload ONLY through gtm_core.reap_upload, piping the raw request_upload_url tool result on stdin. Treat a create_clips response carrying plannedSettings with no project id as a confirmation request, never a completed job."
+
+[[nodes]]
+id = "score"
+depends_on = ["capture"]
+model_role = "brain_radar"
+skill = "video-score"
+prompt = "Run the video-score skill on the captured clip(s). The virality predictor is Higgsfield's tool and a Reap clip id will not resolve in that id-space — score on retention-rubric Part B alone and say so plainly, per video-score's own documented handling of an unresolvable id; do not re-render to manufacture one."
+
+[[nodes]]
+id = "publish"
+depends_on = ["score"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the recommended clip's caption as the text post — content-publish is text-only; the clip itself is shared manually by the operator via its Reap viewInReapUrl link (say so in the report). Publishing is not a capability the brain holds: the exact bytes go inside the publish gate block and Python makes the call only after the operator approves. Never attach the clip as media, and never name a destination account."

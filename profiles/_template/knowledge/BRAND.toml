@@ -1,0 +1,115 @@
+# BRAND.toml — the brand kit contract (TEMPLATE)
+#
+# Copy to profiles/<your-profile>/knowledge/BRAND.toml and fill in. Every value here is a
+# placeholder; none of it is a recommendation.
+#
+# WHAT THIS FILE IS FOR
+#   Consistent branding as a LOOKUP instead of a discipline. Skills and render prompts read
+#   values from here, so an asset is on-brand by config rather than by remembering to prompt
+#   for it.
+#
+# HOW IT RESOLVES
+#   python -m gtm_core.brandkit --profile <p> [--product <slug>] [--key palette.primary]
+#
+#   knowledge/BRAND.toml            company level  (this file)
+#   products/<slug>/BRAND.toml      product level  — MERGES OVER the company file, per key
+#
+#   Unlike every other knowledge file, the product kit does NOT replace the company kit: it
+#   contributes deltas. A product overriding [palette].primary keeps the company's canvas and
+#   rule. So a product kit should carry ONLY what genuinely differs. (Lists are replaced whole,
+#   not concatenated.)
+#
+#   ⚠ IN A PRODUCT KIT, PRESENT-BUT-EMPTY IS AN OVERRIDE, NOT "INHERIT".
+#     soul_id = ""   in a product kit BLANKS the company's soul_id — which is usually what you
+#     want for a fictional product character that must not render a real person's face. To
+#     inherit instead, OMIT the key entirely. Copying this whole template into a product kit
+#     and leaving the stubs empty will silently blank every company value.
+#
+# ⚠ THE FILENAME MUST STAY FLAT
+#   gtm_core.paths._safe_segment rejects any resolved filename containing "/" — the tenant
+#   traversal guard, which protects against the highest-risk error in this system. There is no
+#   knowledge/brand/BRAND.toml; it raises ValueError. Asset DIRECTORIES are fine, because they
+#   are referenced by path from inside this file rather than resolved through the helper.
+#
+# ⚠ SCOPE — one home per fact
+#   This file governs the SOCIAL / GENERATED-RENDER surface only: images, short-form video,
+#   carousels, infographics. DECK palettes and deck typography belong to brand-notes.md. Link
+#   to it from here; never restate it. Two files describing one palette is how brands drift.
+
+[meta]
+source          = "manual"          # or "derived: <where>, read <date>"
+refreshed       = "YYYY-MM-DD"
+review          = "evergreen"       # or a cadence like "90d"
+surface         = "social"
+# When a kit is derived from somewhere with more authority (a product repo's own brand file,
+# a design system), name that authority here so a future conflict is resolved rather than guessed.
+# authority     = "<the file that outranks this one>"
+
+[palette]
+# Hex strings. Role names, not colour names, so a render prompt can ask for a role.
+canvas          = "#000000"   # the ground most renders sit on
+surface         = "#111111"   # cards / raised areas
+ink             = "#FFFFFF"   # body + heading text
+primary         = "#FFFFFF"   # THE action / emphasis colour
+secondary       = "#888888"
+rule            = "#333333"   # dividers, hairlines
+
+[typography]
+display         = "<display face>"
+body            = "<body face>"
+fallback_stack  = ["system-ui", "sans-serif"]
+serif_allowed   = false       # a house rule a product kit may deliberately invert
+
+[captions]
+# Burned-in caption treatment for short-form video, read by `video-finish`.
+#
+# Omit `preset` to keep the local Pillow burn-in (deterministic, free, safe-area enforced, but
+# STATIC text only). Set it to a Reap caption-style id to route captions through Reap instead —
+# `get_caption_styles` lists the catalogue. Word-by-word motion is what short-form retention
+# actually leans on, because the text arrives in step with the speech instead of landing as a
+# block the viewer has to race:
+#   system_kinetic_typography  — bold caps, word-by-word kinetic motion
+#   system_indigo              — bold Inter on a solid block; clean, modern, SaaS
+#   system_phantom             — slide-up reveal, cinematic
+# preset        = "system_indigo"
+
+[assets]
+# Repo-relative paths. Directories are fine here — see the filename note above.
+# symbol        = "shared-assets/brands/<slug>/logos/<file>.svg"
+# wordmark      = "shared-assets/brands/<slug>/logos/<file>.svg"
+
+[imagery]
+# `style` and `negative` go straight into image/video prompts, so write them as prompt text.
+style           = "<the house look: medium, lighting, mood, texture>"
+negative        = "no text artifacts, no distorted hands, no extra fingers, no logos"
+aspect_default  = "1:1"       # 9:16 short-form vertical, 4:5 feed portrait, 16:9 landscape
+
+[identity]
+# Opaque render-identity handles. The engine takes no position on which you populate — see
+# PRD §4.1 for the trade-off (a trained identity resists drift across long series but locks
+# you to fewer models; a reference element is instant and keeps the model roster open).
+# In THIS company-level file, an empty handle just means "unset" and keeps the contract
+# visible. In a PRODUCT kit it means "blank the company's" — omit the key to inherit.
+#
+# Written by the `identity-kit` skill via `python -m gtm_core.brandkit --set identity.<key>
+# --value <v> [--note "..."]` — NOT by hand-editing this file. That CLI is the only thing
+# allowed to write under profiles/<active>/ for these five keys; it verifies the write
+# round-trips before it lands and stamps a dated `# identity-kit YYYY-MM-DD[: note]` comment
+# on the line it wrote, so the id's provenance survives in the file itself, not just a chat
+# transcript.
+soul_id               = ""
+reference_element_ids = []
+voice_id              = ""
+restyle_preset_id     = ""    # shorts-studio brand preset, created once by identity-kit (§5.7)
+consent_note          = ""    # whose likeness/voice + on what basis — own-likeness for the
+                               # operator's own twin, documented written consent otherwise.
+                               # identity-kit REFUSES to create a third-party Soul/voice clone
+                               # while this is empty (§6.2 — EU AI Act Art. 50 disclosure duty)
+
+[disclosure]
+# Required when a render carries a synthetic likeness or a cloned voice. Kept in the brand kit
+# so it cannot be forgotten per-render. Nothing in this repo ever auto-posts, so this describes
+# what a human attaches at the gate — it is not a substitute for the gate.
+required_when   = "any render containing a synthetic human likeness or cloned voice"
+line            = "<your disclosure line>"
+placement       = "caption; first comment is not sufficient"

@@ -1,0 +1,66 @@
+# packs/prospecting/graphs/prospect-outreach.toml
+#
+# The second real pack graph (E-4 generality proof), extended 2026-08-25 to run end to
+# end: prospect -> dossier -> outreach -> quality -> sequence.
+#
+# Every node stays on brain_plan — prospect lists, account dossiers, outreach drafts, and
+# rendered email bodies are all customer PII (CLAUDE.md tenant boundary), so this pack has
+# no brain_radar stage, unlike marketing's news-triage nodes.
+#
+# TWO gates, both load-bearing and deliberately NOT collapsed into one:
+#   * `outreach` — the human copy review.
+#   * `sequence` — the PII-egress confirmation before rows reach a third-party processor.
+# The `quality` node (the judge) sits between them. It RANKS and never gates: it writes a
+# verdict column, and the deterministic `account_integrity --require-verdict send` is what
+# refuses a row. A language-model check must not become a gate, and it does not replace
+# the human review at `outreach`.
+
+pack = "prospecting"
+variant = "prospect-outreach"
+
+[[nodes]]
+id = "prospect"
+model_role = "brain_plan"
+skill = "prospect"
+prompt = "Run the prospect skill for the active profile: build a target account list from the configured markets and ICP."
+
+[[nodes]]
+id = "dossier"
+depends_on = ["prospect"]
+model_role = "brain_plan"
+skill = "account-dossier"
+prompt = "Run the account-dossier skill for each prospected account."
+
+[[nodes]]
+id = "outreach"
+depends_on = ["dossier"]
+model_role = "brain_plan"
+skill = "draft-outreach"
+gate = true
+prompt = "Run the draft-outreach skill to draft outreach for each dossiered account and present it for approval before send."
+
+# --- quality + staging (added 2026-08-25) -----------------------------------
+#
+# NOTE ON THE REPAIR LOOP: the judge's re-angle -> re-draft -> re-judge cycle is
+# NOT modelled as a graph back-edge. It lives INSIDE the email-quality skill,
+# where `gtm_core.adjudication repair-queue` already enforces the three-attempt
+# cap (the CLI owns the cap, not the model). The loop is intra-node by design.
+# `revisable_from`/`max_visits` cannot be declared here at all: the loader now
+# REFUSES any such declaration (rule `unsupported_revision`), because the engine
+# has no revision-loop semantics and `pack_graph_to_engine_graph` would drop them.
+# Lift that rule only together with engine support.
+
+[[nodes]]
+id = "quality"
+depends_on = ["outreach"]
+model_role = "brain_plan"
+skill = "email-quality"
+prompt = "Run the email-quality skill in judge mode: score EVERY drafted row against the rubric, assert record count equals row count, and write a verdict per row. The judge ranks; it does not replace the human review at the outreach gate."
+
+[[nodes]]
+id = "sequence"
+depends_on = ["quality"]
+model_role = "brain_plan"
+skill = "email-sequence"
+gate = true
+prompt = "Run the email-sequence skill to stage only send-verdict rows as a PAUSED sequence in the connected sequencer. Enrolling pushes prospect PII to a third-party processor, so this node is gated. Never activate — the operator activates in the sequencer's own UI."

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/run-artifact.schema.json",
+  "title": "RunArtifact",
+  "description": "One file deliverable produced by a run — the item shape of the artifact-listing API (GET /v1/runs/{run_id}/artifacts; download at GET /v1/runs/{run_id}/artifacts/{artifact_id}). SEMANTICS (normative): an artifact is a POINTER into the workspace's content tree recorded at registration time, not an immutable snapshot — download serves the file's CURRENT bytes; sha256/size_bytes are provenance metadata from registration, and a later run that modifies the same file registers its own row. A listed artifact whose underlying file has since been removed downloads as 410 {\"detail\":{\"code\":\"artifact_gone\"}}. SECURITY: artifact_id is an opaque server-generated id — no API route ever accepts a file path from a client, and no artifact carries a URL, host, or token; clients COMPOSE the download URL from the contract route and send the Bearer header (web clients via fetch()+blob — a token MUST NEVER appear in a query string). Downloads are always Content-Disposition: attachment with X-Content-Type-Options: nosniff; clients MUST NOT render artifact bytes inline in a browser origin (agent output over untrusted inputs). rel_path is display/informational only and MUST NOT be used to construct any request. Clients MUST ignore unknown fields (additive evolution).",
+  "type": "object",
+  "required": ["artifact_id", "run_id", "name", "size_bytes", "media_type", "sha256", "created_at"],
+  "properties": {
+    "artifact_id": { "type": "string", "description": "Opaque server-generated id (UUID) — the only key a client sends back, as the download route's path segment." },
+    "run_id": { "type": "string", "description": "The run that registered this artifact." },
+    "name": { "type": "string", "description": "Display filename, e.g. 'account-dossier-acme-2026-08-09.docx'. Also the attachment filename on download." },
+    "rel_path": { "type": "string", "description": "Path relative to the workspace content tree, informational only (e.g. 'accounts/acme/account-dossier-acme-2026-08-09.docx'). NEVER sent back to the server." },
+    "size_bytes": { "type": "integer", "minimum": 0, "description": "Size at registration time." },
+    "media_type": { "type": "string", "description": "Server-assigned from an extension allowlist; 'application/octet-stream' for anything unrecognised. Never client-supplied." },
+    "sha256": { "type": "string", "description": "Content hash at registration time (provenance; not verified at download — see pointer semantics above)." },
+    "node_id": { "type": "string", "description": "Producing graph node (joins onto PackDescriptor.nodes[].id), when attributable." },
+    "created_at": { "type": "string", "description": "Registration timestamp, ISO 8601." }
+  }
+}

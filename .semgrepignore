@@ -1,0 +1,7 @@
+# Semgrep ignore — applies to ALL scans (custom rules + registry rulesets).
+#
+# Reference/documentation CLI snippets bundled with skills are not production
+# code. They are already excluded from our custom egress rule via paths.exclude,
+# but registry rulesets (p/python, p/security-audit) have no knowledge of that
+# allowlist, so we exclude them here globally.
+plugin/skills/*/references/

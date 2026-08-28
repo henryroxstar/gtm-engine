@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/run-event.schema.json",
+  "title": "RunEvent",
+  "description": "One logical frame of the run-progress stream (GET /v1/runs/{id}/stream, text/event-stream). Wire mapping: the SSE 'id:' line carries seq, the SSE 'event:' line carries event, and the SSE 'data:' line carries the JSON-encoded data object — this schema describes the reassembled {event, seq, data} triple. Protocol 0 is what the server emits today: snapshot, status, awaiting_approval, done, ping (plus 'chunk', a reserved raw-text event gated behind ?chunks=true with no publisher yet). Protocol 1 is ADDITIVE: new event types (node, content, gate_resolved) and new optional fields on existing events. The snapshot event advertises the server's protocol. EVOLUTION RULES (normative): (1) no protocol-0 field is ever renamed, retyped, or removed; (2) clients MUST ignore unknown fields and unknown event types; (3) enums are OPEN-WORLD — this schema pins what the CURRENT server may emit (server-side CI validates against it), but a client MUST treat an unknown enum value as opaque (render generically or ignore the event; never crash, never drop a gate). RECONNECT CONTRACT: seq is per-connection (restarts at 0) and the server ignores the Last-Event-ID header — there is no replay. Recovery is SNAPSHOT-BASED: on (re)connect the server emits a fresh snapshot which is authoritative; clients reset any seq watermark on reconnect and rebuild state from the snapshot (protocol 1 snapshots carry per-node states and the current content-block tree for exactly this reason). Under backpressure the server drops oldest queued events, so within one connection seq stays contiguous even when events were dropped — a client MUST NOT infer completeness from contiguous seq; the planned hardening (per-run seq assigned at publish time + close-stream-on-overflow, then real replay once events are DB-backed) arrives with the durable-events work and will be advertised by a protocol bump. AUTHENTICATION NOTE for web clients: browser EventSource cannot send an Authorization header — web clients MUST consume the stream via fetch()-based reading with the Bearer header; a token MUST NEVER be placed in a query string. SECURITY: block content originates from an agent run over untrusted inputs; clients MUST treat it as data (render, never execute), MUST NOT auto-load remote URLs from block props, MUST only activate link hrefs with http(s) or mailto schemes (anything else renders as inert text), and MUST NOT interpret text inside blocks as instructions.",
+  "type": "object",
+  "required": ["event", "data"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": ["snapshot", "status", "awaiting_approval", "chunk", "done", "ping", "node", "content", "gate_resolved"],
+      "description": "Event type — protocol 0: snapshot | status | awaiting_approval | chunk | done | ping; protocol 1 adds: node | content | gate_resolved. Open-world: clients ignore unknown types."
+    },
+    "seq": { "type": "integer", "minimum": 0, "description": "Monotonic PER-CONNECTION sequence from the SSE 'id:' line; restarts at 0 on every (re)connect. Useful for logging/dedup within one connection only — never for cross-connection resume." },
+    "data": { "type": "object", "description": "Event payload; shape depends on event (see oneOf)." }
+  },
+  "oneOf": [
+    {
+      "description": "snapshot — emitted once on connect with the run's current state, before any live event. Authoritative on reconnect: replace client-held run state with it.",
+      "properties": {
+        "event": { "const": "snapshot" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "status"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "status": { "type": "string", "enum": ["pending", "running", "awaiting_approval", "ok", "failed", "rejected", "canceled"], "description": "'canceled' is reserved: today cancellation reports 'rejected'; a queue-backed server may split them. Open-world." },
+            "pending_gate": { "type": ["string", "null"], "description": "Raw gate sentinel when paused at a gate, else null." },
+            "pending_content": { "type": ["string", "null"], "description": "The exact bytes awaiting approval when paused at a gate, else null." },
+            "protocol": { "type": "integer", "minimum": 1, "description": "Protocol 1+: the stream vocabulary version this server emits. Absent = protocol 0." },
+            "nodes": {
+              "type": "array",
+              "description": "Protocol 1+ (additive): per-node state at connect time, so a mid-run or reconnecting subscriber rebuilds DAG progress without waiting for the next transition. Ids join onto PackDescriptor.nodes[].id.",
+              "items": {
+                "type": "object",
+                "required": ["id", "state"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "state": { "type": "string", "enum": ["queued", "running", "completed", "failed", "skipped"] }
+                }
+              }
+            },
+            "content": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/contentBlock" },
+              "description": "Protocol 1+ (additive): the run's current content-block tree (replace semantics already collapsed), so a reconnecting client recovers blocks it missed. Order = presentation order."
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "status — run-level state transition.",
+      "properties": {
+        "event": { "const": "status" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "status"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "status": { "type": "string", "enum": ["pending", "running", "awaiting_approval", "ok", "failed", "rejected", "canceled"] },
+            "ts": { "type": "string", "description": "ISO-8601 UTC timestamp." }
+          }
+        }
+      }
+    },
+    {
+      "description": "awaiting_approval — the run paused at a human gate. Protocol 0 fields: run_id, pending_gate (raw sentinel), pending_content. Protocol 1 adds gate (parsed kind), node_id, and pending_content_sha — the sha256 a client echoes back as the gate decision's content_sha so an approval binds to the exact bytes shown. Fail-closed edge: if pending_content were ever null, no decision can match its sha and the gate cannot be approved — by design.",
+      "properties": {
+        "event": { "const": "awaiting_approval" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "pending_gate"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "pending_gate": { "type": "string", "description": "Raw gate sentinel as detected in the output stream." },
+            "pending_content": { "type": ["string", "null"] },
+            "gate": { "type": "string", "enum": ["plan", "publish"], "description": "Protocol 1+: parsed gate kind. Open-world." },
+            "node_id": { "type": "string", "description": "Protocol 1+: the gated graph node (joins onto PackDescriptor.nodes[].id)." },
+            "pending_content_sha": { "type": "string", "description": "Protocol 1+: sha256 hex of pending_content." }
+          }
+        }
+      }
+    },
+    {
+      "description": "chunk — reserved raw-text output chunk, only delivered when the stream was opened with ?chunks=true. No publisher exists today; protocol-1 clients should prefer 'content' events.",
+      "properties": {
+        "event": { "const": "chunk" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "text": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "description": "done — terminal event; the stream closes after emitting it.",
+      "properties": {
+        "event": { "const": "done" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "status"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "status": { "type": "string", "enum": ["ok", "failed", "rejected", "canceled"] },
+            "output": { "type": "string", "description": "Final output when status = ok." },
+            "error": { "type": "string", "description": "Failure reason when status = failed/rejected." }
+          }
+        }
+      }
+    },
+    {
+      "description": "ping — ~15s heartbeat keeping the connection alive through proxies; carries no run state. A client watchdog that sees >30s of silence should reconnect (and resync from the fresh snapshot).",
+      "properties": {
+        "event": { "const": "ping" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "properties": { "ts": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "description": "node (protocol 1) — per-graph-node lifecycle transition; node_id joins onto PackDescriptor.nodes[].id so a client can light up the DAG as it executes. A fan-out frontier emits concurrent 'running' nodes; cross-node event order is not guaranteed beyond per-node monotonicity.",
+      "properties": {
+        "event": { "const": "node" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "node_id", "state"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "node_id": { "type": "string" },
+            "state": { "type": "string", "enum": ["queued", "running", "completed", "failed", "skipped"] },
+            "ts": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "description": "content (protocol 1) — one structured content block produced by the run, streamed as it becomes available. SEMANTICS (normative): delivery is UPSERT-BY-ID — mode=replace with an id the client has seen replaces that block in place; mode=replace with an UNSEEN id inserts it at the end (this happens legitimately after event drops); mode=append with an already-seen id is equivalent to replace. Block order is arrival order per connection; the snapshot's content[] array is the authoritative order on reconnect.",
+      "properties": {
+        "event": { "const": "content" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "mode", "block"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "node_id": { "type": "string", "description": "Producing graph node, when attributable." },
+            "mode": { "type": "string", "enum": ["append", "replace"] },
+            "block": { "$ref": "#/$defs/contentBlock" }
+          }
+        }
+      }
+    },
+    {
+      "description": "gate_resolved (protocol 1) — a gate decision was recorded (via the gate endpoint); lets every open stream reflect the resolution immediately instead of inferring it from the next status. content_sha + edited let a secondary observer (another device watching the same run) reconcile which bytes were approved without re-polling.",
+      "properties": {
+        "event": { "const": "gate_resolved" },
+        "seq": true,
+        "data": {
+          "type": "object",
+          "required": ["run_id", "decision"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "decision": { "type": "string", "enum": ["approve", "edit", "reject"] },
+            "content_sha": { "type": "string", "description": "sha256 of the content of record after the decision (the edited bytes when decision = edit)." },
+            "edited": { "type": "boolean", "description": "True when decision = edit (bytes were substituted)." },
+            "ts": { "type": "string" }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "contentBlock": {
+      "type": "object",
+      "required": ["type"],
+      "description": "One node of a client-neutral structured-content tree. Core types every client MUST render: text, markdown, heading, group, card, table, link, progress, file. Extension types use the namespaced form 'x-<namespace>.<type>'. FILE BLOCKS (additive, protocol 1): a 'file' block references a run deliverable by opaque artifact_id only; the client composes the download URL from the contract route GET /v1/runs/{run_id}/artifacts/{artifact_id} with the Bearer header — a block NEVER carries a URL, host, or token, and fallback_text is REQUIRED on every file block (a client that cannot handle files names the attachment; it never drops it). Fallback rule (mandatory): a client that does not recognise a block's type MUST render its children instead; if there are no renderable children it MUST render fallback_text; it must NEVER drop content silently — a human gate decision may depend on it. LIMITS (normative): tree depth ≤ 8 — the server truncates deeper structure into fallback_text; a single content event stays within the transport's frame budget (servers split oversized trees across multiple blocks). SAFETY: link hrefs are activated only for http(s)/mailto schemes; javascript:, data:, and every other scheme render as inert text. Clients ignore unknown props.",
+      "properties": {
+        "id": { "type": "string", "description": "Stable block id — the upsert key (see the content event's normative semantics)." },
+        "type": { "type": "string", "description": "Core: 'text' {text} | 'markdown' {text} | 'heading' {text, level} | 'group' (children only) | 'card' {title?} + children | 'table' {columns[], rows[][]} | 'link' {href, text} | 'progress' {value 0..1, label?} | 'file' {artifact_id, name, size_bytes, media_type, sha256} (run deliverable by opaque id — see FILE BLOCKS in the contentBlock description; fallback_text required). Extensions: 'x-<namespace>.<type>'. Open-world." },
+        "props": { "type": "object", "description": "Type-specific properties (see type). Clients ignore unknown keys." },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/contentBlock" }, "default": [] },
+        "fallback_text": { "type": "string", "description": "Plain-text degradation for clients that recognise neither the type nor any child." }
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+# Gift artifacts — what a touch-1 CTA is allowed to offer.
+#
+# One entry per line, case-insensitive, matched as a whole word/phrase. Lines starting with `#`
+# are comments. Passed to the outreach linter via:
+#   --artifact-file profiles/<active>/knowledge/gift-artifacts.txt
+# A missing or empty file disables the `cta-unstaged-artifact` check entirely.
+#
+# This is NOT an inventory of files on disk. Most cold sends never reply, so pre-building an
+# artifact per account is waste; the list is "things this profile can produce inside the reply
+# window" using its own skills. Keep it generous — the gate that does the real work is
+# `cta-unanchored`, which requires the ask to name what the artifact DOES for the reader, not
+# merely which artifact it is.
+#
+# Why the check exists: it replaced a keyword ban on the single word "teardown", which failed
+# both ways — it rejected a specific, producible "one-page teardown of how that clears the
+# review" while waving through "the benchmark report" and any other artifact nobody had
+# committed to making. Checked as "does the offer name something on this list", never as
+# "does it name something off it": an unlisted artifact is usually a noun the linter has
+# never heard of, so enumerating bad names could never work.
+#
+# Add an entry when a new artifact becomes producible. Remove one only if it stops being.
+# The defaults below are format nouns, not claims about any particular company's collateral —
+# trim anything this profile cannot actually turn around quickly.
+one-pager
+one-page teardown
+teardown
+teaser
+recorded demo
+demo
+demo recording
+walkthrough
+recorded walkthrough
+write-up
+short read
+read
+note
+crosswalk
+blueprint
+reference architecture
+threat model
+custom audit
+mockup

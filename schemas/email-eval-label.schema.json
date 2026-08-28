@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/email-eval-label.schema.json",
+  "title": "EmailEvalLabel",
+  "description": "One operator label on one rendered email in the eval-calibration golden set (PRD 2026-08-19-email-eval-calibration.md §3.1). Binary per current LLM-eval practice — a Likert scale hides uncertainty in the middle value, which is exactly what a taste label must not do. Bound to exact rendered bytes via spec_sha256/csv_sha256, the same fingerprint convention merge_render_linter's QA record uses, so a since-edited render invalidates the label instead of silently misattributing it. Written to content/<profile>/prospects/evals/labels-<date>.jsonl (§R9 — PII stays under content/, never in code, tests, or docs).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "row_id",
+    "spec_sha256",
+    "csv_sha256",
+    "send_it"
+  ],
+  "properties": {
+    "row_id": {
+      "type": "string",
+      "description": "Stable id for this (spec, csv, email, touch) tuple — sha256(...)[:16]. Not the recipient's email itself, so the label file can be handled like any other PII-adjacent artifact without doubling as a contact list."
+    },
+    "spec_sha256": {
+      "type": "string",
+      "description": "sha256(spec bytes)[:16] at label time — a since-edited spec invalidates this label the same way it invalidates a merge_render_linter PASS."
+    },
+    "csv_sha256": {
+      "type": "string",
+      "description": "sha256(csv bytes)[:16] at label time."
+    },
+    "touch": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which touch (1-based) this label judges. Optional — a label file built before touch-level tracking existed may omit it and is assumed touch 1."
+    },
+    "fact_creates_problem": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "The dominant axis (persona-review finding: fact-to-problem fit moves scores ~3x more than copy quality). Null means 'not applicable to this row' (e.g. a fault-injected construction-only defect with no signal clause), never 'unknown' — use the note field for genuine uncertainty."
+    },
+    "fact_supports_pitch": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "True when the pitch still stands against the row's own researched fact — that fact does NOT already announce the capability the body claims is missing (persona-review class 1, self-refuting, ~14% base rate). Renamed from the retired `fact_refutes_pitch` on 2026-08-21 and INVERTED with it: it was the only sub-check where Y meant bad, so a labeler had to reverse polarity on one of four consecutive questions. A record carrying the old key is rejected, not coerced."
+    },
+    "frame_fits_seat": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "True when the body's framing (buyer vs operator, which side of the table) matches what this recipient's seat actually is (persona-review class 3, ~13% base rate)."
+    },
+    "right_person": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "True when the body's lead pain matches the seat holding it (the machine-detected `persona-lead-mismatch` class this label calibrates)."
+    },
+    "account_fit": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "The only ACCOUNT-scoped judgment on the label. True when the company is a legitimate prospect and whatever is wrong here is wrong with the EMAIL; false when this company should not be contacted regardless of what the copy says (they sell what we sell, they regulate it, they already shipped it). Null means not answered and NEVER disqualifies — the fail-safe direction, because disqualification is durable and hard to reverse while a missing answer is merely an absence of evidence. Added 2026-08-23. Before it, gtm_core.eval_writeback inferred an account judgment from the conjunction of send_it/fact_creates_problem/fact_supports_pitch, but all three are scoped to the row's own signal, so a weak-but-honest fact on a good account produced three honest falses and disqualified it. Every label file predating this field loads as null, which is why adding it needs no migration."
+    },
+    "send_it": {
+      "type": "boolean",
+      "description": "The holistic label the judge is validated against: would the operator send this to someone they respect. The only field every row must carry — it is what makes a row usable for holdout sealing and judge validation even when a sub-check is inapplicable."
+    },
+    "note": {
+      "type": "string",
+      "description": "Free text — the FIRST upstream failure only, per error-analysis practice (a causal pipeline's later symptoms are downstream of one root cause; annotating all of them just double-counts one defect). Source material for axial coding into the failure taxonomy. Empty string when send_it is true and nothing stood out."
+    },
+    "injected": {
+      "type": "boolean",
+      "description": "True when this row was drawn from the mutation-suite fault-injection stratum rather than sampled from a real list. Present only in the internal label-file record — NEVER shown on the blind labeling sheet the operator reads, and never used to bias the label itself."
+    },
+    "injected_rule": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Which RULE_CATALOGUE rule this row was crafted to trigger, when injected is true. This is the join key the rule-lifecycle report (P2) uses to ask 'does the operator's label actually penalise what this rule flags' — the evidence that turns a keep/delete decision from a fire-rate argument into a human-verified one."
+    },
+    "labeled_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of the labeling session."
+    },
+    "prefilled": {
+      "type": "boolean",
+      "description": "True when this row was rendered on the sheet with a model's suggested answers already filled in, for the operator to correct rather than author. Load-bearing for validity: on a pre-filled row, keeping the suggestion is indistinguishable from independently agreeing with it, so such a label cannot cleanly validate the judge that produced the suggestion. seal_holdout() excludes these from the holdout by default while still using them as training data."
+    },
+    "repaired": {
+      "type": "boolean",
+      "description": "True when the body this label judges was re-composed by the capped repair loop rather than authored cold. Same load-bearing role as `prefilled`, one step further downstream: labelling copy the judge shaped and then validating the judge on those labels is circular, so repaired rows are excluded from the holdout. They ARE still labeled, and reported as their own stratum — that is the only way 'is judge-shaped copy better or worse than human-shaped copy' becomes a number instead of an assumption, and it is what makes the repair loop safe to keep."
+    },
+    "reviewer": {
+      "type": "string",
+      "description": "Optional. Who authored this label. Unused today (single operator) and reserved as an ADDITIVE field so multi-reviewer agreement later is an addition rather than a migration of every existing label file. Absent means the profile's sole operator."
+    }
+  }
+}

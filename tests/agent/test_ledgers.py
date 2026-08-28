@@ -1,0 +1,351 @@
+"""Unit tests for `agent.ledgers.Ledgers` (spec §10, §13) — SDK-INDEPENDENT.
+
+The ledger is pure stdlib (json / pathlib / datetime). These tests point
+`Config.content_root` at pytest's `tmp_path` (via the `cfg` fixture in conftest.py) so they
+never touch the real, gitignored `content/` volume.
+
+Locked interface under test (class Ledgers(cfg, profile)):
+  append_history(record: dict)
+  append_cost(record: dict)
+  write_run_manifest(manifest: dict) -> Path
+  month_cost_total(year_month: str | None = None) -> float
+  over_monthly_cap(cap_usd: float) -> bool
+
+State layout (under content/<profile>/): history.jsonl, costs.jsonl, runs/<run_id>.json.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+from pathlib import Path
+
+import pytest
+
+# Defer imports so a missing sibling module skips this file rather than collection-erroring.
+pytest.importorskip("agent.ledgers", reason="agent.ledgers not built yet (component 0.12)")
+pytest.importorskip("agent.config", reason="agent.config not built yet (component 0.12)")
+
+from agent.ledgers import Ledgers  # noqa: E402
+
+PROFILE = "example"
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+# ── append_history ────────────────────────────────────────────────────────────
+
+
+def test_append_history_writes_jsonl_and_creates_dirs(cfg):
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "run_started", "skill": "content-radar"})
+    led.append_history({"event": "run_finished", "skill": "content-radar"})
+
+    history = cfg.content_root / PROFILE / "history.jsonl"
+    assert history.is_file(), "append_history must create content/<profile>/history.jsonl"
+
+    rows = _read_jsonl(history)
+    assert len(rows) == 2
+    assert rows[0]["event"] == "run_started"
+    assert rows[1]["event"] == "run_finished"
+
+
+# ── append_cost + month_cost_total ────────────────────────────────────────────
+
+
+def test_append_cost_and_month_total_for_explicit_month(cfg):
+    led = Ledgers(cfg, PROFILE)
+    ym = "2026-06"
+    # `ts` is the ledger's timestamp field — month_cost_total filters on its YYYY-MM prefix.
+    # Supplying `ts` explicitly makes the rollup deterministic (no dependence on write time;
+    # an omitted `ts` is auto-stamped with the current UTC time, which would defeat the test).
+    led.append_cost({"tool": "firecrawl", "cost_usd": 1.50, "ts": f"{ym}-01T10:00:00Z"})
+    led.append_cost({"tool": "vibe", "cost_usd": 2.25, "ts": f"{ym}-14T08:30:00Z"})
+    # A different month must NOT count toward June's total.
+    led.append_cost({"tool": "vibe", "cost_usd": 99.0, "ts": "2026-05-31T23:59:00Z"})
+
+    costs = cfg.content_root / PROFILE / "costs.jsonl"
+    assert costs.is_file()
+    assert len(_read_jsonl(costs)) == 3
+
+    total = led.month_cost_total(ym)
+    assert isinstance(total, float)
+    assert total == pytest.approx(3.75)
+
+
+def test_month_cost_total_defaults_to_current_month(cfg):
+    led = Ledgers(cfg, PROFILE)
+    this_month = dt.datetime.now(dt.UTC).strftime("%Y-%m")
+    # No `ts` → the ledger auto-stamps the current UTC time, which lands in this_month.
+    led.append_cost({"tool": "deepseek", "cost_usd": 0.40})
+
+    # Called with no arg → uses the current YYYY-MM.
+    assert led.month_cost_total() == pytest.approx(0.40)
+    assert led.month_cost_total(this_month) == pytest.approx(0.40)
+
+
+def test_month_cost_total_zero_when_no_costs(cfg):
+    led = Ledgers(cfg, PROFILE)
+    # No costs written yet — must be 0.0, not an error / missing file.
+    assert led.month_cost_total("2026-06") == 0.0
+
+
+# ── over_monthly_cap ──────────────────────────────────────────────────────────
+
+
+def test_over_monthly_cap_threshold(cfg):
+    led = Ledgers(cfg, PROFILE)
+    # Two charges this month totalling 60.00 (no `ts` → auto-stamped to the current month,
+    # which is what over_monthly_cap() always evaluates).
+    led.append_cost({"tool": "higgsfield", "cost_usd": 40.0})
+    led.append_cost({"tool": "elevenlabs", "cost_usd": 20.0})
+
+    # over_monthly_cap uses >= (at-or-over the cap is "over" — the hard stop before a metered call).
+    assert led.over_monthly_cap(100.0) is False  # 60 < 100
+    assert led.over_monthly_cap(60.0) is True  # 60 >= 60 (boundary)
+    assert led.over_monthly_cap(50.0) is True  # 60 >= 50
+
+
+# ── write_run_manifest ────────────────────────────────────────────────────────
+
+
+def test_write_run_manifest_returns_path_and_roundtrips(cfg):
+    led = Ledgers(cfg, PROFILE)
+    manifest = {
+        "run_id": "r-20260614-0001",
+        "trigger": "cron",
+        "profile": PROFILE,
+        "stages": [{"name": "radar", "status": "ok", "outputs": ["digest.md"]}],
+    }
+    path = led.write_run_manifest(manifest)
+    path = Path(path)
+
+    assert path.is_file(), "write_run_manifest must return a real written path"
+    # Locked layout: runs/<run_id>.json under the per-profile content tree.
+    assert path.parent == cfg.content_root / PROFILE / "runs"
+    assert path.name == "r-20260614-0001.json"
+
+    loaded = json.loads(path.read_text())
+    assert loaded["run_id"] == "r-20260614-0001"
+    assert loaded["stages"][0]["status"] == "ok"
+
+
+# ── published_content_hashes (durable publish idempotency source) ─────────────
+
+
+def test_published_content_hashes_collects_only_committed_events(cfg):
+    led = Ledgers(cfg, PROFILE)
+    # A successful publish writes a "published" event carrying the content hash.
+    led.append_history({"event": "published", "platform": "linkedin", "content_sha256": "aaa"})
+    led.append_history({"event": "published", "platform": "linkedin", "content_sha256": "bbb"})
+    # Non-publish events and failed attempts must NOT count toward the dedup set.
+    led.append_history({"event": "radar_complete", "clusters": 5})
+    led.append_history({"event": "publish_failed", "content_sha256": "ccc"})
+
+    hashes = led.published_content_hashes()
+    assert hashes == {"aaa", "bbb"}
+
+
+def test_a_scheduled_post_counts_as_committed_for_idempotency(cfg):
+    """A scheduled post has not gone out, but it is booked and will. Excluded, a
+    restart between scheduling and send-time lets the same bytes be scheduled a
+    second time — and then both fire."""
+    led = Ledgers(cfg, PROFILE)
+    led.append_history(
+        {
+            "event": "scheduled",
+            "platform": "linkedin",
+            "content_sha256": "ddd",
+            "scheduled_at": "2026-08-20T09:00:00Z",
+        }
+    )
+    assert "ddd" in led.published_content_hashes()
+
+
+def test_published_content_hashes_empty_when_no_history(cfg):
+    led = Ledgers(cfg, PROFILE)
+    assert led.published_content_hashes() == set()
+
+
+# ── schedule_voided (F5): a cancelled schedule frees its hash, published never does ──
+
+
+def test_scheduled_then_voided_frees_the_hash(cfg):
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "scheduled", "content_sha256": "eee"})
+    led.append_history({"event": "schedule_voided", "content_sha256": "eee"})
+    assert "eee" not in led.published_content_hashes()
+
+
+def test_scheduled_voided_then_rescheduled_reblocks_the_hash(cfg):
+    """Last-event-wins: re-approving the same content for a new slot after a void
+    must re-block it — the void was about the CANCELLED slot, not the bytes."""
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "scheduled", "content_sha256": "fff"})
+    led.append_history({"event": "schedule_voided", "content_sha256": "fff"})
+    led.append_history({"event": "scheduled", "content_sha256": "fff"})
+    assert "fff" in led.published_content_hashes()
+
+
+def test_published_then_voided_stays_blocked(cfg):
+    """A schedule_voided event must never unblock a hash whose last committed
+    event was `published` — those bytes already went out live."""
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "published", "content_sha256": "ggg"})
+    led.append_history({"event": "schedule_voided", "content_sha256": "ggg"})
+    assert "ggg" in led.published_content_hashes()
+
+
+def test_voiding_an_unrelated_hash_does_not_affect_others(cfg):
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "scheduled", "content_sha256": "hhh"})
+    led.append_history({"event": "schedule_voided", "content_sha256": "not-hhh"})
+    assert "hhh" in led.published_content_hashes()
+
+
+# ── iter_history (generic reader) ──────────────────────────────────────────────
+
+
+def test_iter_history_reads_all_events_skipping_blanks(cfg):
+    led = Ledgers(cfg, PROFILE)
+    history = cfg.content_root / PROFILE / "history.jsonl"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    history.write_text(
+        '{"event":"sequence_staged","sequence_id":"s1"}\n\n{"event":"prospect_run","n":5}\n',
+        encoding="utf-8",
+    )
+    events = list(led.iter_history())
+    assert [e["event"] for e in events] == ["sequence_staged", "prospect_run"]
+
+
+def test_iter_history_empty_when_no_history(cfg):
+    led = Ledgers(cfg, PROFILE)
+    assert list(led.iter_history()) == []
+
+
+def test_iter_history_skips_corrupt_lines(cfg):
+    led = Ledgers(cfg, PROFILE)
+    history = cfg.content_root / PROFILE / "history.jsonl"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    history.write_text(
+        '{"event":"a"}\nnot json\n{"event":"b"}\n',
+        encoding="utf-8",
+    )
+    events = list(led.iter_history())
+    assert [e["event"] for e in events] == ["a", "b"]
+
+
+# ── per-profile isolation ─────────────────────────────────────────────────────
+
+
+def test_ledgers_are_isolated_per_profile(cfg):
+    a = Ledgers(cfg, "example")
+    b = Ledgers(cfg, "example2")
+    a.append_history({"event": "only_example"})
+
+    assert (cfg.content_root / "example" / "history.jsonl").is_file()
+    # example2's tree must be untouched — state is namespaced per profile.
+    assert not (cfg.content_root / "example2" / "history.jsonl").exists()
+    # And a's cost total must not leak into b.
+    assert b.month_cost_total("2026-06") == 0.0
+
+
+# ── tamper-evident hash-chain (NIST AU-9) ─────────────────────────────────────
+
+
+def test_append_writes_hash_chain(cfg):
+    from gtm_core.ledger_verify import verify_chain
+    from gtm_core.ledgers import GENESIS_HASH
+
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "a"})
+    led.append_history({"event": "b"})
+    led.append_history({"event": "c"})
+
+    history = cfg.content_root / PROFILE / "history.jsonl"
+    rows = _read_jsonl(history)
+    assert rows[0]["prev_sha256"] == GENESIS_HASH  # first record is genesis
+    assert all("prev_sha256" in r for r in rows)
+
+    result = verify_chain(history)
+    assert result.ok, result.breaks
+    assert result.chained_from == 1
+    assert result.total_lines == 3
+
+
+def test_tampered_middle_line_detected(cfg):
+    from gtm_core.ledger_verify import verify_chain
+
+    led = Ledgers(cfg, PROFILE)
+    for i in range(4):
+        led.append_history({"event": f"e{i}"})
+    history = cfg.content_root / PROFILE / "history.jsonl"
+
+    lines = history.read_text().splitlines()
+    edited = json.loads(lines[1])
+    edited["event"] = "TAMPERED"  # rewrite a middle record, keep its prev_sha256
+    lines[1] = json.dumps(edited, ensure_ascii=False)
+    history.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    result = verify_chain(history)
+    assert not result.ok
+    # The break shows up at line 3 — its prev_sha256 no longer matches the edited line 2.
+    assert result.breaks[0][0] == 3
+
+
+def test_legacy_prefix_then_chained_verifies(cfg):
+    from gtm_core.ledger_verify import verify_chain
+
+    history = cfg.content_root / PROFILE / "history.jsonl"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    # Two hand-written legacy lines with no prev_sha256 (pre-chain era).
+    history.write_text('{"event":"legacy1"}\n{"event":"legacy2"}\n', encoding="utf-8")
+    led = Ledgers(cfg, PROFILE)
+    led.append_history({"event": "chained1"})
+    led.append_history({"event": "chained2"})
+
+    result = verify_chain(history)
+    assert result.ok, result.breaks
+    assert result.chained_from == 3  # chain starts at the first appended record
+
+
+def test_cross_tool_appends_still_chain(cfg):
+    """Two Ledgers instances (brain + rocketreach process) alternating still form one valid chain."""
+    from gtm_core.ledger_verify import verify_chain
+
+    a = Ledgers(cfg, PROFILE)
+    b = Ledgers(cfg, PROFILE)  # simulates a second process appending to the same costs.jsonl
+    a.append_cost({"tool": "firecrawl", "cost_usd": 1.0})
+    b.append_cost({"tool": "rocketreach", "units": {"lookups": 2}, "cost_usd": 0.0})
+    a.append_cost({"tool": "vibe", "cost_usd": 0.5})
+
+    result = verify_chain(cfg.content_root / PROFILE / "costs.jsonl")
+    assert result.ok, result.breaks
+    assert result.total_lines == 3
+
+
+# ── month_unit_total (count-based allowance for flat-fee connectors) ──────────
+
+
+def test_month_unit_total_sums_dict_and_scalar_forms(cfg):
+    led = Ledgers(cfg, PROFILE)
+    ym = "2026-06"
+    # dict form (RocketReach worker writes {"units": {"lookups": N}}).
+    led.append_cost({"tool": "rocketreach", "units": {"lookups": 3}, "ts": f"{ym}-01T10:00:00Z"})
+    led.append_cost({"tool": "rocketreach", "units": {"lookups": 2}, "ts": f"{ym}-14T10:00:00Z"})
+    # scalar CostRecord form (units float + unit_kind).
+    led.append_cost(
+        {"tool": "rocketreach", "units": 4, "unit_kind": "lookups", "ts": f"{ym}-20T10:00:00Z"}
+    )
+    # A different tool and a different month must NOT count.
+    led.append_cost({"tool": "vibe", "units": {"lookups": 99}, "ts": f"{ym}-02T10:00:00Z"})
+    led.append_cost({"tool": "rocketreach", "units": {"lookups": 99}, "ts": "2026-05-31T10:00:00Z"})
+
+    assert led.month_unit_total("rocketreach", "lookups", ym) == pytest.approx(9.0)
+
+
+def test_month_unit_total_zero_when_no_costs(cfg):
+    led = Ledgers(cfg, PROFILE)
+    assert led.month_unit_total("rocketreach", "lookups", "2026-06") == 0.0

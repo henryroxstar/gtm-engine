@@ -1,0 +1,60 @@
+# packs/marketing/inputs.toml — information requirements (§5's two-class inputs).
+#
+# settings -> PROFILE.md, resolved by key. knowledge -> the knowledge/ corpus
+# ("second brain"), resolved by topic via gtm_core.paths.resolve_knowledge_file
+# (product-first, profile-fallback). Never flatten knowledge into PROFILE.md keys.
+#
+# Two topic classes are deliberately NOT declared here even though a node skill reads them:
+#   - `industry/*`, `use-cases/*` (case-study, content-studio) — directory reads keyed by the
+#     account's vertical/cohort, not a single resolvable `<topic>.md`; agent.readiness hardcodes
+#     the `.md` suffix, so there is no one file to check.
+#   - `voice-bans` (case-study, content-studio) — every profile ships it as `voice-bans.txt`,
+#     never `.md`; the same hardcoded-suffix readiness check would report it permanently missing.
+# Both classes already degrade gracefully in-skill when absent, so leaving them undeclared costs
+# nothing.
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = true
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "brand-notes"
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "case-studies"
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "audience-psychology"
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "content-priority"  # goal/journey/cadence mix — reviewed on a planning cycle
+required = false
+freshness = "90d"
+
+[[knowledge]]
+topic = "social-tuning"
+required = false
+freshness = "evergreen"
+
+# `company` and `product` were declared here but read by NO marketing-pack node skill (checked
+# against docs/knowledge-usage.md across content-radar/content-plan/content-research/
+# content-studio/content-publish/case-study) — a required 90d-freshness topic nothing consumes
+# just fails pack readiness on an unused file. Removed 2026-08-15; re-add only alongside a node
+# that reads it.

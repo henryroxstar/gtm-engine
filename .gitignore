@@ -1,0 +1,65 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*-credentials.json
+google-oauth*.json
+# local launch config — carries env/secrets, never commit
+.claude/launch.json
+# host-specific compose overrides — carry real infra details (networks, DSNs)
+# the committed base file omits. Start from docker-compose.override.yml.example.
+docker-compose.override.yml
+
+# Runtime state (lives on the VPS, not in git) — spec §10, §14
+# Includes per-account deliverables under content/<profile>/accounts/<slug>/ (see CLAUDE.md).
+content/
+*.jsonl
+runs/
+
+# Generated media / large artifacts
+*.mp4
+*.mp3
+*.wav
+*.srt
+drafts/
+podcasts/
+
+# Phase / session verification screenshots — ephemeral, delete when the phase closes
+# Agent codemod + maintenance scripts belong in scripts/<area>/, never root
+phase*-*.png
+# Stray content exports (deck slides, carousel/infographic PNGs) belong under content/<active>/
+# (gitignored above) — this root-anchored rule catches any that land at the repo root by mistake.
+# Root-only: it does NOT touch tracked PNGs in subfolders (docker/, profiles/.../brand, etc.).
+/*.png
+
+# Node / Python
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling state (local, not in git)
+.serena/
+# actionlint binary (downloaded locally to lint workflows; CI fetches its own)
+/actionlint
+# brainstorm screens + one-off scaffold scripts
+.superpowers/
+# local session hooks (pre/post-tool scripts)
+.claude/hooks/
+# playwright browser state and artifacts
+.playwright-mcp/
+# Strix pentest run output (SARIF/CSV/JSON/logs) — local security-scan artifacts
+strix_runs/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Onboarding staging area — draft profile bundles awaiting operator review
+profiles/.staging/
