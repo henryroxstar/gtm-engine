@@ -1,0 +1,70 @@
+{
+  "source_item": "item-narration-bad",
+  "total_duration_s": 12,
+  "style_scaffold": {
+    "look": "editorial monochrome, fine grain, shallow depth of field",
+    "provider_model": "wan2_7"
+  },
+  "narration": {
+    "lines": [
+      "The kettle boiled twice before anyone noticed.",
+      {
+        "line": "",
+        "voice_onset_s": 0.4,
+        "len_s": 1.2
+      },
+      {
+        "line": "The onset is not a number.",
+        "voice_onset_s": "0.4",
+        "len_s": 1.2
+      },
+      {
+        "line": "The length was never measured.",
+        "voice_onset_s": 0.4,
+        "len_s": 0
+      },
+      {
+        "line": "The room warms up long after the sun has moved.",
+        "voice_onset_s": 0.4,
+        "len_s": 5.6
+      },
+      {
+        "line": "It was never about the kettle at all.",
+        "voice_onset_s": 3.1,
+        "len_s": 2.4
+      },
+      {
+        "line": "It was the two minutes of quiet either side.",
+        "voice_onset_s": 6.1,
+        "len_s": 2.2
+      },
+      {
+        "line": "Someone poured. Someone drank.",
+        "voice_onset_s": 11.4,
+        "len_s": 2.1
+      }
+    ]
+  },
+  "shots": [
+    {
+      "id": "s01",
+      "duration_s": 6,
+      "role": "broll",
+      "camera": "static, slow push-in",
+      "visual": "a phone face down beside a cold cup of coffee",
+      "motion_prompt": "the screen lights once under the table edge and goes dark again",
+      "spoken": "The kettle boiled twice before anyone noticed.",
+      "audio_bed": "room tone with a distant street hum"
+    },
+    {
+      "id": "s02",
+      "duration_s": 6,
+      "role": "broll",
+      "camera": "handheld, medium",
+      "visual": "hands closing a laptop at a kitchen table",
+      "motion_prompt": "the hands lower the lid and rest flat on it",
+      "vo_seconds": 2.1,
+      "audio_bed": "a music bed rising under the last line"
+    }
+  ]
+}

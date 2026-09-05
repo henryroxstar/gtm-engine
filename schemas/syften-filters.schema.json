@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/syften-filters.schema.json",
+  "title": "Per-profile Syften filter partition",
+  "description": "profiles/<profile>/knowledge/syften-filters.json. The Syften account itself is shared across every profile (one subscription, one filter set — agent/mcp_config.py's build_mcp_servers takes a profile argument but does not scope connector credentials by it). This file declares which of that ONE account's filters belong to THIS tenant, plus their bucket labels, so gtm_core.community_signal.score can partition a shared account's matches per profile. When strict=true, a match whose filter is not a key of filters{} is dropped (counted in totals.dropped_off_tenant) instead of bucketed as (filter, 'other') — so another tenant's Syften noise can never reach this tenant's dashboard, even though the account returns it. Populate filters{} from mcp__syften__syften_get_filters, keeping only the strings this tenant owns.",
+  "type": "object",
+  "required": ["filters"],
+  "additionalProperties": false,
+  "properties": {
+    "strict": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, matches whose filter is not a key of filters{} are dropped before scoring. Leave false until filters{} is populated — strict=true with an empty filters{} would drop every match."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text operator note — e.g. when this was last synced against the Syften dashboard."
+    },
+    "filters": {
+      "type": "object",
+      "description": "Exact Syften filter string -> bucket label. One entry per filter this tenant owns.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["entity", "category"],
+        "additionalProperties": false,
+        "properties": {
+          "entity": {"type": "string", "minLength": 1, "description": "Display name, e.g. a competitor or product."},
+          "category": {"type": "string", "minLength": 1, "description": "Short, stable category key, e.g. 'identity' or 'gateway'."}
+        }
+      }
+    }
+  }
+}

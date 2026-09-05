@@ -1,0 +1,1 @@
+{"profile": "acme", "slug": "reel-ok", "ratio": "9x16", "asset_path": "tests/tripwire/content_quality/assets/probe-only.mp4", "stages": ["normalize", "captions", "mux"], "census": {"loudnorm": 1}, "identity_used": ["element"], "captions": {"frame": [1080, 1920], "screens": [{"index": 1, "box": {"x": 140, "y": 1500, "w": 800, "h": 96}}]}}

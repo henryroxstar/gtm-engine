@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hold queue · __STAMP__</title>
+<style>
+  :root { --ink:#1b1f24; --muted:#5b6470; --line:#e2e6ea; --bg:#fafbfc; --card:#fff; --accent:#1f6feb; --warn:#b54708; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--card); border-bottom:1px solid var(--line); padding:10px 18px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  header b { font-size:15px; }
+  header .kbd { color:var(--muted); font-size:12px; }
+  kbd { border:1px solid var(--line); border-radius:4px; padding:0 5px; font:12px ui-monospace,monospace; background:#f3f4f6; }
+  main { max-width:1180px; margin:0 auto; padding:14px 18px 80px; }
+  section.group { background:var(--card); border:1px solid var(--line); border-radius:8px; margin:14px 0; }
+  section.group.focus { border-color:var(--accent); box-shadow:0 0 0 2px #1f6feb22; }
+  .ghead { padding:12px 16px; border-bottom:1px solid var(--line); }
+  .ghead h2 { margin:0 0 4px; font-size:16px; }
+  .ghead .count { color:var(--muted); font-weight:normal; }
+  .meaning { color:var(--muted); font-size:13px; margin:4px 0 8px; }
+  .meaning b { color:var(--ink); }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .bar button { border:1px solid var(--line); background:#f6f8fa; border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; }
+  .bar button:hover { border-color:var(--accent); }
+  details.body { margin:8px 16px; color:var(--muted); font-size:13px; }
+  details.body pre { white-space:pre-wrap; background:#f6f8fa; padding:10px; border-radius:6px; color:var(--ink); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  tr.row.focus td { background:#eef4ff; }
+  tr.row.decided td { background:#f4fbf6; }
+  td.who b { display:block; }
+  td.who span { color:var(--muted); font-size:12px; }
+  td.ev { max-width:360px; color:var(--muted); }
+  td.prior { color:var(--warn); font-size:12px; }
+  .choice label { display:inline-flex; align-items:center; gap:4px; margin-right:8px; cursor:pointer; white-space:nowrap; }
+  .chip { margin-top:4px; }
+  .chip select, .chip input { font:inherit; font-size:12px; padding:2px 4px; border:1px solid var(--line); border-radius:4px; }
+  .chip input { width:220px; }
+  .auto { color:var(--muted); }
+  footer { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line); padding:10px 18px; display:flex; gap:14px; align-items:center; }
+  footer button#export { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 14px; font:inherit; cursor:pointer; }
+  footer .status { color:var(--muted); }
+  .empty { padding:24px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <b>Hold queue · __STAMP__</b>
+  <span id="progress"></span>
+  <span class="kbd"><kbd>j</kbd>/<kbd>k</kbd> row · <kbd>s</kbd> suppress <kbd>g</kbd> generic <kbd>v</kbd> salvage <kbd>n</kbd> note <kbd>x</kbd> expand · <kbd>a</kbd> apply to group · <kbd>]</kbd> next group</span>
+</header>
+<main id="main"></main>
+<footer>
+  <button id="export">Download decisions (__EXPORT_NAME__)</button>
+  <span class="status" id="status">Blank rows stay held. Nothing is sent or suppressed until you run lanes hold-apply --apply.</span>
+</footer>
+<script>
+// Injected by gtm_core.lanes.sheet — bare tokens, JSON-escaped so no value can close this script.
+// Everything below builds DOM with createElement/textContent: no markup is ever assembled from data.
+const GROUPS = __GROUPS_JSON__;      // [{key, trigger, seat, title, count, meaning:{suppress,generic,salvage}, body}]
+const ROWS = __ROWS_JSON__;          // [{row_id, group, email, name, title, company, domain, tier, clause, evidence, prior, trigger, account_key, detail, defect}]
+const AUTO = __AUTO_JSON__;          // rows already decided by policy/ledger this run, for visibility
+const CHIPS = __CHIPS_JSON__;        // salvage kinds
+const STAMP = "__STAMP__";
+const EXPORT_NAME = "__EXPORT_NAME__";
+const KEY = "hold-sheet-" + STAMP;
+const CHOICES = ["suppress", "generic", "salvage"];
+
+// ---- state: one record per row_id; persisted locally so a reload never loses work.
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { state = {}; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+function st(id) { return state[id] || (state[id] = { decision: "", salvage_kind: "", note: "" }); }
+
+// ---- tiny DOM helpers: text goes through textContent, never through markup.
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "text") node.textContent = v;
+    else if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v === false || v == null) continue;
+    else node.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children || []) node.append(c);
+  return node;
+}
+
+const main = document.getElementById("main");
+let focusRow = 0;
+
+function setDecision(id, d) {
+  const s = st(id);
+  s.decision = d;
+  if (d !== "salvage") s.salvage_kind = "";
+  save();
+}
+
+function render() {
+  main.replaceChildren();
+  if (!ROWS.length) main.append(el("p", { class: "empty", text: "Nothing is held. Every row has a lane." }));
+  for (const g of GROUPS) {
+    const rows = ROWS.filter(r => r.group === g.key);
+    if (!rows.length) continue;
+    const m = g.meaning || {};
+    const meaning = el("div", { class: "meaning" }, [
+      el("b", { text: "Suppress" }), " = " + (m.suppress || "") + " · ",
+      el("b", { text: "Generic" }), " = " + (m.generic || "") + " · ",
+      el("b", { text: "Salvage" }), " = " + (m.salvage || ""),
+    ]);
+    const bar = el("div", { class: "bar" }, [
+      ...[["suppress", "Suppress all"], ["generic", "Generic all"], ["salvage", "Salvage all…"], ["", "Clear group"]].map(([d, label]) =>
+        el("button", { "data-group-decide": d, text: label, onclick: () => {
+          // A group action fills every row; any row can be overridden after.
+          for (const r of rows) { const s = st(r.row_id); s.decision = d; if (d !== "salvage") s.salvage_kind = ""; }
+          save(); render();
+        } })),
+      el("span", { class: "auto", "data-group-count": true }),
+    ]);
+    const head = el("div", { class: "ghead" }, [
+      el("h2", {}, [g.title + " ", el("span", { class: "count", text: "— " + rows.length + " · " + (g.seat || "any seat") })]),
+      meaning, bar,
+    ]);
+    const sec = el("section", { class: "group", "data-group": g.key }, [head]);
+    if (g.body) {
+      sec.append(el("details", { class: "body" }, [
+        el("summary", { text: "Show the email (same for all " + rows.length + ")" }),
+        el("pre", { text: g.body }),
+      ]));
+    }
+    const tbody = el("tbody");
+    for (const r of rows) tbody.append(rowEl(r));
+    sec.append(el("table", {}, [
+      el("thead", {}, [el("tr", {}, ["Who", "Tier", "Fact clause", "Why held", "Before", "Decision"].map(t => el("th", { text: t })))]),
+      tbody,
+    ]));
+    main.append(sec);
+  }
+  if (AUTO.length) {
+    main.append(el("section", { class: "group" }, [
+      el("details", { class: "body" }, [
+        el("summary", { text: AUTO.length + " row(s) auto-decided by your policy or an earlier decision — override in the hold CSV if wrong" }),
+        el("pre", { text: AUTO.map(a => a.email + "  " + a.trigger + "  →  " + a.decided).join("\n") }),
+      ]),
+    ]));
+  }
+  updateProgress();
+  highlight();
+}
+
+function rowEl(r) {
+  const s = st(r.row_id);
+  // No radio is ever pre-checked from the judge or a prior decision: "Before" is text only.
+  const radios = CHOICES.map(d => el("label", {}, [
+    el("input", { type: "radio", name: "d-" + r.row_id, value: d, checked: s.decision === d,
+      onchange: () => { setDecision(r.row_id, d); render(); } }),
+    d,
+  ]));
+  const chipSel = el("select", { "data-chip": true }, [
+    el("option", { value: "", text: "chip…" }),
+    ...CHIPS.map(c => el("option", { value: c, text: c, selected: s.salvage_kind.split(":")[0] === c })),
+  ]);
+  const chipVal = el("input", { "data-chipval": true, placeholder: "value (capability / role / date)", value: s.salvage_kind.split(":").slice(1).join(":") });
+  function setChip() { const k = chipSel.value; s.salvage_kind = k ? (chipVal.value ? k + ":" + chipVal.value : k) : ""; save(); }
+  chipSel.addEventListener("change", setChip);
+  chipVal.addEventListener("input", setChip);
+  const note = el("input", { "data-note": true, placeholder: "note (one line)", value: s.note, oninput: e => { s.note = e.target.value; save(); } });
+  const chipRow = el("div", { class: "chip", hidden: s.decision !== "salvage" }, [chipSel, " ", chipVal]);
+  const tr = el("tr", { class: "row" + (s.decision ? " decided" : ""), "data-row-id": r.row_id }, [
+    el("td", { class: "who" }, [el("b", { text: r.name }), el("span", { text: [r.title, r.company, r.domain].filter(Boolean).join(" · ") })]),
+    el("td", { text: r.tier || "—" }),
+    el("td", { class: "ev", text: r.clause || "—" }),
+    el("td", { class: "ev", text: r.evidence || r.detail || "" }),
+    el("td", { class: "prior", text: r.prior || "" }),
+    el("td", { class: "choice" }, [...radios, chipRow, el("div", { class: "chip" }, [note])]),
+  ]);
+  return tr;
+}
+
+function updateProgress() {
+  const done = ROWS.filter(r => st(r.row_id).decision).length;
+  const groups = GROUPS.filter(g => ROWS.some(r => r.group === g.key)).length;
+  document.getElementById("progress").textContent = done + "/" + ROWS.length + " decided · " + groups + " groups · ~" + Math.max(1, Math.ceil(ROWS.length / 12)) + " min";
+  document.querySelectorAll("section.group[data-group]").forEach(sec => {
+    const rows = ROWS.filter(r => r.group === sec.dataset.group);
+    const n = rows.filter(r => st(r.row_id).decision).length;
+    const c = sec.querySelector("[data-group-count]");
+    if (c) c.textContent = n + "/" + rows.length + " decided";
+  });
+}
+
+// ---- keyboard: inert while typing in any field (a note that types "s" must not suppress).
+function highlight() {
+  document.querySelectorAll("tr.row").forEach((tr, i) => tr.classList.toggle("focus", i === focusRow));
+  document.querySelectorAll("section.group").forEach(s => s.classList.remove("focus"));
+  const tr = document.querySelectorAll("tr.row")[focusRow];
+  if (tr) { tr.closest("section").classList.add("focus"); tr.scrollIntoView({ block: "nearest" }); }
+}
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+  const trs = Array.from(document.querySelectorAll("tr.row"));
+  if (!trs.length) return;
+  const cur = trs[focusRow];
+  const id = cur && cur.dataset.rowId;
+  const decide = d => { if (id) { setDecision(id, d); render(); } };
+  if (e.key === "j") { focusRow = Math.min(trs.length - 1, focusRow + 1); highlight(); }
+  else if (e.key === "k") { focusRow = Math.max(0, focusRow - 1); highlight(); }
+  else if (e.key === "s") decide("suppress");
+  else if (e.key === "g") decide("generic");
+  else if (e.key === "v") decide("salvage");
+  else if (e.key === "n") { const n = cur && cur.querySelector("[data-note]"); if (n) { e.preventDefault(); n.focus(); } }
+  else if (e.key === "x") { const d = cur && cur.closest("section").querySelector("details.body"); if (d) d.open = !d.open; }
+  else if (e.key === "a") {
+    const g = cur && cur.closest("section"); const d = id && st(id).decision;
+    if (g && d) { const b = Array.from(g.querySelectorAll("[data-group-decide]")).find(x => x.dataset.groupDecide === d); if (b) b.click(); }
+  }
+  else if (e.key === "]") { const g = cur && cur.closest("section"); const next = g && g.nextElementSibling; const first = next && next.querySelector("tr.row"); if (first) { focusRow = trs.indexOf(first); highlight(); } }
+});
+
+// ---- export: EVERY row, blank decisions included as "" so nothing vanishes into "held".
+document.getElementById("export").addEventListener("click", () => {
+  const lines = ROWS.map(r => {
+    const s = st(r.row_id);
+    return JSON.stringify({ email: r.email, trigger: r.trigger, account_key: r.account_key, detail: r.detail,
+      company: r.company, company_domain: r.domain, first: r.first, last: r.last,
+      decision: s.decision || "", salvage_kind: s.salvage_kind || "", note: s.note || "", stamp: STAMP });
+  });
+  const blob = new Blob([lines.join("\n") + "\n"], { type: "application/x-ndjson" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: EXPORT_NAME });
+  a.click();
+  const held = ROWS.filter(r => !st(r.row_id).decision).length;
+  document.getElementById("status").textContent = "exported " + ROWS.length + " row(s) (" + held + " still held) — run: lanes hold-apply --profile <p> --decisions " + EXPORT_NAME;
+});
+
+render();
+</script>
+</body>
+</html>

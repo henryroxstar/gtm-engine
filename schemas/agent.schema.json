@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/agent.schema.json",
+  "title": "Agent",
+  "description": "One agent within a workspace — a NAMED BUNDLE of (profile, optional pack subset, optional per-agent budget, optional output language), giving 'one user, one or more agents' on top of the existing users → workspaces → profiles spine without a second tenancy model. The agent surface is the item shape of the agent API (list/create/update under the workspace). NARROWING-ONLY invariant (mirrors the tenant pack-override rule) — enforced at write AND re-derived at every use, never trusted from the stored row: effective packs = intersection(agent.packs, the profile's CURRENTLY-activated packs) computed at run creation (an entry that fell out of the intersection is inert, not an error — the variant 403s on run and disappears from that agent's pack listing); effective spend cap = min(current workspace cap, agent budget) computed at spend-check time (an entitlement downgrade takes effect immediately). An agent carries no destination/egress vocabulary. LIFECYCLE: agents are never hard-deleted once referenced — DELETE archives (status='archived': refuses new runs, excluded from default listings, still resolvable by id) so per-agent ledger/history attribution stays immutable; name uniqueness applies among non-archived agents. Exactly one is_default agent per workspace, guaranteed by a partial unique index (workspace_id WHERE is_default) with an idempotent lazy bootstrap on first use. Runs and cost records carry an OPTIONAL agent_id (null on rows from before agents existed); gate records attribute through their run's agent_id. Clients MUST ignore unknown fields (additive evolution).",
+  "type": "object",
+  "required": ["agent_id", "workspace_id", "name", "profile_name", "status"],
+  "properties": {
+    "agent_id": { "type": "string", "description": "UUID, server-assigned." },
+    "workspace_id": { "type": "string", "description": "Owning workspace UUID. Agents never span workspaces." },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Operator-chosen display name, unique among the workspace's non-archived agents." },
+    "profile_name": { "type": "string", "description": "The workspace profile this agent is bound to. Several agents may share one profile (e.g. a marketing agent and a prospecting agent over the same company)." },
+    "packs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional pack-name subset this agent may run, e.g. ['marketing']. Absent = every pack the bound profile activates. Present = must be a subset of the profile's activated packs at write time (the server rejects a superset); at run time the EFFECTIVE set is re-derived as the intersection with the profile's current activation (see description)."
+    },
+    "language": { "type": "string", "description": "Optional BCP-47 output-language override for this agent's runs (e.g. 'de', 'ja', 'pt-BR'). Absent = the profile's language setting. Per-run request language, when given, wins over this." },
+    "monthly_budget_usd": { "type": "number", "minimum": 0, "description": "Optional per-agent monthly spend budget. Effective cap for this agent's runs = min(current workspace cap, this value), re-derived at every spend check; absent = the workspace cap alone. Never grants spend beyond the workspace cap." },
+    "status": { "type": "string", "enum": ["active", "paused", "archived"], "description": "paused = new runs refused, existing runs unaffected, still listed. archived = the DELETE end-state: new runs refused, excluded from default listings, resolvable by id forever (immutable ledger attribution). Open-world: clients tolerate unknown values." },
+    "is_default": { "type": "boolean", "default": false, "description": "The workspace's default agent — used when a run request names no agent. Exactly one per workspace (partial unique index)." },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

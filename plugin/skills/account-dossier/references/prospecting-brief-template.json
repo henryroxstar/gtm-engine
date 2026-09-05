@@ -1,0 +1,54 @@
+{
+  "_comment": "Reference template only — not rendered as-is. Copy blocks into a fresh <work_dir>/prospecting-brief-spec.json, fill every [bracket], then render with scripts/render_dossier_pydocx.py exactly like the standard dossier-spec.json. See SKILL.md 'Prospecting brief variant' for when to use this vs. the standard dossier / exec one-pager. No deep web research for this variant — pull why_now/cohort/intent_topics from master-list.csv plus one light company-overview lookup only. Origin: a prospecting-brief-spec.json under content/<active>/accounts/<account-slug>/.",
+  "brand": {
+    "bg": "[resolved bg hex from the brand kit (`gtm_core.brandkit --key palette.canvas`)]",
+    "accent1": "[resolved accent1 hex]",
+    "accent2": "[resolved accent2 hex]",
+    "accent3": "[resolved accent3 hex]",
+    "textOnDark": "#FFFFFF",
+    "font": "[resolved brand font]"
+  },
+  "closingLine": "Internal prospecting brief — not for customer distribution.",
+  "blocks": [
+    {
+      "type": "banner",
+      "account": "[Target account] — prospecting brief",
+      "subline": "Tier A · [cohort, e.g. FS Capital Markets & Lending] · no meeting booked yet",
+      "meta": "[Month DD, YYYY]  ·  auto-generated from ICP scoring — 1-page cold brief"
+    },
+    { "type": "heading", "text": "Who they are" },
+    {
+      "type": "paragraph",
+      "text": "[2-3 sentences: what the company does, their market, and their scale — from master-list.csv's company/industry fields plus one light overview lookup if that's not already obvious.]"
+    },
+    { "type": "heading", "text": "Why they're qualified" },
+    {
+      "type": "callout",
+      "variant": "info",
+      "lines": [
+        "[The specific ICP cohort + why-now/intent signal that scored this account Tier A — pulled from master-list.csv's why_now/cohort/intent_topics fields. State it as the concrete reason this lead is worth a rep's time right now, not a generic 'good ICP fit' claim.]"
+      ]
+    },
+    { "type": "heading", "text": "Likely needs" },
+    {
+      "type": "facts_table",
+      "rows": [
+        ["Need 1", "[Inferred pain point, given their business + cohort — mark clearly as inferred, not confirmed.]"],
+        ["Need 2", "[Inferred pain point #2.]"],
+        ["Need 3", "[Inferred pain point #3, optional — omit the row if only two are genuinely plausible.]"]
+      ]
+    },
+    { "type": "heading", "text": "How [lead product] concretely helps" },
+    {
+      "type": "paragraph",
+      "text": "[One short, concrete paragraph connecting the likely needs above to what the lead product actually does — grounded in profiles/<active>/knowledge/product.md. Tag any capability SHIPPED/CONDITIONAL/ROADMAP per docs/product-accuracy.md; never state a conditional/roadmap capability as live.]"
+    },
+    {
+      "type": "callout",
+      "variant": "angle",
+      "lines": [
+        "[Recommended next step — the specific angle to open with, or the call to book. One line, not a hard sell — an internal prep note for the rep.]"
+      ]
+    }
+  ]
+}

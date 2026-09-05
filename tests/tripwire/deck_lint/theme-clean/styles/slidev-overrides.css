@@ -1,0 +1,7 @@
+/* Print-mode guard: every backdrop-filter routes through the token. */
+html.deck-export {
+  --card-blur: none;
+}
+html.deck-export .pulse-halo {
+  display: none;
+}

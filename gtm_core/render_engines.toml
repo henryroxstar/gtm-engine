@@ -1,0 +1,160 @@
+# Render-engine registry — which engine may serve which kind of shot.
+#
+# The single source of truth for engine selection, in the same shape as models.toml is for LLM
+# roles. Non-secret config: an engine names an `api_key_env` (the env-var NAME, Doppler-injected),
+# never a key.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# Two finished videos were rejected on first pass in August 2026 for face distortion, absent lip
+# sync, and a voice that did not sound like the operator. None of the three was a craft defect.
+# A live models_explore query proved `soul_id` is accepted ONLY by image models — no video model
+# on the Higgsfield MCP accepts a trained Soul — so identity cannot cross the image→video
+# boundary, and every video model re-derives the face from a JPEG, frame by frame. General
+# image-to-video models approximate mouth motion from prompt text; they do not generate lip sync
+# from audio.
+#
+# Prose already said not to do this, twice (the sync_so prohibition in video-render's body, and
+# the storyboard gate), and both were bypassed anyway. So the rule is expressed as a CAPABILITY
+# REQUIREMENT a role places on its engine, checked at resolve time, before any spend. Rendering a
+# talking head on wan2_7 is now a type error, not a judgement call.
+
+[meta]
+version = 1
+updated = "2026-08-20"
+
+# ── Engines ────────────────────────────────────────────────────────────────────────────────────
+# `identity_faithful` — can this engine hold a SPECIFIC REAL PERSON's likeness, by being pointed
+#   at a trained identity? A model that merely accepts a start frame cannot: it re-derives the
+#   face every frame. This is a property of the engine's architecture, not of prompt quality.
+# `lip_sync` — "native" (mouth generated from the audio itself, or from footage the person
+#   actually spoke), "none" (mouth motion described in prose and unrelated to the words), or
+#   "post_hoc" (mouth re-rendered and composited back over a finished frame).
+# `verified_on` — the date THIS ENGINE's capability claims were last probed against the live
+#   provider. Per-engine, not one `[meta] updated`, because a ban outlives the probe that
+#   justified it and nothing here could previously say which engine had actually been looked at.
+#   It dates the CLAIM, not the file: confirming a model id still exists in the catalog is not a
+#   re-verification of what that model can do, so do not advance this date for a catalog listing.
+#   `python -m gtm_core.render_engines --audit` reports drift; `video_preflight` surfaces the
+#   oldest date a lane depends on as a caveat past 90 days. Neither ever edits this file.
+
+[engines.higgsfield_soul_still]
+provider          = "higgsfield"
+model             = "soul_2"
+output            = "image"
+identity_faithful = true
+lip_sync          = "none"     # stills do not speak
+verified_on       = "2026-08-19"   # live models_explore: soul_id accepted by image models only
+notes             = "The Soul's only reachable surface. The operator-approved look."
+
+[engines.higgsfield_i2v]
+provider          = "higgsfield"
+model             = "wan2_7"
+output            = "video"
+identity_faithful = false
+lip_sync          = "none"
+verified_on       = "2026-08-19"   # the mouth-closed frame sample below
+notes = """
+General image-to-video. CORRECT for b-roll, product, environment and abstract shots — Higgsfield's
+reviewed strength — and REFUSED for a presenter by the `presenter` role's requirements below.
+Verified 2026-08-19: with audio_references passed and a gesture-only motion_prompt, the mouth was
+CLOSED in 9 of 10 sampled frames across a full spoken sentence. audio_references is a reference
+input, not a lip-sync switch."""
+
+[engines.higgsfield_lipsync_posthoc]
+provider          = "higgsfield"
+model             = "sync_so"
+output            = "video"
+identity_faithful = false
+lip_sync          = "post_hoc"
+retired           = true
+verified_on       = "2026-08-18"   # the waxed-skin/pasted-mouth render below
+notes = """
+NEVER SELECTABLE. Present only so the registry can name what is banned and why. Post-hoc lip sync
+re-renders the mouth region at lower fidelity and composites it back over the whole frame: it
+smoothed skin to wax, erased stubble, made teeth unnaturally uniform, pushed colour warm, and left
+a pasted-on mouth (verified 2026-08-18). This is architectural, not a version defect — do not
+re-test a new version hoping for a different answer. See identity/henry/IDENTITY.toml
+[render_behaviour].post_hoc_lipsync."""
+
+[engines.heygen_avatar]
+provider          = "heygen"
+model             = "avatar_iv"         # server default; avatar_v is opt-in, see notes
+output            = "video"
+identity_faithful = true
+lip_sync          = "native"
+available         = true
+requires_disclosure = true              # DISCLOSED renders only; undisclosed stays W4-panel-gated
+verified_on       = "2026-08-20"        # live MCP schema read, recorded below
+notes = """
+Trained on real footage (`create_digital_twin`) behind a liveness-checked consent flow
+(`create_avatar_consent`).
+
+SCOPE OF THE W4 GATE, CORRECTED 2026-08-20. The pre-registered panel (>=5 judges who know the
+operator, forced-choice real/synthetic, thresholds committed in gtm_core/panel_eval.py BEFORE any
+clip was rendered) asks exactly one question: CAN PEOPLE WHO KNOW HIM TELL? Its PASS bar is
+PASS_REAL_RATE_MIN = 0.50 — indistinguishability. That question only has stakes when the viewer is
+NOT TOLD. A render carrying the tenant's [disclosure].line makes no indistinguishability claim, so
+the panel is not what stands between it and the audience; the disclosure is, and that duty is
+enforced independently and fail-closed at plan time (gtm_core/video_finish.py) and again at the
+publish gate (agent/publish.py:validate_disclosure).
+
+So the gate now sits where it bites: `requires_disclosure = true` means this engine resolves ONLY
+for a render that has declared disclosure. An UNDISCLOSED synthetic presenter still resolves
+nothing and still waits on the panel — which is the case the panel was pre-registered to decide. A
+KILL closes the undisclosed lane permanently. This is a NARROWING of what the boolean gated, not a
+bypass of it: nothing reaches an audience un-labelled that could not before.
+
+CAPABILITIES VERIFIED AGAINST THE LIVE MCP SCHEMA 2026-08-20 — all three better than this PRD
+assumed when it was written:
+  * `audioUrl` / `audioAssetId` lip-syncs to OUR OWN uploaded audio, mutually exclusive with
+    `script`. This is the path an ElevenLabs professional clone drives, and it is why the voice
+    grade matters (identity.voice_grade).
+  * `aspectRatio` includes **4:5** natively — our LinkedIn target. wan2_7 had no 4:5 and needed a
+    reframe pass; this needs none.
+  * `resolution` reaches 1080p and 4k, so it clears video_lint's V1 floor outright. (The Captions
+    Mirage fallback is 720p-only and would need an upscale pass — recorded so that trade-off is
+    not rediscovered mid-integration.)
+Also available and worth testing at panel time: `engine = {type = "avatar_v"}`, described as
+cross-reference-driven animation for higher quality, which additionally unlocks `motionPrompt` for
+video avatars (rejected on the default avatar_iv). Engine choice is a panel variable, not a
+default to assume.
+
+NO api_key_env: the operator connected HeyGen's own MCP server, so credentials live with that
+server and never reach this registry. The in-repo connector this PRD originally planned is
+unnecessary. Identity-CREATING verbs on that surface (`create_digital_twin`,
+`create_avatar_consent`, `clone_voice`) must route through identity-kit's Article 50 consent gate
+rather than being called ad hoc, and the headless allowlist must scope the server deliberately —
+an MCP connected in the desktop app is NOT automatically reachable by the headless brain, and that
+default should hold until P4."""
+
+# ── Roles ──────────────────────────────────────────────────────────────────────────────────────
+# A role is a KIND OF SHOT. `requires` is checked against the bound engine at resolve time; an
+# `engine` of "" means the role has no engine at all, which is a deliberate, reportable state —
+# not a misconfiguration.
+
+[roles.presenter]
+# A talking head of a real person.
+#
+# Bound to heygen_avatar, which carries `requires_disclosure = true`. The practical effect:
+#
+#   resolve_engine("presenter", disclosed=True)   -> heygen_avatar
+#   resolve_engine("presenter")                   -> EngineUnavailable, W4 panel named in the message
+#
+# The default is the closed answer, so a caller that has not thought about Art. 50 disclosure gets
+# the same refusal the unbound role used to give — including the two lanes that need no disclosure
+# at all (real footage, or the faceless format: b-roll + held soul_2 stills + VO + captions).
+# Failing loudly and early is still the entire point; what changed is that a DISCLOSED render is
+# no longer refused for failing an indistinguishability test it never claimed to pass.
+engine   = "heygen_avatar"
+requires = { identity_faithful = true, lip_sync = "native", output = "video" }
+
+[roles.broll]
+# Product, environment, abstract, motion graphics — anything with no real person in frame.
+engine   = "higgsfield_i2v"
+requires = { output = "video" }
+
+[roles.identity_still]
+# A hero frame, thumbnail, or held cutaway of the operator. A STILL — never animated into video.
+engine   = "higgsfield_soul_still"
+requires = { identity_faithful = true, output = "image" }

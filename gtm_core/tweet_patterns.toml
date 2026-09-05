@@ -1,0 +1,683 @@
+# X tweet-pattern catalog: a closed, validated vocabulary of post structures.
+#
+# Pattern NAMES are taxonomy, triaged from two third-party ebooks: "101 Ways to Write a Tweet"
+# and "Even More Ways to Write a Tweet" (The Art of Purpose, 2021; read in full 2026-08-23).
+# Every template, transposition rule, and example row below is ORIGINAL. No book text is
+# reproduced anywhere in this file. `source` cites the book + entry index only, as a citation,
+# never as content to copy.
+#
+# Examples use invented companies and people (Novakern, Cascade Freight, Meridian Ledger,
+# Arcbound, Lucerna Health, Kestrel Ops, Underline Labs, Ferro & Vale, Talon Robotics): §R9,
+# no real person or company as sample data.
+#
+# Registry validation: gtm_core/tweet_patterns.py load_registry(). Do not hand-edit
+# docs/x-tweet-patterns.md: it is generated FROM this file.
+
+schema_version = 1
+
+# ============================================================================================
+# CORE: B2B-safe as written.
+# ============================================================================================
+
+[[pattern]]
+id = "before-after"
+name = "Before / after"
+source = "aop-101 #5"
+formats = ["single", "thread"]
+archetype = "before-after"
+trigger = ["T6", "T2"]
+fit = "core"
+template = "Before: <state one>. After: <state two, earned>. What changed: <the one mechanism>."
+transposition = "confidence from specificity, not absolutes: name the mechanism, not just the delta"
+example = "Before: our SDR read 40 accounts a day and missed the renewal signal every time. After: the same SDR reads 400 and catches it. What changed: one field, contract_end_date, wired into the daily digest."
+
+[[pattern]]
+id = "harsh-truth"
+name = "Harsh truth"
+source = "aop-101 #11"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1", "T4"]
+fit = "core"
+template = "Harsh truth: <the uncomfortable, specific claim>."
+transposition = "confidence from specificity, not absolutes: the claim carries a number or a named mechanism, never a bare assertion"
+example = "Harsh truth: most agent demos never show the audit log, because there isn't one to show."
+
+[[pattern]]
+id = "uncomfortable-fact"
+name = "Uncomfortable fact"
+source = "aop-more #49"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "core"
+template = "<Domain> fact nobody says out loud: <the specific, sourced claim>."
+transposition = "confidence from specificity, not absolutes: cite the source of the fact in the same line or the next"
+example = "Compliance fact nobody says out loud: a signed audit report and a working control are not the same thing."
+
+[[pattern]]
+id = "unpopular-fact"
+name = "Unpopular fact"
+source = "aop-101 #47"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "core"
+template = "<Stated as fact, no hedge>: <the claim>."
+transposition = "confidence from specificity, not absolutes: state one fact, not a sweeping generalization, and be ready to source it in the replies"
+example = "Most vendor security questionnaires get filled out once and reused for three years without a re-check."
+
+[[pattern]]
+id = "nobody-wants-to-admit-it"
+name = "Nobody wants to admit it"
+source = "aop-more #103"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "core"
+template = "Nobody wants to admit it: <the specific, evidenced claim>."
+transposition = "confidence from specificity, not absolutes: the claim needs a real example behind it, not a vibe"
+example = "Nobody wants to admit it: the runbook everyone points to during an incident was last tested during onboarding, a year ago."
+
+[[pattern]]
+id = "common-misconception"
+name = "Common misconception"
+source = "aop-more #110"
+formats = ["single", "thread"]
+archetype = "status-quo-fault-line"
+trigger = ["T5"]
+fit = "core"
+template = "Common misconception: <the myth>. What actually happens: <the correction, with mechanism>."
+transposition = "confidence from specificity, not absolutes: the correction must explain the mechanism, not just contradict the myth"
+example = "Common misconception: adding a second approver slows a workflow down. What actually happens at Meridian Ledger: the second approver catches the exception before it becomes a rollback, so the average cycle got faster."
+
+[[pattern]]
+id = "define-the-word"
+name = "Define the word"
+source = "aop-101 #16"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T2"]
+fit = "core"
+template = "<Term> doesn't mean <the diluted popular usage>. It means <your sharper, working definition>."
+transposition = "confidence from specificity, not absolutes: ground the redefinition in a concrete case, not a dictionary flex"
+example = "Observability doesn't mean a dashboard with more panels. It means you can answer a question about a request you didn't anticipate asking, without shipping new code."
+
+[[pattern]]
+id = "actionable-steps"
+name = "Actionable steps"
+source = "aop-101 #18"
+formats = ["single", "thread"]
+archetype = "named-number"
+trigger = ["T6"]
+fit = "core"
+template = "<Topic>, in <N> steps:\n\n1. <step>\n2. <step>\n3. <step>"
+transposition = "confidence from specificity, not absolutes: each step must be an action the reader can start today, not a category"
+example = "Cutting your vendor review time in three steps:\n\n1. Pull last year's exceptions, not this year's checklist.\n2. Score against those exceptions first.\n3. Only then run the generic questionnaire."
+
+[[pattern]]
+id = "simplified-blueprint"
+name = "Simplified blueprint"
+source = "aop-101 #19"
+formats = ["single", "thread"]
+archetype = "named-number"
+trigger = ["T6"]
+fit = "core"
+template = "The path to <outcome>, stripped to the essentials:\n\n1. <step>\n2. <step>"
+transposition = "confidence from specificity, not absolutes: simplify the steps, never the honesty about what each one actually takes"
+example = "The path to a working incident postmortem, stripped down:\n\n1. Write the timeline before the explanation.\n2. Name the decision that would have prevented it.\n3. Ship one change, not ten."
+
+[[pattern]]
+id = "clickbait-redirect"
+name = "Clickbait redirect"
+source = "aop-101 #20"
+formats = ["thread"]
+archetype = "frame-phrase"
+trigger = ["T5"]
+fit = "core"
+template = "<Provocative setup line>. <Body that leans into the setup>. <Redirect: your actual, specific position>."
+transposition = "confidence from specificity, not absolutes: the redirect must be a real position with a mechanism, not a punchline"
+example = "AI agents don't need more autonomy. They need a smaller blast radius. Give one agent write access to one system, log every call, and the autonomy question mostly stops mattering."
+
+[[pattern]]
+id = "one-liner-value-followup"
+name = "One-liner with value follow-up"
+source = "aop-101 #29"
+formats = ["single"]
+archetype = "receipts-first"
+trigger = ["T2"]
+fit = "core"
+template = "<Short, standalone claim>. (Follow up once it gets traction: <the expanded, evidenced version>.)"
+transposition = "confidence from specificity, not absolutes: the follow-up must add a mechanism or example, not just restate the claim louder"
+example = "A control nobody tests is a control that doesn't exist. Follow-up once this lands: here's the quarterly test schedule we run for every control we cite in a customer's audit."
+
+[[pattern]]
+id = "list"
+name = "List"
+source = "aop-101 #25"
+formats = ["single"]
+archetype = "list-structure"
+trigger = ["T2"]
+fit = "core"
+template = "<Headline>:\n\n- <item>\n- <item>\n- <item>"
+transposition = "confidence from specificity, not absolutes: every item must be independently true and checkable, not padding to hit a round number"
+example = "What actually slows down a SOC 2 renewal:\n\n- Evidence collected by hand, not exported\n- No owner assigned per control\n- The auditor's first question has no existing answer"
+
+[[pattern]]
+id = "list-thread"
+name = "List thread"
+source = "aop-101 #30"
+formats = ["thread"]
+archetype = "list-structure"
+trigger = ["T2"]
+fit = "core"
+template = "1/ <headline promising N items>\n2..N/ <one item per tweet, each independently useful>\nlast/ <recap + CTA>"
+transposition = "confidence from specificity, not absolutes: each numbered tweet must stand alone if quoted out of context"
+example = "1/ 7 questions we now ask before enabling any agent write access\n2/ Which system, specifically, can it write to?\n3/ What's the smallest scope that still does the job?\n..."
+
+[[pattern]]
+id = "story-thread"
+name = "Story thread"
+source = "aop-101 #31"
+formats = ["thread"]
+archetype = "story-lesson"
+trigger = ["T1"]
+fit = "core"
+template = "1/ <the moment, concretely>\n2..N/ <what happened, in order>\nlast/ <the lesson, stated once>"
+transposition = "confidence from specificity, not absolutes: the lesson must follow from the specific events told, not be bolted on"
+example = "1/ Our first agent rollout wrote to the production database on day two.\n2/ Nobody had scoped its permissions past 'read customer records.'\n3/ We caught it in a diff review, not in production.\n4/ Now every new agent gets a scoped service account before it gets a task."
+
+[[pattern]]
+id = "origin-story"
+name = "Origin story"
+source = "aop-101 #31"
+formats = ["thread"]
+archetype = "story-lesson"
+trigger = ["T1"]
+fit = "core"
+template = "1/ <where this started, and why>\n2..N/ <what it took, honestly>\nlast/ <where it stands now>"
+transposition = "confidence from specificity, not absolutes: name the actual cost (time, a failed attempt), don't skip to the win"
+example = "1/ We started logging agent actions because a customer asked a question we couldn't answer: which agent touched this row?\n2/ The first version was a print statement someone forgot to remove.\n3/ It's now a signed, queryable audit trail on every write."
+
+[[pattern]]
+id = "accomplishment-value-thread"
+name = "Accomplishment + value thread"
+source = "aop-101 #34"
+formats = ["thread"]
+archetype = "receipts-first"
+trigger = ["T2", "T6"]
+fit = "core"
+template = "1/ <the specific milestone>\n2..N/ <the mechanism behind it, taught, not bragged>\nlast/ <CTA>"
+transposition = "confidence from specificity, not absolutes: the milestone must be a real, checkable number"
+example = "1/ We cut our vendor-review turnaround from 6 weeks to 9 days.\n2/ The change wasn't more reviewers. It was reusing last year's exceptions as the first pass, not the last.\n3/ Full breakdown in the next few tweets."
+
+[[pattern]]
+id = "overrated"
+name = "Overrated"
+source = "aop-101 #35"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T3"]
+fit = "core"
+template = "<Thing> is overrated. <The specific reason, with a mechanism>."
+transposition = "confidence from specificity, not absolutes: name what the thing fails to do, not that it's fashionable"
+example = "A longer vendor questionnaire is overrated. Past a point, length correlates with less careful answers, not more coverage."
+
+[[pattern]]
+id = "underrated"
+name = "Underrated"
+source = "aop-101 #36"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T3"]
+fit = "core"
+template = "<Thing> is underrated. <The specific reason it works, that most people skip>."
+transposition = "confidence from specificity, not absolutes: name the mechanism that makes it work, not just that you like it"
+example = "The pre-mortem is underrated. Ten minutes asking 'how would this fail' before a rollout catches more than the retro after it does."
+
+[[pattern]]
+id = "less-vs-more"
+name = "Less vs. more"
+source = "aop-101 #41"
+formats = ["single"]
+archetype = "before-after"
+trigger = ["T4"]
+fit = "core"
+template = "Do less: <the thing people over-invest in>. Do more: <the thing that actually moves the number>."
+transposition = "confidence from specificity, not absolutes: both sides need a reason, not just a directive"
+example = "Do less: writing a new policy for every incident. Do more: testing the policies you already have against the incident you just had."
+
+[[pattern]]
+id = "comparison"
+name = "Comparison"
+source = "aop-101 #42"
+formats = ["single"]
+archetype = "named-number"
+trigger = ["T5"]
+fit = "core"
+template = "<Thing A> and <thing B> look similar. The difference that matters: <the specific delta>."
+transposition = "confidence from specificity, not absolutes: the difference must be mechanical, not a matter of taste"
+example = "A signed attestation and a live control look similar on a vendor's slide. The difference that matters: one gets re-checked next quarter, the other doesn't."
+
+[[pattern]]
+id = "contrast"
+name = "Contrast"
+source = "aop-101 #43"
+formats = ["single"]
+archetype = "before-after"
+trigger = ["T5"]
+fit = "core"
+template = "<Two nearly identical things>. One difference: <the detail that changes the outcome>."
+transposition = "confidence from specificity, not absolutes: keep both sides genuinely close; the whole post rests on the one real gap"
+example = "Two audit trails. One logs who called the API. One logs who authorized it. Only the second one answers an auditor's actual question."
+
+[[pattern]]
+id = "percent-tweet"
+name = "The % tweet"
+source = "aop-101 #96"
+formats = ["single"]
+archetype = "named-number"
+trigger = ["T5"]
+fit = "core"
+template = "<N>% of <population> <specific, sourced claim>."
+transposition = "confidence from specificity, not absolutes: the number must be real and sourced (or explicitly marked as an internal estimate), never invented for effect"
+example = "In our own review of 40 vendor risk assessments this year, 31 had no re-test date on file."
+
+[[pattern]]
+id = "analogy"
+name = "Analogy"
+source = "aop-101 #64"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T5"]
+fit = "core"
+template = "<Unfamiliar concept> is like <a familiar one>. <The one point of the comparison that actually maps>."
+transposition = "confidence from specificity, not absolutes: the analogy earns its place only if it explains a mechanism, not just a mood"
+example = "An agent with unscoped write access is like a new hire with the master key on day one. The real cost shows up later, when nobody can tell whether it was ever misused."
+
+[[pattern]]
+id = "milestone-contrast"
+name = "Milestone with contrast"
+source = "aop-101 #70"
+formats = ["single"]
+archetype = "receipts-first"
+trigger = ["T6"]
+fit = "core"
+template = "<Time ago>: <the starting state>. <Now>: <the milestone>. <One line on what it took>."
+transposition = "confidence from specificity, not absolutes: the contrast is the number, not the adjectives around it"
+example = "A year ago: every agent action was logged to a text file nobody read. Now: a queryable, signed trail an auditor can run their own report against. The unglamorous part took longer than the exciting part."
+
+[[pattern]]
+id = "bs-excuse"
+name = "The BS excuse"
+source = "aop-101 #87"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "core"
+template = "\"<the common excuse, quoted>.\" No. <The real, specific reason, stated plainly>."
+transposition = "confidence from specificity, not absolutes: the correction needs a mechanism, not just contradiction"
+example = "\"We'll add logging once we scale.\" No. The reason to log now is that you can't reconstruct what an agent did last month once the reason to check has already shown up."
+
+[[pattern]]
+id = "bad-advice"
+name = "The bad-advice correction"
+source = "aop-101 #89"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "core"
+template = "Common advice: <the popular but flawed guidance>. Better: <the specific correction, with the reason it holds up>."
+transposition = "confidence from specificity, not absolutes: name why the common advice fails in a specific, real case, not in general"
+example = "Common advice: grant broad access early, tighten later. Better: scope narrow from day one. 'Tighten later' is a task nobody schedules until an incident schedules it for you."
+
+[[pattern]]
+id = "solve-a-problem"
+name = "Solve a problem"
+source = "aop-101 #91"
+formats = ["single", "thread"]
+archetype = "the-stakes"
+trigger = ["T4"]
+fit = "core"
+template = "<The problem, named plainly>. <Why the usual fix doesn't hold>. <What actually resolves it>."
+transposition = "confidence from specificity, not absolutes: 'the usual fix' must be a real, common approach, not a straw man"
+example = "Vendor questionnaires go stale within a quarter. Re-sending the same PDF doesn't catch that. What holds up: tying the questionnaire's re-send date to the vendor's own change log, not to a calendar reminder."
+
+[[pattern]]
+id = "interesting-fact"
+name = "Interesting fact"
+source = "aop-101 #92"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T5"]
+fit = "core"
+template = "<Specific, sourced fact from the domain>. <One line on why it matters>."
+transposition = "confidence from specificity, not absolutes: cite where the fact came from"
+example = "Most SOC 2 exceptions we've reviewed trace back to a control that was true when written and false by the time of the audit. The gap is staleness, not dishonesty."
+
+[[pattern]]
+id = "juxtaposition"
+name = "Juxtaposition"
+source = "aop-101 #93"
+formats = ["single"]
+archetype = "before-after"
+trigger = ["T3"]
+fit = "core"
+template = "<Scenario one>. <Scenario two, placed right after it with no comment>."
+transposition = "confidence from specificity, not absolutes: let the two scenarios do the work; add at most one closing line, no editorializing"
+example = "A vendor with a five-page security policy nobody has read. A vendor with a one-page policy the whole team can recite. Guess which one passes the next incident review faster."
+
+[[pattern]]
+id = "the-most-important"
+name = "The most important"
+source = "aop-more #111"
+formats = ["single"]
+archetype = "named-number"
+trigger = ["T2"]
+fit = "core"
+template = "The most important <thing> in <domain>: <the specific claim>."
+transposition = "confidence from specificity, not absolutes: defend the ranking with one concrete reason, not just the label 'most important'"
+example = "The most important line in an incident postmortem: the decision that would have prevented it, named once, not buried in the timeline."
+
+[[pattern]]
+id = "read-that-again"
+name = "Read that again"
+source = "aop-more #108"
+formats = ["single"]
+archetype = "wordplay"
+trigger = ["T1"]
+fit = "core"
+template = "<A short, dense sentence, once>. Read that again."
+transposition = "confidence from specificity, not absolutes: the sentence must reward a second read with a real point, not just wordplay"
+example = "A control you haven't tested is a hope with a compliance stamp on it. Read that again."
+
+[[pattern]]
+id = "i-have-a-rule"
+name = "I have a rule"
+source = "aop-101 #3"
+formats = ["single"]
+archetype = "frame-phrase"
+trigger = ["T2"]
+fit = "core"
+template = "I have a rule: <the specific, actionable rule>."
+transposition = "confidence from specificity, not absolutes: the rule must be something you can point to actually following"
+example = "I have a rule: no agent gets write access to a system before someone can name, in one sentence, what it's allowed to touch."
+
+[[pattern]]
+id = "reality-check"
+name = "Reality check"
+source = "aop-101 #24"
+formats = ["single"]
+archetype = "the-concession"
+trigger = ["T4"]
+fit = "core"
+template = "Reality check: <the thing that took longer / cost more / went less smoothly than the highlight reel suggests>."
+transposition = "confidence from specificity, not absolutes: name the actual cost, not a vague 'it was hard'"
+example = "Reality check: our first attempt at agent audit logging shipped without timestamps. It took a customer's support ticket to notice."
+
+[[pattern]]
+id = "post-receipts"
+name = "Post receipts"
+source = "aop-101 #88"
+formats = ["single", "thread"]
+archetype = "receipts-first"
+trigger = ["T2"]
+fit = "core"
+template = "<The specific, checkable number>. <One line on how it was earned, not just stated>."
+transposition = "confidence from specificity, not absolutes: a receipt is a number with a source, not an adjective"
+example = "9 days, down from 6 weeks. That's our vendor-review turnaround after we started reusing last year's exceptions as the first pass instead of the last."
+
+[[pattern]]
+id = "talk-about-why"
+name = "Talk about why"
+source = "aop-101 #90"
+formats = ["single", "thread"]
+archetype = "the-concession"
+trigger = ["T1"]
+fit = "core"
+template = "Why we <do the specific thing>: <the honest, specific reason>."
+transposition = "confidence from specificity, not absolutes: the reason must be the real one, including the unflattering part"
+example = "Why we log every agent write, not just the risky ones: we didn't know which ones were risky until we could see all of them side by side."
+
+# ============================================================================================
+# CONDITIONAL: usable only with the stated guardrail.
+# ============================================================================================
+
+[[pattern]]
+id = "repeat-after-me"
+name = "Repeat after me"
+source = "aop-101 #4"
+formats = ["single"]
+archetype = "frame-phrase"
+trigger = ["T6"]
+fit = "conditional"
+template = "Repeat after me: <one short, positive, specific line>."
+transposition = "confidence from specificity, not absolutes: the line must be actionable, not a generic affirmation"
+guardrail = "Every line must be positive and concretely actionable, never a veiled dig at a competitor, a team, or a named practice. If it only works as a put-down, it isn't this pattern."
+example = "Repeat after me: an audit trail you can't query is just a backup with extra steps."
+
+[[pattern]]
+id = "i-dont-know-who-needs-to-hear-this"
+name = "I don't know who needs to hear this"
+source = "aop-101 #9"
+formats = ["single"]
+archetype = "frame-phrase"
+trigger = ["T1"]
+fit = "conditional"
+template = "I don't know who needs to hear this, but <one specific piece of advice>."
+transposition = "confidence from specificity, not absolutes: the advice must be concrete enough to act on today, not a mood"
+guardrail = "One piece of advice, grounded in something you've actually seen go wrong or right. Never a vague inspirational line with nothing underneath it."
+example = "I don't know who needs to hear this, but the agent you haven't scoped yet is the one that will surprise you first."
+
+[[pattern]]
+id = "tell-no-one"
+name = "Tell no one"
+source = "aop-101 #21"
+formats = ["single"]
+archetype = "frame-phrase"
+trigger = ["T2"]
+fit = "conditional"
+template = "<Do the specific thing>. Tell no one until <the milestone>."
+transposition = "confidence from specificity, not absolutes: the 'secret' is discipline, never confidentiality about your own product or customers"
+guardrail = "Never implies real confidentiality is being broken or kept about the product, a customer, or a security matter. This is a framing device for quiet effort, not a claim about withheld information."
+example = "Build the audit trail before anyone asks for one. Tell no one until the first customer question it answers in five minutes instead of five days."
+
+[[pattern]]
+id = "six-months"
+name = "Six months"
+source = "aop-101 #22"
+formats = ["single"]
+archetype = "named-number"
+trigger = ["T6"]
+fit = "conditional"
+template = "In six months you can <a specific, realistic outcome>, if you start <the one concrete step> today."
+transposition = "confidence from specificity, not absolutes: the timeframe and outcome must both be realistic for the domain, not hype-scaled"
+guardrail = "The timeframe must match the claim's real difficulty. A six-month promise for something that takes two years is the exact bare-absolute failure this catalog exists to avoid."
+example = "In six months you can have a queryable audit trail across every agent in production, if you start by logging one field, the calling identity, today."
+
+[[pattern]]
+id = "challenge"
+name = "Give a challenge"
+source = "aop-more #104"
+formats = ["single"]
+archetype = "frame-phrase"
+trigger = ["T6"]
+fit = "conditional"
+template = "Challenge: <one specific, self-imposed task with a deadline>."
+transposition = "confidence from specificity, not absolutes: the challenge must be concretely completable, not a vague resolution"
+guardrail = "Frame it as a challenge to yourself or the reader personally undertakes, never a dare aimed at the reader's competence or a veiled test of the audience."
+example = "Challenge: find one system today where you genuinely don't know which agent last wrote to it. Fix the logging gap before you fix anything else this week."
+
+[[pattern]]
+id = "by-stage"
+name = "By stage"
+source = "aop-101 #15"
+formats = ["single"]
+archetype = "named-number"
+trigger = ["T2"]
+fit = "conditional"
+template = "By <stage, e.g. Series A / $1M ARR>, you should have: <3-5 specific items>."
+transposition = "transposed from the book's 'by age' framing to a company-stage axis, and from bare absolutes to sourced specifics: every item needs a reason, not just a checklist entry"
+guardrail = "Stage only (funding round, ARR, headcount), never a person's age or personal-life milestone. Each item needs one line on why it matters at that stage, not just a label."
+example = "By the time you have your first enterprise customer, you should have: a named owner for every control in your security questionnaire, and a re-test date on each one."
+
+[[pattern]]
+id = "polarizing-platitude"
+name = "Polarizing platitude"
+source = "aop-101 #37"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T3"]
+fit = "conditional"
+template = "<Adjective one> teams <do X>. <Adjective two> teams <do Y>. Guess which ships fewer incidents."
+transposition = "confidence from specificity, not absolutes: replace the book's bare-absolute delivery with a claim you could actually back with an example"
+guardrail = "Never speak in absolutes for their own sake (book entry #110's own advice, inverted here on purpose). Each side needs a real, defensible difference, not just opposite adjectives."
+example = "Careful teams test their runbooks before an incident. Confident teams test them during one. Guess which postmortem is shorter."
+
+[[pattern]]
+id = "unpopular-opinion"
+name = "Unpopular opinion"
+source = "aop-101 #45"
+formats = ["single"]
+archetype = "status-quo-fault-line"
+trigger = ["T1"]
+fit = "conditional"
+template = "Unpopular opinion: <the specific, defensible contrarian claim>."
+transposition = "confidence from specificity, not absolutes: the opinion must be genuinely arguable with evidence, not manufactured for reaction"
+guardrail = "The opinion must be one you'd defend with a real example if challenged in the replies. If it's contrarian only because it's phrased that way, it isn't this pattern."
+example = "Unpopular opinion: a shorter vendor security questionnaire, reviewed properly, catches more real risk than a hundred-question form nobody reads twice."
+
+[[pattern]]
+id = "authority"
+name = "The authority tweet"
+source = "aop-101 #67"
+formats = ["single"]
+archetype = "the-stakes"
+trigger = ["T2"]
+fit = "conditional"
+template = "<A confident, specific claim>. <The proof, cited or shown>."
+transposition = "confidence from specificity, not absolutes: the proof must be real and checkable, never implied or invented"
+guardrail = "Every claim of authority needs cited, checkable proof in the same post or the very next one. An authority claim with no proof is the exact failure this catalog exists to prevent."
+example = "Audit trails don't slow agents down. Ours added under 5ms per call, measured across 2 million logged actions last quarter."
+
+[[pattern]]
+id = "quote"
+name = "Use a quote"
+source = "aop-101 #28"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T2"]
+fit = "conditional"
+template = "\"<accurate, attributed quote>\" (<source>). <Your one-line extension, tied to your own point>."
+transposition = "confidence from specificity, not absolutes: cite the real source, and add original commentary rather than letting the quote stand alone"
+guardrail = "The quote must be verbatim and attributed to its real source (prose-craft's quote exemption covers the quote itself, not a paraphrase dressed as one). Never invent or misattribute a quote."
+example = "\"You can't secure what you can't see\" (a line that shows up in nearly every security conference talk). The part that's usually missing: seeing isn't enough without a record of who acted on what you saw."
+
+[[pattern]]
+id = "past-vs-present"
+name = "Past vs. present"
+source = "aop-101 #38"
+formats = ["single"]
+archetype = "before-after"
+trigger = ["T5"]
+fit = "conditional"
+template = "<N> years ago: <the old, specific state>. Today: <the new, specific state>."
+transposition = "confidence from specificity, not absolutes: the comparison must be fair and checkable, not nostalgia dressed as insight"
+guardrail = "Both states must be genuinely comparable and specific. Never use this to make a competitor's older approach look worse than it was, only to describe your own or the field's evolution."
+example = "Three years ago: 'we trust the agent because it passed the demo.' Today: we trust the agent because every action it takes is logged, scoped, and reviewable after the fact."
+
+[[pattern]]
+id = "sports-analogy"
+name = "The sports analogy"
+source = "aop-101 #65"
+formats = ["single"]
+archetype = "deep-cut-insider"
+trigger = ["T5"]
+fit = "conditional"
+template = "<A specific, well-known sports moment>. <The one point of the comparison that maps to your domain>."
+transposition = "confidence from specificity, not absolutes: the mapping must be tight and explained, not decorative name-dropping"
+guardrail = "Keep the analogy to the one point that actually maps. Cut it if the sports detail is more interesting than the point it's supposed to illustrate."
+example = "A team that wins the championship still reviews the game tape. A team that ships an agent to production without reviewing its action log is skipping the tape."
+
+[[pattern]]
+id = "write-to-someone"
+name = "Write to someone"
+source = "aop-101 #71"
+formats = ["single"]
+archetype = "the-concession"
+trigger = ["T1"]
+fit = "conditional"
+template = "For the <specific role/persona> about to <the specific situation>: <one piece of advice>."
+transposition = "confidence from specificity, not absolutes: name a real persona type, not a vague 'you'"
+guardrail = "The addressee must be a real, specific role or situation (a named persona from the profile's ICP, not a generic 'to whoever needs this'). Vague framing defeats the pattern."
+example = "For the platform engineer about to ship their first production agent: log the calling identity before you log anything else. Everything downstream depends on that one field existing."
+
+[[pattern]]
+id = "things-that-do-dont"
+name = "Things that do, things that don't"
+source = "aop-101 #40"
+formats = ["single", "thread"]
+archetype = "before-after"
+trigger = ["T3"]
+fit = "conditional"
+template = "Things that reduce <outcome>:\n- <item>\n\nThings that don't:\n- <item>"
+transposition = "confidence from specificity, not absolutes: both lists must be genuinely evidenced, not a setup-and-punchline where the second list is a strawman"
+guardrail = "Both lists need real evidence behind every item. Never load the second list with a competitor's actual approach dressed up as an obvious failure."
+example = "Things that reduce incident recurrence:\n- A named owner per fix, not per ticket\n\nThings that don't:\n- A longer postmortem template"
+
+[[pattern]]
+id = "question-post"
+name = "Question post"
+source = "aop-101 #26"
+formats = ["single"]
+archetype = "question-post"
+trigger = ["T2"]
+fit = "conditional"
+template = "<A genuine, specific question about the reader's own experience>?"
+transposition = "confidence from specificity, not absolutes: ask a specific question about a real situation, not a leading or rhetorical one"
+guardrail = "Body/standalone post only, never the opening line of a hook or tweet 1 of a thread: docs/hook-craft.md's first line is never a question. Ask to learn, don't imply an answer."
+example = "What's the oldest control in your security questionnaire that hasn't been re-tested since it was written?"
+
+[[pattern]]
+id = "question-with-limit"
+name = "Question with a limit"
+source = "aop-101 #27"
+formats = ["single"]
+archetype = "question-post"
+trigger = ["T2"]
+fit = "conditional"
+template = "<A specific question>, in <N> word(s) or less."
+transposition = "confidence from specificity, not absolutes: the constraint should make the question easier to answer, not gimmicky"
+guardrail = "Body/standalone post only, never tweet 1 or a hook's opening line. The word limit exists to lower the reply barrier, not to turn the question into a game with no content."
+example = "The one control you'd re-test first if you had a single afternoon: in three words or less."
+
+# ---------------------------------------------------------------------------
+# Sourced from a purchased hook product (mbcopy, "Easy Money Hooks", 2026-08-23).
+# Taxonomy only: the shapes are the vendor's observation, every template,
+# transposition and example below is written here. Raw source stays out of git;
+# five further candidate shapes were triaged out and are deliberately absent.
+# ---------------------------------------------------------------------------
+
+[[pattern]]
+id = "biggest-mistake"
+name = "The biggest mistake I made"
+source = "emh-generator #19"
+formats = ["single", "thread"]
+archetype = "the-concession"
+trigger = ["T1", "T4"]
+fit = "core"
+template = "The biggest mistake I made as <role>: <the specific decision, named>. What it cost: <the measurable consequence>."
+transposition = "the mistake is your own and dated, never a class of people's; the cost is a number or a named consequence, never 'a lot of time'"
+example = "The biggest mistake I made as a solo founder: I sent 40 outbound emails a week and never once read the prospect's last funding round. Nine months, 1,400 sends, four replies."
+
+[[pattern]]
+id = "steal-this"
+name = "Steal this template"
+source = "emh-generator #27"
+formats = ["single", "thread"]
+archetype = "receipts-first"
+trigger = ["T2", "T6"]
+fit = "core"
+template = "Steal this <artifact>: <what it does, in one line>. <The one constraint that makes it work>."
+transposition = "hand over a real artifact you actually run, not a generic checklist; it must be complete enough to use without a reply or a DM"
+example = "Steal this account-research prompt: it reads a company's last four filings and returns the three lines a first call should open on. The constraint that makes it work: it must quote, never summarize."

@@ -1,0 +1,25 @@
+usage: python -m gtm_core.video_finish run [-h] --profile PROFILE
+                                           [--product PRODUCT] --slug SLUG
+                                           --ratio {16:9,1:1,4:5,9:16}
+                                           --spec SPEC --source SOURCE
+                                           --out-dir OUT_DIR
+                                           [--workdir WORKDIR]
+                                           [--repo-root REPO_ROOT]
+                                           [--profiles-root PROFILES_ROOT]
+                                           [--dry-run] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --profile PROFILE
+  --product PRODUCT     active product slug (brand-kit lookup)
+  --slug SLUG
+  --ratio {16:9,1:1,4:5,9:16}
+  --spec SPEC
+  --source SOURCE
+  --out-dir OUT_DIR
+  --workdir WORKDIR
+  --repo-root REPO_ROOT
+  --profiles-root PROFILES_ROOT
+                        override profiles root for brand-kit lookup
+  --dry-run
+  --json

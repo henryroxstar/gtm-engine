@@ -1,0 +1,76 @@
+# tests/lint/retired_patch_paths.txt — dotted paths a module split has RETIRED (docs/RULES.md §R10).
+#
+# After `old_module.py` becomes the package `old_module/`, its `__init__` re-exports every name,
+# so `from old_module import f` keeps working — but a test that does
+# `patch("old_module.f")` now patches the re-export binding, while the moved code binds `f` in
+# its own submodule. The mock silently stops intercepting; the real code runs; CI stays green.
+#
+# Every split PR appends the paths it retired. The check (tests/lint/complexity_check.py, run
+# at pre-commit and under pytest) fails any `patch(...)` / `monkeypatch.setattr(...)` string in
+# tests/ that names one — and any `patch.object(<module alias>, "name")` /
+# `monkeypatch.setattr(<module alias>, "name", …)` / `patch.multiple(…)` that resolves to one
+# through the file's imports. Re-point such a patch at the module where the moved code USES
+# the name.
+#
+# One dotted path per line. Phase 0 froze an empty list; each split appends a dated block.
+
+# 2026-09-02 — Phase 1a: backend/routers/runs.py → backend/services/runs/ (pure motion).
+# The router still IMPORTS every moved name, so `from backend.routers.runs import X` keeps
+# working — but for the names below the router only RE-EXPORTS them: nothing in its own
+# handlers calls them any more, so `patch("backend.routers.runs.X")` now patches a binding
+# no code reads. Re-point at the service module that USES the name (mapping in the commit
+# body). Names the router still calls itself (_execute_run, _execute_pack_run, _publish_event,
+# _sse_frame, the state registries, …) are deliberately NOT listed: patching the router alias
+# is correct there, and listing them would fire on correct tests.
+backend.routers.runs._background_tasks
+backend.routers.runs._track
+backend.routers.runs.drain_background_tasks
+backend.routers.runs._run_subscribers
+backend.routers.runs._STREAM_QUEUE_MAX
+backend.routers.runs._reservation_enabled
+backend.routers.runs.RESERVATION_ESTIMATE_USD
+backend.routers.runs._reserve_or_deny
+backend.routers.runs._settle_run_reservations
+backend.routers.runs._DECISION_STATE
+backend.routers.runs._open_gate_row
+backend.routers.runs._claim_gate_decision
+backend.routers.runs._WIRE_NODE_STATE
+backend.routers.runs._persist_node
+backend.routers.runs._upsert_block
+backend.routers.runs._file_block
+backend.routers.runs._fail_run
+backend.routers.runs._GATE_PLAN_SENTINEL
+backend.routers.runs._PACK_PROMPT_RE
+backend.routers.runs.reconcile_gates
+
+# 2026-09-02 — Phase 1b: the shared transitions moved to backend/services/runs/lifecycle.py.
+# Each executor kept its engine-specific half, so the names below are no longer bound in it:
+# patching `<executor>.<name>` now raises AttributeError at best, and at worst — for a name a
+# sibling module still exports — patches a binding nothing reads. Patch `lifecycle` instead
+# (or use _protocol1's SCOPE_MODULES / BUDGET_MODULES / PUSH_MODULES, which the seams test
+# holds equal to the real binder set in both directions). Derived, not eyeballed.
+backend.services.runs.executor.workspace_scope
+backend.services.runs.executor.send_gate_push
+backend.services.runs.executor._publish_event
+backend.services.runs.executor._utc_now
+backend.services.runs.executor._content_sha
+backend.services.runs.executor._gate_events
+backend.services.runs.executor._gate_decisions
+backend.services.runs.pack_executor.send_gate_push
+backend.services.runs.pack_executor._open_gate_row
+backend.services.runs.pack_executor._claim_gate_decision
+backend.services.runs.pack_executor._content_sha
+backend.services.runs.pack_executor._gate_events
+backend.services.runs.pack_executor._gate_decisions
+
+# 2026-09-02 — Phase 3A: the five Cluster A linters became packages. The names below were
+# HEADER IMPORTS on the pre-split modules, so patching the module alias reached the only
+# binding there was; each submodule now imports them directly. Re-exporting them from the
+# package would be worse than the AttributeError: the patch would bind a name no submodule
+# reads, and the test would go green while running against the real filesystem. Patch the
+# module that USES the name (tests/test_content_quality.py shows the shape).
+gtm_core.content_quality.resolve_profiles_root
+gtm_core.content_quality.resolve_content_root
+gtm_core.content_quality.video_probe
+gtm_core.content_quality.evaluate
+gtm_core.content_quality._person_hook_matrix_path

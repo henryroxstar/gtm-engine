@@ -1,0 +1,14 @@
+
+asset.mp4
+  ! [V1 fps] 25fps — cinematic-only, below the 30fps clean floor
+      → prefer >= 30fps unless the cinematic look is deliberate
+  ✗ [V1 resolution] 720x1280 — below the 1080x1920 floor for 9:16
+      → re-render or upscale to at least 1080x1920
+  ✗ [V3 caption_outside_safe_area] screen 1 box (0,1100,400,1160) outside safe area (43,128,677,1101)
+      → re-fit via gtm_core.captions (shrink/wrap inside the safe area)
+  ✗ [V3 caption_outside_safe_area] screen 2 box (100,1100,500,1160) outside safe area (43,128,677,1101)
+      → re-fit via gtm_core.captions (shrink/wrap inside the safe area)
+  ! [V7 caption_screen_too_dense] screen 1: 8 words in 1.00s = 8.0 w/s (ceiling 4)
+      → cut words from this screen or hold it longer
+
+  suppressed: 1 (V5:1)

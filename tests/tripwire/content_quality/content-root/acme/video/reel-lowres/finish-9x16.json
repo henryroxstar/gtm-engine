@@ -1,0 +1,1 @@
+{"profile": "acme", "slug": "reel-lowres", "ratio": "9x16", "asset_path": "tests/tripwire/content_quality/assets/probe-only.mp4", "stages": ["normalize", "captions", "mux"], "census": {"loudnorm": 1}, "identity_used": ["element"], "captions": {"frame": [720, 1280], "screens": [{"index": 1, "box": {"x": 100, "y": 900, "w": 400, "h": 80}}]}}

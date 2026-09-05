@@ -1,0 +1,157 @@
+{
+  "sections.html": [
+    {
+      "tier": "T9",
+      "rule": "headline-about-method",
+      "severity": "error",
+      "line": 1,
+      "excerpt": "We finally asked buyers the right question",
+      "fix": "the headline describes what WE did, not what the market did \u2014 lead with the market fact and move the method note to the operator appendix",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "01 Who we heard from",
+      "fix": "add \u00a701 Who we heard from per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "02 What buyers say",
+      "fix": "add \u00a702 What buyers say per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "03 What people say about us",
+      "fix": "add \u00a703 What people say about us per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "04b Competitor moves",
+      "fix": "add \u00a704b Competitor moves per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "04c Regulatory & enforcement clock",
+      "fix": "add \u00a704c Regulatory & enforcement clock per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "04d Proof points",
+      "fix": "add \u00a704d Proof points per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "04e Account moves",
+      "fix": "add \u00a704e Account moves per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "05 Are we aligned?",
+      "fix": "add \u00a705 Are we aligned? per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "06 What to validate",
+      "fix": "add \u00a706 What to validate per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "07 Standards watch",
+      "fix": "add \u00a707 Standards watch per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "08 What this means for each team",
+      "fix": "add \u00a708 What this means for each team per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "App. A Sources & how to read them",
+      "fix": "add \u00a7App. A Sources & how to read them per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "App. B Evidence",
+      "fix": "add \u00a7App. B Evidence per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "App. C SEC search",
+      "fix": "add \u00a7App. C SEC search per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "App. D Glossary",
+      "fix": "add \u00a7App. D Glossary per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    },
+    {
+      "tier": "T15",
+      "rule": "missing required section",
+      "severity": "error",
+      "line": 0,
+      "excerpt": "App. E Operator notes",
+      "fix": "add \u00a7App. E Operator notes per html-companion.md's reader-surface table \u2014 every section listed there must appear, even if only as a short strip",
+      "surface": "reader"
+    }
+  ]
+}

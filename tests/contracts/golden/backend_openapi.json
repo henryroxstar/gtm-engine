@@ -1,0 +1,3634 @@
+{
+  "components": {
+    "schemas": {
+      "ActivateProfileRequest": {
+        "properties": {
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_name"
+        ],
+        "title": "ActivateProfileRequest",
+        "type": "object"
+      },
+      "AgentCreateRequest": {
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "monthly_budget_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Usd"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "packs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packs"
+          },
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "profile_name"
+        ],
+        "title": "AgentCreateRequest",
+        "type": "object"
+      },
+      "AgentResponse": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "monthly_budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Usd"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "packs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packs"
+          },
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "workspace_id",
+          "name",
+          "profile_name",
+          "status"
+        ],
+        "title": "AgentResponse",
+        "type": "object"
+      },
+      "AgentUpdateRequest": {
+        "description": "PATCH /v1/agents/{id} \u2014 partial update. ``status`` may only move between\nactive and paused here; archiving is DELETE's job (and is irreversible).",
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "monthly_budget_usd": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Usd"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "packs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packs"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "paused"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "AgentUpdateRequest",
+        "type": "object"
+      },
+      "ApiKeyCreateRequest": {
+        "properties": {
+          "entitlement": {
+            "default": "pro",
+            "enum": [
+              "free",
+              "pro",
+              "pro_plus"
+            ],
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "ApiKeyCreateRequest",
+        "type": "object"
+      },
+      "ApiKeyCreateResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "entitlement": {
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_revoked": {
+            "title": "Is Revoked",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "raw_key": {
+            "title": "Raw Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prefix",
+          "label",
+          "entitlement",
+          "last_used_at",
+          "created_at",
+          "is_revoked",
+          "raw_key"
+        ],
+        "title": "ApiKeyCreateResponse",
+        "type": "object"
+      },
+      "ApiKeyResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "entitlement": {
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_revoked": {
+            "title": "Is Revoked",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prefix",
+          "label",
+          "entitlement",
+          "last_used_at",
+          "created_at",
+          "is_revoked"
+        ],
+        "title": "ApiKeyResponse",
+        "type": "object"
+      },
+      "CostSummaryResponse": {
+        "properties": {
+          "cap_usd": {
+            "title": "Cap Usd",
+            "type": "number"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "over_cap": {
+            "title": "Over Cap",
+            "type": "boolean"
+          },
+          "records": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "total_usd": {
+            "title": "Total Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "month",
+          "total_usd",
+          "cap_usd",
+          "over_cap"
+        ],
+        "title": "CostSummaryResponse",
+        "type": "object"
+      },
+      "DeleteAccountRequest": {
+        "properties": {
+          "current_password": {
+            "minLength": 1,
+            "title": "Current Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password"
+        ],
+        "title": "DeleteAccountRequest",
+        "type": "object"
+      },
+      "EntitlementSyncRequest": {
+        "properties": {
+          "cap_usd": {
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Cap Usd",
+            "type": "number"
+          },
+          "entitlement": {
+            "enum": [
+              "free",
+              "pro",
+              "pro_plus"
+            ],
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "past_due",
+                  "canceled",
+                  "trialing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "sync_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sync Id",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "entitlement",
+          "cap_usd",
+          "sync_id"
+        ],
+        "title": "EntitlementSyncRequest",
+        "type": "object"
+      },
+      "EntitlementSyncResponse": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied",
+          "outcome"
+        ],
+        "title": "EntitlementSyncResponse",
+        "type": "object"
+      },
+      "ExchangeRequest": {
+        "description": "POST /v1/auth/exchange \u2014 an external IdP's JWT (A3). Size/shape are enforced\nin backend/oidc.py so every rejection is a uniform 401, not a 422 oracle.",
+        "properties": {
+          "token": {
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "ExchangeRequest",
+        "type": "object"
+      },
+      "FileDiff": {
+        "description": "One file's diff entry.",
+        "properties": {
+          "new": {
+            "title": "New",
+            "type": "string"
+          },
+          "old": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old"
+          }
+        },
+        "required": [
+          "old",
+          "new"
+        ],
+        "title": "FileDiff",
+        "type": "object"
+      },
+      "GateRequest": {
+        "properties": {
+          "content_sha": {
+            "minLength": 1,
+            "title": "Content Sha",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "edit",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "edited_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Content"
+          }
+        },
+        "required": [
+          "decision",
+          "content_sha"
+        ],
+        "title": "GateRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryResponse": {
+        "properties": {
+          "entries": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "title": "HistoryResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "OnboardDiffResponse": {
+        "description": "GET /v1/onboard/{id}/diff response.",
+        "properties": {
+          "diffs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileDiff"
+            },
+            "title": "Diffs",
+            "type": "object"
+          },
+          "draft_id": {
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_id",
+          "slug",
+          "diffs"
+        ],
+        "title": "OnboardDiffResponse",
+        "type": "object"
+      },
+      "OnboardIngestRequest": {
+        "description": "POST /v1/onboard request body (the ingest step).",
+        "properties": {
+          "additional_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Notes"
+          },
+          "company_confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator-confirmed company name (overrides brain extraction)",
+            "title": "Company Confirmation"
+          },
+          "source": {
+            "description": "URL or raw text",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "url",
+              "text"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "source"
+        ],
+        "title": "OnboardIngestRequest",
+        "type": "object"
+      },
+      "OnboardIngestResponse": {
+        "description": "POST /v1/onboard/ingest response.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "draft_id": {
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "flags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "object"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "staged_files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Staged Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "draft_id",
+          "slug",
+          "staged_files",
+          "confidence",
+          "gaps"
+        ],
+        "title": "OnboardIngestResponse",
+        "type": "object"
+      },
+      "OnboardProductExtractRequest": {
+        "description": "POST /v1/onboard/{id}/product/{slug}/extract request body.",
+        "properties": {
+          "source": {
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "url",
+              "text"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "source"
+        ],
+        "title": "OnboardProductExtractRequest",
+        "type": "object"
+      },
+      "OnboardPromoteRequest": {
+        "description": "POST /v1/onboard/{id}/promote request body \u2014 ops form fields.",
+        "properties": {
+          "additional_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Notes"
+          },
+          "confirmed_company_name": {
+            "minLength": 1,
+            "title": "Confirmed Company Name",
+            "type": "string"
+          },
+          "monthly_tool_budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Tool Budget Usd"
+          },
+          "per_run_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Run Cap Usd"
+          },
+          "telegram_chat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telegram Chat Id"
+          }
+        },
+        "required": [
+          "confirmed_company_name"
+        ],
+        "title": "OnboardPromoteRequest",
+        "type": "object"
+      },
+      "PatchAccountRequest": {
+        "properties": {
+          "current_password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Password"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "new_password": {
+            "anyOf": [
+              {
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Password"
+          }
+        },
+        "title": "PatchAccountRequest",
+        "type": "object"
+      },
+      "PatchCostCapRequest": {
+        "properties": {
+          "monthly_cost_cap_usd": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 500.0,
+            "title": "Monthly Cost Cap Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "monthly_cost_cap_usd"
+        ],
+        "title": "PatchCostCapRequest",
+        "type": "object"
+      },
+      "ProfileResponse": {
+        "properties": {
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_name",
+          "is_default"
+        ],
+        "title": "ProfileResponse",
+        "type": "object"
+      },
+      "ProfilesListResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "string"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileResponse"
+            },
+            "title": "Profiles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "profiles",
+          "active"
+        ],
+        "title": "ProfilesListResponse",
+        "type": "object"
+      },
+      "PublishSettingsSyncRequest": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "schedule_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Enabled"
+          },
+          "schedule_max_horizon_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Max Horizon Days"
+          },
+          "secret_ref": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "PublishSettingsSyncRequest",
+        "type": "object"
+      },
+      "PublishSettingsSyncResponse": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied",
+          "outcome"
+        ],
+        "title": "PublishSettingsSyncResponse",
+        "type": "object"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RegisterTokenRequest": {
+        "properties": {
+          "platform": {
+            "enum": [
+              "apns",
+              "fcm"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "platform"
+        ],
+        "title": "RegisterTokenRequest",
+        "type": "object"
+      },
+      "RunCostRollupResponse": {
+        "description": "Per-run cost rollup \u2014 what one run cost end-to-end, broken down by stage.\n\nThe unit-economics input pricing is blocked on (\u00a77). User-safe: stage/model + the\nunits/cost consumed; never internal rate tables. RLS scopes it to the workspace.",
+        "properties": {
+          "breakdown": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Breakdown",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "total_usd": {
+            "title": "Total Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "run_id",
+          "total_usd"
+        ],
+        "title": "RunCostRollupResponse",
+        "type": "object"
+      },
+      "RunRequest": {
+        "description": "POST /v1/runs \u2014 two modes, one body (additive; prompt mode unchanged).\n\nPrompt mode: {profile_name, prompt}                \u2014 the pre-A1 behaviour.\nPack mode:   {profile_name, pack, variant, inputs} \u2014 dispatches the graph\n             runner over packs/<pack>/graphs/<variant>.toml; `inputs` is the\n             v1 flat string map covering the variant's `ask` settings\n             (pack-descriptor contract).\n\n``agent_id`` (A4, optional): run AS the named agent \u2014 the agent's profile\nbinds the run (``profile_name`` may then be omitted; if given it must match),\nand the agent's pack subset / budget / paused state are enforced. Absent:\n``profile_name`` is required as before, and the run is attributed to the\nworkspace's default agent (attribution only \u2014 no narrowing).",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Inputs",
+            "type": "object"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack"
+          },
+          "profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Name"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "title": "RunRequest",
+        "type": "object"
+      },
+      "RunResponse": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "nodes": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodes"
+          },
+          "pending_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Content"
+          },
+          "pending_content_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Content Sha"
+          },
+          "profile_name": {
+            "title": "Profile Name",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "stages": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "profile_name"
+        ],
+        "title": "RunResponse",
+        "type": "object"
+      },
+      "SubscriptionResponse": {
+        "properties": {
+          "entitlement": {
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "monthly_cost_cap_usd": {
+            "title": "Monthly Cost Cap Usd",
+            "type": "number"
+          },
+          "revenuecat_subscriber_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenuecat Subscriber Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entitlement",
+          "status",
+          "monthly_cost_cap_usd"
+        ],
+        "title": "SubscriptionResponse",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "UsageResponse": {
+        "properties": {
+          "cap_usd": {
+            "title": "Cap Usd",
+            "type": "number"
+          },
+          "over_cap": {
+            "title": "Over Cap",
+            "type": "boolean"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "period_start": {
+            "title": "Period Start",
+            "type": "string"
+          },
+          "spent_usd": {
+            "title": "Spent Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "period",
+          "period_start",
+          "spent_usd",
+          "cap_usd",
+          "over_cap"
+        ],
+        "title": "UsageResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkspaceResponse": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "entitlement": {
+            "title": "Entitlement",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "monthly_cost_cap_usd": {
+            "title": "Monthly Cost Cap Usd",
+            "type": "number"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "entitlement",
+          "monthly_cost_cap_usd"
+        ],
+        "title": "WorkspaceResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "GTM Content OS \u2014 Backend API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/account": {
+      "delete": {
+        "description": "Hard-delete the authenticated user and ALL their data \u2014 DB **and** on-disk.\n\nRequires the current password (step-up re-auth) for an irreversible action.\nPostgres CASCADE propagates the DB rows (workspace \u2192 subscriptions, profiles,\nruns, push_tokens, api_keys, cost_records); the workspace's on-disk tree\n(``data/workspaces/<ws>/`` \u2014 account dossiers, prospect PII, outreach) is\nremoved too. GDPR Art. 17: fail loud, so an erasure that cannot complete is\nnever silently reported as done.",
+        "operationId": "delete_account_v1_account_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Account V1 Account Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Account",
+        "tags": [
+          "account"
+        ]
+      },
+      "patch": {
+        "description": "Update display_name and/or password for the authenticated user.",
+        "operationId": "patch_account_v1_account_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Account V1 Account Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Account",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/v1/account/export": {
+      "get": {
+        "description": "Return a full JSON export of all data held for the authenticated workspace.\n\nCovers GDPR Art. 20 (data portability). The export includes the user record\n(minus password hash), workspace, subscription, profiles, runs, and API keys.\nPush tokens and cost records are intentionally excluded \u2014 tokens are ephemeral\ndevice state; cost records are billing records held for the operator's own ledger.",
+        "operationId": "export_account_v1_account_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Export Account V1 Account Export Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Account",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/v1/agents": {
+      "get": {
+        "operationId": "list_agents_v1_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentResponse"
+                  },
+                  "title": "Response List Agents V1 Agents Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Agents",
+        "tags": [
+          "agents"
+        ]
+      },
+      "post": {
+        "operationId": "create_agent_v1_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Agent",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/v1/agents/{agent_id}": {
+      "delete": {
+        "description": "DELETE = archive (idempotent). Ledger attribution stays immutable; the\ndefault flag is released so a fresh default can bootstrap.",
+        "operationId": "archive_agent_v1_agents__agent_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Archive Agent",
+        "tags": [
+          "agents"
+        ]
+      },
+      "get": {
+        "operationId": "get_agent_v1_agents__agent_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Agent",
+        "tags": [
+          "agents"
+        ]
+      },
+      "patch": {
+        "operationId": "update_agent_v1_agents__agent_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Agent",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/v1/api-keys": {
+      "get": {
+        "description": "List all API keys for the authenticated workspace. Hashes are never returned.",
+        "operationId": "list_api_keys_v1_api_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyResponse"
+                  },
+                  "title": "Response List Api Keys V1 Api Keys Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Api Keys",
+        "tags": [
+          "api-keys"
+        ]
+      },
+      "post": {
+        "description": "Generate a new API key. The raw key is returned exactly once \u2014 store it now.",
+        "operationId": "create_api_key_v1_api_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Api Key",
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/{key_id}": {
+      "delete": {
+        "description": "Revoke an API key. Sets revoked_at; the row is kept for the audit trail.",
+        "operationId": "revoke_api_key_v1_api_keys__key_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Revoke Api Key V1 Api Keys  Key Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Api Key",
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/auth/exchange": {
+      "post": {
+        "description": "Verify an external IdP's JWT and mint the backend workspace token pair.\n\nVerification = the five normative A3 rules (backend/oidc.py). Every rejection\nis a generic 401 \u2014 the internal reason never reaches the response, so a probe\ncan't map which rule tripped. First exchange auto-bootstraps a password-less\nuser (+ workspace via the V001 trigger); the identity key is (issuer, subject),\nstored in external_identities \u2014 an IdP-asserted email never links accounts.",
+        "operationId": "exchange_v1_auth_exchange_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exchange",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "description": "Verify credentials and return a token pair.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "description": "Exchange a refresh token for a new access + refresh pair.\n\nBeyond the signature/type check, the token is rejected if it was issued before the\nuser's last password change \u2014 otherwise a stolen refresh token would survive a\npassword reset for its full TTL (VULN-0003). A missing user row (deleted account)\nalso 401s.",
+        "operationId": "refresh_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "description": "Create a new user + workspace. The V001 bootstrap trigger handles the rest.",
+        "operationId": "register_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/entitlement/{workspace_id}": {
+      "put": {
+        "description": "Set a workspace's entitlement + spend cap. Service-authed; idempotent per sync_id.",
+        "operationId": "sync_entitlement_v1_entitlement__workspace_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntitlementSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Entitlement",
+        "tags": [
+          "entitlement"
+        ]
+      }
+    },
+    "/v1/ledger/costs": {
+      "get": {
+        "description": "Return cost summary for the workspace, defaulting to the current month.\n\n``agent_id`` filters to that agent's rows \u2014 partitions are disjoint (rows carry\nat most one agent) and sum to the workspace total across agents + the\nNULL-agent remainder (pre-A4 rows).",
+        "operationId": "get_costs_v1_ledger_costs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Costs",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/ledger/history": {
+      "get": {
+        "description": "Return recent run history entries for this workspace.",
+        "operationId": "get_history_v1_ledger_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get History",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/ledger/rollup": {
+      "get": {
+        "description": "Per-run cost rollup: what one run cost end-to-end, broken down by stage + model.\n\nThe unit-economics input pricing (PENDING #2) is blocked on \u2014 joins the run's\nmetered cost rows by run_id. RLS scopes the read to this workspace.",
+        "operationId": "get_run_rollup_v1_ledger_rollup_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCostRollupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run Rollup",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/ledger/usage": {
+      "get": {
+        "description": "Lean month-to-date spend vs cap \u2014 for the billing service's paywall / overage UI.\n\nSame numbers as /ledger/costs without the per-record list, so the billing service can poll it\ncheaply to show \"you've used $X of $Y\" and drive its own upgrade prompts. The cap is\nwhatever the billing service last synced (fail-safe 0 until then).",
+        "operationId": "get_usage_v1_ledger_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Usage",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/onboard": {
+      "post": {
+        "description": "Ingest a URL/file/text and produce a staged ProfileDraft.\n\n- ingest() is synchronous (httpx/filesystem) \u2192 run in thread\n- extract() is async \u2192 await directly\n- render() + stage() are synchronous \u2192 run in thread",
+        "operationId": "ingest_endpoint_v1_onboard_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Endpoint",
+        "tags": [
+          "onboard"
+        ]
+      }
+    },
+    "/v1/onboard/{draft_id}": {
+      "delete": {
+        "description": "Cancel and clean up a staged onboarding draft.",
+        "operationId": "cancel_endpoint_v1_onboard__draft_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Endpoint",
+        "tags": [
+          "onboard"
+        ]
+      }
+    },
+    "/v1/onboard/{draft_id}/diff": {
+      "get": {
+        "description": "Return per-file diffs between staged files and the live profile.",
+        "operationId": "get_diff_endpoint_v1_onboard__draft_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardDiffResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Diff Endpoint",
+        "tags": [
+          "onboard"
+        ]
+      }
+    },
+    "/v1/onboard/{draft_id}/product/{product_slug}/extract": {
+      "post": {
+        "description": "Re-extract one product with an additional source URL/file/text.",
+        "operationId": "re_extract_product_endpoint_v1_onboard__draft_id__product__product_slug__extract_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_slug",
+            "required": true,
+            "schema": {
+              "title": "Product Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardProductExtractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Re Extract Product Endpoint",
+        "tags": [
+          "onboard"
+        ]
+      }
+    },
+    "/v1/onboard/{draft_id}/promote": {
+      "post": {
+        "description": "Promote the staged profile bundle to profiles/<slug>/.",
+        "operationId": "promote_endpoint_v1_onboard__draft_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardPromoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Promote Endpoint V1 Onboard  Draft Id  Promote Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promote Endpoint",
+        "tags": [
+          "onboard"
+        ]
+      }
+    },
+    "/v1/packs": {
+      "get": {
+        "description": "Enumerate every variant this workspace's profile can run, as PackDescriptors.\n\n``agent_id`` (A4) narrows the listing to that agent's view: its bound profile,\nintersected with its pack subset \u2014 a pack that fell out of the intersection\nsimply disappears (inert, not an error).",
+        "operationId": "list_packs_v1_packs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "profile_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Packs V1 Packs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Packs",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/v1/packs/{pack}/{variant}/readiness": {
+      "get": {
+        "description": "Full readiness checklist for one variant \u2014 every item, ready ones included.\n\nThis is the onboarding wizard's feed: drive each blocked/degraded item green,\nand the variant unlocks. 404 unknown variant; 403 when the profile doesn't\nactivate the pack (same information boundary as the listing's absence).",
+        "operationId": "variant_readiness_detail_v1_packs__pack___variant__readiness_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack",
+            "required": true,
+            "schema": {
+              "title": "Pack",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "variant",
+            "required": true,
+            "schema": {
+              "title": "Variant",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "profile_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Variant Readiness Detail V1 Packs  Pack   Variant  Readiness Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Variant Readiness Detail",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/v1/profiles": {
+      "get": {
+        "description": "List all profiles bound to this workspace.",
+        "operationId": "list_profiles_v1_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilesListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Profiles",
+        "tags": [
+          "profiles"
+        ]
+      },
+      "post": {
+        "description": "Register a new profile name for this workspace.",
+        "operationId": "add_profile_v1_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Profile",
+        "tags": [
+          "profiles"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/activate": {
+      "post": {
+        "description": "Set a profile as the default for this workspace.",
+        "operationId": "activate_profile_v1_profiles__profile_name__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Profile",
+        "tags": [
+          "profiles"
+        ]
+      }
+    },
+    "/v1/publish-settings/{workspace_id}": {
+      "put": {
+        "description": "Set (or clear) a workspace's publish destination. Service-authed only.\n\nEnabling requires a complete, valid destination (https url + PUBLISH_*-namespaced\nsecret_ref). Disabling (``enabled=false``) clears it \u2014 the workspace then does not\npublish. Upsert runs under ``workspace_scope`` so RLS ties the row to this workspace.",
+        "operationId": "sync_publish_settings_v1_publish_settings__workspace_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishSettingsSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishSettingsSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Publish Settings",
+        "tags": [
+          "publish-settings"
+        ]
+      }
+    },
+    "/v1/push-tokens": {
+      "get": {
+        "description": "List all registered push tokens for the authenticated workspace.",
+        "operationId": "list_tokens_v1_push_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Tokens V1 Push Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Tokens",
+        "tags": [
+          "push"
+        ]
+      },
+      "post": {
+        "description": "Register a device push token for the authenticated workspace.\n\nIdempotent: registering the same token twice is a no-op (UPSERT).\nCall this on every app launch in case the OS rotated the token.",
+        "operationId": "register_token_v1_push_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Register Token V1 Push Tokens Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Token",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/v1/push-tokens/{token}": {
+      "delete": {
+        "description": "Deregister a push token. Call on logout to stop receiving notifications.",
+        "operationId": "deregister_token_v1_push_tokens__token__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Deregister Token V1 Push Tokens  Token  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deregister Token",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "description": "List the most recent runs for this workspace (optionally one agent's \u2014 A4).",
+        "operationId": "list_runs_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunResponse"
+                  },
+                  "title": "Response List Runs V1 Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Start a pipeline run. Returns immediately; poll GET /runs/{id} for status.\n\nTwo modes (RunRequest): prompt mode (unchanged) and pack mode, which validates\nfail-closed BEFORE any slot/spend is touched, in the normative A1/A12 order \u2014\nrequest-shaped errors before profile-shaped ones: 404 unknown variant \u2192 403\npack_not_activated \u2192 403 entitlement_required \u2192 422 missing_settings \u2192 422\npack_not_ready (blocked only; degraded proceeds).",
+        "operationId": "create_run_v1_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "description": "Poll a run for current status and output.\n\nProtocol-1 additive fields (A2): `nodes`/`content` mirror the SSE snapshot so a\npolling client rebuilds the same state a streaming client would. None on runs\nwith no persisted node rows (prompt mode, pre-A2 rows).",
+        "operationId": "get_run_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/artifacts": {
+      "get": {
+        "description": "List the run's registered file deliverables (schemas/run-artifact.schema.json).\n\nAvailable in ANY run state \u2014 a dossier produced before Gate 2 must be\nreviewable at the gate. Unknown/cross-tenant run \u2192 404 (scoped query finds\nnothing; no existence oracle).",
+        "operationId": "list_artifacts_v1_runs__run_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Artifacts V1 Runs  Run Id  Artifacts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifacts",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/artifacts/{artifact_id}": {
+      "get": {
+        "description": "Serve one artifact's CURRENT bytes (pointer semantics), attachment-always.",
+        "operationId": "download_artifact_v1_runs__run_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Artifact",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Cancel a pending, running, or gate-paused run.\n\nSets status to 'rejected' with error 'canceled by user'. If the run is\nwaiting at a gate, the gate event is resolved immediately so the background\ntask exits cleanly. 409 if the run is already in a terminal state.",
+        "operationId": "cancel_run_v1_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Run V1 Runs  Run Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/gate": {
+      "post": {
+        "description": "Approve, edit, or reject a gate.\n\nThe operator sees the exact pending content in GET /runs/{id} and POSTs\ntheir decision here. This is the backend equivalent of the Telegram approve\nbutton \u2014 publish.py makes the actual call only after this approves.",
+        "operationId": "decide_gate_v1_runs__run_id__gate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Decide Gate V1 Runs  Run Id  Gate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decide Gate",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/stream": {
+      "get": {
+        "description": "Stream run progress as Server-Sent Events (text/event-stream).\n\nAdditive to GET /runs/{id} polling, which is unchanged. On connect emits a\n`snapshot` of current state, then live `status` / `awaiting_approval` / `done`\nevents plus a ~15s `ping` heartbeat. The the billing-service client sends Authorization:\nBearer (CORS already allows it). Closing the stream never cancels the run \u2014\nonly POST /runs/{id}/cancel does that.",
+        "operationId": "stream_run_v1_runs__run_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "chunks",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Chunks",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stream Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/workspace": {
+      "get": {
+        "description": "Return the workspace info and current subscription entitlement.",
+        "operationId": "get_workspace_v1_workspace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Workspace",
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/v1/workspace/cost-cap": {
+      "patch": {
+        "description": "Update the monthly cost cap for the authenticated workspace.\n\nOnly paid tiers (PRO / PRO_PLUS) may set a cap \u2014 the same tier gate that guards\npipeline runs. This preserves the FREE invariant that a free workspace carries a\n$0 cap and no paid budget (``gtm_core.capabilities``): without this gate a FREE\nworkspace could raise its own ``monthly_cost_cap_usd`` \u2014 the exact value the budget\ngate reads \u2014 and unblock paid runs. FREE / NONE get 403 from ``require_tier``.\n\nCapped at 500 USD to prevent runaway spend from a misconfigured client.\nTakes effect immediately \u2014 the next pipeline run reads the new value.",
+        "operationId": "patch_cost_cap_v1_workspace_cost_cap_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCostCapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Cost Cap V1 Workspace Cost Cap Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Cost Cap",
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/v1/workspace/subscriptions/me": {
+      "get": {
+        "description": "Lightweight entitlement check for the mobile paywall screen.\n\nReturns only subscription state \u2014 no workspace metadata. the billing service calls this\nto gate Pro/Pro+ features without loading the full workspace response.\nEntitlement is always live from the DB so a a billing-service entitlement sync (PUT\n/v1/entitlement/{workspace_id}) takes effect on the next call without re-login.",
+        "operationId": "get_subscription_v1_workspace_subscriptions_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Subscription",
+        "tags": [
+          "workspace"
+        ]
+      }
+    }
+  }
+}

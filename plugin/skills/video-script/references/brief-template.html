@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  /* ------------------------------------------------------------------
+     Video creative brief — self-contained, static, theme-aware.
+     No <script>, no CDN, no remote fonts. Every colour is a token, and
+     every token is declared in the bare :root before any media block
+     redefines it. Ground: a cutting-room conform sheet, deliberately NOT
+     the product's own palette — this is a document ABOUT the film, not
+     an asset OF it. Set --accent to the tenant's action colour and leave
+     the rest alone.
+     ------------------------------------------------------------------ */
+  :root{
+    --bg:#F4F2EE; --surface:#FBFAF8; --surface2:#EAE6DE;
+    --ink:#1A1815; --ink2:#5A5349; --ink3:#8C8478;
+    --rule:#DED8CE; --rule-strong:#C6BEB1;
+    --accent:#A8512F;              /* ← the tenant's action colour */
+    --ok:#4E6B4A; --warn:#8A6A16; --stop:#A33B22;
+    --act-1:#A8512F; --act-2:#7A7268; --act-3:#5F7360; --act-4:#B4713F; --act-5:#8A6A16;
+    --frame:#DDD7CC; --frame-screen:#CFD6CD;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1B1815; --surface:#232019; --surface2:#2C2822;
+      --ink:#EDE8DC; --ink2:#B3ABA0; --ink3:#847C71;
+      --rule:#38332C; --rule-strong:#4B443A;
+      --accent:#D2764A;
+      --ok:#8FB086; --warn:#C9A63F; --stop:#E08163;
+      --act-1:#D2764A; --act-2:#9A9186; --act-3:#93A48F; --act-4:#D9A67E; --act-5:#C9A63F;
+      --frame:#332E27; --frame-screen:#2B332C;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1B1815; --surface:#232019; --surface2:#2C2822;
+    --ink:#EDE8DC; --ink2:#B3ABA0; --ink3:#847C71;
+    --rule:#38332C; --rule-strong:#4B443A;
+    --accent:#D2764A;
+    --ok:#8FB086; --warn:#C9A63F; --stop:#E08163;
+    --act-1:#D2764A; --act-2:#9A9186; --act-3:#93A48F; --act-4:#D9A67E; --act-5:#C9A63F;
+    --frame:#332E27; --frame-screen:#2B332C;
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:15px;
+       line-height:1.55; margin:0; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px; margin:0 auto; padding:40px 28px 96px;}
+  @media (max-width:640px){ .wrap{padding:28px 18px 72px} }
+
+  .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+           color:var(--ink3);}
+  h1{font-size:clamp(28px,5vw,44px); font-weight:800; letter-spacing:-.03em; line-height:1.03;
+     margin:10px 0 0; text-wrap:balance;}
+  h2{font-size:20px; font-weight:800; letter-spacing:-.02em; margin:0; text-wrap:balance;}
+  h3{font-size:14px; font-weight:600; margin:0;}
+  p{margin:0; max-width:68ch;}
+  section{margin-top:52px;}
+  .sec-head{display:flex; align-items:baseline; gap:14px; padding-bottom:12px;
+            border-bottom:1px solid var(--rule-strong); margin-bottom:22px; flex-wrap:wrap;}
+  .sec-head .n{font-family:var(--mono); font-size:11px; color:var(--accent); font-weight:700;
+               letter-spacing:.1em;}
+  .sec-head .note{font-family:var(--mono); font-size:11px; color:var(--ink3); margin-left:auto;}
+
+  /* slate ------------------------------------------------------------ */
+  .slate{border:1px solid var(--rule-strong); background:var(--surface);}
+  .slate-top{padding:22px 24px 20px; border-bottom:1px solid var(--rule);}
+  .lede{margin-top:14px; font-size:17px; color:var(--ink2); max-width:60ch;}
+  .slate-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));}
+  .sf{padding:13px 24px; border-right:1px solid var(--rule);}
+  .sf:last-child{border-right:0}
+  .sf .k{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+         color:var(--ink3);}
+  .sf .v{font-size:14px; font-weight:600; margin-top:3px; font-variant-numeric:tabular-nums;}
+  @media (max-width:640px){ .sf{border-right:0; border-bottom:1px solid var(--rule)} }
+
+  /* the idea ---------------------------------------------------------- */
+  .idea{display:grid; gap:26px; grid-template-columns:1.35fr 1fr;}
+  @media (max-width:820px){ .idea{grid-template-columns:1fr} }
+  .prop{border-left:3px solid var(--accent); padding:4px 0 4px 18px;}
+  .prop .q{font-size:21px; font-weight:600; line-height:1.32; letter-spacing:-.015em;
+           text-wrap:balance;}
+  .who{background:var(--surface); border:1px solid var(--rule); padding:18px 20px;}
+  .who ul{margin:10px 0 0; padding-left:18px; color:var(--ink2); font-size:14px;}
+  .who li{margin-bottom:7px}
+  .who .never{margin-top:14px; padding-top:14px; border-top:1px dashed var(--rule-strong);
+              font-size:14px;}
+  .caveat{margin-top:12px; font-family:var(--mono); font-size:10.5px; line-height:1.6;
+          color:var(--ink3);}
+
+  .hook3{display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--rule);
+         background:var(--surface); margin-top:22px;}
+  @media (max-width:720px){ .hook3{grid-template-columns:1fr} }
+  .hk{padding:16px 18px; border-right:1px solid var(--rule);}
+  .hk:last-child{border-right:0}
+  @media (max-width:720px){ .hk{border-right:0; border-bottom:1px solid var(--rule)} }
+  .hk .k{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+         color:var(--accent); font-weight:700;}
+  .hk p{font-size:14px; color:var(--ink2); margin-top:8px;}
+  .hk .cap{color:var(--ink); font-weight:600;}
+
+  /* timeline ---------------------------------------------------------- */
+  .tl-scroll{overflow-x:auto; padding-bottom:4px;}
+  .tl{min-width:760px;}
+  .tl-acts,.tl-beats,.tl-trig{display:flex; gap:2px;}
+  .tl-acts{margin-bottom:2px}
+  .tl-trig{margin-top:2px}
+  .tl-act{padding:6px 9px; font-family:var(--mono); font-size:10px; font-weight:700;
+          letter-spacing:.1em; text-transform:uppercase; color:var(--bg); white-space:nowrap;
+          overflow:hidden;}
+  .tl-b{background:var(--surface2); border-top:2px solid var(--rule-strong);
+        padding:9px 7px 10px; min-width:0; overflow:hidden;}
+  .tl-b .id{font-family:var(--mono); font-size:10px; font-weight:700; display:block;}
+  .tl-b .tc{font-family:var(--mono); font-size:9px; color:var(--ink3); display:block;
+            font-variant-numeric:tabular-nums;}
+  .tl-t{padding:5px 6px; background:var(--surface); border:1px solid var(--rule); border-top:0;
+        font-family:var(--mono); font-size:9px; font-weight:700; color:var(--accent);
+        white-space:nowrap; overflow:hidden;}
+  .tl-t.none{color:var(--ink3)}
+
+  /* storyboard --------------------------------------------------------- */
+  .board{display:grid; gap:18px; grid-template-columns:repeat(auto-fill,minmax(178px,1fr));}
+  .frame{aspect-ratio:9/16; background:var(--frame); border:1px solid var(--rule-strong);
+         display:flex; flex-direction:column; overflow:hidden;}
+  .frame.screen{background:var(--frame-screen)}
+  .frame.card{background:var(--surface2)}
+  .fr-top{display:flex; justify-content:space-between; gap:6px; padding:8px 9px;}
+  .fr-tc{font-family:var(--mono); font-size:10px; font-weight:700; font-variant-numeric:tabular-nums;}
+  .fr-role{font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:.1em;
+           padding:2px 5px; border:1px solid var(--rule-strong); color:var(--ink2);}
+  .fr-vis{padding:2px 9px 0; font-size:11.5px; line-height:1.38; color:var(--ink2); flex:1;
+          overflow:hidden;}
+  .fr-band{margin-top:auto; padding:7px 9px 9px; border-top:1px dashed var(--rule-strong);
+           background:rgba(0,0,0,.05);}
+  .fr-cap{font-size:12px; font-weight:600; line-height:1.3; text-wrap:balance;}
+  .fr-cap.none{font-weight:400; color:var(--ink3); font-style:italic;}
+  .fr-meta{display:flex; justify-content:space-between; gap:8px; margin-top:6px;
+           font-family:var(--mono); font-size:9px; color:var(--ink3);
+           font-variant-numeric:tabular-nums;}
+  .fr-meta .trig{color:var(--accent); font-weight:700}
+
+  /* tables + rules ------------------------------------------------------ */
+  .cols{display:grid; gap:24px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr));}
+  table{width:100%; border-collapse:collapse; font-size:13.5px;}
+  th{text-align:left; font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+     text-transform:uppercase; color:var(--ink3); font-weight:500;
+     padding:0 10px 7px 0; border-bottom:1px solid var(--rule-strong);}
+  td{padding:8px 10px 8px 0; border-bottom:1px solid var(--rule); vertical-align:top;
+     color:var(--ink2);}
+  td b{color:var(--ink); font-weight:600}
+  td:last-child, th:last-child{padding-right:0}
+  td.num{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+  td.over{color:var(--stop); font-weight:700}
+
+  .rules{display:grid; grid-template-columns:1fr 1fr; border:1px solid var(--rule);}
+  @media (max-width:720px){ .rules{grid-template-columns:1fr} }
+  .rule-col{padding:16px 18px}
+  .rule-col+.rule-col{border-left:1px solid var(--rule)}
+  @media (max-width:720px){ .rule-col+.rule-col{border-left:0; border-top:1px solid var(--rule)} }
+  .rule-col.must h3{color:var(--ok)} .rule-col.never h3{color:var(--stop)}
+  .rule-col ul{margin:10px 0 0; padding-left:17px; font-size:13.5px; color:var(--ink2)}
+  .rule-col li{margin-bottom:7px}
+
+  pre{margin:0; background:var(--surface); border:1px solid var(--rule-strong); padding:18px;
+      overflow:auto; max-height:520px; font-family:var(--mono); font-size:11.5px; line-height:1.62;
+      color:var(--ink2); white-space:pre;}
+  footer{margin-top:56px; padding-top:18px; border-top:1px solid var(--rule);
+         font-family:var(--mono); font-size:10.5px; color:var(--ink3); line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="slate">
+    <div class="slate-top">
+      <div class="eyebrow">Creative brief &middot; {{PROFILE}} &middot; {{DATE}}</div>
+      <h1>{{TITLE}}</h1>
+      <p class="lede">{{LEDE}}</p>
+    </div>
+    <div class="slate-grid">
+      <div class="sf"><div class="k">Duration</div><div class="v">{{DURATION}}</div></div>
+      <div class="sf"><div class="k">Ratio</div><div class="v">{{RATIO}}</div></div>
+      <div class="sf"><div class="k">Audio</div><div class="v">{{AUDIO}}</div></div>
+      <div class="sf"><div class="k">Goal</div><div class="v">{{GOAL}}</div></div>
+      <div class="sf"><div class="k">Placement</div><div class="v">{{PLATFORM}}</div></div>
+      <div class="sf"><div class="k">Lane</div><div class="v">{{LANE}}</div></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="n">01</span><h2>The idea</h2>
+      <span class="note">single-minded proposition</span></div>
+    <div class="idea">
+      <div>
+        <div class="prop"><div class="q">{{PROPOSITION}}</div></div>
+        <p style="margin-top:18px; color:var(--ink2)">{{IDEA_BODY}}</p>
+      </div>
+      <div class="who">
+        <div class="eyebrow">Who this is for</div>
+        {{AUDIENCE}}
+        <div class="caveat">{{AUDIENCE_CAVEAT}}</div>
+      </div>
+    </div>
+    <div class="hook3">
+      <div class="hk"><div class="k">Hook &mdash; visual</div><p>{{HOOK_VISUAL}}</p></div>
+      <div class="hk"><div class="k">Hook &mdash; caption</div>
+        <p class="cap">{{HOOK_CAPTION}}</p><p style="margin-top:6px">{{HOOK_CAPTION_WHY}}</p></div>
+      <div class="hk"><div class="k">Hook &mdash; audio</div><p>{{HOOK_AUDIO}}</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">02</span><h2>Shape</h2>
+      <span class="note">{{BEAT_COUNT}} beats &middot; {{BEAT_CADENCE}}</span></div>
+    <div class="tl-scroll"><div class="tl">
+      <div class="tl-acts">{{ACT_SEGMENTS}}</div>
+      <div class="tl-beats">{{BEAT_SEGMENTS}}</div>
+      <div class="tl-trig">{{TRIGGER_SEGMENTS}}</div>
+    </div></div>
+    <p style="margin-top:18px; color:var(--ink2)">{{SPINE_NOTE}}</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">03</span><h2>Storyboard</h2>
+      <span class="note">caption shown in its true lower-third position</span></div>
+    <div class="board">{{STORYBOARD_CELLS}}</div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">04</span><h2>Caption budget</h2>
+      <span class="note">ceiling 4.0 w/s per screen &middot; target 3.0</span></div>
+    <table>
+      <tr><th>Beat</th><th>Duration</th><th>Words</th><th>w/s</th><th>Caption</th></tr>
+      {{CAPTION_ROWS}}
+    </table>
+    <p style="margin-top:14px; color:var(--ink2); font-size:13.5px">{{CAPTION_NOTE}}</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">05</span><h2>Emotional stack</h2>
+      <span class="note">two triggers actively combined is the floor</span></div>
+    <table>
+      <tr><th>Trigger</th><th>Where it fires</th></tr>
+      {{TRIGGER_ROWS}}
+    </table>
+    <p style="margin-top:14px; color:var(--ink2); font-size:13.5px">{{SHARE_TEST}}</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">06</span><h2>Reasons to believe</h2>
+      <span class="note">on screen, or in the verification log</span></div>
+    <table>{{RTB_ROWS}}</table>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">07</span><h2>Mandatories</h2></div>
+    <div class="rules">
+      <div class="rule-col must"><h3>Must include</h3><ul>{{MANDATORY_LIST}}</ul></div>
+      <div class="rule-col never"><h3>Must not</h3><ul>{{PROHIBITED_LIST}}</ul></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">08</span><h2>Objective and measurement</h2></div>
+    <div class="cols"><table>{{OBJECTIVE_ROWS}}</table><table>{{PRODUCTION_ROWS}}</table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">09</span><h2>Front block</h2>
+      <span class="note">the join key, verbatim from the .md</span></div>
+    <pre>{{FRONT_BLOCK}}</pre>
+  </section>
+
+  <footer>
+    {{TITLE}} &middot; creative brief &middot; {{DATE}}<br>
+    Source of truth: {{SCRIPT_PATH}}
+  </footer>
+</div>
+</body>
+</html>

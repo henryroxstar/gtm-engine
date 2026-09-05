@@ -1,0 +1,15 @@
+usage: python -m gtm_core.video_finish narration-track [-h] --shots SHOTS
+                                                       --out OUT
+                                                       [--base-dir BASE_DIR]
+                                                       [--content-root CONTENT_ROOT]
+                                                       [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --shots SHOTS         the <slug>.shots.json
+  --out OUT
+  --base-dir BASE_DIR   root the lines' `file` paths are relative to (default:
+                        the working directory). Every clip is confined to it,
+                        as a shot's `file` is repo-relative.
+  --content-root CONTENT_ROOT
+  --json

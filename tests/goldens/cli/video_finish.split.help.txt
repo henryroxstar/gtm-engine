@@ -1,0 +1,17 @@
+usage: python -m gtm_core.video_finish split [-h] --in SRC --cuts CUTS
+                                             --out-dir OUT_DIR
+                                             [--workdir WORKDIR]
+                                             [--content-root CONTENT_ROOT]
+                                             [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --in SRC
+  --cuts CUTS           JSON: {"cuts":[{"shot_id":"shot-
+                        2","start_s":0.0,"end_s":4.2}, ...]} — out-points
+                        MEASURED off the delivered take, not the shot list's
+                        asked durations
+  --out-dir OUT_DIR
+  --workdir WORKDIR
+  --content-root CONTENT_ROOT
+  --json

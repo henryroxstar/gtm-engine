@@ -1,0 +1,14 @@
+{
+  "proceed": true,
+  "blocking": [],
+  "warnings": [],
+  "checks": {
+    "hook_id_in_matrix": true,
+    "pillar_valid": true,
+    "platform_playbook_present": true,
+    "audience_persona_named": true,
+    "voice_bans_present": true,
+    "video_disclosure_configured": null,
+    "budget_ok": true
+  }
+}

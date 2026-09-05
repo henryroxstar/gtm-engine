@@ -1,0 +1,264 @@
+# Commercial (min_entitlement) and distribution (oss) policy for gtm-engine.
+#
+# This is the ONLY place tier-pricing and open-source-distribution decisions are made.
+# capability_tier — the TECHNICAL fact of what a skill needs to run (connectors, paid
+# compute) — lives on the skill's own manifest in gtm_core/skills/<name>.py and is never
+# duplicated here.
+#
+# Changing what is paid, or what ships in the public gtm-engine carve, is a one-line
+# edit to this file plus a `reason` — no Python touched, no graph TOML touched.
+# tests/contracts/test_gating_policy.py enforces:
+#   - every real pack graph's effective min_entitlement clears the max commercial floor
+#     of its own nodes (a skill's floor may be RAISED by an override, never lowered)
+#   - every [skills.*] / [graphs.*] override here names a skill or pack/variant that
+#     actually exists, and carries a `reason`
+#   - no `oss = "private"` skill sits in a graph whose effective min_entitlement is "free"
+#     (a free user would otherwise reach a stub and get a broken run)
+#   - every graph that ships a stubbed node is DECLARED in [carve].stub_bearing_graphs,
+#     and every declaration still names one (see the [carve] block at the bottom — the
+#     self-hoster case the commercial invariant above cannot cover)
+
+[defaults]
+# Commercial floor for a skill's technical tier, when the skill has no per-skill
+# override below. Keys are gtm_core.tiers.Tier values; values are gtm_core.capabilities
+# .Entitlement values.
+core = "free"
+pipeline = "pro"
+production = "pro_plus"
+
+# A skill whose TECHNICAL tier (capability_tier, on its own manifest — never its
+# commercial price) is in this list ships PRIVATE (stubbed) in the OSS carve by
+# default, unless a [skills.<name>] override explicitly sets oss = "public" or
+# "private". This is deliberately keyed off the technical tier and NOT the derived
+# commercial floor above: a CORE/PIPELINE skill sold at "pro_plus" (e.g. every
+# marketing-pack skill since 2026-08-25) must still default PUBLIC — what a workspace
+# pays is a pricing decision, not a reason to withhold the code from a self-hoster.
+oss_private_tiers = ["production"]
+
+# ── skill overrides ────────────────────────────────────────────────────────────────
+# Overrides the derived commercial floor and/or OSS visibility for one named skill.
+# capability_tier is untouched — see the skill's own manifest in gtm_core/skills/.
+
+[skills.airq-scan]
+min_entitlement = "free"
+oss = "public"
+reason = """\
+give-first outreach asset. Technically PRODUCTION (requires_capability=gateway, makes \
+paid render calls) but sold free by founder decision (2026-08-17): the free tier's \
+$0.00 monthly budget cap is the real spend control, and the skill's own documented \
+degraded mode (spec + text wireframe, no paid call) is exactly the free-tier \
+experience. This is the reference case for why commercial tier and technical tier are \
+separate axes — see PRD §2.2.\
+"""
+
+# The nine image/video-generation skills of the creator pack — founder decision
+# (2026-08-17b, following the CISO/CPO review): "pro" is the tier that includes image +
+# video generation and prospecting. This repriced the whole creator pack down from
+# pro_plus (its former [graphs."creator/*"] override, removed — every graph in the pack
+# derived "pro" on its own from these nine skill floors). NOTE: the 2026-08-25 marketing
+# repricing below has since pulled the creator GRAPHS back up to pro_plus, because they
+# share content-publish / content-plan / content-radar / content-studio with the
+# marketing pack — see that block for the reasoning. These nine skill floors stay "pro"
+# and still govern any graph that does not pull in a marketing node. oss stays UNSET
+# (private, derived from capability_tier=production) on every one of these: repricing
+# what a workspace pays never changes what a self-hoster receives in the OSS carve —
+# that is the whole point of keeping the two axes independent (PRD §2).
+
+[skills.video-render]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.video-restyle]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.video-clip]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.video-storyboard]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.carousel-visuals]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.carousel-auto]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.demo-capture]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.infographic-data]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+[skills.infographic-handwritten]
+min_entitlement = "pro"
+reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+
+# Founder decision (2026-08-25) REVERSES the 2026-08-17b "prospecting belongs in pro"
+# call for the `prospect` skill itself: the free tier should do ONE complete thing well,
+# and discover -> qualify -> score -> enrich is that thing. (2026-08-17b was flagged in
+# this file at the time as an interpretation of a terse instruction rather than a
+# confirmed literal read; this is the correction it invited.)
+#
+# Costs nothing elsewhere, which is why it is safe: prospecting/prospect-outreach stays
+# "pro" regardless, held there independently by `email-quality` (PIPELINE default). So a
+# free workspace gets the standalone skill, NOT the orchestrated outbound pipeline —
+# dossier -> outreach -> quality -> sequence all stay behind the paid graph floor.
+#
+# Spend is fenced by the budget cap, not by this floor: FREE carries a $0.00 monthly cap
+# (capabilities.DEFAULT_MONTHLY_CAP_USD), checked before any metered call (§R2), so the
+# Vibe / RocketReach / Apollo paths are unreachable on free and the skill runs its
+# documented web-search fallback. Structurally the same argument as [skills.airq-scan]
+# above — free tier, real skill, no vendor spend.
+#
+# account-dossier and draft-outreach were already free and stay free: both are shared,
+# general-purpose skills used well beyond cold prospecting (account-dossier alone backs
+# four variants — exec one-pagers, warm-account research packs, and more).
+
+[skills.prospect]
+min_entitlement = "free"
+reason = "prospecting is the free tier's one complete thing, founder decision 2026-08-25 — reverses 2026-08-17b; see the block comment above. The prospecting GRAPH stays pro via email-quality."
+
+# Founder decision (2026-08-17b): outcomes-loop AND knowledge-refresh are free — both
+# maintenance/analytics packs had been silently priced "pro" by the PIPELINE default
+# floor alone, with no actual pricing conversation behind it (CISO/CPO review,
+# 2026-08-17). Neither pack is referenced by any other pack graph, so this touches
+# nothing else.
+
+[skills.content-outcomes-sync]
+min_entitlement = "free"
+reason = "outcomes-loop pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+
+[skills.outcomes-sync]
+min_entitlement = "free"
+reason = "outcomes-loop pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+
+[skills.knowledge-refresh]
+min_entitlement = "free"
+reason = "knowledge-refresh pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+
+# The six marketing skills — founder decision (2026-08-25): the marketing content
+# skills are themselves pro_plus, not merely wrapped in a pro_plus-priced graph. This
+# REPLACES the former [graphs."marketing/*"] override (removed): all three marketing
+# graphs now derive "pro_plus" on their own from these six skill floors, so a
+# graph-level override would be redundant — the same cleanup the 2026-08-17b creator
+# repricing did in the other direction.
+#
+# KNOWN AND ACCEPTED CONSEQUENCE: five of the six are shared with the creator pack
+# (content-publish in all 6 creator graphs, content-plan in 5, content-radar in 3,
+# content-studio in cross-modal-campaign), and a graph's floor is max(node floors)
+# with overrides able to RAISE but never LOWER it. So every creator graph reprices
+# pro -> pro_plus as a side effect. This narrows founder decision 2026-08-17b: the nine
+# creator RENDER skills keep their individual "pro" floor (see the block above — they
+# are still pro for any future graph that does not pull in a marketing node), but the
+# creator graphs as shipped are pro_plus. Confirmed as the intended trade 2026-08-25;
+# to undo it, the shared nodes have to come back down, not the graphs.
+#
+# oss visibility is UNSET on all six and stays "public" (derived from their CORE/
+# PIPELINE capability_tier) — repricing a skill never changes what a self-hoster
+# receives, which is the whole point of keeping the two axes independent (PRD §2). The
+# open engine ships the marketing parts as its flagship demo.
+
+[skills.content-radar]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+[skills.content-plan]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+[skills.content-research]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+[skills.content-studio]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+[skills.content-publish]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+[skills.case-study]
+min_entitlement = "pro_plus"
+reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see the block comment above."
+
+# Founder decision (2026-08-25): the creator pack's front-door router is priced with the
+# pack it opens, not with its own (zero-spend, CORE) mechanics.
+#
+# HONEST NOTE ON ENFORCEMENT — this floor binds NOTHING today, and was chosen with that
+# known. `video-router` is deliberately not a node in any graph (it runs BEFORE a pack,
+# to pick which variant to start), and gtm_core/packs/reachability.py builds the
+# entitled-skill allowlist from graph NODES only — so on backend pack-mode runs it is
+# already unreachable at any price, while the cockpit/VPS path pins PRO_PLUS. The real
+# paywall lands one step later: every creator/* graph resolves pro_plus. This entry is
+# therefore forward-looking consistency (it binds the day the router becomes a node, or
+# the day an unscoped path stops pinning PRO_PLUS), not a live control. Do not cite it
+# as evidence that the creator front door is gated — cite the graph floors.
+#
+# Accepted cost: a free workspace asking "make me a video" on a surface that DOES consult
+# this floor gets a bare denial, rather than being told which lane it would need and
+# which identity handles are missing.
+
+[skills.video-router]
+min_entitlement = "pro_plus"
+reason = "creator front door priced with the pack it opens, founder decision 2026-08-25 — see the block comment above; inert today (not a graph node), forward-looking consistency."
+
+# ── graph overrides ────────────────────────────────────────────────────────────────
+# Overrides the derived commercial floor for a pack/variant glob (fnmatch'd against
+# "<pack>/<variant>"). Raising above the derived floor is always a legal pricing
+# decision; an override below the floor is rejected at resolve time (fail-closed).
+#
+# None today: every pack's price is carried by its own node skills. Add one only when a
+# graph should cost MORE than the sum of its parts.
+
+# ── carve policy ───────────────────────────────────────────────────────────────────
+# The OSS-distribution counterpart to the commercial floors above. `[skills.*].oss`
+# decides whether a skill's BODY ships; this decides which pack GRAPHS may ship while
+# carrying a stubbed node.
+#
+# Why it needs its own declaration: the cross-axis invariant that keeps a paying user
+# away from a stub is commercial (`test_no_private_skill_sits_in_a_free_graph` — every
+# private skill floors at "pro", so no free graph can contain one). That invariant does
+# nothing for a SELF-HOSTER, who has no entitlement at all: the unscoped cockpit/VPS
+# path runs `allowed_skills=None`, so every shipped graph is reachable at any price.
+# Shipping such a graph is legitimate — the generated stub SKILL.md names the skill as
+# hosted-only and refuses to improvise — but it must be a decision someone made, not a
+# by-product of a later `oss = "private"` edit silently breaking another graph.
+#
+# `python -m gtm_core.gating graph-check <root>` fails closed on an UNDECLARED
+# stub-bearing graph and on a STALE entry here that no longer carries one; it runs over
+# the finished carve in scripts/oss-export.sh §6 and over the live tree in
+# tests/contracts/test_gating_policy.py.
+#
+# The five below are the creator pack's render lanes. They ship deliberately: the graph
+# shape — radar -> plan -> script -> storyboard -> render -> finish -> publish — is the
+# part a self-hoster learns from and can rewire to their own renderer, and every one of
+# them resolves pro_plus commercially, so nothing here contradicts the paid boundary.
+# creator/cross-modal-campaign is absent on purpose: it runs end to end on public skills.
+
+[carve]
+stub_bearing_graphs = [
+  "creator/demo-clips",
+  "creator/live-action-video",
+  "creator/presenter-video",
+  "creator/repurpose-clips",
+  "creator/restyle-shorts",
+  "creator/short-form-video",
+]
+reason = """\
+creator render lanes ship their graph shape with a hosted-only render node — the DAG is \
+the reusable part, the renderer is the product. Declared 2026-08-28 when graph-check was \
+added; before that the five shipped silently. creator/live-action-video joined 2026-08-29 \
+for a DIFFERENT reason worth stating rather than folding into the sentence above: it has \
+NO render node at all — nothing on that lane is synthesised, which is its defining \
+property — and it is stub-bearing only because its capture node runs video-clip, the \
+hosted Reap clipping surface. Same conclusion, different cause: the write-then-shoot DAG \
+is the reusable part and the clipping service is the product.\
+"""

@@ -1,0 +1,32 @@
+# packs/planning/inputs.toml — information requirements (§5's two-class inputs).
+#
+# settings -> PROFILE.md, resolved by key. knowledge -> the knowledge/ corpus, resolved by
+# topic via gtm_core.paths.resolve_knowledge_file (product-first, profile-fallback).
+#
+# travel_policy is deliberately optional: event planning still runs without it (it just
+# skips the per-event cost check), so it must never block activation.
+
+[[settings]]
+key = "target_markets"
+source = "ask"
+required = true
+
+[[settings]]
+key = "travel_policy"
+source = "ask"
+required = false
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "case-studies"
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "company"
+required = false
+freshness = "90d"

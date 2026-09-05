@@ -1,0 +1,22 @@
+# de-brand lint allowlist — KNOWN-LEGIT matches the RELEASE scan should not flag.
+# One fixed-string pattern per line (substring of the offending grep hit line).
+# '#' comments and blank lines are ignored. Keep entries SPECIFIC (a full phrase or
+# path) so a real company/host leak is never masked. Empty by default.
+#
+# Example (illustrative — not active):
+#   docs/RULES.md:    example.com is the canonical placeholder host
+
+# END-USER-ONBOARDING.md tells a new user where to clone the engine from — the public
+# repo's own URL, not a private-tenant leak. This is the maintainer's public publish
+# identity, intentionally named as the clone source.
+github.com/henryroxstar/gtm-engine
+
+# The tenant denylist IS the token source — it names every tenant by design, and the
+# export's rsync excludes it from the carve (scripts/oss-export.sh §2), so it never
+# ships. Filtered by path so a copy of it anywhere else still flags.
+tests/linter/safe_share_denylist.txt:
+
+# Deck-theme contract test asserts a tenant slug maps to its own CSS file
+# (docker/deck-renderer/deck-theme/styles/brands/<tenant>.css) — the tenant names ARE
+# the fixture data under test, not a leak. Filtered by path so a copy elsewhere still flags.
+tests/contracts/test_deck_theme_matches_brand_kit.py:

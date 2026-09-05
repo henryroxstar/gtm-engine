@@ -1,0 +1,88 @@
+{
+  "rules": [
+    {
+      "name": "_lint_audio_bed",
+      "summary": "Every shot carries sound, or says out loud why it does not."
+    },
+    {
+      "name": "_lint_camera",
+      "summary": "One camera move per shot, in vocabulary the models recognise."
+    },
+    {
+      "name": "_lint_identity_bindings",
+      "summary": "Every identity binding is an OBJECT keyed by role, and names a handle it resolved to."
+    },
+    {
+      "name": "_lint_look_ratio",
+      "summary": "A look whose native pixels contradict the delivery ratio cannot fill the frame."
+    },
+    {
+      "name": "_lint_motion_prompt",
+      "summary": "``motion_prompt`` is the field that says what HAPPENS. Absent it, an image-to-video model"
+    },
+    {
+      "name": "_lint_narration_duty_cycle",
+      "summary": "How much of the cut the read occupies \u2014 the number duck depth scales inversely with."
+    },
+    {
+      "name": "_lint_narration_lane_exclusive",
+      "summary": "One file declares ONE speech lane \u2014 narration, or per-shot lip sync, never both."
+    },
+    {
+      "name": "_lint_narration_timeline",
+      "summary": "A narration track's lines never play over each other, and end inside the cut."
+    },
+    {
+      "name": "_lint_negation",
+      "summary": "Prompt fields are phrased POSITIVELY \u2014 a negation leaves the banned noun in play."
+    },
+    {
+      "name": "_lint_no_in_frame_text",
+      "summary": "Refuse a prompt that asks the video model to render text inside the frame."
+    },
+    {
+      "name": "_lint_presenter_engine",
+      "summary": "A shot of a real person SPEAKING must resolve an engine that can actually do that."
+    },
+    {
+      "name": "_lint_shot_mix",
+      "summary": "Cap the presenter share, and ask for at least one shot that is not the presenter's face."
+    },
+    {
+      "name": "_lint_speech_cue",
+      "summary": "A shot whose subject speaks must SAY SO in its motion direction."
+    },
+    {
+      "name": "_lint_spoken_has_a_voice",
+      "summary": "A shot may not carry a spoken line that nothing will voice \u2014 the converse of the audio-bed"
+    },
+    {
+      "name": "_lint_synthetic_disclosure",
+      "summary": "A declared disclosure must be the tenant's actual line, not a handle kind."
+    },
+    {
+      "name": "_lint_vo_duration_parity",
+      "summary": "A shot's ``duration_s`` must fit its own spoken line \u2014 this is the lip-sync root cause."
+    },
+    {
+      "name": "_lint_voice_grade",
+      "summary": "A shot with spoken lines may not ship on an INSTANT voice clone."
+    }
+  ],
+  "constants": {
+    "MAX_PRESENTER_SHARE": 0.6,
+    "presenter_quota_min_shots": 4,
+    "required_shot_role": "screen",
+    "valid_roles": [
+      "broll",
+      "presenter",
+      "screen"
+    ],
+    "audio_bed_field": "audio_bed",
+    "vo_source_field": "vo_source",
+    "narration_field": "narration",
+    "narration_duty_warn_pct": 60.0,
+    "max_confirmed_duration_s": 15,
+    "vo_words_per_sec": 2.77
+  }
+}

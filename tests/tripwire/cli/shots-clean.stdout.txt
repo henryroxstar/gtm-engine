@@ -1,0 +1,8 @@
+{
+  "path": "clean.shots.json",
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "schema": "shots.schema.json",
+  "schema_errors": []
+}

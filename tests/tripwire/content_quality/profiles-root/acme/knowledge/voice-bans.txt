@@ -1,0 +1,3 @@
+# Voice bans (fictional tenant) — one phrase per line
+game-changer
+synergy

@@ -1,0 +1,13 @@
+usage: python -m gtm_core.video_finish room-tone [-h] --out OUT
+                                                 --duration-s DURATION_S
+                                                 [--amplitude AMPLITUDE]
+                                                 [--content-root CONTENT_ROOT]
+                                                 [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --out OUT
+  --duration-s DURATION_S
+  --amplitude AMPLITUDE
+  --content-root CONTENT_ROOT
+  --json

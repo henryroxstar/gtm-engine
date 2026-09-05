@@ -1,0 +1,4 @@
+✓ clean.slides.md — clean
+
+  Questions are on: 02, 03, 04
+    check this against the deck's approved-questions register and any 'questions are on …' line in the frontmatter or notes

@@ -1,0 +1,47 @@
+# packs/creator/graphs/restyle-shorts.toml
+#
+# The restyle lane (Phase 11). Same pack as
+# short-form-video / repurpose-clips, a third variant — pack-layer only, zero engine change.
+#
+# NO RADAR NODE, DELIBERATELY. A restyle starts from footage the operator already has, not from a
+# signal to discover — the other two variants in this pack open with content-radar because they
+# need one; this one's very first node is the plan gate itself, where the operator brings the
+# footage and intent. Do not add a radar node here "for consistency" — there is nothing for it
+# to find.
+#
+# INTERACTIVE-FIRST BY CONSTRUCTION. The footage upload (media_upload_widget) is browser-side by
+# provider design — video-restyle's Step 0 stops and asks on a headless run rather than faking it.
+# That is a property of the SKILL, not this graph; the graph shape is unchanged either way.
+
+pack = "creator"
+variant = "restyle-shorts"
+
+[[nodes]]
+id = "plan"
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill for the restyle lane, planning from the operator's OWN footage and stated intent — not from a radar digest, which this variant does not run. Confirm at this gate: which footage (the operator will upload it interactively in the next stage), the target platform, and the caption angle. Present for approval."
+
+[[nodes]]
+id = "restyle"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "video-restyle"
+prompt = "Run the video-restyle skill on the approved footage using the brand kit's restyle_preset_id. This node holds the spend decision (cap precheck, exact get_cost + duration_seconds preflight) — stay on brain_plan. Interactive-first: if this session is headless, stop and report that the footage upload needs an interactive session rather than proceeding."
+
+[[nodes]]
+id = "score"
+depends_on = ["restyle"]
+model_role = "brain_radar"
+skill = "video-score"
+prompt = "Run the video-score skill on the restyled asset. Run the virality predictor where its id resolves, score retention-rubric Part B for the target platform, and note the 720p-only output constraint in the recommendation rather than treating it as a defect. Never re-render."
+
+[[nodes]]
+id = "publish"
+depends_on = ["score"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the restyled asset's caption as the LinkedIn text post — content-publish is text-only, same as a carousel's caption; the video file itself is posted manually by the operator (say so in the report). Note in the preview that this is AI-restyled media under the Article 50 disclosure duty even though no identity handle was used. Publishing is not a capability the brain holds: the exact bytes go inside the publish gate block and Python makes the call only after the operator approves. Never attach the video file as media, and never name a destination account."

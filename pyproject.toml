@@ -1,0 +1,315 @@
+[build-system]
+# setuptools is stdlib-adjacent and ships with every uv/pip toolchain — no extra
+# build backend to vendor. We declare two top-level packages: agent/ (the brain)
+# and cockpit/ (the Telegram bot — named cockpit, NOT telegram, to avoid shadowing
+# the python-telegram-bot import name `telegram`).
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtm-engine-runtime"
+version = "0.1.0"
+description = "GTM Content OS runtime: headless Claude Code (Agent SDK) brain + Telegram cockpit."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Henry Roxas" }]
+
+dependencies = [
+  # The brain: headless Claude Code via the official Python Agent SDK.
+  # The SDK model is always Claude (never DeepSeek — DeepSeek is a downstream
+  # worker reached as an MCP tool, see agent/mcp_config.py).
+  "claude-agent-sdk>=0.2.101",
+  # The cockpit: the Telegram bot. Import name is `telegram`, which is exactly
+  # why our bot package is `cockpit/` and not `telegram/` (no shadowing).
+  "python-telegram-bot>=21",
+  # The DeepSeek worker MCP (agent/mcp/worker): a thin FastMCP stdio server. `mcp`
+  # is the official MCP Python SDK (FastMCP lives at mcp.server.fastmcp); `httpx`
+  # makes the DeepSeek REST call (also a transitive PTB dep — pinned here so the
+  # worker's import surface is explicit). Upper-bounded below 2.0: that release is
+  # an unrelated package under the same PyPI name (mcp-types/httpx2 deps, no
+  # mcp.server.fastmcp) that broke every FastMCP-based worker import in CI, which
+  # installs via plain `pip install -e .` with no uv.lock to hold it back.
+  "mcp>=1.2,<2.0",
+  "httpx>=0.27",
+  "fastapi[standard]>=0.111",
+  "uvicorn>=0.29",
+  "pytest>=9.1.0",
+  # Backend API runtime (Phase D): async Postgres driver, JWT auth, password hashing.
+  "asyncpg>=0.29",
+  "PyJWT[crypto]>=2.8",
+  "bcrypt>=4.0",
+  "email-validator>=2.0",
+  "pydantic[email]>=2.0",
+  "higgsfield-client>=0.1.0",
+  # PDF text extraction for onboarding ingest. Image-only pages fall back to the vision MCP.
+  # Security floor: 6.14.2 fixes GHSA-g867-7843-wf8q / GHSA-5xf7-4p34-54qr / GHSA-55h5-xmcq-c37v /
+  # GHSA-5qjq-93h5-hrgp (unterminated inline-image filters + malformed xref infinite loops /
+  # oversized-image memory blowup) — a malicious PDF could hang or OOM the process.
+  # Raised to 6.16.1 on 2026-09-02: CVE-2026-84309 (fixed 6.16.0), CVE-2026-84310 and
+  # CVE-2026-84311 (fixed 6.16.1) — the pip-audit gate in static-analysis.yml.
+  "pypdf>=6.16.1",
+  "markitdown[pptx]>=0.1.6",
+  "python-docx>=1.2.0",
+  "reportlab>=5.0.0",
+  "slowapi>=0.1.10",
+  "matplotlib>=3.11.0",
+  # gtm_core/captions.py rasterises caption text to PNG (F1): the operator's local ffmpeg has
+  # no libfreetype/libass, so drawtext/ass/subtitles
+  # are unusable and captions must be PIL-rendered, then ffmpeg only overlays the PNG. Already
+  # resolved in uv.lock via matplotlib; declaring it explicitly changes no resolution, adds no
+  # wheel. captions.py is the ONLY gtm_core module permitted to import PIL.
+  "pillow>=12.3",
+]
+
+[project.optional-dependencies]
+# Dev/test only. The unit tests under tests/agent/ are SDK-independent and run on
+# pure stdlib + pytest — they never import claude_agent_sdk, so `pytest` is the
+# only dev dependency needed to exercise them.
+dev = ["pytest>=8"]
+# Static-analysis toolchain (Ruff lint+format, Bandit security, Semgrep, the
+# pre-commit runner). Install with `uv sync --extra lint`. Kept out of the
+# runtime deps so the production image stays lean. Pins are mirrored in
+# .pre-commit-config.yaml and .github/workflows/static-analysis.yml — bump all
+# three together.
+lint = ["ruff>=0.15", "bandit[toml]>=1.9", "semgrep>=1.167", "pre-commit>=4"]
+# Error tracking (backend). Optional so the base image + unit suites stay lean;
+# backend/observability.py no-ops when this is absent or SENTRY_DSN is unset.
+# Install in the deployed image with `uv sync --extra observability`.
+observability = ["sentry-sdk[fastapi]>=2.0"]
+
+[project.scripts]
+# Headless / cron entrypoint for one-shot skill runs, e.g.:
+#   gtm-agent --profile _template "run the market-scan skill"
+gtm-agent = "agent.__main__:main"
+# Telegram cockpit — the long-running bot service (also: python -m cockpit.bot).
+gtm-cockpit = "cockpit.bot:main"
+
+[tool.uv]
+# Security override: force the MCP Python SDK to a patched release. `semgrep`
+# (lint extra) hard-pins `mcp==1.23.3` transitively, which otherwise holds the
+# whole lock at 1.23.3 — vulnerable to CVE-2026-52869/52870/59950 (HTTP-transport
+# principal check, cross-client task handlers, WebSocket Host/Origin). semgrep is
+# never in the runtime image and is installed standalone in CI + pre-commit, so
+# co-locating it with a newer mcp only affects `uv sync --extra lint` locally, and
+# `semgrep scan` does not import mcp. Drop this override once semgrep relaxes the pin.
+#
+# The `<2.0` ceiling is LOAD-BEARING and must mirror the project pin above. An override
+# REPLACES the project constraint rather than narrowing it, and `deploy/Dockerfile.mcp`
+# installs with `uv pip install --system .`, which reads this table — so an unbounded
+# override silently re-opened the exact ceiling `mcp>=1.2,<2.0` exists to hold. Measured
+# 2026-08-31: that image built as committed installed mcp 2.1.1, and `python -m mcp_server`
+# (its own CMD) died at `from mcp.server.fastmcp import Context, FastMCP`. The comment above
+# claiming this override "only affects `uv sync --extra lint` locally" was wrong, which is
+# why the ceiling is now stated here explicitly rather than inherited.
+override-dependencies = ["mcp>=1.28.1,<2.0"]
+# Security constraint: float the transitive `click` past the PYSEC-2026-2132 fix (8.3.3).
+# `click` is pulled in only by dev/CLI tooling (semgrep via click-option-group, fastapi-cli,
+# uvicorn) — never used to parse untrusted input in the runtime. semgrep 1.167.0 otherwise caps
+# click at 8.1.8; this floor lets uv pick a patched click (and a compatible semgrep) in the lock.
+# The runtime image is unaffected (semgrep/fastapi-cli are not shipped). Drop once the deps relax.
+constraint-dependencies = ["click>=8.3.3"]
+
+[tool.setuptools.package-data]
+# The hold sheet template ships beside gtm_core.lanes.sheet (read at runtime, no server).
+"gtm_core.lanes" = ["*.html"]
+
+[tool.setuptools]
+# Explicit package list — EVERY directory with an __init__.py under the five source
+# roots, one per line. The Dockerfiles do a non-editable `pip install .`, so a subpackage
+# missing here imports fine from a checkout (and from the container's CWD, where the
+# copied source tree sits ahead of site-packages) but VANISHES from the installed wheel.
+# Fourteen real packages were in that state until 2026-09-02, masked only by the CWD.
+# tests/contracts/test_packaging_manifest.py fails CI on any drift in either direction.
+# `backend/schema/` (SQL migrations, no __init__.py) is not a package; its .sql files are
+# not shipped by the wheel either — the container reads them from the copied source tree.
+# `tests` is dev-only and intentionally excluded from the distribution.
+packages = [
+  "agent",
+  "agent.mcp",
+  "agent.mcp.apollo",
+  "agent.mcp.deck",
+  "agent.mcp.gemini_image",
+  "agent.mcp.higgsfield_video",
+  "agent.mcp.judge",
+  "agent.mcp.rocketreach",
+  "agent.mcp.saleshandy",
+  "agent.mcp.syften",
+  "agent.mcp.tts",
+  "agent.mcp.vision",
+  "agent.onboard",
+  "agent.mcp.worker",
+  "backend",
+  "backend.routers",
+  "backend.services",
+  "backend.services.runs",
+  "cockpit",
+  "gtm_core",
+  "gtm_core.community_signal",
+  "gtm_core.journey",
+  "gtm_core.packs",
+    "gtm_core.adjudication",
+    "gtm_core.brief_lint",
+    "gtm_core.content_quality",
+    "gtm_core.deck_lint",
+    "gtm_core.email_campaign_dashboard",
+    "gtm_core.hook_coverage",
+    "gtm_core.lanes",
+    "gtm_core.merge_hygiene",
+    "gtm_core.prospects_consolidate",
+    "gtm_core.screen_ui",
+    "gtm_core.video_finish",
+    "gtm_core.video_lint",
+    "gtm_core.screen_ui.scenes",
+    "gtm_core.shots_lint",
+  "gtm_core.prospects",
+  "gtm_core.skills",
+  "gtm_core.voc",
+  "mcp_server",
+]
+
+[tool.pytest.ini_options]
+# Keep test discovery scoped to tests/ and quiet about the SDK packages, which
+# may not be importable in a bare unit-test environment.
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "private_tree: asserts over a census only the private tree has (tenant profiles, the un-carved oss-export.sh); auto-skipped inside a public OSS carve — see tests/conftest.py",
+    "dbtest: live-Postgres tenant-isolation tests (FORCE RLS + gtm_api role); skipped unless GTM_TEST_PG_ADMIN_DSN is set — see tests/backend/conftest.py + the backend-db CI job",
+]
+
+# ── Ruff (lint + format) ─────────────────────────────────────────────────────
+# Fast Python linter + formatter. Runs locally (pre-commit) and in CI
+# (static-analysis.yml). Bandit owns security scanning, so the Ruff "S"
+# (flake8-bandit) ruleset is intentionally NOT enabled — avoids double-reporting.
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+  ".venv",
+  "content",                            # runtime state tree (per-tenant content)
+  "n8n",
+  "*.egg-info",
+  "plugin/skills/*/references/assets",  # vendored JS, not Python
+  "profiles/*/commercial/.build_*.py",  # one-off deck/asset generators, not shipped code
+]
+
+[tool.ruff.lint]
+# Pragmatic starter set: real bugs (E/F/W/B), import order (I), modernization
+# (UP), comprehension cleanups (C4). Expand later (SIM, PTH, RUF) once green.
+# Complexity budget (§R10, since 2026-09-02): C90 (mccabe) + the three pylint size rules,
+# at the thresholds in [tool.ruff.lint.mccabe] / [tool.ruff.lint.pylint] below, with the
+# survivors frozen in the per-file-ignores grandfather block. PLR0913 (max-args) is
+# deliberately OFF: the deterministic CLIs legitimately thread many keyword args, and its
+# fix (parameter objects) is the one that ADDS abstraction — revisit at PRD Phase 4.
+select = ["E", "F", "W", "I", "UP", "B", "C4", "C90", "PLR0911", "PLR0912", "PLR0915"]
+# Line length is handled by the formatter; remaining long lines (URLs, tables,
+# long string literals) are intentional and shouldn't fail the lint gate.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # re-exports are deliberate
+"tests/**" = ["B", "E402"] # test scaffolding: asserts, late imports
+# Reference/documentation CLI snippets — not production code, not our style target.
+"plugin/skills/*/references/*.py" = ["B904", "E702"]
+# Intentional single-line alignment in the connector-status banner method.
+# UP042 (StrEnum migration): (str, Enum) → StrEnum changes auto() behaviour;
+# deferring until we audit all auto() usages across the tier/capability enums.
+"gtm_core/capabilities.py" = ["E701", "UP042", "C901"]   # C901: §R10 grandfather
+"gtm_core/tiers.py" = ["UP042"]
+# ── §R10 complexity grandfather block — FROZEN 2026-09-02; entries are only ever REMOVED ──
+# The survivors of turning on C901/PLR0911/PLR0912/PLR0915 at the thresholds below
+# (105 findings in 42 files at the freeze — re-derive, never quote:
+#   uvx ruff@0.15.18 check --select C901,PLR0911,PLR0912,PLR0915 --statistics .  with the
+#   block commented out). No file ever JOINS this list; a new `# noqa: C901` / `PLR09xx`
+# anywhere needs a linked design doc (docs/RULES.md §R10). When a file's last violation is
+# fixed, delete its line here so the list keeps shrinking.
+"agent/__main__.py" = ["PLR0911"]
+"agent/mcp/deck/server.py" = ["PLR0911"]
+"agent/mcp/higgsfield_video/server.py" = ["PLR0911"]
+"agent/mcp/tts/server.py" = ["PLR0911"]
+"agent/mcp_config.py" = ["C901"]
+"agent/permissions.py" = ["C901"]
+"agent/publish.py" = ["PLR0911"]
+# 2026-09-02 — what is left of backend/routers/runs.py's entry after Phases 1a+1b. The
+# unsplit file measured 7 findings across two functions; `create_run` now measures ZERO
+# (its admission checks and row write moved to backend/services/runs/admission.py), so the
+# router is delisted entirely. `_execute_pack_run` moved to the service module and its
+# PLR0915 noqa was RETIRED, not relocated — it is down from C901 29 / PLR0911 13 /
+# PLR0912 24 / PLR0915 to the two below. Phase 4 takes the rest.
+"backend/services/runs/pack_executor.py" = ["C901", "PLR0911"]  # _execute_pack_run
+"cockpit/hooks.py" = ["C901"]
+"gtm_core/account_integrity.py" = ["C901"]
+"gtm_core/adjudication/cli.py" = ["C901", "PLR0911", "PLR0912", "PLR0915"]  # main
+"gtm_core/adjudication/disposal.py" = ["C901"]                # disposal_audit
+"gtm_core/adjudication/tally.py" = ["C901", "PLR0912"]        # tally
+"gtm_core/brandkit.py" = ["C901", "PLR0912"]
+"gtm_core/brief_lint/rules_render.py" = ["C901"]  # t13_component_contract
+"gtm_core/cells.py" = ["C901"]
+"gtm_core/community_signal/score.py" = ["C901", "PLR0912"]
+"gtm_core/content_quality/post.py" = ["C901", "PLR0912", "PLR0915"]  # _video_post_check
+"gtm_core/email_compliance.py" = ["C901", "PLR0912"]
+"gtm_core/eval_calibration.py" = ["PLR0911"]
+"gtm_core/gating.py" = ["C901"]
+"gtm_core/hook_coverage/audit.py" = ["C901", "PLR0912", "PLR0915"]  # audit_campaign
+"gtm_core/hook_coverage/render.py" = ["C901", "PLR0912"]            # render
+"gtm_core/hooks.py" = ["C901", "PLR0911", "PLR0912"]
+"gtm_core/hooks_lint.py" = ["C901", "PLR0912"]
+"gtm_core/ledger_cli.py" = ["C901", "PLR0911", "PLR0912", "PLR0915"]
+"gtm_core/merge_hygiene/api.py" = ["C901", "PLR0912"]                 # check_row
+"gtm_core/merge_hygiene/signal_clean.py" = ["PLR0911"]                # signal_clause
+"gtm_core/outcomes.py" = ["C901", "PLR0911", "PLR0912", "PLR0915"]
+"gtm_core/prospects_consolidate/consolidate.py" = ["C901", "PLR0912", "PLR0915"]  # consolidate
+# 2026-09-02 — MOVED, not joined: gtm_core/screen_ui.py became a package (PRD Phase 2,
+# pure motion). Its six offending functions now measure in six files; same functions,
+# same codes, no new violation. `main` kept C901/PLR0911 only — PLR0912/PLR0915 cleared
+# when the scene bodies left the module.
+"gtm_core/screen_ui/cli.py" = ["C901", "PLR0911"]                            # main
+"gtm_core/screen_ui/scenes/caller_record.py" = ["C901", "PLR0915"]
+"gtm_core/screen_ui/scenes/checkpoint_flow.py" = ["C901", "PLR0915"]
+"gtm_core/screen_ui/scenes/class_booking.py" = ["PLR0915"]
+"gtm_core/screen_ui/scenes/compare_rows.py" = ["C901", "PLR0912", "PLR0915"]
+"gtm_core/screen_ui/scenes/title_card.py" = ["C901", "PLR0912", "PLR0915"]
+"gtm_core/shots_lint/api.py" = ["C901", "PLR0912", "PLR0915"]  # lint_shotlist
+"gtm_core/signal_record.py" = ["C901", "PLR0912"]
+"gtm_core/spoiler_check.py" = ["C901", "PLR0911"]
+"gtm_core/tweet_patterns.py" = ["C901"]
+# 2026-09-02 — what survives splitting gtm_core/video_finish.py into a package (PRD
+# Phase 2). Its four codes all sat on one 611-line `main`; that became `build_parser()`
+# plus eleven `_cmd_<verb>` handlers, so C901/PLR0911/PLR0912 CLEARED and what is left is
+# the flat argparse surface — 92 add_argument statements, no branching. Splitting it
+# further would scatter help text the golden transcripts pin in one place.
+"gtm_core/video_finish/parser.py" = ["PLR0915"]  # build_parser — a flat CLI surface
+"gtm_core/video_lint/evaluate.py" = ["C901", "PLR0912", "PLR0915"]  # evaluate
+"gtm_core/voc/registry.py" = ["C901"]
+"gtm_core/voc/signals.py" = ["C901"]
+"plugin/skills/account-plan/scripts/md_to_docx_spec.py" = ["C901", "PLR0912", "PLR0915"]
+"scripts/entitlement_sync_smoke.py" = ["C901"]
+"tests/lint/pii_check.py" = ["C901"]
+"tests/linter/content_linter.py" = ["C901", "PLR0912"]
+"tests/linter/outreach_pack_linter.py" = ["C901", "PLR0912", "PLR0915"]
+"tests/linter/partnership_brief_linter.py" = ["C901", "PLR0912"]
+
+# §R10 thresholds. Ruff's defaults (10 / 12 / 50 / 6) hit 123 / 67 / 49 / 32 sites; these
+# start where the tail is actionable. PRD Phase 4 lowers them (15 → 12, 75 → 60) and
+# re-baselines once the grandfather block is under 20 entries.
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pylint]
+max-branches = 18
+max-statements = 75
+max-returns = 8
+
+[tool.ruff.format]
+# Ruff formatter defaults (double quotes, magic trailing comma).
+
+# ── Bandit (security linter) ─────────────────────────────────────────────────
+# Scans the runtime packages for common security issues. CI invokes with
+# `-ll -ii` (medium+ severity & confidence) to keep noise low; accepted findings
+# are annotated inline with `# nosec <ID>` + reason, not blanket-skipped here.
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "content", "n8n"]
+# B101 (assert_used): asserts outside tests are used as invariants, not control
+# flow. Subprocess use is reviewed in agent/permissions.py (deny-list classifier).
+skips = ["B101"]

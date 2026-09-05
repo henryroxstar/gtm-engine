@@ -1,0 +1,8 @@
+[brand]
+name = "Acme (fictional)"
+
+[palette]
+primary = "#123456"
+
+[disclosure]
+line = "This video features a consented synthetic presenter."
