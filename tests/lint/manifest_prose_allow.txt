@@ -1,0 +1,11 @@
+# Deliberate exceptions to tests/lint/manifest_prose_check.py.
+#
+# Format: <skill>:<rule>   # YYYY-MM-DD why this description must keep the material
+# Rules: date | measurement | budget
+#
+# An entry here means "this withheld skill's description ships this on purpose". That is a
+# distribution decision, so it carries a date and a reason, exactly like a gating.toml
+# override. Prefer moving the prose into the skill's body_template.md — which is withheld —
+# over adding a line here.
+#
+# Empty by design.

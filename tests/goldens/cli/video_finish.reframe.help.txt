@@ -1,0 +1,22 @@
+usage: python -m gtm_core.video_finish reframe [-h] --in SRC --out OUT
+                                               --ratio {16:9,1:1,4:5,9:16}
+                                               [--crop-top PX]
+                                               [--background BACKGROUND]
+                                               [--video-bitrate VIDEO_BITRATE]
+                                               [--workdir WORKDIR]
+                                               [--content-root CONTENT_ROOT]
+
+options:
+  -h, --help            show this help message and exit
+  --in SRC
+  --out OUT
+  --ratio {16:9,1:1,4:5,9:16}
+  --crop-top PX         pixels to remove off the top before padding — a status
+                        bar's clock/battery/carrier glyphs, never a face or a
+                        designed frame (see pad_to_ratio's docstring: crop
+                        chrome, pad content). 0 (default) is a plain reframe
+                        with no chrome removed.
+  --background BACKGROUND
+  --video-bitrate VIDEO_BITRATE
+  --workdir WORKDIR
+  --content-root CONTENT_ROOT

@@ -1,0 +1,56 @@
+{
+  "asset": "asset.mp4",
+  "findings": [
+    {
+      "tier": "V1",
+      "rule": "resolution",
+      "severity": "error",
+      "asset": "asset.mp4",
+      "excerpt": "720x1280 \u2014 below the 1080x1920 floor for 9:16",
+      "fix": "re-render or upscale to at least 1080x1920"
+    },
+    {
+      "tier": "V1",
+      "rule": "fps",
+      "severity": "warn",
+      "asset": "asset.mp4",
+      "excerpt": "25fps \u2014 cinematic-only, below the 30fps clean floor",
+      "fix": "prefer >= 30fps unless the cinematic look is deliberate"
+    },
+    {
+      "tier": "V3",
+      "rule": "caption_outside_safe_area",
+      "severity": "error",
+      "asset": "asset.mp4",
+      "excerpt": "screen 1 box (0,1100,400,1160) outside safe area (43,128,677,1101)",
+      "fix": "re-fit via gtm_core.captions (shrink/wrap inside the safe area)"
+    },
+    {
+      "tier": "V3",
+      "rule": "caption_outside_safe_area",
+      "severity": "error",
+      "asset": "asset.mp4",
+      "excerpt": "screen 2 box (100,1100,500,1160) outside safe area (43,128,677,1101)",
+      "fix": "re-fit via gtm_core.captions (shrink/wrap inside the safe area)"
+    },
+    {
+      "tier": "V4",
+      "rule": "predictor_duration_over_cap",
+      "severity": "error",
+      "asset": "asset.mp4",
+      "excerpt": "15.500000s \u2014 over the 14.9s predictor cap",
+      "fix": "trim via gtm_core.video_finish predictor-trim (re-encode with -t 14.9; a keyframe-accurate stream copy will not move the duration)"
+    },
+    {
+      "tier": "V7",
+      "rule": "caption_screen_too_dense",
+      "severity": "warn",
+      "asset": "asset.mp4",
+      "excerpt": "screen 1: 8 words in 1.00s = 8.0 w/s (ceiling 4)",
+      "fix": "cut words from this screen or hold it longer"
+    }
+  ],
+  "suppressed": {
+    "V5": 1
+  }
+}

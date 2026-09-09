@@ -1,0 +1,64 @@
+# packs/engagement/inputs.toml — information requirements (§5's two-class inputs).
+#
+# Topics are the union of what THIS pack's node skills read, per docs/knowledge-usage.md
+# (the generated per-skill table, not recall).
+#
+# Four classes a node skill here reads but that are deliberately NOT declared, for the
+# reasons packs/marketing/inputs.toml already records:
+#   - `guidance/*`, `industry/*`, `adversary-testing/*`, `use-cases/*` (linkedin-reply,
+#     call-prep) — directory reads, not a single resolvable `<topic>.md`; agent.readiness
+#     hardcodes the `.md` suffix, so there is no one file to check.
+#   - `voice-bans` (reddit-reply) — every profile ships it as `voice-bans.txt`, never
+#     `.md`; the same hardcoded-suffix check would report it permanently missing.
+# Both classes degrade gracefully in-skill when absent.
+#
+# Only `voice` and `icp-personas` are required: they are the two every drafting node here
+# depends on to sound like the operator and to aim at the right reader. The rest are read
+# by some nodes and not others, and a required topic that only one variant consumes fails
+# readiness for the whole pack — the mistake marketing's file records having made with
+# `company`/`product`.
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = false
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "case-studies"          # linkedin-reply, call-prep
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "hook-matrix"           # linkedin-reply
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "product"               # linkedin-reply, call-prep
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "company"               # market-scan, call-prep
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "social-tuning"         # reddit-reply
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "market-scan-config"    # market-scan
+required = false
+freshness = "evergreen"

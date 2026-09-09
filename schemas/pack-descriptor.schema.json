@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/pack-descriptor.schema.json",
+  "title": "PackDescriptor",
+  "description": "Client-facing descriptor of one runnable pack graph variant — the item shape of the pack-listing API (GET /v1/packs). A read-only VIEW: nodes[] and inputs are derived from packs/<pack>/graphs/<variant>.toml + packs/<pack>/inputs.toml via the fail-closed loader (gtm_core/packs/loader.py); title, description, and min_entitlement are API-layer annotations (optional TOML keys added alongside the pack API — absent on packs that never declare them); available and locked_reason are SERVER-COMPUTED per requesting workspace, so a client never needs to know the entitlement-tier ordering. The descriptor deliberately excludes server-internal fields (prompt text, model_role) so the API never leaks orchestration detail, and carries no destination/egress vocabulary — the same unrepresentable-destination property the pack format itself has. RUN LAUNCH: v1 ask-setting values are STRINGS; a pack-mode run submits inputs as a flat string map {\"<key>\": \"<value>\"}. Additive optional form fields (label, help, default, value_type, choices) are reserved on the settings entry so richer forms can arrive without a breaking change. Clients MUST ignore unknown fields and tolerate unknown enum values (additive evolution).",
+  "type": "object",
+  "required": ["pack", "variant", "nodes"],
+  "properties": {
+    "pack": { "type": "string", "description": "Pack name, e.g. 'marketing'." },
+    "variant": { "type": "string", "description": "Graph variant within the pack, e.g. 'linkedin-post'." },
+    "title": { "type": "string", "description": "Optional human display title; clients fall back to '<pack>/<variant>'." },
+    "description": { "type": "string", "description": "Optional one-paragraph summary of what a run of this variant produces." },
+    "min_entitlement": { "type": "string", "description": "The variant's effective minimum entitlement tier ('free' | 'pro' | 'pro_plus'), server-computed from gtm_core/gating.toml — the max commercial floor of its own node skill tiers, raised by any matching pack-level pricing override. Always present ('free' included) rather than absent-means-unlimited. Enforcement is server-side; clients should prefer the computed 'available'/'locked_reason' fields over interpreting this value." },
+    "available": { "type": "boolean", "description": "Server-computed for the requesting workspace: true when this variant can be launched right now (entitlement satisfied). Clients gate the launch button on this, never on tier comparison." },
+    "locked_reason": { "type": "string", "description": "Server-computed, present when available = false — a machine code, e.g. 'entitlement_required'. Open-world." },
+    "readiness": {
+      "type": "object",
+      "description": "OPTIONAL, server-computed against the requesting workspace's profile (additive — absent until the readiness surface lands). Two-class provisioning verdict for this variant: 'blocked' = a required input is missing and pack-mode run creation will 422 {\"code\":\"pack_not_ready\"}; 'degraded' = stale-but-present (runs proceed; clients may warn); 'ready' = go. In the LISTING, items[] carries only non-ready items (compact); the detail endpoint GET /v1/packs/{pack}/{variant}/readiness returns every item — the onboarding wizard's checklist feed. Reasons are human sentences and never contain server filesystem paths.",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["ready", "degraded", "blocked"], "description": "Worst item status. Open-world — treat unknown values as opaque." },
+        "items": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["kind", "name", "status"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["setting", "knowledge"], "description": "Which input class the item belongs to. Open-world." },
+              "name": { "type": "string", "description": "Settings key or knowledge topic (matches inputs.settings[].key / inputs.knowledge[].topic)." },
+              "status": { "type": "string", "enum": ["ready", "degraded", "blocked"], "description": "Open-world." },
+              "reason": { "type": "string", "description": "Optional human-readable sentence; never an absolute path." }
+            }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The graph's nodes in declaration order. Ids here are the node_id vocabulary used by run-event 'node' events and snapshot nodes[], so a client can join live progress onto the rendered DAG.",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "description": "Node id, unique within the variant." },
+          "depends_on": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Ids of nodes this one depends on. Empty = root node (a variant may have several roots — a fan-out batch)." },
+          "skill": { "type": ["string", "null"], "description": "Skill slug the node runs, when skill-backed." },
+          "gate": { "type": "boolean", "default": false, "description": "True when the node pauses for human approval before the run proceeds." },
+          "external_effect": { "type": ["string", "null"], "description": "Declared external side effect, if any. Loader rule: a GATED node may carry no external effect other than 'publish'. The pack API additionally rejects, at load, any external_effect on a NON-gated node — so through this API, a node with an external effect is always gated, and gate=false nodes are side-effect-free by construction." }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "description": "The variant's information requirements (the pack's two-class inputs). 'settings' resolve against the profile's settings; 'knowledge' against the profile's knowledge corpus. Clients build run-launch forms from settings with source='ask'; knowledge entries are readiness signals (present/missing/stale), not form fields.",
+      "properties": {
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "source"],
+            "properties": {
+              "key": { "type": "string", "description": "Profile settings key, e.g. 'brand_name'. Doubles as the run-inputs map key." },
+              "source": { "type": "string", "enum": ["ask", "derive"], "description": "'ask' = collected from the operator (a form field); 'derive' = computed server-side." },
+              "required": { "type": "boolean", "default": false },
+              "label": { "type": "string", "description": "Reserved (additive): human form label." },
+              "help": { "type": "string", "description": "Reserved (additive): form help text." },
+              "default": { "type": "string", "description": "Reserved (additive): default value." },
+              "value_type": { "type": "string", "description": "Reserved (additive): value type hint; absent = string (the v1 assumption)." },
+              "choices": { "type": "array", "items": { "type": "string" }, "description": "Reserved (additive): enumerated choices for a select field." }
+            }
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["topic"],
+            "properties": {
+              "topic": { "type": "string", "description": "Knowledge-corpus topic, e.g. 'company', 'voice', 'icp-personas'." },
+              "required": { "type": "boolean", "default": false },
+              "freshness": { "type": "string", "description": "How stale this topic may be before a run should re-verify it. Current values: 'evergreen' | '90d'. Open-world — treat unknown values as opaque." }
+            }
+          }
+        }
+      }
+    }
+  }
+}

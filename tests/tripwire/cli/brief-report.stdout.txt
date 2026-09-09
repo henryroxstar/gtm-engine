@@ -1,0 +1,118 @@
+
+jargon.html
+
+  [T1] internal identifiers on the reader surface — 15 (FAIL)
+    source id:5: “web_sweep” → write "Weekly web sweep (news, regulators, competitors, own-brand)"
+    source id:11: “enterprise_filings” → write "Enterprise signals (SEC filings)"
+    module path:5: “gtm_core.voc.collect” → name what it does, not the module that does it
+    module path:6: “gtm_core.voc.collect” → name what it does, not the module that does it
+    shell command:6: “uv run python -m gtm_core.voc.collect before quoting anything.        The competitor list lives in competitors.toml and the signal file is signals.jsonl.        Untrusted input is handled per” → delete — readers do not run it
+    repo filename:7: “competitors.toml” → describe the thing, e.g. 'our competitor list'
+    repo filename:7: “signals.jsonl” → describe the thing, e.g. 'our competitor list'
+    internal rule ref:8: “§R5” → state the rule in words, or delete it
+    schema field:9: “settled_by” → say it as a sentence: 'what would settle it'
+    schema field:9: “verified: false” → 'we read the original source' / 'we have not read it yet'
+    code constant:10: “BREADTH_ELIGIBLE_SPEAKERS” → delete — say the rule in words
+    status token:10: “pull-failed” → plain English: 'could not be reached', 'not checked this week'
+    snake_case in <code>:5: “web_sweep” → use words, not an id
+    snake_case in <code>:11: “enterprise_filings” → use words, not an id
+    snake_case in <code>:11: “watermark_days” → use words, not an id
+
+  [T2] house jargon a reader outside the build will not know — 9 (FAIL)
+    house jargon:12: “speakers” → write "who is talking / whose words these are"
+    house jargon:13: “speakers” → write "who is talking / whose words these are"
+    house jargon:12: “lane” → write "check / source"
+    house jargon:13: “lanes” → write "check / source"
+    house jargon:13: “lanes” → write "check / source"
+    house jargon:12: “harvested” → write "pulled / read"
+    house jargon:12: “corpus” → write "collection"
+    house jargon:12: “deduped” → write "removed repeats"
+    internal tool name:13: “Firecrawl” → name the kind of source, not the tool we bought
+
+  [T3] counts that no longer match the code — 9 (FAIL)
+    stale speakers count:12: “Seven speakers” → there are 8 or 9 speakers
+    stale sources count:12: “nine sources” → there are 16 sources
+    stale lanes count:13: “four lanes” → there are 10 lanes
+    stale sources count:13: “12 sources” → there are 16 sources
+    stale lanes count:13: “7 lanes” → there are 10 lanes
+    stale speakers count:13: “6 speakers” → there are 8 or 9 speakers
+    stale sources total:13: “of 12 sources” → there are 16 sources
+    stale lanes total:13: “of 7 lanes” → there are 10 lanes
+    stale speakers total:13: “of 6 speakers” → there are 8 or 9 speakers
+
+  [T4] section references that do not say what they point at — 3 (FAIL)
+    unnamed section ref:14: “§04c” → add the section's title, e.g. '§04c Regulatory clock'
+    unnamed section ref:14: “§3” → add the section's title, e.g. '§04c Regulatory clock'
+    unnamed section ref:14: “§08” → add the section's title, e.g. '§04c Regulatory clock'
+
+  [T5] figures with no source a reader can follow — 1 (warn)
+    figure with no source:17: “36.2%, $4.5M, 3x” → add the source link, or a section ref where it is sourced
+
+  [T7] density (advisory) — 3 (warn)
+    long paragraph:15: “189 words” → split it, or turn it into a list
+    long sentence:15: “189 words” → break it up: “A long paragraph follows so that the figures below sit more …”
+    bold overload:16: “4 bolds / 1 sentences” → when everything is emphasised, nothing is
+
+structure.html
+
+  [T6] structural defects — 7 (FAIL)
+    script tag:10: “<script” → the brief is static
+    external asset:10: “src="https://cdn.example.com/app.js” → inline it — the brief must open with no network
+    external asset:11: “href="https://cdn.example.com/site.css” → inline it — the brief must open with no network
+    duplicate id: “s2” → ids must be unique — anchors break
+    dangling anchor:21: “#nowhere” → the link goes nowhere — fix the target or drop the link
+    unbalanced <div>: “4 open / 3 closed” → the layout will collapse somewhere below the mismatch
+    section missing from contents: “s2” → a section nobody can navigate to is a section nobody reads
+
+  [T8] audience routing — 3 (FAIL)
+    unknown audience:27: “everyone” → one of ['all', 'marketing', 'operator', 'product', 'sales']
+    section missing audience:39: “<section>” → add data-audience="all|marketing|sales|product|operator"
+    operator content before reader content:31: “operator section not last” → operator notes go after everything a reader is meant to see
+
+  [T9] takeaway-first — 4 (FAIL)
+    callout buries its takeaway:44: “read this callout, which opens with method instead” → open with the takeaway in bold, then the evidence
+    caveats before content:44: “Before quoting any number” → methodology caveats go in the appendix, not ahead of the findings
+    actions not split by team:39: “no Sales block” → the actions section needs Marketing, Sales and Product blocks
+    actions not split by team:39: “no Product block” → the actions section needs Marketing, Sales and Product blocks
+
+  [T10] render integrity — markup that does not render as written — 2 (FAIL)
+    class-not-styled:20: “class="ghost"” → no CSS rule defines ".ghost" — it renders unstyled; add the rule or use an existing class
+    glued-inline:18: “the rest.             8                      8 companies</sp” → ".sub" sets a vertical margin but stays inline, so the margin is dropped and this runs into the text before it — give it display:block (scope it, e.g. `td .sub`) or add a separator
+
+  [T11] internal consistency — the brief disagreeing with itself after an edit — 2 (FAIL)
+    count-disagrees-across-tables:29: ““agents need their own identity” = 5, 6” → the same claim carries two different source counts — update every table, or the reader trusts whichever they read first
+    cross-section-assertion:20: “h>Backing         agents need their own identity   5           The  evidence table  has no custo” → this states what §s2 does or does not contain — re-verify it against that section this issue; it goes stale silently when that section changes
+
+  [T12] template residue — the template's own scaffolding still in the file — 4 (FAIL)
+    unreplaced-placeholder:47: “{{MONTH YEAR}}” → the template placeholder was never filled in — replace it with this run's content (check the <title> and <head>, not just the body)
+    unreplaced-placeholder:47: “{{PLACEHOLDER}}” → the template placeholder was never filled in — replace it with this run's content (check the <title> and <head>, not just the body)
+    template-scaffolding:47: “Replace every {{PLACEHOLDER}} with this issue's content. ” → the template's build instructions shipped inside the deliverable — delete it, or replace it with a one-line provenance note naming this issue's date
+    template-scaffolding:47: “Copy this file, then: 1. Replace every {{PLACEHOLDER}} wit” → the template's build instructions shipped inside the deliverable — delete it, or replace it with a one-line provenance note naming this issue's date
+
+  [T13] component contract — a styled component missing the child its CSS targets — 2 (FAIL)
+    styled-child-missing:18: “                                                                     T” → ".dseg" draws through ".dseg i" but this element contains no <i> — the rule that paints it has nothing to paint, so the component renders empty
+    list-container-not-a-list:20: “                      Term          Definition                <p class” → ".gloss" is styled as a list container (".gloss dt") but this element has no <dt> — use the real list markup (<dl>/<dt>/<dd> or <ul>/<li>) or a plain container for prose
+
+  [T14] evidence linkage — a table row in §02/04b/04c/04d with no citation — 1 (FAIL)
+    uncited row:18: “<tr><td>agents need their own identity</td><td><b>5</b></td>” → §02 What buyers say — link to primary evidence or Appendix B, or add a speaker chip
+
+  [T7] density (advisory) — 1 (warn)
+    long sentence:44: “65 words” → break it up: “Before quoting any number read this callout, which opens wit…”
+
+record.md
+
+  [T3] counts that no longer match the code — 4 (FAIL)
+    stale lanes count:3: “nine lanes” → there are 10 lanes
+    stale sources count:5: “seven sources” → there are 16 sources
+    stale sources count:5: “12 sources” → there are 16 sources
+    stale sources total:5: “of 12 sources” → there are 16 sources
+
+  [T4] section references that do not say what they point at — 1 (FAIL)
+    unnamed section ref:3: “§04c” → add the section's title, e.g. '§04c Regulatory clock'
+
+  The reader surface is for a product, sales or strategy person who has never
+  opened this repo. Mechanics belong in the markdown brief, which is the
+  internal record and is linted far more loosely.
+
+  A rule that is genuinely wrong about a line can be suppressed with
+  <!-- lint-ok T2: reason --> on that line. Name the tier and say why.

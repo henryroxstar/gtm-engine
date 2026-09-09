@@ -1,0 +1,18 @@
+{
+  "proceed": false,
+  "blocking": [
+    "content linter failed: [ERROR] li.hook: hook is 157 chars (>140)\n[ERROR] li.body_url: no outbound links in the post body (kills reach ~50-60%; put it in a comment)\n[ERROR] li.hashtags: 3 hashtags (>2; 0-2 in 2026)\n[WARN] li.body_len: body 83 chars outside 1300-2500\n[WARN] prose.banned_word: banned / AI-tell phrase 'game-changer' — use a plain word\nFAIL: 3 error(s)",
+    "safe-to-share check failed: [ERROR] safe.tenant: contains tenant name 'zorvane' — remove before publishing\nFAIL: 1 error(s)",
+    "voice ban violated: 'game-changer'"
+  ],
+  "warnings": [
+    "hook lacks a concrete anchor or is not self-contained (see docs/hook-craft.md)",
+    "hook_id 'widget-99' not found in any hook matrix"
+  ],
+  "checks": {
+    "linter_pass": false,
+    "safe_to_share_pass": false,
+    "voice_bans_pass": false,
+    "hook_quality_advisory": false
+  }
+}

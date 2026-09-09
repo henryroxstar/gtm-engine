@@ -1,0 +1,31 @@
+{
+  "captions": {
+    "frame": [720, 1280],
+    "screens": [
+      {
+        "index": 1,
+        "start_s": 0.0,
+        "end_s": 1.0,
+        "text": "one two three four five six seven eight",
+        "box": {"x": 0, "y": 1100, "w": 400, "h": 60}
+      },
+      {
+        "index": 2,
+        "start_s": 1.0,
+        "end_s": 4.0,
+        "text": "a short line",
+        "box": {"x": 100, "y": 1100, "w": 400, "h": 60}
+      }
+    ],
+    "spoken_text": "one two three four five six seven eight a short line"
+  },
+  "identity_used": ["element"],
+  "audio_context": {"has_music_bed": true, "has_voice": true, "ducking_applied": false},
+  "lint_suppressions": [
+    {
+      "tier": "V5",
+      "asset": "asset.mp4",
+      "reason": "the bed is a deliberate wash under the whole cut"
+    }
+  ]
+}

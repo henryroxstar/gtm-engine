@@ -1,0 +1,11 @@
+gtm-engine
+Copyright 2026 Henry Roxas
+
+This product includes software developed by Henry Roxas and contributors.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+---
+Third-party dependencies retain their own licenses. Of note:
+- python-telegram-bot is licensed under LGPL-3.0-only. It is used as an
+  unmodified library dependency; no changes to it are distributed here.

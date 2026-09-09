@@ -1,0 +1,326 @@
+# BRAND.toml — the brand kit contract (TEMPLATE)
+#
+# Copy to profiles/<your-profile>/knowledge/BRAND.toml and fill in. Every value here is a
+# placeholder; none of it is a recommendation.
+#
+# WHAT THIS FILE IS FOR
+#   Consistent branding as a LOOKUP instead of a discipline. Skills and render prompts read
+#   values from here, so an asset is on-brand by config rather than by remembering to prompt
+#   for it.
+#
+# HOW IT RESOLVES
+#   python -m gtm_core.brandkit --profile <p> [--product <slug>] [--key palette.primary]
+#
+#   knowledge/BRAND.toml            company level  (this file)
+#   products/<slug>/BRAND.toml      product level  — MERGES OVER the company file, per key
+#
+#   Unlike every other knowledge file, the product kit does NOT replace the company kit: it
+#   contributes deltas. A product overriding [palette].primary keeps the company's canvas and
+#   rule. So a product kit should carry ONLY what genuinely differs. (Lists are replaced whole,
+#   not concatenated.)
+#
+#   ⚠ IN A PRODUCT KIT, PRESENT-BUT-EMPTY IS AN OVERRIDE, NOT "INHERIT".
+#     soul_id = ""   in a product kit BLANKS the company's soul_id — which is usually what you
+#     want for a fictional product character that must not render a real person's face. To
+#     inherit instead, OMIT the key entirely. Copying this whole template into a product kit
+#     and leaving the stubs empty will silently blank every company value.
+#
+# ⚠ THE FILENAME MUST STAY FLAT
+#   gtm_core.paths._safe_segment rejects any resolved filename containing "/" — the tenant
+#   traversal guard, which protects against the highest-risk error in this system. There is no
+#   knowledge/brand/BRAND.toml; it raises ValueError. Asset DIRECTORIES are fine, because they
+#   are referenced by path from inside this file rather than resolved through the helper.
+#
+# ⚠ SCOPE — this file is THE palette for the profile. All of it: social, video, carousels,
+#   infographics, document companions and decks. If you find yourself writing a hex into a
+#   skill, an outline, a README or a PROFILE.md, stop — that is how a repo ends up with nine
+#   palettes and three shades of its own blue. Put it here and read it.
+#   The one legitimate exception is a VENDORED BINARY template (.pptx/.dotx/.pdf) whose ink is
+#   baked into the file. Record that it diverges; do not try to reconcile it.
+#
+# ⚠ OBTAIN A BRAND, DON'T DERIVE ONE.
+#   If the company has a brand guideline, generation source, or design-system document, vendor
+#   it to knowledge/brand/ and name it in [meta].authority below. Fill this file FROM that
+#   document. Colours scraped from a website are an *implementation* and drift from *intent* —
+#   a live site's CTA button is the weakest evidence in the room, not the strongest. Where you
+#   could not obtain a fact, leave it unset and record it as a gap; never invent one, and never
+#   generate a logo.
+
+[meta]
+source          = "manual"          # or "derived: <where>, read <date>", or the vendored brand doc
+refreshed       = "YYYY-MM-DD"
+review          = "evergreen"       # or a cadence like "90d"
+surface         = "all"             # this kit governs every generated surface
+# Name the artefact that OUTRANKS this file — the company's own brand document if one exists.
+# Per-surface precedence belongs here too, so a future conflict is resolved by rule rather than
+# by whoever edited a file last. Never reconcile a disagreement by copying a value sideways
+# between files: fix it here, and delete the loser.
+# authority     = "knowledge/brand/<their-brand-document>.md"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# PALETTE
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+[palette]
+# Hex strings. Role names, not colour names, so a render prompt can ask for a role.
+canvas          = "#000000"   # the ground most renders sit on
+surface         = "#111111"   # cards / raised areas. Keep DIFFERENT from canvas — screen_ui draws
+                              # its elevated-panel primitive in this colour, so surface == canvas
+                              # flattens every card to an outline.
+ink             = "#FFFFFF"   # body + heading text
+primary         = "#FFFFFF"   # THE action / emphasis colour
+accent          = "#FFFFFF"   # secondary highlight — the colour of focal UI chrome.
+                              # DECLARE THIS EXPLICITLY. gtm_core/screen_ui.py resolves
+                              # accent -> primary -> a neutral grey, so an omitted accent silently
+                              # borrows another key's colour. Two live kits shipped that way.
+secondary       = "#888888"
+rule            = "#333333"   # dividers, hairlines
+
+# Which gradient (below) this kit defaults to. A PRODUCT kit overrides this one key to express
+# sub-brand / suite membership and inherits everything else. Omit if the brand has no gradients.
+# gradient      = "core"
+
+# LIGHT MODE. Only fill these in if the brand has a real light mode — it is not an inversion of
+# the dark one, and a brand without a defined light mode should not be given an invented one.
+# canvas_light  = "#FFFFFF"
+# surface_light = "#F4F5F7"
+# ink_light     = "#000000"
+# rule_light    = "#E2E5EA"
+
+# Secondary colour families, if the brand defines them with named roles. Keeps a gradient's stops
+# traceable to a family instead of being loose hexes.
+# [palette.families.<name>]
+# primary   = "#......"
+# shade     = "#......"
+# highlight = "#......"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# GRADIENTS — optional, but most brands with any visual ambition have at least one
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# Read the ACTIVE gradient in two steps so a product override is honoured automatically:
+#   G=$(python -m gtm_core.brandkit --profile <p> [--product <s>] --key palette.gradient)
+#   python -m gtm_core.brandkit --profile <p> --key gradients.$G.prompt
+#
+# `prompt` is a ready-to-interpolate phrase (a diffusion model takes a sentence, not a parameter);
+# `stops` is the machine-readable list. Note that image tools accepting a `colors` param take FLAT
+# hexes only — a gradient must be named in the prompt TEXT.
+#
+# [gradients.core]
+# stops   = ["#......", "#......"]
+# prompt  = "a <description> gradient, #...... to #......"
+# meaning = "when to use this one, and for which product or suite"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# PRODUCT → SUB-BRAND MAPPING
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# If products carry their own colour system, record the mapping HERE as a comment and give each
+# mapped product a kit under products/<slug>/BRAND.toml carrying only its delta.
+#
+# RECORD THE ABSENCES TOO. "This product has no sub-brand, confirmed" and "nobody has asked yet"
+# look identical from an empty products/ directory, and the second one invites a later session to
+# invent the relationship. Write down which it is.
+#
+#   <slug>  → <suite>      (source of the mapping)        products/<slug>/BRAND.toml
+#   <slug>  → NO SUB-BRAND. Confirmed <date>. Inherits the company gradient. No kit, by design.
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# TYPOGRAPHY
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+[typography]
+display         = "<display face>"
+body            = "<body face>"
+fallback_stack  = ["system-ui", "sans-serif"]   # CSS/HTML surfaces only — a face NAME cannot
+                                                # resolve to a file for a rasteriser
+serif_allowed   = false       # a house rule a product kit may deliberately invert
+
+# ROLE RESTRICTIONS — where each face MAY be used. Storing which faces exist was never enough:
+# most brands restrict the display face to hero headlines, and nothing enforces that unless it is
+# written down. Say it here even when it feels obvious.
+# display_use   = "hero headline only — never body, labels, captions, tables, charts or UI text"
+# body_use      = "everything else"
+# substitution  = "never silent; a declared font role naming an unreadable file must raise"
+
+# ASK FOR FONT FILES, NOT FONT NAMES. Anything that rasterises glyphs (gtm_core/captions.py,
+# gtm_core/screen_ui.py) needs a real file; a face name alone renders nothing. Repo-relative
+# paths, never absolute. `caption` is the only required role — every other role falls back to it,
+# so omitting one degrades to single-weight rather than failing. A role that IS declared but names
+# an unreadable file RAISES (FontMissing); there is no bitmap fallback.
+# [typography.font_files]
+# caption = "profiles/<tenant>/knowledge/brand/fonts/<Face>-700.woff2"
+# body    = "profiles/<tenant>/knowledge/brand/fonts/<Face>-400.woff2"
+# label   = "profiles/<tenant>/knowledge/brand/fonts/<Face>-600.woff2"
+# heading = "profiles/<tenant>/knowledge/brand/fonts/<Face>-800.woff2"
+# display = "profiles/<tenant>/knowledge/brand/fonts/<Display>.woff2"
+
+[captions]
+# Burned-in caption treatment for short-form video, read by `video-finish`.
+#
+# Omit `preset` to keep the local Pillow burn-in (deterministic, free, safe-area enforced, but
+# STATIC text only). Set it to a Reap caption-style id to route captions through Reap instead —
+# `get_caption_styles` lists the catalogue. Word-by-word motion is what short-form retention
+# actually leans on, because the text arrives in step with the speech instead of landing as a
+# block the viewer has to race:
+#   system_kinetic_typography  — bold caps, word-by-word kinetic motion
+#   system_indigo              — bold Inter on a solid block; clean, modern, SaaS
+#   system_phantom             — slide-up reveal, cinematic
+# preset        = "system_indigo"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# LOGO — the highest-consequence field in this file
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠ NEVER GENERATE, REDRAW, TRACE OR APPROXIMATE A LOGO. Not as a placeholder, not "just for the
+#   mockup", not because the real files were not to hand. A fabricated logo has shipped in this
+#   repo before. A profile with no logo files simply HAS none — that is a correct, safe state, and
+#   the right output is a design with an intentional logo-safe area and a note that the official
+#   mark must be added before publication.
+
+[logo]
+never_generate  = true
+never_in_layer  = true    # composite the mark AFTER the visual; never inside a generated image
+# clear_space   = "e.g. at least one-half of the logo symbol width on every side"
+# placement     = "e.g. consistent corner within an asset family; never over the busiest area"
+# min_size      = "e.g. 24px tall on screen, 12mm in print"
+# missing_policy = "leave a logo-safe area and deliver without a logo, stating it must be added"
+
+[assets]
+# Repo-relative paths. Directories are fine here — see the filename note above.
+#
+# LOCKUP × BACKGROUND TABLE. If the brand ships more than one lockup, wire them by variant and
+# background: gtm_core/screen_ui.py:_load_logo_asset reads `logo_<variant>_<background>` and picks
+# the background automatically from `palette.canvas`, so the "reversed on dark, dark on light"
+# rule enforces itself. Name the SVG; the module resolves the sibling .png (it rasterises PNG,
+# never SVG), so ship both.
+# logo_horizontal_dark  = "profiles/<tenant>/knowledge/brand/logos/horizontal-on-dark.svg"
+# logo_horizontal_light = "profiles/<tenant>/knowledge/brand/logos/horizontal-on-light.svg"
+# logo_stacked_dark     = "profiles/<tenant>/knowledge/brand/logos/stacked-on-dark.svg"
+# logo_stacked_light    = "profiles/<tenant>/knowledge/brand/logos/stacked-on-light.svg"
+# logo_symbol_dark      = "profiles/<tenant>/knowledge/brand/logos/symbol-on-dark.svg"
+# logo_symbol_light     = "profiles/<tenant>/knowledge/brand/logos/symbol-on-light.svg"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# IMAGERY
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+[imagery]
+# `style` and `negative` go straight into image/video prompts, so write them as prompt text.
+# `video-router` carries BOTH forward as a checklist rather than as flavour — write `negative` as
+# a list of mechanically checkable clauses, because that is what a checklist can act on and a
+# human reads past.
+style           = "<the house look: medium, lighting, mood, texture, composition, negative space>"
+negative        = "no text artifacts, no distorted hands, no extra fingers, no logos"
+aspect_default  = "1:1"       # 9:16 short-form vertical, 4:5 feed portrait, 16:9 landscape
+
+# ⚠ [imagery].negative governs ABSTRACT brand renders. It does NOT apply to PERSON-LED content
+#   (a real person on camera) — that is a different content type on the same profile. Never
+#   inherit a "no people, no faces" negative into a talking-head shot.
+
+# VISUAL REGISTERS. Most brands have 2–5 distinct ones — a cinematic hero is not a diagram is not
+# an icon — and collapsing them into a single `style` string is why a generated series reads
+# same-y. Name them here as a controlled vocabulary a brief can select ONE of; do not treat them
+# as a second house style.
+# [imagery.modes]
+# cinematic = "<when to use, what it looks like, what to avoid>"
+# diagram   = "<...>"
+# icon      = "<...>"
+
+# Default pixel sizes per channel, used only when a request does not supply its own.
+# [imagery.dimensions]
+# social_square = "1080x1080"
+
+# Dark/light default by asset type, so nobody is asked a question this table answers.
+# [imagery.mode_default]
+# dark  = "<asset types>"
+# light = "<asset types>"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# VISUAL REFERENCES — optional, but the rule below is not
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# If the brand supplies approved reference images, keep a REGISTER: one row per id, each marked
+# PRESENT (with a real repo path) or ABSENT. Then a prompt may cite an id only if its row says
+# PRESENT. Without a register, "only cite a reference that exists" is unenforceable — a prompt can
+# name an id that resolves to nothing and nothing notices.
+#
+# ⚠ NEVER fill a reference slot from your OWN past generated output. A reference is an *approved*
+#   example of the house style; promoting a guess to a standard is how a wrong look becomes the
+#   brand. An empty slot is the correct state, and the brand's text rules stand alone.
+#
+# [references]
+# register = "profiles/<tenant>/knowledge/brand/reference-register.md"
+# rule     = "cite a reference id only if the register marks it PRESENT"
+# usage    = "style only — follow lighting, restraint, depth, texture and layout; never reproduce the reference's subject, pose, arrangement or customer content"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# ACCESSIBILITY — free to carry, and increasingly something brand teams specify directly
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+[accessibility]
+contrast          = "maintain sufficient contrast between text and background"
+no_colour_alone   = "never communicate meaning through colour alone — pair it with a symbol, shape or label"
+# solid_text      = "use solid colour, never gradient, for small text, captions, tables, data labels"
+# type_floor      = "type must remain readable at final display size"
+# motion          = "keep flashing and high-intensity effects out of motion assets"
+# alt_text_template = "[Asset type] showing [subject], representing [message]."
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# NAMING — product-name rules, if the brand has any
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# [naming]
+# rule = "e.g. use full approved product names; never shorten without an approved abbreviation;
+#         never invent features, claims, integrations, statistics or relationships"
+
+[pronunciation]
+# Lexicon for the TTS path ONLY — a respelling is a SOUND, not a name. Never let one reach a
+# caption, a document or a post. Consumers: video-script (emits it as the shot's `spoken` field
+# and the true spelling via `caption_text_override`), video-render, video-avatar.
+# Worth one line at onboarding: getting the company's own name wrong on camera is not a polish
+# issue, and it has happened here.
+# <company-slug> = "<res-PEL-ling>"
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# IDENTITY — opaque render handles
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#
+# The engine takes no position on which you populate — see PRD §4.1 for the trade-off (a trained
+# identity resists drift across long series but locks you to fewer models; a reference element is
+# instant and keeps the model roster open).
+# In THIS company-level file, an empty handle just means "unset" and keeps the contract visible.
+# In a PRODUCT kit it means "blank the company's" — omit the key to inherit.
+#
+# Written by the `identity-kit` skill via `python -m gtm_core.brandkit --set identity.<key>
+# --value <v> [--note "..."]` — NOT by hand-editing this file. That CLI is the only thing allowed
+# to write under profiles/<active>/ for these keys; it verifies the write round-trips before it
+# lands and stamps a dated `# identity-kit YYYY-MM-DD[: note]` comment on the line it wrote, so
+# the id's provenance survives in the file itself, not just a chat transcript.
+#
+# The authoritative list of writable keys is gtm_core.brandkit._WRITABLE_IDENTITY_KEYS — read it
+# there rather than from this stub, which has fallen behind it twice. Beyond the five below it
+# also covers voice_engine, voice_grade, heygen_avatar_id, heygen_voice_id, heygen_voice_grade,
+# and heygen_look_landscape / heygen_look_portrait (the operator-approved avatar look, stored per
+# orientation because no single look serves both a 16:9 master and a 9:16 cut).
+soul_id               = ""
+reference_element_ids = []
+voice_id              = ""
+restyle_preset_id     = ""    # shorts-studio brand preset, created once by identity-kit (§5.7)
+consent_note          = ""    # whose likeness/voice + on what basis — own-likeness for the
+                               # operator's own twin, documented written consent otherwise.
+                               # identity-kit REFUSES to create a third-party Soul/voice clone
+                               # while this is empty (§6.2 — EU AI Act Art. 50 disclosure duty)
+
+[disclosure]
+# Required when a render carries a synthetic likeness or a cloned voice. Kept in the brand kit
+# so it cannot be forgotten per-render. Nothing in this repo ever auto-posts, so this describes
+# what a human attaches at the gate — it is not a substitute for the gate.
+#
+# ⚠ FAILS CLOSED. agent/publish.py:validate_disclosure refuses a synthetic-media post whose text
+#   does not carry this line, and an EMPTY line does not opt out — it BLOCKS publishing. A tenant
+#   that believes the duty does not apply to them must change the gate, deliberately, not blank
+#   this field. The trigger is where an asset is SEEN, not where the company sells.
+required_when   = "any render containing a synthetic human likeness or cloned voice"
+line            = "<your disclosure line>"
+placement       = "caption; first comment is not sufficient"

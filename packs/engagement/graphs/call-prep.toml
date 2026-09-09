@@ -1,0 +1,19 @@
+# packs/engagement/graphs/call-prep.toml
+#
+# Pre-meeting prep. One node; the skill already assembles the account snapshot, persona
+# mapping, matched case study, objections and discovery questions.
+#
+# Not gated: the output is an internal brief for the operator to read before a call. There
+# is nothing to approve because nothing leaves.
+#
+# model_role = brain_plan, non-negotiable: attendee persona mapping is customer PII, and
+# the brief is written from the account's own dossier.
+
+pack = "engagement"
+variant = "call-prep"
+
+[[nodes]]
+id = "prep"
+model_role = "brain_plan"
+skill = "call-prep"
+prompt = "Run the call-prep skill for the active profile against the account and meeting named in this run. Write the brief to the account's own folder under the profile's content root (content/<profile>/accounts/<account-slug>/), never the repo root."

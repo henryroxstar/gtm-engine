@@ -1,0 +1,82 @@
+[
+  {
+    "file": "01-standing-still.png",
+    "ratio": "9:16",
+    "use": "the default full-body hold, used to open a beat"
+  },
+  {
+    "file": "02-walking-in.png",
+    "ratio": "9:16",
+    "use": "entering frame from the left"
+  },
+  {
+    "file": "03-turning-to-camera.png",
+    "ratio": "9:16",
+    "use": "the turn that lands eye contact"
+  },
+  {
+    "file": "04-hands-open.png",
+    "ratio": "9:16",
+    "use": "an open gesture under a claim being made"
+  },
+  {
+    "file": "05-leaning-in.png",
+    "ratio": "9:16",
+    "use": "closer, for the line that matters most"
+  },
+  {
+    "file": "06-walking-out.png",
+    "ratio": "9:16",
+    "use": "leaving frame to the right"
+  },
+  {
+    "file": "07-head-straight.png",
+    "ratio": "1:1",
+    "use": "the neutral square crop for a thumbnail"
+  },
+  {
+    "file": "08-head-left.png",
+    "ratio": "1:1",
+    "use": "three-quarter left, for a cutaway"
+  },
+  {
+    "file": "09-head-right.png",
+    "ratio": "1:1",
+    "use": "three-quarter right, for the reverse"
+  },
+  {
+    "file": "10-smiling.png",
+    "ratio": "1:1",
+    "use": "the warm beat after a payoff"
+  },
+  {
+    "file": "11-serious.png",
+    "ratio": "1:1",
+    "use": "under a caution or a caveat"
+  },
+  {
+    "file": "12-surprised.png",
+    "ratio": "1:1",
+    "use": "the reaction shot on a reveal"
+  },
+  {
+    "file": "13-thinking.png",
+    "ratio": "1:1",
+    "use": "the pause before a conclusion"
+  },
+  {
+    "file": "14-pointing.png",
+    "ratio": "1:1",
+    "use": "directing attention to an on-screen element"
+  },
+  {
+    "file": "15-arms-crossed.png",
+    "ratio": "1:1",
+    "use": "the settled, unimpressed hold"
+  },
+  {
+    "file": "16-thumbs-up.png",
+    "ratio": "1:1",
+    "use": "the closing approval beat"
+  }
+]

@@ -1,0 +1,35 @@
+# Shared phrases — product + case-study vocabulary that is EXEMPT from the batch
+# `body-template-share` n-gram ceiling.
+#
+# One entry per line, case-insensitive. Lines starting with # are comments. Loaded by the
+# outreach linter via:
+#   --shared-phrase-file profiles/<active>/knowledge/shared-phrases.txt
+# A missing file — or one with no entries, like this starter — disables the exemption
+# entirely, which is the safe default: nothing is waved through until someone declares it.
+#
+# WHY THIS FILE EXISTS
+# `body-template-share` polices *personalisation* — the hedge, the gap framing, the ask. Those
+# must read as written for one account. It is not a rule against having consistent product
+# vocabulary. A large run describes ONE product and cites the SAME reference customers, so one
+# product sentence recurring is the pitch being consistent, not a template being pasted.
+# Forcing a distinct phrasing of that sentence per account makes the copy worse and less
+# accurate, which is the opposite of the rule's intent.
+#
+# HOW NARROW THE EXEMPTION IS
+# An n-gram is skipped only when it falls ENTIRELY inside one of these phrases. A templated
+# sentence that merely mentions a product name still trips the rule, because its surrounding
+# words are not in the phrase. So this cannot be used to wave through a pasted email. A phrase
+# shorter than the linter's n-gram window contributes nothing — it can never contain a whole
+# n-gram — so entries are written as full clauses, not as bare product names.
+#
+# WHAT BELONGS HERE
+# Only: the product/capability description, and the case-study reference. NOT: openers, hedges,
+# gap framings, stakes sentences, or CTAs — those are the personalisation the rule exists to
+# protect, and adding one here would silently disable the gate for it.
+#
+# Curate during profile-onboard, once a first batch shows which product and case-study clauses
+# genuinely recur. Add them below, one per line, under the two headings.
+
+# --- product: what it is and does ---
+
+# --- case-study references (the same deployments really are cited across accounts) ---

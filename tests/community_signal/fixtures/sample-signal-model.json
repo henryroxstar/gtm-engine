@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "title": "Community Signal — Agentic-AI Watch · Sample",
+    "subtitle": "A generic worked example of the community-signal dashboard: three categories, ranked share of voice, momentum across two pulls, and evidence-cited filter tuning.",
+    "kicker": "Community Signal Brief · Sample",
+    "brandmark": "COMMUNITY SIGNAL · RADAR",
+    "source_label": "SYFTEN · 2 PULLS",
+    "date": "18 Jul 2026",
+    "metabar": [
+      {"k": "Window", "v": "48h"},
+      {"k": "Source", "v": "Syften · 2 pulls"},
+      {"k": "Sample", "v": "312 pulled"},
+      {"k": "Relevant", "v": "271"},
+      {"k": "Noise", "v": "13%"}
+    ]
+  },
+  "bluf": {
+    "lead": "Runtime platforms own the volume, identity is the fastest riser, and one filter is generating most of the noise.",
+    "pillars": [
+      {"key": "Lead", "title": "Runtime leads", "body": "Runtime/platform mentions dominate every pull.", "color": "#199e70"},
+      {"key": "Riser", "title": "Identity climbing", "body": "Identity overtook the gateway lane for #2.", "color": "#c98500"},
+      {"key": "Fix", "title": "One noisy filter", "body": "A single collision term drives ~40% of rejects.", "color": "#3987e5"}
+    ]
+  },
+  "kpis": [
+    {"val": 312, "label": "matches pulled", "foot": "2 pulls"},
+    {"val": 271, "label": "delivered as relevant", "accent": true},
+    {"val": "13%", "label": "noise (AI-rejected)"},
+    {"val": 9, "label": "entities tracked"},
+    {"val": 3, "label": "categories"}
+  ],
+  "categories": [
+    {"key": "runtime", "label": "Runtime / Platform", "count": 120},
+    {"key": "identity", "label": "Identity / NHI", "count": 96},
+    {"key": "gateway", "label": "AI Gateway", "count": 55}
+  ],
+  "share_of_voice": [
+    {"name": "Vendor Alpha", "category": "runtime", "value": 88},
+    {"name": "Vendor Bravo", "category": "identity", "value": 61},
+    {"name": "Vendor Charlie", "category": "gateway", "value": 40},
+    {"name": "Vendor Delta", "category": "identity", "value": 22},
+    {"name": "Other", "category": "other", "value": 60}
+  ],
+  "momentum": [
+    {"name": "Vendor Alpha", "series": [40, 48], "trend": "+20%", "state": "up"},
+    {"name": "Vendor Bravo", "series": [24, 37], "trend": "+54%", "state": "up"},
+    {"name": "Vendor Charlie", "series": [26, 14], "trend": "-46%", "state": "cool"}
+  ],
+  "platforms": [
+    {"name": "reddit", "value": 140},
+    {"name": "hackernews", "value": 60},
+    {"name": "dev.to", "value": 35},
+    {"name": "job-boards", "value": 21, "state": "jx"}
+  ],
+  "signals": [
+    {"tag": "demand", "title": "Buyers asking for cross-org agent trust", "body": "Repeated threads asking how to verify an agent from another company.", "why": "Direct pull for a verifiable-trust layer.", "source_url": "https://example.com/thread/1", "source_label": "reddit · r/sample"},
+    {"tag": "white", "title": "The middle layer is unclaimed", "body": "No vendor owns cross-organizational agent identity in these communities.", "why": "Whitespace worth a point of view."}
+  ],
+  "moves": [
+    {"who": "Vendor Alpha", "title": "Shipped a managed agent runtime", "body": "Broad launch drove the volume spike this window."}
+  ],
+  "filter_suggestions": [
+    {"action": "replace", "filter": "AlphaTerm platform", "rationale": "Bare 'AlphaTerm' collides with a game title; scope it to the platform sense.", "noise_before": "41%", "noise_after": "6%", "evidence": ["3 game threads rejected", "1 fantasy-fiction reject"]},
+    {"action": "add", "filter": "BravoTerm identity", "rationale": "Uncovered competitor surfacing in identity threads.", "evidence": ["seen in 4 relevant posts"]}
+  ],
+  "plays": [
+    {"audience": "STRATEGY", "badge_color": "#3987e5", "items": [
+      {"title": "Publish a POV on cross-org agent trust", "detail": "Claim the unclaimed middle before a runtime vendor does."}
+    ]},
+    {"audience": "PRODUCT", "badge_color": "#199e70", "items": [
+      {"title": "Prioritize the verify-an-external-agent flow", "detail": "It maps directly to the demand signal above."}
+    ]}
+  ],
+  "method": {
+    "notes": [
+      "Two Syften pulls (48h) merged and de-duplicated.",
+      "Counts are AI-verdict based (accepted + unscored = relevant; rejected = noise)."
+    ],
+    "caveats": [
+      "Syften has no LinkedIn coverage.",
+      "Filter suggestions are recommend-only — apply them in the Syften dashboard."
+    ]
+  },
+  "footer": {"left": "Community Signal · generic renderer", "right": "18 Jul 2026"}
+}

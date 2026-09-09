@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/shots.schema.json",
+  "title": "ShotList",
+  "description": "A long-form video's shot-by-shot script — <slug>.shots.json, written by video-script and read by video-render. Written only for a multi-shot request past one clip's ~5-15s ceiling (Phase E); a normal single-clip short never has one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_item",
+    "total_duration_s",
+    "style_scaffold",
+    "shots"
+  ],
+  "properties": {
+    "source_item": {
+      "type": "string",
+      "description": "The ContentItem id from the plan."
+    },
+    "hook_id": {
+      "type": "string",
+      "description": "Stable id from the hook BANK (knowledge/hooks.toml), copied from the source ContentItem for attribution. Not hook-matrix.md, which holds 1:1 outreach openers. Optional."
+    },
+    "synthetic_disclosure": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Declares that the finished render will carry the tenant's synthetic-media disclosure line (BRAND.toml [disclosure].line), per EU AI Act Art. 50. Optional. Set it to that line VERBATIM — not a handle kind, a shorthand, or a paraphrase; on 2026-09-03 a shipped list read \"element\", a Higgsfield identity-handle kind, and passed. gtm_core.shots_lint checks the declared text against the kit's line when the caller supplies it (--disclosure-line, three-state: omitted skips, empty fails closed); the binding checks that the text reaches the finished asset live downstream in gtm_core.video_finish (plan time) and agent/publish.py:validate_disclosure (the gate), both after the render is paid for. Its effect here is that the presenter role resolves an engine: gtm_core/render_engines.toml binds it to heygen_avatar, which carries requires_disclosure=true and so serves DISCLOSED renders only. Omit it and a speaking presenter shot fails the lint before any spend, which is the closed default."
+    },
+    "capture_mode": {
+      "type": "string",
+      "enum": [
+        "rendered",
+        "live_action"
+      ],
+      "description": "How this shot list's footage comes into existence. Optional; ABSENT means \"rendered\", which is the synthetic path every plan-time rule was written for, so every existing shot list is unaffected and the default stays fail-closed. \"live_action\" is the live-action-video lane — script written first, shot on a real camera afterwards — and changes three rules in gtm_core.shots_lint: the presenter ENGINE check is skipped (the engine is a camera and a human, so resolve_engine correctly returns nothing), the 60% presenter SHARE ceiling is lifted (it prices a generated talking head; a real person to camera is the format, not a defect), and synthetic_disclosure flips from permitted to REFUSED, because declaring it over footage of a real person is a false statement about provenance and the EU AI Act Art. 50 duty does not attach to anything that was not synthesised. The role:\"screen\" warning survives both modes. An unknown value is an error, never a silent fallback.",
+      "default": "rendered"
+    },
+    "vo_source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where this cut's voice-over comes from when the brand kit records no identity.voice_id — an operator-recorded WAV, a licensed read, an already-rendered track. Optional, and free text: the point is that a human named a source, not that they picked from a menu. Without it, gtm_core.shots_lint refuses any shot carrying a `spoken` line on a profile with no voice, because video-render generates the VO only when a voice_id is present and has no else-branch — so the line renders as silence and only video_lint V10 catches it, after the whole render has been paid for."
+    },
+    "narration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lines"
+      ],
+      "description": "An independent VOICE-OVER TRACK laid over an already-cut timeline \u2014 the case `spoken`/`vo_seconds` cannot express, and the reason this key exists. Those two model the lane where a shot IS the render request: `spoken` marks a shot as one an audio-capable video model will render (integer duration, the seedance_2_0 4s floor), and `vo_seconds` binds that shot's `duration_s` to the truncate/atempo ceilings gtm_core.video_finish.mux enforces. Both are correct there and are unchanged by this key. Neither fits NARRATION, where `duration_s` is final-CUT length rather than a render request, a line may start before its picture cut on purpose, and the gaps between lines are audio design rather than dead air. Measured on content/<tenant>/scripts/archive/2026-09-04-bao-daily-launch.shots.json (30.0s, 12 beats, 10 lines): putting the real read on the shots fired 7 vo-parity errors, and removing `vo_seconds` while keeping `spoken` fired 16 duration errors, so the read was filed in the free-form `production` namespace and the film's actual audio script became invisible to every gate. Placement here is by VOICE ONSET on the master timeline and is deliberately INDEPENDENT of shot boundaries \u2014 nothing in a line names a shot, because the picture beat a line falls under is derivable from its onset (verified against all 10 lines of that film) and a copied shot number is a restated number waiting to go stale on the next re-cut. The two lanes are mutually exclusive per file: a document carrying both this key and a shot-level `spoken`/`vo_seconds` is refused by gtm_core.shots_lint, because they make contradictory claims about what `duration_s` means. `vo_source` still answers where the read came from and is not restated here.",
+      "properties": {
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The read, in playback order. gtm_core.shots_lint checks the three things that can go wrong on a track and nothing else was checking: two lines overlapping, a line running past `total_duration_s`, and the speech duty cycle. Deliberately no ordering rule: lines listed out of order with correct onsets still mux into a correct read, so that would be a claim about this file's convention rather than about the film, and the overlap check already catches a backwards onset whenever it is audible.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "line",
+              "voice_onset_s",
+              "len_s"
+            ],
+            "properties": {
+              "line": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The spoken line, verbatim. Named `line` rather than `spoken` on purpose: `spoken` is the lip-sync lane's field and carries that lane's whole rule set, so reusing the name here is how the two would silently merge again."
+              },
+              "voice_onset_s": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Seconds from the start of the master timeline to this line's first WORD \u2014 not to the start of its audio file. Each rendered clip carries its own uneven lead-in (0.14-0.28s across the 2026-09-04 read), so aligning files to beat boundaries puts the silence on the beat and drifts the whole read. Take these from the TTS word timestamps gtm_core.vo_timings persists as `<id>.words.json`, rather than off a waveform by eye."
+              },
+              "file": {
+                "type": "string",
+                "description": "This line's rendered audio, relative to the build's base directory \u2014 the same convention as a shot's `file`. OPTIONAL, and the split is deliberate: the lane may record a read whose per-line clips were never kept (one already-mixed track, a read assembled by hand), and that record is still worth having. But `gtm_core.video_finish narration-track`, which places the read onto a voice-only master, refuses without it \u2014 a consumer may demand what it needs from a field the contract leaves optional."
+              },
+              "lead_in_s": {
+                "type": "number",
+                "minimum": 0,
+                "description": "The first word's offset INSIDE this line's own audio file. Optional, default 0. It exists because `voice_onset_s` places the WORD and a clip is placed by its FILE, whose head is silence: the builder delays by `voice_onset_s - lead_in_s`, so the two numbers compose without a caller doing the arithmetic and getting it wrong by the lead-in. Measured, not assumed \u2014 the ten clips of the 2026-09-04 film run 0.245-0.391s longer than their `len_s` (lead-in 0.12-0.25s plus a tail), and delaying each by its bare onset lands every first word late by a DIFFERENT amount, which is drift rather than offset and so cannot be corrected downstream with one number. Take it from the same word timestamps as `voice_onset_s`, which `gtm_core.vo_timings` persists as `<id>.words.json`, rather than from a detector at build time: a threshold choice moves every word by up to 0.1s and there is no ground truth here to pin one against. Same distinction, and the same reason, as SfxCue's `at_s` versus `trim_s`."
+              },
+              "len_s": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "MEASURED length of this line's SPEECH, in seconds \u2014 first word to last, which is NOT the duration of its audio file: a rendered clip carries silence at both ends (`lead_in_s` names the head, and the tail is whatever is left). Measured, not estimated: this lane sits downstream of the render, so the audio already exists and there is no word-rate band to adjudicate \u2014 which is also why nothing here needs the `spoken` lane's estimator. gtm_core.shots_lint reads `voice_onset_s + len_s` for the overlap and past-the-end checks and sums `len_s` for the speech duty cycle."
+              }
+            }
+          }
+        },
+        "note": {
+          "type": "string",
+          "description": "Free prose about the read as a whole \u2014 why a line leads its picture, where the onsets came from, what a deliberate gap is doing. The ONE annotation key here. Derived figures (duty cycle, last-word end) do not belong in it: the linter computes them on demand from the lines, and a copied figure is wrong the moment one line is re-cut. A production fact about the read goes in the top-level `production` namespace, as it does today."
+        }
+      }
+    },
+    "total_duration_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "style_scaffold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "look",
+        "provider_model"
+      ],
+      "properties": {
+        "look": {
+          "type": "string",
+          "description": "Written once — what stays constant across every shot (grade, depth of field, camera character). Seeded from the brand kit's [imagery].style when the kit carries one."
+        },
+        "provider_model": {
+          "type": "string",
+          "description": "The video model id every shot renders through."
+        },
+        "negative": {
+          "type": [
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Plain nouns/short noun phrases to exclude (never 'no X' phrasing here — the render recipe decides whether this rides a negative param or a trailing exclusion block). Seeded from the brand kit's [imagery].negative plus per-script additions. EITHER a single comma-joined string OR an array of nouns: both shapes are in the committed corpus (the three 2026-08/09 films all use the array), both are typed, and the render recipe joins whichever it is gets. This is a widening to two typed shapes, not a loosening — a number, an object, or an array of objects is still refused."
+        },
+        "production": {
+          "type": "object",
+          "description": "RESERVED namespace for scaffold-level production/annotation keys — the palette actually used, the caption preset, a scoring note, a path to the identity source. Same contract as the top-level and per-shot `production` keys: free-form, read by nothing, and the place a production fact goes so it does not have to masquerade as scaffold vocabulary. See the top-level `production` description for why this exists.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "duration_s",
+          "camera",
+          "motion_prompt",
+          "visual"
+        ],
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based shot order. Still typed when present, but NO LONGER REQUIRED as of 2026-09-03: it is redundant with the shot's position in the array, and practice converged on the stable `id` label instead — 70 of the 96 committed real shots carry `id` and no `n` at all, and `id` is the one gtm_core.video_finish.burn actually keys on. Requiring a field the reader ignores, over a field it reads and the schema never declared, is backwards; write `id`, or `n`, or both."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable label for this shot ('s01', 'shot-05b'), surviving reordering and splits in a way the array index does not. LOAD-BEARING and undeclared until 2026-09-03: gtm_core.video_finish.burn_captions reads shot['id'] to key its per-shot caption records, falling back to a positional 'shot-NN' when absent — so the finishing code has depended on this field since it was written while the schema, which called itself the contract, had no idea it existed. That is the drift this schema was supposed to prevent."
+          },
+          "file": {
+            "type": "string",
+            "description": "Repo-relative path to this shot's rendered file, written back once it exists. LOAD-BEARING and undeclared until 2026-09-03, alongside `id`: gtm_core.video_finish.burn_captions reads shot['file'] to locate the clip it burns. Point it at whatever is actually being stitched — on the four-calls cut that is the chip COMPOSITE, not the bare provider render, which is kept separately under `production`."
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "camera": {
+            "type": "string",
+            "description": "From this beat's [CAMERA] tag — never omitted, never inferred."
+          },
+          "motion_prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The action — what the SUBJECT does, varying per shot even under one style_scaffold. Distinct from `camera`, which is what the LENS does; a motion_prompt that restates the camera move leaves the subject with nothing to do. REQUIRED since 2026-08-19: this field was optional and every shot of the 2026-08-18 asset omitted it, so the model received a start frame and a camera note with no action and rendered a person sitting still — V9 found 3 of 6 shots motionless across 47% of the runtime."
+          },
+          "visual": {
+            "type": "string",
+            "description": "The scene."
+          },
+          "spoken": {
+            "type": "string",
+            "description": "This beat's [SPOKEN] line verbatim, or omitted/empty if the beat is silent."
+          },
+          "lighting": {
+            "type": "string",
+            "description": "This shot's lighting when it differs from the scaffold look — direction and quality ('single soft key from camera left'), stated positively."
+          },
+          "lens": {
+            "type": "string",
+            "description": "Lens/optics character when it matters ('shallow depth of field', '35mm feel', 'macro'). Omit to inherit the scaffold look."
+          },
+          "wardrobe": {
+            "type": "string",
+            "description": "The intended wardrobe, stated explicitly whenever the identity anchor's source photos might carry a different one — wardrobe is prompt text, not luck."
+          },
+          "expression": {
+            "type": "string",
+            "description": "The face at THIS beat, written as muscles at a stated size: one region moving (two at most), how far it moves, what holds still, and where the eyes go — plus, on a video shot, when the change lands. Required for any shot with a person in frame, presenter or actor, unless the beat is genuinely neutral. It fails in two directions and both are documented. A blanket adjective reused across every shot ('calm' on all six) renders flat and disengaged even when the words are right, because a tone word describes prose, not a face; and an adjective or a stack of five simultaneous markers renders at full magnitude, which arrives as a reaction shot rather than a person. Body and hands belong in `motion_prompt`, not here. Grammar and the per-beat registers: creator-brief/references/performance-lexicon.md. The refused vocabulary and the region ceiling are enforced, not advisory — see `python -m gtm_core.shots_lint --rules`."
+          },
+          "stability": {
+            "type": "string",
+            "description": "What must not change across this shot, stated positively ('wardrobe, framing, and background stay exactly as the start frame')."
+          },
+          "sfx": {
+            "type": "string",
+            "description": "Diegetic sound cues for a native-audio model ('SFX: pen tap, room tone'), or omitted. Ignored by models without generated audio; VO still comes from `spoken`."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "presenter",
+              "broll",
+              "screen"
+            ],
+            "default": "presenter",
+            "description": "presenter = the trained identity anchor is on-camera and lip-sync applies (the historical, and default, shape). broll/screen = NOT the presenter — video-render skips the identity anchor AND the lip-sync check entirely for this shot; a b-roll or screen-capture insert has no face to anchor or sync. Omitting this field means presenter, so every shot written before this field existed keeps its historical behavior unchanged."
+          },
+          "vo_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Measured length of this shot's rendered VO, in seconds. Written by video-render once the VO exists. When present it REPLACES the word-count estimate in gtm_core.shots_lint's parity check, which then applies the same tail/atempo ceilings gtm_core.video_finish.mux enforces — the estimate band spans two TTS engines (2.76-3.51 words/sec) and is too wide to adjudicate a single integer duration."
+          },
+          "caption_text_override": {
+            "type": "string",
+            "description": "What the BURNED CAPTION says when it must differ from `spoken`. The voice reads a URL as \"acme dot com\"; the caption must read \"acme.com\", because a viewer types what is on screen. Same class as a possessive that is identical when spoken and wrong when written (\"customers calls\" vs \"customers' calls\"). Read by gtm_core.video_finish.burn_captions, which prefers this over `spoken` — owning the caption text is also what makes it correctable at all, unlike a transcript, which silently reproduces whatever the ASR heard."
+          },
+          "caption_override_reason": {
+            "type": "string",
+            "description": "Why the caption diverges from the VO. Required alongside caption_text_override in practice: an unexplained divergence is indistinguishable from a typo, and this is the field that tells a later reader which one it is."
+          },
+          "audio_bed": {
+            "type": "string",
+            "description": "What this shot SOUNDS like when nobody is speaking in it — room tone, a music cue, an SFX. Required by gtm_core.shots_lint on any shot with no `spoken` line, because a shot with neither is silent and a run of them is what makes a finished film read as broken (2026-08-28: 39% of three-questions-p1 was digital silence, and no gate had an opinion). Distinct from `sfx`, which is a diegetic cue handed to a native-audio MODEL; this is a direction for the finishing mix. Deliberate silence is legitimate and is declared as \"silent — <why>\": only the reason separates it from the accidental kind."
+          },
+          "lockoff": {
+            "type": "boolean",
+            "description": "The camera must not move for this shot. LEGAL ONLY under top-level `capture_mode: \"live_action\"`, and refused on a rendered list by `gtm_core.shots_lint` rather than here — a render has no camera to lock, no take to cover and no continuity to break, so the field would be a direction nobody can carry out. Required in practice on anything that will be COMPOSITED: two handheld pieces will never line up, and stabilisation cannot fix it because stabilising crops and warps — it changes the very geometry the composite depends on. `shots_lint` warns on a composite-bearing shot that does not set it."
+          },
+          "dead_zone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Which part of the frame stays empty, and what will sit there (\"lower third, captions\"; \"top 15%, the platform's own UI\"). LEGAL ONLY under top-level `capture_mode: \"live_action\"`, and refused on a rendered list by `gtm_core.shots_lint` rather than here — a render has no camera to lock, no take to cover and no continuity to break, so the field would be a direction nobody can carry out. Decided before rolling, because a dead zone is cheaper than a reframe and a reframe on a vertical cut is usually a crop into someone's face."
+          },
+          "coverage": {
+            "type": ["string", "object"],
+            "description": "How much footage this beat needs: either a sentence, or `{\"takes\": n, \"plate\": bool}` where `plate` asks for one take of the scene with nothing in the place a composited element will go. LEGAL ONLY under top-level `capture_mode: \"live_action\"`, and refused on a rendered list by `gtm_core.shots_lint` rather than here — a render has no camera to lock, no take to cover and no continuity to break, so the field would be a direction nobody can carry out. Three takes of a ten-second beat costs thirty seconds on the day; one take costs a second shoot when the audio clips or a car goes past."
+          },
+          "frame_margin": {
+            "type": ["string", "number"],
+            "description": "How much wider than the delivery frame to shoot (\"10%\", or a number read as percent). LEGAL ONLY under top-level `capture_mode: \"live_action\"`, and refused on a rendered list by `gtm_core.shots_lint` rather than here — a render has no camera to lock, no take to cover and no continuity to break, so the field would be a direction nobody can carry out. Every downstream step takes some of the edge — a reframe to a second ratio, a stabilise pass, a burn-in that needs somewhere to sit — and a shot framed exactly to the deliverable has no margin to give."
+          },
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Element SLUGS this shot is built from (`gtm_core.elements`) — a character, an environment, an object, a product, a wardrobe item the library already holds. Naming one here is how a shot inherits a subject's pose set and its constraints instead of re-describing them, which is what makes the same prop look like the same prop across shots.\n\n`video-storyboard` resolves each slug to that element's ordered pose files and hands them to the render as `reference_images`; `video-render` resolves it to a provider element id where one is registered. Slugs are validated as bare path segments in Python (`_safe_segment`), and `gtm_core.shots_lint` WARNS when a named slug has no element under the bound profile's content root — a check that is inert when the linter was given no profile, because guessing one is how a tenant's elements get reported as missing from another tenant's tree."
+          },
+          "end_frame": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The LAST frame of a keyframe shot: a repo-relative path to a still the render must arrive on, with the model interpolating between it and the shot's start frame. In practice it is a delta-edit of the start frame produced by `video-storyboard`, so the two ends differ in one thing and the move is unambiguous.\n\nLEGAL ONLY ON `role: broll`, and refused on any other role by `gtm_core.shots_lint` rather than here: a keyframe shot resolves `roles.keyframe_broll` in the render-engine registry, which requires an engine that accepts an end image, while the presenter lane resolves an identity-faithful lip-syncing engine. No engine serves both, so an `end_frame` on a presenter shot is a request nothing can fill — caught at plan time, before spend.\n\nA shot carrying this field also keeps its `motion_prompt` SHORT: the two stills already say where the move starts and ends, so prose restating that geometry competes with the interpolation. That one is a WARN, and its word ceiling lives in `gtm_core/shots_lint/keyframe.py` (`KEYFRAME_MOTION_MAX_WORDS`) rather than in this schema, for the same reason `reference_images` carries no `maxItems`: `gtm_core.minischema` would not enforce it.\n\nThe path is resolved and CONFINED to the profile's content root before any byte is read."
+          },
+          "reference_images": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ORDERED repo-relative paths to still images this shot's render is conditioned on — position is the contract, so `reference_images[1]` is what a prompt means by \"the second reference image\". Added 2026-09-06 with reference-image conditioning on the headless image worker (C1): the worker sends each file as an inline part AHEAD of the prompt text, in exactly this order, never sorted and never deduplicated. In practice entry 1 is the approved hero still and later entries are the thing being composed with it — a camera reference for an angle change, an outfit, a product.\n\nA path here is resolved and CONFINED to the profile's content root by the worker before any byte is read; anything outside is refused unread, because a path parameter on a tool that ships bytes to a third party is an exfiltration primitive rather than a convenience.\n\nDELIBERATELY NO `maxItems`. The cap is 14 and it lives in `agent/mcp/gemini_image/references.py`, because `gtm_core.minischema` — the validator this schema actually runs through — implements `minItems` and ignores `maxItems` entirely. A keyword that reads as enforced and enforces nothing is worse than no keyword: it is the same class of defect as a contract nobody runs.",
+            "minItems": 1
+          },
+          "production": {
+            "type": "object",
+            "description": "RESERVED namespace for this shot's production record — what was MADE, and how, as opposed to what to shoot. The provider video_id, the frames dir, the build command, the lane, the burned-in timecode, the planned-vs-measured durations, the source of that measurement, a superseded value kept for comparison, a dated note about any of it. Free-form: values may be of any type and nothing reads them. Two exceptions stay OUT here and are declared as real fields, because gtm_core.video_finish.burn_captions reads them: `id` and `file`. See the top-level `production` description for why the namespace exists at all.",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "production": {
+      "type": "object",
+      "description": "RESERVED namespace for the production record and its dated annotation notes — everything about what was MADE rather than what to shoot. shots.json is the SCRIPT; this key is where the RECORD lives when it has nowhere else to go: the delivered masters, the render log, the finish plan, the status, and the long tail of dated pass notes (`score_pass_2026_08_30_v5`, `caption_pass_2026_08_31`) that a real film accumulates. Free-form — values may be of any type, and nothing reads them.\n\nWHY THIS EXISTS. Until 2026-09-03 `additionalProperties: false` at this level and the shot level met real files that legitimately carry production keys, and 11 of the 14 committed shot lists failed the schema they were declared to satisfy. Nothing validated, so nothing noticed; the one place it WAS noticed, the workaround relocated three keys into a render record and wrote down that they \"were never schema-validated\" (content/<tenant>/video/2026-09-03-launch-film/render-9x16.json). The fix is a NAMESPACE, not an open door: `additionalProperties` stays FALSE at all three levels, so a misspelt `motion_promt` or `captoin_text_override` is still refused as the typo it is, while a production fact has a declared home and no longer has to masquerade as script vocabulary. Same pattern, and same reason, as `identity_bindings.notes`. A field that a READER actually reads never belongs here — declare it, as `id` and `file` now are.",
+      "additionalProperties": true
+    },
+    "deliverable_ratios": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "9:16",
+          "16:9",
+          "4:5",
+          "1:1"
+        ]
+      },
+      "minItems": 1,
+      "description": "Which delivery ratios this shot list is cut for. Read by gtm_core.shots_lint against each identity binding's native source pixels: a portrait look rendered into a 16:9 frame leaves ~32% real picture and fills the rest with a scaled copy of itself."
+    },
+    "identity_bindings": {
+      "type": "object",
+      "properties": {
+        "notes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The one RESERVED key that is not a role. Free prose about the casting/identity decisions as a whole — why a path was refused, what a look was chosen against — keyed by a short name. It exists so a note does not have to masquerade as a binding: before it, a decision note filed directly under identity_bindings was a bare string where an object was declared, which is the exact shape gtm_core.shots_lint now refuses. Per-binding notes stay inside that binding's own object."
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "description": "One ROLE/part name (the presenter, a caller, a recurring illustrated character) mapped to what its identity resolved to. Always an object, never a bare id string — a bare string cannot carry source_px, so it permanently forecloses the pre-spend ratio arithmetic that is the whole reason this record exists, and it overloads the key to mean the handle KIND when every other file uses it to mean the ROLE. Extra provider/production keys are allowed and ignored.",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "description": "Which render engine serves this binding, e.g. 'heygen avatar_v', 'higgsfield nano_banana_pro stills'."
+          },
+          "avatar_look_id": {
+            "type": "string",
+            "description": "HeyGen avatar look id — the wardrobe/framing this part renders in."
+          },
+          "look_id": {
+            "type": "string",
+            "description": "Generic look id for an engine that does not use HeyGen's avatar-look vocabulary."
+          },
+          "element_id": {
+            "type": "string",
+            "description": "Higgsfield Reference Element id — what holds a NON-PERSON subject (a product, a prop, a recurring illustrated character) visually identical across shots. Sourced from the brand kit's identity.reference_element_ids. This is the field whose absence made the element path unrepresentable: video-script emitted the id as a bare string under a key named for the handle KIND, the schema declared an object, and nothing enforced either."
+          },
+          "soul_id": {
+            "type": "string",
+            "description": "Higgsfield Soul id — a trained likeness, IMAGE models only (gtm_core/render_engines.py: soul_id never reaches a video model, so a Soul binding is for stills). Sourced from the brand kit's identity.soul_id."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "The cloned/selected voice this part speaks in. Sourced from the brand kit's identity.voice_id for the tenant's own parts."
+          },
+          "source_px": {
+            "type": "string",
+            "description": "The look's NATIVE pixel dimensions, e.g. '1920x1080 landscape'. The one field that is checkable before any spend: gtm_core.shots_lint._lint_look_ratio reads it against deliverable_ratios and refuses a portrait look bound to a 16:9 master."
+          },
+          "consent_basis": {
+            "type": "string",
+            "description": "Why this tenant may depict this identity — the operator's own likeness, licensed studio talent, or n/a for a drawn subject depicting no real person."
+          }
+        }
+      },
+      "description": "Per-role record of which identity/look/element each part resolved to, and at what native resolution. The resolution is the part that is checkable before any spend. Every value is an OBJECT keyed by role — the reserved `notes` key is the only exception. Enforced by gtm_core.shots_lint._lint_identity_bindings, and the handle-field vocabulary here is pinned to that linter's own set by a contract test, so the schema and the enforced gate cannot drift apart again."
+    }
+  }
+}

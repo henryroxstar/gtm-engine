@@ -1,0 +1,34 @@
+usage: python -m gtm_core.email_campaign_dashboard [-h] --profile PROFILE
+                                                   [--content-root CONTENT_ROOT]
+                                                   [--no-stubs]
+                                                   [--scope {campaign,open,all}]
+                                                   [--campaign CAMPAIGN]
+                                                   [--check-fresh]
+
+Render the email-campaign status page.
+
+options:
+  -h, --help            show this help message and exit
+  --profile PROFILE
+  --content-root CONTENT_ROOT
+  --no-stubs            do not rewrite the retired pages
+  --scope {campaign,open,all}
+                        which campaigns the page is about. 'campaign' needs
+                        --campaign and renders exactly those; 'open' renders
+                        the campaigns whose manifest status is active; 'all'
+                        is the profile-wide rollup. Defaults to 'campaign'
+                        when --campaign is given and 'all' otherwise, so
+                        existing callers are unchanged. A tile that cannot be
+                        aggregated honestly over the scope refuses to render
+                        rather than reporting one campaign's figure under the
+                        set's label.
+  --campaign CAMPAIGN   the slugs for --scope campaign: ONE, or several as a
+                        comma-separated list. Every slug must have a manifest;
+                        unknown slugs are refused rather than silently falling
+                        back to the rollup, which is a different campaign's
+                        numbers.
+  --check-fresh         do not render — report whether the page for this scope
+                        is still built from what is on disk now, and exit non-
+                        zero if not. A stale page renders identically to a
+                        current one, so rendering proves nothing about the one
+                        already sitting there.

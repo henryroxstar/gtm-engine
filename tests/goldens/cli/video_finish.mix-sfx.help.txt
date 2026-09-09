@@ -1,0 +1,24 @@
+usage: python -m gtm_core.video_finish mix-sfx [-h] --in SRC --cues CUES
+                                               --out OUT [--workdir WORKDIR]
+                                               [--no-verify]
+                                               [--shortfall-max-db SHORTFALL_MAX_DB]
+                                               [--keep-intermediates]
+                                               [--content-root CONTENT_ROOT]
+                                               [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --in SRC
+  --cues CUES           JSON: {"cues":[{"path":"...","at_s":4.2,"gain_db":-
+                        8,"trim_s":0.12,"label":"tick"}]} — at_s is where the
+                        cue's TRANSIENT lands, trim_s is its offset inside the
+                        file
+  --out OUT
+  --workdir WORKDIR
+  --no-verify           skip the post-mix measurement pass. The measurement is
+                        the point of this verb; this exists for a deliberate,
+                        recorded exception, not for a faster run
+  --shortfall-max-db SHORTFALL_MAX_DB
+  --keep-intermediates
+  --content-root CONTENT_ROOT
+  --json

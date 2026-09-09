@@ -1,0 +1,43 @@
+# What each argument REQUIRES the recipient's own facts to establish.
+# Read by `gtm_core.hook_coverage.load_premise_vocab`; enforced as `premise-unsupported`.
+#
+# WHY THIS FILE EXISTS. A body can claim something ARITHMETICALLY larger than its evidence
+# attests: the recorded fact is one vendor product, and the paragraph after it argues about
+# running several. Such a row is true, on-topic, about the right company and specific — it
+# passes every lint rule that reads text — and it still reads as generated, because the
+# recipient sees two paragraphs that do not connect. This file turns that into a type error.
+#
+# HOW IT WORKS. A spec declares `premise: <key>` in its front block next to `hook_cell`. The
+# merge-render gate then fails any row whose recorded evidence (`signal_evidence` +
+# `signal_clause` + `why_now`) carries fewer than `min_distinct` of that premise's terms. The
+# fix for a failing row is to re-research it or send it a different argument — NEVER to soften
+# the body, which is the one repair that is always wrong (a body vague enough to fit any fact
+# fits none).
+#
+# THIS TEMPLATE IS INERT. Every entry below ships `terms = []`, and the loader skips a
+# term-empty premise, so a freshly-cloned profile resolves to an EMPTY vocabulary and the
+# premise checks stay OFF — the same state as shipping no file at all. That is deliberate: a
+# tenant must not inherit another tenant's vocabulary, and a half-filled file that arms
+# `premise-unknown` against premises the operator has not written yet is worse than no file.
+# Fill in `terms` (and rename the keys to your own arguments) to turn the checks on.
+#
+# ADDING TERMS. Terms are matched on word boundaries, lower-cased. Add a term when a real
+# row's evidence attested the premise and the check missed it. Do NOT add generic words
+# ("platform", "cloud", "ai") to raise a hit rate — a term must name the thing the premise is
+# about, or the check degrades into a word count that scores high on rows attesting nothing.
+
+schema = 1
+
+# A premise whose claim is about PLURALITY needs `min_distinct = 2`: two distinct terms, so a
+# single product named twice cannot attest it. One of them is a real fact and a different email.
+[premise.example-multi-vendor]
+claim = "the recipient runs the same job across more than one vendor, so per-vendor wiring drifts apart"
+min_distinct = 2
+terms = []  # e.g. the vendor/framework names whose co-occurrence proves the plural claim
+
+# A premise whose claim is about a boundary EXISTING needs only `min_distinct = 1`: a single
+# attested instance establishes it, and the body's claim is not about how many there are.
+[premise.example-cross-org]
+claim = "the recipient's systems call across an organisational boundary, so the far side must admit a stranger"
+min_distinct = 1
+terms = []  # e.g. the words that put the boundary IN the evidence, never topic words

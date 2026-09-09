@@ -1,0 +1,157 @@
+# Local fast static-analysis layer for gtm-engine.
+#
+# All four tools run at the pre-commit stage (commits stay fast: Ruff/Bandit run
+# only on changed files; the custom Semgrep rules are offline and tiny; gitleaks
+# scans only staged content). The heavy Semgrep *registry* deep-scan (p/python,
+# p/security-audit) is deliberately NOT here — it runs only at the `main` gate in
+# .github/workflows/static-analysis.yml.
+#
+# Setup:
+#   uv sync --extra lint
+#   uv run pre-commit install
+#
+# Pins are mirrored in pyproject.toml ([project.optional-dependencies] lint) and
+# the CI workflow — bump all three together.
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff          # lint (autofix what's safe)
+        args: [--fix]
+      - id: ruff-format   # formatter
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/semgrep/semgrep
+    rev: v1.167.0
+    hooks:
+      - id: semgrep
+        # Custom invariant rules only — offline, no registry fetch, no telemetry.
+        args:
+          - "--config"
+          - ".semgrep/"
+          - "--error"
+          - "--metrics=off"
+          - "--disable-version-check"
+          - "--skip-unknown-extensions"
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        # Scans STAGED content locally — catches a `git add -f .env` before it is
+        # committed. The CI gitleaks job (.github/workflows/ci.yml) runs `gitleaks
+        # detect` in history mode and by design never sees the gitignored working
+        # tree, so this hook closes that local gap. Same binary version as CI.
+
+  - repo: local
+    hooks:
+      # gitleaks catches OUR secrets; the de-brand lint catches OUR name. Neither can see
+      # a THIRD PARTY's identity — a real prospect kept as a test fixture because it was
+      # the actual messy row the parser had to handle. That is how real contacts reached
+      # the public repo in v0.8.0 with every gate green. Blocking at commit time means a
+      # real contact never enters the repo; the export gate is only the backstop.
+      # Stdlib-only and staged-files-only, so it stays fast.
+      - id: provider-rate-check
+        name: a provider rate lives in one module
+        entry: uv run python tests/lint/provider_rate_check.py
+        language: system
+        # Scans skill bodies, manifests, pack prompts and tenant knowledge — a rate can be
+        # restated in a file the hook was never handed, so it reads the tree itself.
+        pass_filenames: false
+        always_run: true
+      - id: manifest-prose-check
+        name: withheld-skill descriptions stay an interface
+        entry: uv run python tests/lint/manifest_prose_check.py
+        language: system
+        # Reads the skill registry and gating.toml, not a staged file list — a description
+        # can go over budget in a commit that touches no manifest the hook would be handed.
+        pass_filenames: false
+        always_run: true
+      - id: pii-check
+        name: no real contact details in source
+        entry: uv run python tests/lint/pii_check.py
+        language: system
+        pass_filenames: true
+        files: \.(py|md|json|toml|csv|ya?ml|txt|sh)$
+        # content/ and profiles/ hold real customer PII by design and never ship.
+        exclude: ^(content|profiles)/
+
+      # The inward-facing twin of pii-check. That hook skips profiles/ because holding one
+      # customer's data is what a bundle is FOR — which leaves the one tree whose whole job
+      # is to be tenant-specific unchecked for being tenant-PURE. On 2026-09-08 a customer
+      # was handed a clean engine checkout plus their own profile folder, and their agent
+      # started asking about two OTHER tenants: six operator annotations in that bundle
+      # named siblings, each a dangling path in their tree. Reads the tree itself (a slug
+      # can enter through a file the hook was never handed) and derives the tenant list
+      # from the directories, so a newly onboarded profile is covered with no edit here.
+      - id: cross-tenant-check
+        name: a profile bundle names no other tenant
+        entry: uv run python tests/lint/cross_tenant_check.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # RELEASE-scope de-brand: scan the WHOLE publishable surface (gtm_core/, agent/,
+      # backend/, SHIPPING_DOCS…), not just plugin/skills/. Normal-mode debrand (CI) has a
+      # narrower scope than what the OSS export actually carves, so a tenant token in e.g.
+      # gtm_core/foo.py or docs/email-optimization.md used to pass every everyday gate and
+      # only fail at export pre-flight — three separate times on 2026-08-11/12 alone. Running
+      # the export's own lint here means dev is exportable at all times, not just export day.
+      # Fast (pure grep), repo-wide by design (a token's blast radius is the whole carve).
+      - id: debrand-release
+        name: de-brand lint (RELEASE scope — the export's own gate)
+        entry: bash tests/lint/debrand_check.sh --release
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # The export's two cheap sweeps, at the moment the text is written: no shipped file may
+      # cite a withheld design doc (docs/prds/, docs/archive/) or carry a tenant narrative
+      # marker (the MARKERS list in scripts/oss-export.sh). Both already fail the export — on
+      # export day, after everything has landed (197 citations on 2026-08-28, 23 more six days
+      # later; two product names drawn on screen in capitals on 2026-09-03). The shipped surface
+      # and the marker list are PARSED from scripts/oss-export.sh, never restated, so this
+      # cannot drift from the carve; markers are matched across wrapped comment lines, which
+      # the export's line-oriented grep cannot do. No-op in the public cut.
+      - id: carve-surface
+        name: carve-surface lint (withheld-doc citations + tenant markers)
+        entry: uv run python tests/lint/carve_surface_check.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # §R10 — production file length is a ratchet: a listed file may never grow, an
+      # unlisted file is capped at 500 lines, and a ceiling can be raised (or an entry
+      # added) only with a dated reason on the allowlist line. `--base HEAD` is what makes
+      # a silent ceiling bump impossible at commit time: the staged allowlist is compared
+      # against the committed one. Both lists are in `files:` so a commit that touches only
+      # a list still runs the guard, and every listed file is validated on every run. Stdlib-only.
+      - id: complexity-ratchet
+        name: file-length ratchet (§R10)
+        entry: uv run python tests/lint/complexity_check.py --base HEAD
+        language: system
+        pass_filenames: true
+        files: (\.py|tests/lint/(complexity_allowlist|retired_patch_paths)\.txt)$
+        exclude: ^(content|profiles)/
+
+      # §R14 — a number in rendered prose must be DERIVED, never typed. Five figures on one
+      # status page outlived the data they described, each of them read and approved by a
+      # human, because a stale number reads exactly like a fresh one. Docstrings, the
+      # stylesheet, external-benchmark config and digit-bearing labels (`rule 9`, `touch 1`,
+      # a year) are exempt by construction; anything else needs an f-string or a dated line
+      # on the allowlist. The allowlist is in `files:` so a commit that only adds an entry
+      # still runs the guard. Stdlib-only.
+      - id: rendered-prose-counts
+        name: no typed counts in rendered prose (§R14)
+        entry: uv run python tests/lint/rendered_prose_check.py
+        language: system
+        pass_filenames: false
+        files: (gtm_core/email_campaign_dashboard/.*\.py|tests/lint/rendered_prose_allow\.txt)$

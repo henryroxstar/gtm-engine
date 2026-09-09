@@ -1,0 +1,13 @@
+usage: gtm_core.screen_ui [-h] --kit-json KIT_JSON --ratio {16:9,1:1,4:5,9:16}
+                          [--fps FPS] [--duration-s DURATION_S]
+                          [--out-dir OUT_DIR] [--font-role FONT_ROLE]
+                          [--image IMAGE] [--crop-frac CROP_FRAC]
+                          [--words-json WORDS_JSON]
+                          [--timing-json TIMING_JSON] [--label KEY=VALUE]
+                          [--logo] [--still PNG] [--cta-text CTA_TEXT]
+                          [--logo-variant LOGO_VARIANT] [--title KEY=VALUE]
+                          [--message KEY=VALUE] [--speak-from-s SPEAK_FROM_S]
+                          [--repo-root REPO_ROOT]
+                          [--min-tolerance MIN_TOLERANCE]
+                          {call-ui-bank,call-ui-clinic,call-ui-hotel,call-ui-telco,caller-row-bank,caller-row-clinic,caller-row-hotel,caller-row-telco,checkpoint-flow,class-booking,message-card,record-agent-identity,record-bank,record-clean,record-clinic,record-grid,record-hotel,record-telco,request-inspector,rows-claim,rows-evidence,rows-identity,rows-layers,rows-scope,still-push,title-claim,title-close,audit-fit}
+gtm_core.screen_ui: error: the following arguments are required: scene, --kit-json, --ratio

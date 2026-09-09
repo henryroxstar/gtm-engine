@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from ..prospects_state import ACCOUNT_ID_FIELD, _identity_key, _identity_keys, load_latest
+from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
+
+
+def _account_item_of(row: dict) -> dict:
+    """The row's account, shaped as a ``latest.json`` item for key derivation."""
+    return {
+        "domain": (row.get("company_domain") or "").strip(),
+        "company": row.get("company") or "",
+        ACCOUNT_ID_FIELD: row.get(ACCOUNT_ID_FIELD) or "",
+    }
+
+
+def _account_key_of(row: dict) -> str:
+    """The row's account identity, in ``latest.json``'s own key space."""
+    return _identity_key(_account_item_of(row))
+
+
+def _account_id_index(profile: str, content_root: Path | None) -> dict[str, str]:
+    """Every ``latest.json`` identity key -> that account's stamped ``account_id``.
+
+    Built from the ledger of record rather than re-derived per row, so a pooled row
+    joins to the same account the dashboard shows. Absent or unreadable is an empty
+    index: a first run has no accounts to join to, which is not an error.
+    """
+    try:
+        data = load_latest(profile, content_root)
+    except (OSError, ValueError):
+        return {}
+    index: dict[str, str] = {}
+    for item in data.get("items", []):
+        account_id = str(item.get(ACCOUNT_ID_FIELD) or "").strip()
+        if not account_id:
+            continue
+        for key in _identity_keys(item):
+            index.setdefault(key, account_id)
+    return index
+
+
+#: The account-level fields a row inherits from its account. The six provenance fields
+#: plus the researcher's verdict, plus which matrix signal column the fact belongs to.
+#: Deliberately EXCLUDES ``JUDGE_COLUMNS``: `verdict` is the researcher's, written once
+#: during research; `judge_*` is the judge's, written by `write-verdicts` against the
+#: rendered row. Two different authors at two different grains — blurring them here is
+#: exactly the confusion the split was introduced to end.
+#: Account-level facts a row inherits from its account's ``latest.json`` record.
+#:
+#: ``segment``/``tier``/``score`` joined 2026-09-04: they are ICP judgments about the
+#: *account* (`prospects_import.finalize`'s docstring calls them "the skill's judgment"),
+#: not the contact row, so a re-run that re-scores an account already in the pool has the
+#: same "correction never lands" shape `why_now` had before it joined this tuple. Before
+#: this, `consolidate`'s per-email join derived them once from whichever hubspot export
+#: first introduced the email (`_row_to_record`) and never revisited them: `finalize`
+#: correctly overwrote the account's record in `latest.json`, but an already-present row
+#: only gets its `conf_tier` reclassified, so the stale segment/tier/score sat in
+#: `ready-to-load.csv` indefinitely with no documented path to fix it.
+_INHERITED_RECORD_COLUMNS = (*RECORD_COLUMNS, SIGNAL_COLUMN, "why_now", "segment", "tier", "score")
+
+#: The subset the ACCOUNT record wins outright on, rather than only filling a blank.
+#:
+#: Everything else here is fill-only, because a value the row already carries came from its
+#: own source export and is the more specific artifact. ``why_now`` is the exception, and it
+#: is not a close call: this module's own account-record docstring says a why-now "is about
+#: the company, not the person", so there is no row-specific version of it to protect.
+#:
+#: Without this, re-research could not reach the pool. `consolidate` skips an already-present
+#: email except to re-rank its confidence tier, and no flag re-reads ``why_now`` — so a row's
+#: opener was written once, at first sight, and was unimprovable forever. Found 2026-08-29:
+#: a boundary-fact re-research pass produced five verified, better clauses, wrote them to the
+#: account ledger, and the pool could not see any of them. Measured on the same pool, 88 of
+#: 1,171 rows disagreed with their own account record and the account was better in every
+#: sampled case — two rows still held the literal placeholder "to confirm".
+#:
+#: ``segment``/``tier``/``score`` are authoritative for the identical reason as ``why_now``:
+#: a re-score is a correction to the account's OWN judgment, not a more-specific row-level
+#: fact a row's own export could out-rank, so fill-only would leave a corrected account
+#: re-scoring stuck behind whatever the row happened to see first.
+#:
+#: This can never blank a row: ``_account_record_index`` indexes only non-empty values.
+_AUTHORITATIVE_RECORD_COLUMNS = frozenset(
+    {
+        "why_now",
+        "signal_source_url",
+        "signal_observed",
+        "signal_evidence",
+        "segment",
+        "tier",
+        "score",
+    }
+)
+#: The three provenance columns travel WITH ``why_now`` and are not separable from it. A
+#: clause and the source that evidences it are one record: taking the clause from the account
+#: and leaving the row's old source in place produces a row whose cited page does not support
+#: its own claim — the `signal-evidence-unsupported` defect these columns exist to catch. Seen
+#: 2026-08-29: one account's row took a new clause about a named customer selecting them while
+#: still
+#: citing the funding article the previous clause came from.
+#:
+#: Everything else stays fill-only on purpose. `signal_subject`, `signal_agent_kind` and
+#: `category_relation` are judgements a row's own export may hold more specifically than the
+#: account does ("Northwind Holdings (parent)"), and clobbering those is a real regression
+#: with a test on it. Conditioning the takeover on "the clause changed" was also tried and is
+#: WRONG: it latches, firing only on the single pass that copies the new clause down, so on
+#: every later pass the row matches and stale provenance beside a fresh clause is permanent.
+
+#: ``verdict`` restrictiveness. The account record may make a row's verdict STRICTER and
+#: never looser — the monotone-stricter rule this repo already applies to tenant pack
+#: overrides, for the same reason: a merge that can only tighten is safe without having to
+#: establish which side is newer.
+#:
+#: Research must be able to change its mind. A brokerage account was re-angled on 2026-08-29
+#: because its recorded clause carries no agent content, and the demotion could not reach
+#: the row the enrollment gate actually filters. But of the 6 rows whose verdict disagreed
+#: with their account, 4 pointed the other way (row ``re-angle`` vs account ``send``) with
+#: no way to tell which was written later — and promoting a row into the sendable pool on a
+#: possibly-stale record is the expensive direction to be wrong in. So: demote freely,
+#: promote never.
+_VERDICT_STRICTNESS = {"send": 0, "re-angle": 1, "drop": 2}
+
+
+def _verdict_at_least_as_strict(current: str, incoming: str) -> bool:
+    """True when ``incoming`` is a demotion (or equal) relative to ``current``."""
+    cur = _VERDICT_STRICTNESS.get((current or "").strip().lower())
+    inc = _VERDICT_STRICTNESS.get((incoming or "").strip().lower())
+    if cur is None or inc is None:
+        return False
+    return inc > cur
+
+
+def _account_record_index(profile: str, content_root: Path | None) -> dict[str, dict[str, str]]:
+    """``account_id`` -> the research record fields that account carries.
+
+    The record is a fact about the *account* — a why-now signal is about the company, not
+    the person — so it is written once onto the account in ``latest.json``. But the
+    enrollment gate (``account_integrity --require-verdict send``) filters *rows* in
+    ``ready-to-load.csv``. Without this index the join stamped ``account_id`` and stopped,
+    so a fully-researched batch still failed the gate with "kept 0/N": the judgement was
+    made in one file and enforced from another, with nothing carrying it across.
+
+    Only non-empty values are indexed, so an account with a partial record contributes
+    exactly the fields it actually has and never blanks a column the row already filled.
+    """
+    try:
+        data = load_latest(profile, content_root)
+    except (OSError, ValueError):
+        return {}
+    index: dict[str, dict[str, str]] = {}
+    for item in data.get("items", []):
+        account_id = str(item.get(ACCOUNT_ID_FIELD) or "").strip()
+        if not account_id:
+            continue
+        record = {
+            col: str(item.get(col) or "").strip()
+            for col in _INHERITED_RECORD_COLUMNS
+            if str(item.get(col) or "").strip()
+        }
+        if record:
+            index[account_id] = record
+    return index
+
+
+def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[str]:
+    """Account keys whose lifecycle ``status`` retires them from sending.
+
+    ``latest.json`` is the ledger of record for account lifecycle; the pooled CSVs are
+    derived views of it. Reading it here is what makes an operator's (or an eval
+    writeback's) disqualification actually reach a build output — before this, nothing
+    in the send-list build filtered on lifecycle status at all.
+
+    Absent or unreadable is an empty set, never an exception: a profile with no
+    latest.json is a first run, and the ledger + DNC gates still apply.
+    """
+    retired = {"disqualified", "do-not-contact", "closed-lost"}
+    try:
+        data = load_latest(profile, content_root)
+    except (OSError, ValueError):
+        return set()
+    keys: set[str] = set()
+    for item in data.get("items", []):
+        if str(item.get("status") or "").strip().lower() in retired:
+            for key in _identity_keys(item):
+                keys.add(key)
+    return keys

@@ -1,0 +1,60 @@
+# packs/creator/graphs/cross-modal-campaign.toml
+#
+# Cross-modal campaign variant for the creator pack.
+# `format-router` is the plan-stage dispatcher: it picks which (format, platform) tuples to
+# produce from an approved hook, then the graph fans out to modality-specific skills.
+# Video items are handed off to `video-router` inside the `video-script` node prompt, mirroring
+# the existing video-router behaviour.
+#
+# Fan-out structure:
+#   radar -> format-plan (gate) -> [text-studio, image-studio, video-script] -> publish (gate)
+#
+# Each studio node filters the plan items by `modal_family` so a single node does not attempt
+# to process every format.
+
+pack = "creator"
+variant = "cross-modal-campaign"
+
+[[nodes]]
+id = "radar"
+model_role = "brain_radar"
+skill = "content-radar"
+prompt = "Run the content-radar skill for the active profile. Surface hooks worth making content about right now and propose candidate hooks where the signals support a new angle."
+
+[[nodes]]
+id = "format-plan"
+depends_on = ["radar"]
+model_role = "brain_plan"
+skill = "format-router"
+gate = true
+prompt = "Run the format-router skill for the active profile. Given the approved hooks from the radar/plan stage, decide which (format, platform) tuples to produce, run hook_score for each candidate format, respect hook fatigue and the content-priority mix, and emit a fan-out plan with one ContentItem per selected tuple. When video is selected, note the hand-off to video-router inside the report."
+
+[[nodes]]
+id = "text-studio"
+depends_on = ["format-plan"]
+model_role = "brain_plan"
+skill = "content-studio"
+prompt = "Run the content-studio skill for the active profile. Process only plan items whose `modal_family` is `text` (format: linkedin-text, thread, single). Draft and lint each text asset, run hook_score as the post-lint gate, and report any item that fails to lint or score. Skip image and video items; they are handled by sibling nodes."
+
+[[nodes]]
+id = "image-studio"
+depends_on = ["format-plan"]
+model_role = "brain_plan"
+skill = "content-studio"
+prompt = "Run the content-studio skill for the active profile. Process only plan items whose `modal_family` is `image` (format: carousel, infographic, infographic-handwritten). Draft and lint each image copy/brief, run hook_score as the post-lint gate, and report any item that fails to lint or score. Visual render is an operator-gated Tier-2 hand-off; do not call image generation tools. Skip text and video items."
+
+[[nodes]]
+id = "video-script"
+depends_on = ["format-plan"]
+model_role = "brain_plan"
+skill = "video-script"
+prompt = "Run the video-script skill for the active profile. Process only plan items whose `modal_family` is `video` (format: reel, short). For each item, write the shot-by-shot script, save it, run the composite hook_score gate, and refuse to hand off any item that scores low/uncertain. If the source material suggests an existing-footage lane, note the hand-off to video-router rather than scripting from scratch. This node is NOT a gate, so video-router runs here with no operator to answer its lane menu: it must never present the menu, must take the preflight's `default_lane` when the item names no lane, and must fail this node with the reported blockers if the preflight exits 2 rather than choosing a blocked lane."
+
+[[nodes]]
+id = "publish"
+depends_on = ["text-studio", "image-studio", "video-script"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the approved assets for Gate 2 publish. For text posts, emit the caption inside the publish gate block. For image/video assets, reference their hosted media URLs once media-host has run; if they are still local paths, tell the operator to post manually and log the event. Never attach a local file to a publish block."

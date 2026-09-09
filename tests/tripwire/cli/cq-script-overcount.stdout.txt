@@ -1,0 +1,19 @@
+{
+  "proceed": false,
+  "script": "2026-09-01-overcount.md",
+  "blocking": [
+    "2026-09-01-overcount.md: claims_verified 3/2 verifies more claims than the script makes",
+    "2026-09-01-overcount.md: claims_verified says 2 external claim(s) but the script has no '## Verification log' section recording source and quote per claim"
+  ],
+  "warnings": [
+    "2026-09-01-overcount.md: no hook_id in the front block — this script cannot be attributed to a hook, so it can never earn a prior or be scored by hook_score"
+  ],
+  "checks": {
+    "script_found": true,
+    "hook_declares_format": null,
+    "front_block_complete": true,
+    "claims_verified_present": true,
+    "claims_verified_parsed": true,
+    "verification_log_present": false
+  }
+}

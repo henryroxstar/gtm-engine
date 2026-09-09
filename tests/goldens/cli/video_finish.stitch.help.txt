@@ -1,0 +1,28 @@
+usage: python -m gtm_core.video_finish stitch [-h] --segments SEGMENTS
+                                              --ratio {16:9,1:1,4:5,9:16}
+                                              --out OUT [--workdir WORKDIR]
+                                              [--video-bitrate VIDEO_BITRATE]
+                                              [--normalize]
+                                              [--crossfade-s CROSSFADE_S]
+                                              [--content-root CONTENT_ROOT]
+                                              [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --segments SEGMENTS   JSON: {"segments":[{"path":"...","reframed":false},
+                        ...]} in shot order
+  --ratio {16:9,1:1,4:5,9:16}
+  --out OUT
+  --workdir WORKDIR
+  --video-bitrate VIDEO_BITRATE
+                        e.g. "8M" — encode to a bitrate target instead of CRF;
+                        for a final deliverable that must clear video_lint's
+                        1080p bitrate floor
+  --normalize           re-encode every segment to uniform settings before
+                        joining; needed when segments come from different
+                        encoders (a provider render beside a local one)
+  --crossfade-s CROSSFADE_S
+                        0 (default) = hard cut via concat demuxer + stream
+                        copy; >0 re-encodes with xfade
+  --content-root CONTENT_ROOT
+  --json

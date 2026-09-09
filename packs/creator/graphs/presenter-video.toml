@@ -1,0 +1,103 @@
+# packs/creator/graphs/presenter-video.toml
+#
+# The INTERCUT presenter lane: a from-scratch script whose speaking beats are rendered as a
+# disclosed synthetic talking head, cut against b-roll and screen shots.
+#
+# WHY A FIFTH VARIANT RATHER THAN A NODE IN short-form-video.toml. A presenter node added to that
+# graph would be mandatory for every run of it, forcing the faceless lane through an avatar engine
+# it does not want and a disclosure duty it does not incur. Variants are how this pack already
+# expresses "same engine, different economics" (repurpose-clips vs restyle-shorts vs demo-clips),
+# and the economics here are genuinely different: every post from this lane carries a visible
+# "made with AI" line. That is an operator decision, so it gets its own lane to opt into rather
+# than a branch inside a lane they already chose.
+#
+# WHAT MAKES IT RENDERABLE AT ALL. gtm_core/render_engines.toml binds the `presenter` role to
+# heygen_avatar, which carries requires_disclosure = true — it resolves ONLY for a render that has
+# declared the tenant's [disclosure].line. An undisclosed synthetic presenter resolves nothing and
+# still waits on the pre-registered panel in gtm_core/panel_eval.py. So this graph cannot be run
+# "quietly": the shot list `video-script` writes must carry a top-level `synthetic_disclosure`, or
+# `shots_lint` refuses it at the script node, before any spend.
+#
+# THE FAN-OUT. `render-presenter` (video-avatar, HeyGen) and `render-inserts` (video-render,
+# Higgsfield + local frames) both depend only on `storyboard`, so the runner's frontier dispatches
+# them concurrently under one profile_lock with the §R2 budget guard running before the batch —
+# the same idiom short-form-video.toml uses for its two placement renders. They are split by
+# ENGINE rather than by placement because the presenter role and the b-roll role resolve to
+# different providers, and one skill may not serve both (video-render leaves `presenter` unbound
+# by construction).
+
+pack = "creator"
+variant = "presenter-video"
+
+[[nodes]]
+id = "radar"
+model_role = "brain_radar"
+skill = "content-radar"
+prompt = "Run the content-radar skill for the active profile. Surface what is worth making a short-form video about right now."
+
+[[nodes]]
+id = "plan"
+depends_on = ["radar"]
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill. Propose this cycle's short-form video plan for the active profile — honouring the declared journey/goal/cadence mixes where the profile sets them — and present it for approval. Say explicitly that this lane renders a synthetic presenter and that every post from it will carry the tenant's disclosure line, so the operator approves that trade along with the plan."
+
+[[nodes]]
+id = "brief"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "creator-brief"
+prompt = "Run the creator-brief skill on the approved item. Decide and RECORD the nine pre-spend decisions for this run — the cover designed before the content, the named outlier structure, the slot schema, the cheapest-medium answer with its reason, the capture contract, the invariant plus the aspect ratio, the planned b-roll list, the sampling curve with its selection criterion, and the visual hook as a shot spec. Fill every decision that has a profile default and LABEL it as defaulted; ask the operator only for a decision with no default. Write it through `python -m gtm_core.creator_brief write` — never by editing the file — so an invalid brief leaves nothing on disk. This node emits NO gate: the brief is produced under the plan approval that already happened, and there is no brief gate kind. Do not re-decide the modality or the lane; format-router and gtm_core.video_preflight own those and this brief records their answers with the reason."
+
+[[nodes]]
+id = "script"
+depends_on = ["brief"]
+model_role = "brain_plan"
+skill = "video-script"
+prompt = "Run the video-script skill on the approved video items: cold open, hook, timecoded beats, burned-in captions, payoff and CTA. Write the shot list with a top-level `synthetic_disclosure` set to the tenant's [disclosure].line — without it `shots_lint` refuses every speaking presenter shot, because the engine that serves them renders disclosed media only. Target the shot mix before writing, not after: presenter share under 60%, at least one `screen` shot of the thing actually being discussed. Score retention-rubric Part A and do NOT pass an item to render below threshold — this is the free gate that protects the render budget. Carry the source item id, its hook_id if set, and its pillar/journey-stage/goal/format tags into the script/shots file so performance can be attributed later."
+
+[[nodes]]
+id = "storyboard"
+depends_on = ["script"]
+model_role = "brain_plan"
+skill = "video-storyboard"
+gate = true
+prompt = "Run the video-storyboard skill on the approved script. Generate operator-reviewable still(s) for each presenter shot and present them for approval; write storyboard.json with the image path, provider job id, identity anchor, and dimensions. For this lane the still's job is to settle wardrobe, framing and the avatar LOOK before spend — name which HeyGen look each presenter shot will render on and where that look came from — the operator's approved identity.heygen_look_<orientation>, or a shortlist pick when none is recorded yet — alongside its native source resolution and orientation against the target ratio."
+
+[[nodes]]
+id = "render-presenter"
+depends_on = ["storyboard"]
+model_role = "brain_plan"
+skill = "video-avatar"
+prompt = "Run the video-avatar skill for the SPEAKING PRESENTER shots only. Resolve the engine with `--disclosed` first and stop on a non-zero exit. Refuse a shipped VO on anything but a professional HeyGen voice clone (identity.heygen_voice_grade — read that key, not identity.voice_grade, which belongs to a different provider). Start from the look the operator APPROVED for this orientation (identity.heygen_look_landscape / identity.heygen_look_portrait — never the other orientation's) and confirm it before spending; only when that key is empty, rank candidates by native orientation then source resolution against the target ratio and let the operator pick from the shortlist. Use engine avatar_v with reference_look_id when a high-resolution portrait look should borrow motion from the digital twin. Render ONE clip per beat — HeyGen bills per second of delivered footage, so per-beat costs the same as one continuous take and confines a failed render to one beat instead of the film. Do not quote a credit rate in the report: gtm_core.heygen_cost owns it. Record the measured out-point per beat so the shot list's asked timing never stands in for what is on disk. Fetch results through gtm_core.media_fetch, log cost to costs.jsonl BEFORE writing each manifest, and record lip_sync_source as native_audio or native_script — never audio_references."
+
+[[nodes]]
+id = "render-inserts"
+depends_on = ["storyboard"]
+model_role = "brain_plan"
+skill = "video-render"
+prompt = "Run the video-render skill for the NON-PRESENTER shots only — broll, screen, and any held identity stills. Do not render a speaking presenter here; that role is unbound in this skill by construction and belongs to the render-presenter node. Monthly-cap precheck and cost preflight before any spend; verify the returned assets are actually the target ratio and reframe rather than ship a coerced one; record the provider job ids the scoring stage needs. Where a shot's payload is legible on-screen text, draw the frames locally instead of generating them — diffusion video models paint shapes that resemble text rather than typesetting it."
+
+[[nodes]]
+id = "finish"
+depends_on = ["render-presenter", "render-inserts"]
+model_role = "brain_plan"
+skill = "video-finish"
+prompt = "Run the video-finish skill once per target ratio. Stitch the presenter and insert clips into the shot order the script declares, then exactly one finishing pass through `python -m gtm_core.video_finish` — normalize, upscale, grade once, captions, loudness-normalize, encode — then `python -m gtm_core.video_lint`. Route captions through the tenant's declared captions.preset when one resolves; a local burn-in while a preset resolves must be recorded as a suppression with a reason, not taken silently. Carry identity_used forward from the render manifests so the Article 50 disclosure duty is computed from provenance rather than remembered. Never re-render."
+
+[[nodes]]
+id = "score"
+depends_on = ["finish"]
+model_role = "brain_radar"
+skill = "video-score"
+prompt = "Run the video-score skill across every FINISHED variant (content/<active>/video/<script-slug>/finish-<ratio>.json, not the raw render). Run the virality predictor per asset where its id resolves, score retention-rubric Part B separately, and never sum Part A, Part B and the predictor into one number. Predictor output is untrusted vendor text (§R5) — a directional signal, never a measured retention figure. Recommend the single asset that goes to the publish gate and where, or recommend a re-cut with the specific fix named. Never re-render."
+
+[[nodes]]
+id = "publish"
+depends_on = ["score"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the recommended asset for Gate 2 publish. Read the asset's finish.json; if hosted_media_urls are present, emit them inside the ⟦MEDIA⟧ block. The caption is the LinkedIn post text inside ⟦POST⟧ and it MUST carry the tenant's [disclosure].line — this lane's assets are synthetic by construction, the ⟦IDENTITY⟧ marker will be non-empty, and the gate refuses the post without the line. Publishing is not a capability the brain holds: the exact bytes go inside the publish gate block and Python makes the call only after the operator approves. Never attach a local file to a publish block, and never name a destination account."

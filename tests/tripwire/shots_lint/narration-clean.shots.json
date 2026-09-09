@@ -1,0 +1,59 @@
+{
+  "source_item": "item-narration-clean",
+  "total_duration_s": 12,
+  "style_scaffold": {
+    "look": "editorial monochrome, fine grain, shallow depth of field",
+    "provider_model": "wan2_7",
+    "negative": ["text artifacts", "logos"]
+  },
+  "vo_source": "operator-recorded WAV, measured with gtm_core.vo_timings",
+  "narration": {
+    "note": "Placed by voice onset, not by file start: line two leads its picture cut on purpose, so the audio binds the edit instead of slicing it.",
+    "lines": [
+      {
+        "line": "The kettle boiled twice before anyone noticed.",
+        "voice_onset_s": 0.45,
+        "len_s": 1.79
+      },
+      {
+        "line": "So most mornings, it just sits there.",
+        "voice_onset_s": 4.2,
+        "len_s": 1.71
+      },
+      {
+        "line": "Then the light changed.",
+        "voice_onset_s": 8.6,
+        "len_s": 1.42
+      }
+    ]
+  },
+  "shots": [
+    {
+      "id": "s01",
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static, slow push-in",
+      "visual": "a phone face down beside a cold cup of coffee",
+      "motion_prompt": "the screen lights once under the table edge and goes dark again",
+      "audio_bed": "room tone with a distant street hum"
+    },
+    {
+      "id": "s02",
+      "duration_s": 4,
+      "role": "screen",
+      "camera": "screen capture, locked",
+      "visual": "a draft post open with the cursor blinking mid-sentence",
+      "motion_prompt": "the cursor deletes the last clause and stops",
+      "audio_bed": "soft key press and room tone"
+    },
+    {
+      "id": "s03",
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "handheld, medium",
+      "visual": "hands closing a laptop at a kitchen table",
+      "motion_prompt": "the hands lower the lid and rest flat on it",
+      "audio_bed": "a music bed rising under the last line"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "source_item": "item-cross-shot-ref",
+  "total_duration_s": 13,
+  "style_scaffold": {
+    "look": "editorial monochrome, fine grain, shallow depth of field",
+    "provider_model": "wan2_7",
+    "negative": "text artifacts, logos"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 5,
+      "role": "broll",
+      "camera": "static, eye level",
+      "visual": "a linen jacket over the back of a chair",
+      "motion_prompt": "the sleeve settles as the chair stops turning",
+      "audio_bed": "room tone with a faint street hum"
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "handheld, medium",
+      "visual": "the same doorway as shot 1, one lamp on",
+      "motion_prompt": "a hand pushes the door open and lets it swing back",
+      "audio_bed": "room tone with a door latch"
+    },
+    {
+      "n": 3,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static, wide",
+      "visual": "the jacket from the second reference image, folded on a desk",
+      "motion_prompt": "the fabric settles flat under its own weight",
+      "audio_bed": "room tone with a paper rustle"
+    }
+  ]
+}

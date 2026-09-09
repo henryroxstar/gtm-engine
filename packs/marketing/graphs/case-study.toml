@@ -1,0 +1,21 @@
+# packs/marketing/graphs/case-study.toml
+#
+# Turn a delivered (or designed) engagement into a publishable customer story.
+# A single gated node, deliberately: the artifact names a real customer, real
+# individuals, and quotes them, so it always stops for operator approval before it
+# is treated as a marketing asset.
+#
+# model_role is brain_plan and must stay that way — this stage is customer-PII-bearing
+# (named account, named people, verbatim quotes), and PII-handling stages stay on Claude
+# by construction (CLAUDE.md model discipline). Never brain_radar, even though the
+# why-now research leg reads public web sources.
+
+pack = "marketing"
+variant = "case-study"
+
+[[nodes]]
+id = "case-study"
+model_role = "brain_plan"
+skill = "case-study"
+gate = true
+prompt = "Run the case-study skill for the named account. Resolve the evidence tier first (deployed / pilot / design-stage), mine the account folder for the solution design, discovery, and dossier, then build the claim ledger and present it for approval before drafting. Do not upgrade the tier on an assumption."

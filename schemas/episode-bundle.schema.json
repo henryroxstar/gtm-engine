@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/episode-bundle.schema.json",
+  "title": "EpisodeBundle",
+  "description": "Finished podcast episode manifest (spec §8, §12). FORWARD CONTRACT — produced in Phase 4, defined now so stages stay decoupled.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode", "video", "audio"],
+  "properties": {
+    "episode": { "type": "string" },
+    "video": { "type": "string", "description": "Path/URL to MP4 (16:9 1080p)." },
+    "audio": { "type": "string", "description": "Path/URL to MP3." },
+    "srt": { "type": "string", "description": "Path to SRT captions." },
+    "slides": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "clips": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "transcript": { "type": "string", "description": "Path/ref to the Transcript." },
+    "show_notes": { "type": "string" },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "start"],
+        "properties": {
+          "title": { "type": "string" },
+          "start": { "type": "string", "description": "Timestamp, e.g. '00:03:12'." }
+        }
+      },
+      "default": []
+    }
+  }
+}

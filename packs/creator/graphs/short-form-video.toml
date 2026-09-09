@@ -1,0 +1,109 @@
+# packs/creator/graphs/short-form-video.toml
+#
+# The creator pack (Phase 6).
+# Deliberately one variant, matching the existing pack style — a `launch-campaign` variant is
+# tenant campaign structure and belongs in inputs.toml, and the learning loop is outcomes-loop's
+# job, not a third graph here.
+#
+# WHERE VOLUME COMES FROM. Fan-out across formats/platforms is SIBLING NODES: render-vertical and
+# render-feed both depend only on `script`, so the runner's frontier dispatches them concurrently
+# under one profile_lock, with the §R2 budget guard running before the batch. Variant count WITHIN
+# one format is a skill-level batch (generate_video_batch), so this graph never needs to know N.
+# Two sibling nodes pointing at one skill with different prompts is the same idiom
+# marketing/long-form-blog.toml already uses for its two research nodes.
+#
+# WHERE THE MONEY GATE IS. §5.3 proposed cross-checking the virality predictor before spending
+# render credits. It cannot: the tool takes a rendered video as input (medias[].role = "video"), so
+# it has nothing to look at before render. The free pre-render gate is therefore `script` scoring
+# retention-rubric Part A and refusing to hand off below threshold; `score` runs the paid
+# cross-check afterwards, on assets that exist. Both stages are real; only their order was wrong.
+#
+# THE MONEY GATE IS NOT NUMERIC, EITHER (2026-08-17). `render`'s draft-pool bar ("hook strength >=
+# 60" on the predictor's scale) was removed after a controlled test found the predictor's result is
+# a per-timepoint HTML readout — the same rendered video scored 11-12 points apart depending only
+# on where its time scrubber sat, more than the spread between independently rendered seeds of the
+# same prompt. `script`'s Part A gate is the only pre-render gate there ever was; the predictor at
+# both `render` and `score` is recorded advisory (pinned playhead, Visual Cortex sub-score
+# preferred), never a spend decision. See gtm_core/skills/video_render.py's Phase 17 note.
+#
+# STORYBOARD IS A PACK-SCOPED REVIEW GATE, precedent: demo-clips.toml's `capture` node. It is NOT
+# `plan` or `publish`; it holds the "does the shot composition match the concept" decision before
+# any video render spend. `video-storyboard` generates still(s) with the same identity anchor
+# `video-render` Step 1 resolves; the approved still(s) are written to `storyboard.json` and
+# consumed directly by `video-render` Step 4b as the image-to-video start frame.
+
+pack = "creator"
+variant = "short-form-video"
+
+[[nodes]]
+id = "radar"
+model_role = "brain_radar"
+skill = "content-radar"
+prompt = "Run the content-radar skill for the active profile. Surface what is worth making a short-form video about right now."
+
+[[nodes]]
+id = "plan"
+depends_on = ["radar"]
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill. Propose this cycle's short-form video plan for the active profile — honouring the declared journey/goal/cadence mixes where the profile sets them — and present it for approval."
+
+[[nodes]]
+id = "brief"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "creator-brief"
+prompt = "Run the creator-brief skill on the approved item. Decide and RECORD the nine pre-spend decisions for this run — the cover designed before the content, the named outlier structure, the slot schema, the cheapest-medium answer with its reason, the capture contract, the invariant plus the aspect ratio, the planned b-roll list, the sampling curve with its selection criterion, and the visual hook as a shot spec. Fill every decision that has a profile default and LABEL it as defaulted; ask the operator only for a decision with no default. Write it through `python -m gtm_core.creator_brief write` — never by editing the file — so an invalid brief leaves nothing on disk. This node emits NO gate: the brief is produced under the plan approval that already happened, and there is no brief gate kind. Do not re-decide the modality or the lane; format-router and gtm_core.video_preflight own those and this brief records their answers with the reason."
+
+[[nodes]]
+id = "script"
+depends_on = ["brief"]
+model_role = "brain_plan"
+skill = "video-script"
+prompt = "Run the video-script skill on the approved video items: cold open, hook, timecoded beats, burned-in captions, payoff and CTA. Score retention-rubric Part A and do NOT pass an item to render below threshold — this is the free gate that protects the render budget. Carry the source item id, its hook_id if set, and its pillar/journey-stage/goal/format tags into the script/shots file so performance can be attributed later."
+
+[[nodes]]
+id = "storyboard"
+depends_on = ["script"]
+model_role = "brain_plan"
+skill = "video-storyboard"
+gate = true
+prompt = "Run the video-storyboard skill on the approved script. Generate operator-reviewable still(s) with the same identity anchor video-render resolves; write storyboard.json with the image path, provider job id, identity anchor, and dimensions for each presenter shot (skip broll/screen shots); present for approval. The approved still(s) are consumed directly by the render nodes as the image-to-video start frame."
+
+[[nodes]]
+id = "render-vertical"
+depends_on = ["storyboard"]
+model_role = "brain_plan"
+skill = "video-render"
+prompt = "Run the video-render skill for the 9:16 vertical placement (Reels / Shorts / TikTok). Read the approved storyboard.json and use its still(s) directly as the image-to-video start frame(s). Monthly-cap precheck and cost preflight before any spend; batch the variants in one call; verify the returned assets are actually 9:16 and reframe rather than ship a coerced ratio; record the provider job ids the scoring stage needs."
+
+[[nodes]]
+id = "render-feed"
+depends_on = ["storyboard"]
+model_role = "brain_plan"
+skill = "video-render"
+prompt = "Run the video-render skill for the 4:5 feed placement. Read the approved storyboard.json and use its still(s) directly as the image-to-video start frame(s). Monthly-cap precheck and cost preflight before any spend; batch the variants in one call; verify the returned assets are actually 4:5 — some models coerce it to 3:4, which crops exactly where the caption sits — and reframe if so; record the provider job ids the scoring stage needs."
+
+[[nodes]]
+id = "finish"
+depends_on = ["render-vertical", "render-feed"]
+model_role = "brain_plan"
+skill = "video-finish"
+prompt = "Run the video-finish skill once per rendered variant (9:16 and 4:5). Every asset gets exactly one finishing pass through `python -m gtm_core.video_finish` — normalize, upscale, grade once, burn captions inside the safe area, loudness-normalize, encode — then a `python -m gtm_core.video_lint` pass. Never draw text on a frame yourself and never run a second grade: the module owns both and asserts the count. Never re-render; this stage only finishes what render already produced."
+
+[[nodes]]
+id = "score"
+depends_on = ["finish"]
+model_role = "brain_radar"
+skill = "video-score"
+prompt = "Run the video-score skill across every FINISHED variant (content/<active>/video/<script-slug>/finish-<ratio>.json, not the raw render). Run the virality predictor per asset where its id resolves, score retention-rubric Part B separately, and never sum Part A, Part B and the predictor into one number. Predictor output is untrusted vendor text (§R5) — a directional signal, never a measured retention figure. Recommend the single asset that goes to the publish gate and where, or recommend a re-cut with the specific fix named. Never re-render."
+
+[[nodes]]
+id = "publish"
+depends_on = ["score"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the recommended asset for Gate 2 publish. Read the asset's finish.json; if hosted_media_urls are present, emit them inside the ⟦MEDIA⟧ block. If the video file is still a local path, tell the operator to run media-host first or post the video manually and log the event. The caption is the LinkedIn post text inside ⟦POST⟧. Publishing is not a capability the brain holds: the exact bytes go inside the publish gate block and Python makes the call only after the operator approves. Never attach a local file to a publish block, and never name a destination account."

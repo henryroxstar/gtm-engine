@@ -1,0 +1,67 @@
+usage: uv run python -m gtm_core.shots_lint [-h] [--rules]
+                                            [--voice-grade VOICE_GRADE]
+                                            [--voice-id VOICE_ID]
+                                            [--disclosure-line DISCLOSURE_LINE]
+                                            [--storyboard STORYBOARD]
+                                            [--no-schema] [--render-shotlist]
+                                            [path]
+
+Deterministic craft lint for a <slug>.shots.json (free, pre-render).
+
+positional arguments:
+  path                  Path to the shot list JSON (omit with --rules)
+
+options:
+  -h, --help            show this help message and exit
+  --rules               Print the plan-time rules this linter enforces, and
+                        their constants, then exit. Read-only and free.
+                        Callers RELAY this instead of restating it in prose —
+                        a hand-copied summary of the rule set is what went
+                        stale on 2026-08-28, so a script was written to a
+                        target the linter had already moved past.
+  --voice-grade VOICE_GRADE
+                        The brand kit's recorded clone grade for the engine
+                        that will actually render the spoken shots —
+                        identity.heygen_voice_grade for a HeyGen presenter,
+                        identity.voice_grade for a Higgsfield one. Two
+                        providers means two grades, and checking the wrong one
+                        is checking nothing. Omit to skip the check; pass an
+                        empty string to mean 'the kit was read and records no
+                        grade', which fails closed.
+  --voice-id VOICE_ID   The brand kit's identity.voice_id — the voice that
+                        will actually speak the [SPOKEN] lines. Omit to skip
+                        the check; pass an empty string to mean 'the kit was
+                        read and records no voice', which refuses any spoken
+                        line the render would leave silent. A shot list may
+                        answer for itself with a top-level `vo_source`.
+  --disclosure-line DISCLOSURE_LINE
+                        The brand kit's [disclosure].line — the EU AI Act Art.
+                        50 line the finished render will carry. A shot list's
+                        `synthetic_disclosure` DECLARES that line, so passing
+                        it here checks the declaration is the line rather than
+                        a handle kind or a paraphrase, before any render
+                        spend. Omit to skip the match; pass an empty string to
+                        mean 'the kit was read and configures no line', which
+                        fails closed.
+  --storyboard STORYBOARD
+                        The run's storyboard.json, which is the only place a
+                        still's delta-edit depth is recorded. Supplying it
+                        turns on the reference-depth warning for every shot
+                        carrying `reference_images`; omitting it leaves that
+                        rule inert rather than guessing. NOT auto-discovered
+                        from a sibling path on purpose — a lint whose verdict
+                        changes because an unrelated file happens to sit next
+                        to the input is not reproducible.
+  --no-schema           Skip conformance against shots.schema.json, which
+                        otherwise runs by DEFAULT. The default is the point:
+                        that schema declared itself this pipeline's contract
+                        and nothing ever ran it, so 11 of 14 committed shot
+                        lists had drifted off it unnoticed by 2026-09-03. An
+                        opt-in check is a check nobody opts into. Use this
+                        only to lint the craft rules on a document you already
+                        know is off-contract.
+  --render-shotlist     Also write `<name>.shotlist.md` beside the JSON: the
+                        phone-readable shot list the operator actually reads
+                        on set. Generated, never edited — nothing reads it
+                        back. A capture contract that exists only in JSON is
+                        one that does not reach the shoot.

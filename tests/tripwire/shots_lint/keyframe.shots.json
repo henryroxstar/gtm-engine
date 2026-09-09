@@ -1,0 +1,51 @@
+{
+  "source_item": "item-keyframe",
+  "total_duration_s": 17,
+  "style_scaffold": {
+    "look": "product studio, soft key, seamless backdrop",
+    "provider_model": "wan2_7",
+    "negative": "text artifacts, logos"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "locked-off, eye level",
+      "visual": "a machined brass dial on a walnut bench",
+      "motion_prompt": "slow push, settling",
+      "end_frame": "refs/shot-01-end.png",
+      "audio_bed": "room tone with a faint workshop hum"
+    },
+    {
+      "n": 2,
+      "duration_s": 5,
+      "role": "broll",
+      "camera": "static, three-quarter",
+      "visual": "the dial's face under a raking light",
+      "motion_prompt": "the needle sweeps from rest to full scale while the raking light warms and the shadow behind it shortens across the bench",
+      "end_frame": "refs/shot-02-end.png",
+      "audio_bed": "room tone with a faint workshop hum"
+    },
+    {
+      "n": 3,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "static, medium",
+      "visual": "the maker at the bench",
+      "motion_prompt": "she sets the dial down and looks up",
+      "end_frame": "refs/shot-03-end.png",
+      "spoken": "That is the whole mechanism."
+    },
+    {
+      "n": 4,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static, close",
+      "visual": "the dial's brass case on the bench",
+      "motion_prompt": "the lid lifts, then the contents settle",
+      "end_frame": "refs/shot-04-end.png",
+      "audio_bed": "room tone with a faint workshop hum"
+    }
+  ]
+}

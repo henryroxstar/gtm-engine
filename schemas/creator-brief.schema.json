@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/creator-brief.schema.json",
+  "title": "CreatorBrief",
+  "description": "The nine pre-spend decisions for one video run \u2014 Block C of the video brief template, keyed to a plan item and written to content/<active>/video/<script-slug>/brief.json BEFORE anything is generated. It is NOT the plan item's own `brief` field (that is what to say; this is how to make it) and it is NOT an approval step: the brief is produced under the existing Gate 1 envelope and there is no `brief` gate kind.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "item_id",
+    "script_slug",
+    "written_on",
+    "profile",
+    "decisions"
+  ],
+  "properties": {
+    "item_id": {
+      "type": "string",
+      "description": "ContentItem.id this brief governs, or a minted id for an ad-hoc piece. A field inside the brief, never part of its path \u2014 the path is the run folder."
+    },
+    "script_slug": {
+      "type": "string",
+      "description": "<YYYY-MM-DD>-<slug>, the run folder's name under content/<active>/video/. Mints the folder this brief is the first artifact of."
+    },
+    "written_on": {
+      "type": "string",
+      "description": "ISO-8601 date the brief was written."
+    },
+    "profile": {
+      "type": "string",
+      "description": "Active profile slug this brief is bound to."
+    },
+    "product": {
+      "type": "string",
+      "description": "Product slug, when the run is product-scoped."
+    },
+    "decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cover",
+        "outlier_structure",
+        "slot_schema",
+        "cheapest_medium",
+        "capture_mode",
+        "invariant",
+        "broll_list",
+        "sampling_curve",
+        "visual_hook"
+      ],
+      "description": "All nine are required. A brief missing one is refused at WRITE time rather than read time \u2014 a half-written brief that downstream skills read as complete is the failure this refusal exists for.",
+      "properties": {
+        "cover": {
+          "$comment": "decision 1 \u2014 the cover is designed BEFORE the content and binds framing, palette and headline.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subject",
+                "headline"
+              ],
+              "properties": {
+                "subject": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "headline": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "palette": {
+                  "type": "string"
+                },
+                "framing": {
+                  "type": "string"
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "outlier_structure": {
+          "$comment": "decision 2 \u2014 mine 3-5 outliers, extract the STRUCTURE, never the content.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "beats"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The named structure, committed to. A description is not a name."
+                },
+                "beats": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 2,
+                  "description": "Beat order only. Lifting an outlier's CONTENT is prohibited."
+                },
+                "sampled": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "slot_schema": {
+          "$comment": "decision 3 \u2014 the fixed per-modality slot set; coverage beats verbosity. Also decides the scene boundaries video-avatar cuts to.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "cheapest_medium": {
+          "$comment": "decision 4 \u2014 RECORDS what format-router and video_preflight already decided, and re-decides neither.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "chosen",
+                "reason"
+              ],
+              "properties": {
+                "chosen": {
+                  "type": "string",
+                  "enum": [
+                    "video",
+                    "carousel",
+                    "still",
+                    "text"
+                  ]
+                },
+                "considered": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "capture_mode": {
+          "$comment": "decision 5 \u2014 rendered or live_action. The shot list's own capture_mode must agree; gtm_core.creator_brief check fails closed on a contradiction. A story item (one whose plan item carries brief.protagonist) derives live_action with source=derived and the preflight's reason, per gtm_core.video_preflight.story_capture \u2014 filled and labelled, never asked.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": [
+                "rendered",
+                "live_action"
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "invariant": {
+          "$comment": "decision 6 \u2014 what stays constant across every shot, plus the aspect ratio chosen from what the composition must contain. Seeds style_scaffold.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "look",
+                "aspect_ratio"
+              ],
+              "properties": {
+                "look": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Carried into style_scaffold.look verbatim on every shot."
+                },
+                "aspect_ratio": {
+                  "type": "string",
+                  "enum": [
+                    "9:16",
+                    "4:5",
+                    "1:1",
+                    "16:9"
+                  ]
+                },
+                "negative": {
+                  "type": "string"
+                },
+                "elements": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Element-library slugs (C11) this run's invariant is carried by, rather than re-described in prose. Segment-safe names; validated in Python."
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "broll_list": {
+          "$comment": "decision 7 \u2014 selection IS the storytelling layer, so it is a planned list, not a scavenge.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "sampling_curve": {
+          "$comment": "decision 8 \u2014 N per shot, highest on the hook, declared BEFORE spend so the whole curve is priced against the cap at once (C5).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "per_shot",
+                "criterion"
+              ],
+              "properties": {
+                "per_shot": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "shot",
+                      "n"
+                    ],
+                    "properties": {
+                      "shot": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "n": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  }
+                },
+                "criterion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "How the winner is picked. Declared and recorded per render \u2014 a best-of-N with no declared criterion is refused rather than defaulting to 'first'."
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "visual_hook": {
+          "$comment": "decision 9 \u2014 the first frame as a SHOT SPEC, not a vibe. Distinct from the cover: same subject, different job.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subject",
+                "framing"
+              ],
+              "properties": {
+                "subject": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "framing": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "focus_plane": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string",
+                  "description": "The face in the first frame, written as muscles at a stated size: one region moving and how far, what holds still, and where the eyes go. An adjective ('amused', 'confident') names a category and not a size, so the render resolves the size from stock imagery and returns a reaction shot. Grammar and the per-beat registers: creator-brief/references/performance-lexicon.md. This is the hook frame only — every later beat carries its own expression on the shot list, where the refused vocabulary and the region ceiling are enforced."
+                },
+                "motion": {
+                  "type": "string"
+                },
+                "recognisable_element": {
+                  "type": "string",
+                  "description": "The familiar thing beside the novel one \u2014 recognition before beauty."
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance, inherited whole from the 2026-08-28 video brief template. A decision with a default is filled and labelled, never asked; the operator is asked only for a decision with no default. A brief that is complete because every field defaulted is legal and SAYS SO \u2014 that is what stops an all-default brief from reading as if someone decided."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "The provenance enum is INLINED on all nine decisions rather than shared through $defs: gtm_core.minischema \u2014 the validator this schema actually runs through \u2014 ignores $ref entirely, so a shared definition would read as enforced and enforce nothing. Same reason shots.schema.json declines maxItems."
+}

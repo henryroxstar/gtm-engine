@@ -1,0 +1,61 @@
+# packs/creator/graphs/repurpose-clips.toml
+#
+# The repurpose lane (Phase 10). Same pack
+# as short-form-video, a second variant — pack-layer only, zero engine change, same idiom as
+# marketing's linkedin-post / long-form-blog / case-study siblings.
+#
+# WHY A SEPARATE LANE, NOT A NODE ON THE EXISTING GRAPH. Different economics: scripted (the
+# existing variant) spends a full render per asset; repurposing amortizes ONE create_clips run
+# over up to 20 clips — the lowest marginal cost per asset in this pack. That's a different shape
+# (clip → score → publish, no script/render nodes), not a parameter on the same one.
+#
+# NO RADAR NODE, since 2026-08-20. This lane starts from footage the operator already HAS, so
+# there is no signal to discover — the same reasoning restyle-shorts.toml has always carried, and
+# the same reason its first node is the plan gate itself. Opening this lane with a news scan made
+# the operator sit through a discovery step they did not ask for, on the way to the cheapest and
+# highest-quality lane in the pack. Do not re-add it "for consistency".
+#
+# THIS IS NOW THE PRIMARY LANE. Real footage clears the quality bar by construction, costs Reap
+# credits rather than generation credits, and carries no EU AI Act Art. 50 disclosure duty because
+# nothing is synthesised.
+#
+# THE PREDICTOR DOES NOT RUN HERE (repointed to Reap, Phase D). §5.8's original reasoning —
+# render spend already sunk, so ranking is pure selection and a vendor predictor is least
+# uncertain about rank order — assumed a Higgsfield-id clip. A Reap clip id is a different
+# provider's id space and will not resolve on Higgsfield's virality_predictor (same unresolvable-
+# id handling as video-score's Step 1, and the same reason demo-clips.toml's score node never
+# runs it either). This lane ranks on retention-rubric Part A alone; say so in the report rather
+# than treating a skipped predictor as a defect.
+
+pack = "creator"
+variant = "repurpose-clips"
+
+[[nodes]]
+id = "plan"
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Run the content-plan skill for the repurpose lane. At this gate, get from the operator: the source footage — EITHER a local file under the content root (preferred; video-clip uploads it through gtm_core.reap_upload) OR a public sourceUrl — the clip count per source (1-20), and how many of the resulting clips should ship (top N). Do not ask the operator to upload their own recording to a public host first; that detour is what the local path removes. Present for approval."
+
+[[nodes]]
+id = "clip"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "video-clip"
+prompt = "Run the video-clip skill on the approved source URL(s) and clip count. This node holds the spend decision (unit-count cap precheck via month-units, the create_clips two-step confirm, and writing the cost row the instant the job is confirmed submitted since Reap has no balance/get_cost tool at all) — stay on brain_plan. Warn before spending if a URL does not look like the tenant's own channel."
+
+[[nodes]]
+id = "score"
+depends_on = ["clip"]
+model_role = "brain_radar"
+skill = "video-score"
+prompt = "Run the video-score skill in triage mode across the full clip set. The virality predictor will NOT resolve a Reap clip id (different provider id-space) — rank on retention-rubric Part A alone as the selection lens, per video-score's own documented handling of an unresolvable id, and say so in the report rather than re-rendering to manufacture a resolvable id. Recommend the top N named at the plan gate; archive the rest in render-clips.json with their scores, never delete them."
+
+[[nodes]]
+id = "publish"
+depends_on = ["score"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Stage the top-ranked clip's caption as the LinkedIn text post — content-publish is text-only, same as a carousel's caption; the clip file itself is posted manually by the operator (say so in the report). Publishing is not a capability the brain holds: the exact bytes go inside the publish gate block and Python makes the call only after the operator approves. Never attach the video file as media, and never name a destination account."

@@ -1,0 +1,48 @@
+# Hook bank — replace the example below with your proven angles.
+#
+# Rules:
+#   - `id` is permanent. Once an outcome row references hook:<id>, the id is immutable.
+#   - `status` is candidate | test | proven | banned. Candidates never enter rotation.
+#   - `opening_beats` holds one variant per format you want this hook to render.
+#   - `max_impressions` + `fatigue_window_days` auto-exclude a hook from rotation when hit.
+#   - Add banned stems/angles under [banned] and hooks_lint will enforce them.
+
+[[hook]]
+id = "example-augmentation"
+angle = "AI that replaces judgment is a bad trade"
+payoff_promise = "AI that hands you back your time to use your judgment"
+proof_required = ["example", "reframe", "number"]
+formats = ["linkedin-text", "carousel", "reel", "short"]
+tone = "hostile-expert"
+max_impressions = 50000
+fatigue_window_days = 45
+created_at = "2026-08-16"
+status = "test"
+pillar = "product"
+goal = "reach"
+
+[[hook.opening_beats]]
+format = "linkedin-text"
+variant = "A"
+text = "AI that replaces judgment is a bad trade."
+
+[[hook.opening_beats]]
+format = "reel"
+variant = "A"
+video = "cold open: founder at desk, phone down, looks at camera"
+text = "AI that replaces judgment is a bad trade."
+
+[[hook.opening_beats]]
+format = "carousel"
+variant = "A"
+image = "cover card: split headline + face, teal accent"
+
+[[hook.opening_beats]]
+format = "short"
+variant = "A"
+video = "cold open: founder at desk, phone down, looks at camera"
+text = "AI that replaces judgment is a bad trade."
+
+[banned]
+stems = ["just use AI", "game-changer"]
+angles = ["AI will replace you"]

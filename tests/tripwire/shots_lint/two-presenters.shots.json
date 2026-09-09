@@ -1,0 +1,25 @@
+{
+  "source_item": "item-two",
+  "total_duration_s": 8,
+  "style_scaffold": {"look": "editorial monochrome", "provider_model": "wan2_7"},
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "static, eye level",
+      "visual": "office, she looks at the laptop",
+      "motion_prompt": "she closes the laptop and looks up toward the window",
+      "audio_bed": "room tone under the whole beat"
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "handheld, medium",
+      "visual": "office, she stands",
+      "motion_prompt": "she stands and walks out of frame to the left",
+      "audio_bed": "room tone with a chair scrape"
+    }
+  ]
+}

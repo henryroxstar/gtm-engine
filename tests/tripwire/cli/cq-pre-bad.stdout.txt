@@ -1,0 +1,20 @@
+{
+  "proceed": false,
+  "blocking": [
+    "pillar 'nope' not in profile content_pillars: ['agent-identity', 'evidence-trail']"
+  ],
+  "warnings": [
+    "hook_id 'widget-99' not found in the hook bank",
+    "no platform playbook found for 'tiktok'",
+    "brief.audience is not a named persona from icp-personas.md"
+  ],
+  "checks": {
+    "hook_id_in_matrix": false,
+    "pillar_valid": false,
+    "platform_playbook_present": false,
+    "audience_persona_named": false,
+    "voice_bans_present": true,
+    "video_disclosure_configured": null,
+    "budget_ok": true
+  }
+}

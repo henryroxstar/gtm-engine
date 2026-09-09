@@ -1,0 +1,63 @@
+
+dirty.slides.md
+  ! [D10 deck is dense] deck: 88 words/slide average across 7 slides
+      → target 80 — a deck that averages more than this is a document being read aloud
+  ✗ [D2 too few questions] deck: 2 questions in the deck
+      → at least 3, dispersed — a deck that never asks anything is a broadcast, not a qualification instrument
+  ! [D2 no question bank] deck: no --dossier supplied
+      → pass the account dossier so on-slide questions can be checked against its question bank
+  ✗ [D6 over slide budget] deck: 7 slides for a 20-minute meeting
+      → 5 maximum — cut or merge. Most of the meeting should be theirs
+  ! [D7 deck is text] deck: 1 visual slides of 7
+      → at least one visual per five slides
+  ✗ [D10 under-explained] slide 1: 4 words, no diagram
+      → under 22 words with nothing structural on the slide — a headline over a background is not an explanation. Draw the argument (FlowSequence / ScopeMap / GateFunnel / ReuseTrack / ProofContrast) or put the substance back
+  ✗ [D1 banner count] slide 2: 2 banners
+      → one banner per slide — the second one is what clips off the canvas
+  ! [D1 banner length] slide 2: FIRST BANNER PUNCHES ABOVE ITS WEIGHT AND THEN KEEPS GOING UNTIL THE L…
+      → 192 chars — a punch banner is uppercase and wraps at ~70; past 180 it takes three lines and eats the margin
+  ! [D1 over budget] slide 2: ~40 lines against a 21-line cover budget
+      → cut copy or split the slide — v-click hides content but keeps its box, so clicks do not buy space. Confirm with scripts/deck_fit_probe.mjs
+  ✗ [D10 wall of words] slide 2: 452 words
+      → over 90 — nobody reads this while you are talking. Move the explanation into the presenter notes and leave the claim, or route the content to a component that carries it
+  ! [D7 wall of prose] slide 2: ~40 text lines
+      → give it something to look at — route the content shape to a component (a sequence → FlowTrack, layers → StackDiagram, before/after → DuoGrid, a record → TerminalWindow). See references/slide-library.md
+  ✗ [D2 stacked questions] slide 4: 2 questions
+      → one question per slide — a list of questions reads as an interrogation
+  ✗ [D2 questions on the CTA] slide 4: Who signs the purchase order for a new gateway this quarter?…
+      → move it to the slide whose claim it tests — the ask slide proposes, it does not interrogate
+  ✗ [D5 no presenter note] slide 5: 6 chars of notes
+      → every slide carries how to deliver it, what not to say, and the fallback if challenged — a slide with no note is unfinished
+  ✗ [D6 appendix] slide 5: Appendix
+      → no appendix by default — keep a trigger index in the account folder to pull up on demand instead
+  ! [D8 class with no rule] slide 5: .foo-bar
+      → no scoped rule and not a theme class — it renders as unstyled text
+  ! [D8 unused rule] slide 5: .unused-rule
+      → styled but never applied — leftover from an earlier revision
+  ✗ [D8 unknown component] slide 5: <Widget>
+      → not in the deck-theme catalog — it will render as nothing
+  ✗ [D8 unknown layout] slide 5: bogus
+      → pick one of: chapter, cover, default, end, handoff, pillars, statement, two-pane
+  ! [D7 image is doing the explaining] slide 6: background image, no visual component
+      → a generated image can restate a headline; it cannot explain a mechanism. Draw the structure instead (a crossing → FlowSequence, two spans → ScopeMap, a constriction → GateFunnel, reuse vs rebuild → ReuseTrack, self-attested vs verifiable → ProofContrast) and keep the image for chapter dividers
+  ! [D10 over word budget] slide 7: 60 words against a 55-word budget
+      → trim to the claim — the argument belongs in the notes, not on the slide
+
+  Questions are on: 04
+    check this against the deck's approved-questions register and any 'questions are on …' line in the frontmatter or notes
+
+theme-bad
+  ✗ [D9 print guard missing] deck: theme-bad/styles/slidev-overrides.css
+      → styles/slidev-overrides.css must define `html.deck-export { --card-blur: none; }` — every component's backdrop-filter routes through that token to survive export
+  ✗ [D9 keyframes ends non-none filter] deck: @keyframes fade-in in components/Glow.vue
+      → Chromium keeps a compositing layer alive for any explicit filter value, including blur(0) — end the keyframe on `filter: none`, not `blur(0)`
+  ✗ [D9 hardcoded backdrop-filter] deck: .card in components/Glow.vue
+      → route through var(--card-blur) so html.deck-export can neutralize it — a literal blur() value survives export and rasterizes
+  ✗ [D9 unguarded filter] deck: .glow in components/Glow.vue
+      → no vector PDF equivalent — either hide this element under html.deck-export in slidev-overrides.css and add its classname to GUARDED_AMBIENT_CLASSES, add it to PHOTO_BOUND_CLASSES if it's applied to an already-rasterized background photo, or explain in a comment why this one is safe
+  ! [D9 unguarded gradient text] deck: .title in components/Glow.vue
+      → background-clip:text has no vector PDF equivalent — add the classname to the print-mode fallback in slidev-overrides.css (see .gt / .gradient-text), unless it's small enough that the raster cost doesn't matter (a badge, not a headline)
+
+  D1 is an estimate — scripts/deck_fit_probe.mjs measures the real canvas and
+  is the tiebreaker. A rule that is genuinely wrong about a slide can be
+  suppressed with <!-- lint-ok D4: reason --> inside that slide.
