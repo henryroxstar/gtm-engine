@@ -48,7 +48,7 @@ id = "video-script"
 depends_on = ["format-plan"]
 model_role = "brain_plan"
 skill = "video-script"
-prompt = "Run the video-script skill for the active profile. Process only plan items whose `modal_family` is `video` (format: reel, short). For each item, write the shot-by-shot script, save it, run the composite hook_score gate, and refuse to hand off any item that scores low/uncertain. If the source material suggests an existing-footage lane, note the hand-off to video-router rather than scripting from scratch. This node is NOT a gate, so video-router runs here with no operator to answer its lane menu: it must never present the menu, must take the preflight's `default_lane` when the item names no lane, and must fail this node with the reported blockers if the preflight exits 2 rather than choosing a blocked lane."
+prompt = "Run the video-script skill for the active profile. Process only plan items whose `modal_family` is `video` (format: reel, short). For each item, write the shot-by-shot script, declare caption_function on narrative captions, run checks 1a/1b/7, save it, run the composite hook_score gate, and refuse to hand off any item that scores low/uncertain. When executing video generation from an approved cross-modal hook, route through Door 2 ('Create from an idea') using the default preset brief or the preflight's `default_lane`. If the source material explicitly supplies a recording, route through Door 1 ('I have footage'). This node is NOT a gate: it takes the preflight route recommendation without presenting an interactive menu, and fails closed if the lane is blocked."
 
 [[nodes]]
 id = "publish"

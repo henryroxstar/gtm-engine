@@ -171,10 +171,13 @@ def test_run_final_asset_and_sidecars(outcomes):
     _assert_aac(final, rate="96000", duration=3.1, tol=0.2)
     assert got.artifact("finish-9x16.json")["kind"] == "text"
     assert got.artifact("captions.json")["kind"] == "text"
+    # #2: `run` now saves the spec it was given beside the manifest, for the documented replay
+    # path (video-finish/body_template.md's `--spec finish-spec-<ratio>.json`).
+    assert got.artifact("finish-spec-9x16.json")["kind"] == "text"
     for i in range(3):
         png = got.artifact(f"_work/captions/caption_{i:02d}.png")
         assert (png["size"], png["mode"]) == ([1080, 1920], "RGBA")
-    assert len(got.artifacts) == 6
+    assert len(got.artifacts) == 7
 
 
 def test_run_refuses_an_unsafe_profile_but_tracebacks_on_a_missing_kit(outcomes):
@@ -310,8 +313,8 @@ def test_stitch(outcomes):
     )
     too_long = outcomes["vf-stitch-crossfade-too-long"]
     assert too_long.stderr.rstrip().endswith(
-        "video-finish: requested crossfade_s=5.0s requires each segment to be at least 10.0s, "
-        "but the shortest normalized segment is 2.000s"
+        "video-finish: requested crossfade_s=5.0s requires each adjacent segment to be at least 10.0s, "
+        "but normalized segment 0 is 3.000s"
     )
     assert f"{OUT}/vf-stitch-crossfade-too-long/master.mp4" not in too_long.artifacts
 

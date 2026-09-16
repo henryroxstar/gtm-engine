@@ -1,4 +1,11 @@
-"""Host-pinned, same-turn-bound PUT uploader for Reap Video Studio (§R6 egress exception).
+"""Host-pinned, same-turn-bound PUT uploader for provider pre-signed URLs — Reap Video Studio and
+HeyGen assets (§R6 egress exception).
+
+The module keeps its original name because the egress allowlists (semgrep, the urllib import
+contract test, CLAUDE.md §Egress) key on the path. HeyGen was added 2026-09-14 (operator-approved):
+its ``create_asset_upload`` MCP tool mints a pre-signed S3 PUT URL and, like Reap, has no tool
+that performs the PUT itself, so screenshots meant as Video Agent inputs could not leave the
+machine. Same containment, same module — not a second HTTP client.
 
 WHY THIS EXISTS
 ---------------
@@ -65,7 +72,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from gtm_core.paths import resolve_content_root
+from gtm_core.paths import _safe_segment, resolve_content_root
 
 # ── the security boundary ────────────────────────────────────────────────────────
 # Hardcoded on purpose. Adding a host here is a boundary change: update CLAUDE.md (§Egress) in
@@ -80,10 +87,24 @@ from gtm_core.paths import resolve_content_root
 # Until this was populated the module shipped empty and fail-closed, which meant the ONLY local
 # ingest path in the repo raised EgressRefused on its first PUT — so the operator's own footage
 # could never leave the machine. That was the deeper of the two blockers on the real-footage lane.
+#
+# HeyGen's bucket was confirmed live 2026-09-14 the same way: read out of the `upload_url` that
+# HeyGen's own `create_asset_upload` MCP tool minted. Also bucket-scoped — on an S3 transfer-
+# acceleration endpoint the leftmost label IS the bucket — and distinct from the READ-side
+# `heygen-product` bucket pinned in media_fetch.py, so neither pin implies the other.
 ALLOWED_UPLOAD_HOSTS: frozenset[str] = frozenset(
     {
         "reap-user-upload-bkt-prod.s3-accelerate.amazonaws.com",
+        "heygen-resources-prod.s3-accelerate.amazonaws.com",
     }
+)
+
+#: Headers a provider's tool result may ask the PUT to carry. HeyGen signs the upload with
+#: ``content-type`` and ``x-amz-server-side-encryption`` in ``X-Amz-SignedHeaders``, so omitting
+#: either is a 403. Anything else — above all an auth, cookie or credential header — is refused
+#: rather than forwarded: the signed URL stays the only credential this module ever sends.
+PASSTHROUGH_UPLOAD_HEADERS: frozenset[str] = frozenset(
+    {"content-type", "x-amz-server-side-encryption"}
 )
 
 MAX_BYTES = 2 * 1024 * 1024 * 1024  # 2GB — a raw screen recording, generously capped
@@ -155,16 +176,53 @@ def _signed_content_type(url: str) -> str:
     return q.get("content-type", ["application/octet-stream"])[0]
 
 
+def _heygen_headers(raw_headers: object) -> dict[str, str]:
+    """Validate HeyGen's ``upload_headers`` against PASSTHROUGH_UPLOAD_HEADERS. Refuses — never
+    drops — an unexpected header name, because a silently dropped signed header is a 403 and a
+    silently forwarded credential header is the leak this module exists to prevent."""
+    if raw_headers is None:
+        return {}
+    if not isinstance(raw_headers, dict):
+        raise EgressRefused("tool result 'upload_headers' must be a JSON object")
+    headers: dict[str, str] = {}
+    for name, value in raw_headers.items():
+        if not isinstance(name, str) or name.lower() not in PASSTHROUGH_UPLOAD_HEADERS:
+            raise EgressRefused(
+                f"refusing upload header {name!r} — only "
+                f"{', '.join(sorted(PASSTHROUGH_UPLOAD_HEADERS))} may be forwarded"
+            )
+        if not isinstance(value, str) or not value:
+            raise EgressRefused(f"upload header {name!r} must be a non-empty string")
+        headers[name.lower()] = value
+    return headers
+
+
 def parse_tool_result(raw: str) -> dict:
-    """Parse the RAW JSON ``request_upload_url`` returned. Refuses anything not matching the
-    documented ``{uploadUrl, id, fileName}`` shape — never accepts a bare URL string, which
-    would strip the structural guarantee that this came from the tool call itself."""
+    """Parse the RAW JSON a provider's upload-minting tool returned. Two documented shapes:
+    Reap ``request_upload_url`` → ``{uploadUrl, id, fileName}``, and HeyGen
+    ``create_asset_upload`` → ``{asset_id, upload_url, upload_headers, ...}``. HeyGen's is
+    normalized onto Reap's keys (plus ``headers``) so ``upload()`` has one path. Never accepts a
+    bare URL string, which would strip the structural guarantee that this came from the tool
+    call itself."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise EgressRefused(f"tool result is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise EgressRefused("tool result must be a JSON object, not a bare URL or string")
+    if "uploadUrl" not in data and "upload_url" in data:
+        upload_url = data.get("upload_url")
+        if not isinstance(upload_url, str) or not upload_url:
+            raise EgressRefused("tool result is missing a non-empty 'upload_url' field")
+        asset_id = data.get("asset_id")
+        if not isinstance(asset_id, str) or not asset_id:
+            raise EgressRefused("tool result is missing a non-empty 'asset_id' field")
+        return {
+            "uploadUrl": upload_url,
+            "id": asset_id,
+            "fileName": None,
+            "headers": _heygen_headers(data.get("upload_headers")),
+        }
     upload_url = data.get("uploadUrl")
     if not isinstance(upload_url, str) or not upload_url:
         raise EgressRefused("tool result is missing a non-empty 'uploadUrl' field")
@@ -216,15 +274,29 @@ def upload(
     Raises :class:`EgressRefused` on any confinement violation — host, shape, staleness, or
     source-file location/size — before a single byte is sent.
     """
-    root = content_root if content_root is not None else resolve_content_root()
+    # Default root is the PROFILE's tree, resolved — the same shape media_fetch.py uses. Resolving
+    # only `content/` broke on a profile directory that is itself a symlink (content/<p> → a
+    # synced drive): the source resolved through the link and was refused as outside `content/`.
+    # It is also the narrower boundary: one tenant's upload cannot read another tenant's files.
+    if content_root is not None:
+        root = content_root
+    else:
+        try:
+            root = (resolve_content_root() / _safe_segment(profile, "profile")).resolve()
+        except ValueError as exc:
+            raise EgressRefused(str(exc)) from exc
     source = _safe_source(Path(file_path), content_root=root)
     result = parse_tool_result(tool_result_raw)
     url = _check_url(result["uploadUrl"])
     _check_signature_freshness(url, now=now)
 
+    headers = result.get("headers") or {}
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, method="PUT", data=source.read_bytes())
-    request.add_header("Content-Type", _signed_content_type(url))
+    request.add_header("Content-Type", headers.get("content-type") or _signed_content_type(url))
+    for name, value in headers.items():
+        if name != "content-type":
+            request.add_header(name, value)
     with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
         status = response.status
 

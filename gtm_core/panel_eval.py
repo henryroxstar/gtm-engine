@@ -301,3 +301,100 @@ def write_key(key: dict[int, str], path: Path) -> Path:
     """Persist the slot->condition key. Keep this file away from the judges."""
     path.write_text(json.dumps({str(k): v for k, v in sorted(key.items())}, indent=2) + "\n")
     return path
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI for the avatar panel: build-sheet and score."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(prog="gtm_core.panel_eval")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # build-sheet
+    sp_build = sub.add_parser("build-sheet", help="build a shuffled blind evaluation sheet")
+    sp_build.add_argument(
+        "--clips",
+        required=True,
+        type=Path,
+        help="JSON file containing list of clips [{'clip_id': ..., 'condition': ...}]",
+    )
+    sp_build.add_argument("--salt", required=True, help="deterministic salt for shuffling")
+    sp_build.add_argument(
+        "--out-sheet",
+        type=Path,
+        default=None,
+        help="output markdown file for the sheet (default: stdout)",
+    )
+    sp_build.add_argument(
+        "--out-key", type=Path, default=None, help="output json file to save the private key"
+    )
+
+    # score
+    sp_score = sub.add_parser("score", help="score judge responses against pre-registered bars")
+    sp_score.add_argument(
+        "--sheet",
+        required=True,
+        type=Path,
+        help="JSON file containing the sheet clips with slots assigned",
+    )
+    sp_score.add_argument(
+        "--judgements",
+        required=True,
+        type=Path,
+        help="JSON file containing judgements [{'judge_id': ..., 'slot': ..., 'called_real': ..., 'naturalness': ..., 'tell': ...}]",
+    )
+    sp_score.add_argument(
+        "--json", action="store_true", help="output verdict as JSON instead of text"
+    )
+
+    args = parser.parse_args(argv)
+
+    try:
+        if args.cmd == "build-sheet":
+            clips_raw = json.loads(args.clips.read_text(encoding="utf-8"))
+            clips = [Clip(**c) for c in clips_raw]
+            sheet, key = build_sheet(clips, salt=args.salt)
+            rendered = render_sheet(sheet)
+            if args.out_sheet:
+                args.out_sheet.write_text(rendered, encoding="utf-8")
+            else:
+                print(rendered)
+            if args.out_key:
+                write_key(key, args.out_key)
+            return 0
+
+        if args.cmd == "score":
+            sheet_raw = json.loads(args.sheet.read_text(encoding="utf-8"))
+            sheet = [Clip(**c) for c in sheet_raw]
+            judgements_raw = json.loads(args.judgements.read_text(encoding="utf-8"))
+            judgements = [Judgement(**j) for j in judgements_raw]
+            verdict = score_panel(sheet, judgements)
+            if args.json:
+                print(json.dumps(verdict.to_json(), indent=2))
+            else:
+                status = "PASS" if verdict.passed else "KILL"
+                print(f"Panel Verdict: {status}")
+                print(f"Judges: {verdict.judges}")
+                if verdict.real_rate is not None:
+                    print(f"Real Rate: {verdict.real_rate:.1%}")
+                if verdict.mean_naturalness is not None:
+                    print(f"Mean Naturalness: {verdict.mean_naturalness:.2f}")
+                if verdict.dominant_tell is not None:
+                    print(
+                        f"Dominant Tell: {verdict.dominant_tell[0]} ({verdict.dominant_tell[1]:.1%})"
+                    )
+                if verdict.reasons:
+                    print("\nReasons:")
+                    for r in verdict.reasons:
+                        print(f"  - {r}")
+            return 0 if verdict.passed else 1
+    except (PanelError, OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,19 +1,10 @@
 ---
 name: campaign-plan
 description: >-
-  Build or refresh an executive-facing outbound program plan — a scaled, staged cross-org
-  campaign grounded in the live prospect pipeline, current market signals, and the profile's
-  ICP/scoring rubric. Use this skill when the user says "build the campaign plan", "outbound
-  program plan", "plan the outbound campaign", "refresh the campaign plan", "exec plan for the
-  prospecting program", "present the outbound program to execs", or "how many SQLs from this
-  program". Reads content/<active>/prospects/latest.json (pipeline density, tiers, heat, geo),
-  the most recent market-signals snapshot, market-scan-config, and the profile's
-  outbound-program-defaults + industry packs; produces a markdown plan (source of truth) plus
-  a self-contained, theme-aware HTML exec companion. Chooses the campaign's **message
-  portfolio** — which arguments run, drawn from the profile's hook-matrix cells, and which
-  persona cohort each is assigned to — so the message is a plan decision rather than whatever
-  the first sequence spec happens to say. North-star metric is SQLs; every send stays
-  human-gated — this skill plans, it never sends.
+  Build or refresh an executive-facing outbound campaign plan grounded in live prospect data,
+  market signals, and message portfolios. Trigger when the user says "build the campaign
+  plan", "outbound program plan", "plan the outbound campaign", "refresh the campaign plan",
+  or "present the outbound program to execs".
 metadata:
   version: "0.5.0"
   phase: "4"

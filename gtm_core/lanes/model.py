@@ -58,6 +58,20 @@ HOLD_ORDER = (
 #: a destination and must not be routed into a second one.
 EXCLUDE_ORDER = ("suppressed", "optout", "already-enrolled", "competitor-direct")
 
+#: Protective hold triggers that protect sensitive accounts/people (prior contact,
+#: negative reply, active conversation, regulator, competitor). These may never be
+#: automated via [auto] policy rules (PS-R I5) and may not be overwritten by duplicate-contact (PS-R I6).
+PROTECTIVE_HOLD_TRIGGERS: frozenset[str] = frozenset(
+    {
+        "competitor-adjacent",
+        "regulator",
+        "prior-contact",
+        "negative-reply",
+        "engaged-account",
+        "duplicate-contact",
+    }
+)
+
 #: Plain-English title per hold trigger, plus what each of the three choices does FOR THAT
 #: REASON. The meaning shifts by reason, so the sheet spells it out every time rather than
 #: once at the top.
@@ -160,6 +174,83 @@ HOLD_COPY: dict[str, tuple[str, dict[str, str]]] = {
     ),
 }
 
+#: Which QUESTION a hold trigger answers, for the hold sheet (PS12). Several triggers with
+#: near-identical suppress/generic/salvage meanings ask the operator the SAME question, so
+#: the sheet groups by question rather than by the trigger id that happened to fire —
+#: ``account-off-limits`` covers four different list matches that all reduce to "should this
+#: account get automated outreach at all?". Every ``HOLD_ORDER`` trigger maps to exactly one
+#: question; a trigger with no natural sibling maps to its own question.
+HOLD_QUESTION: dict[str, str] = {
+    "competitor-adjacent": "account-off-limits",
+    "partner": "account-off-limits",
+    "regulator": "account-off-limits",
+    "strategic-account": "account-off-limits",
+    "prior-contact": "already-in-conversation",
+    "negative-reply": "already-in-conversation",
+    "engaged-account": "already-in-conversation",
+    "judge-account-scope": "verdict-said-no",
+    "researcher-drop": "verdict-said-no",
+    "untraceable-number": "number-not-grounded",
+    "tier-a-generic": "tier-a-would-get-generic",
+    "duplicate-contact": "second-contact-same-account",
+}
+
+#: Plain-English title + per-choice meaning per QUESTION id (not per trigger) — adapted from
+#: :data:`HOLD_COPY`, merging the triggers :data:`HOLD_QUESTION` groups together into one
+#: shared meaning so the sheet asks the question once per group instead of once per trigger.
+QUESTION_COPY: dict[str, tuple[str, dict[str, str]]] = {
+    "account-off-limits": (
+        "This account is on an off-limits list (competitor, partner, regulator, or strategic)",
+        {
+            "suppress": "keep it out of automated outreach (reversible)",
+            "generic": "send the seat email anyway",
+            "salvage": "re-aim it — partnership motion, hand-written 1:1, or a different "
+            "angle — say which in the note",
+        },
+    ),
+    "already-in-conversation": (
+        "There is already a relationship signal here — a prior email, a 'no', or an open "
+        "conversation",
+        {
+            "suppress": "honour it — keep this address/account out of cold outreach (reversible)",
+            "generic": "send the seat email anyway (not recommended after a negative reply)",
+            "salvage": "follow up in context instead — say what changed, or who owns it",
+        },
+    ),
+    "verdict-said-no": (
+        "The review or the researcher already advised against emailing this row",
+        {
+            "suppress": "agree with the recommendation (reversible)",
+            "generic": "disagree — send the seat email",
+            "salvage": "re-research or re-argue — say the better fact, argument, or person",
+        },
+    ),
+    "number-not-grounded": (
+        "The email cites a number no case study backs",
+        {
+            "suppress": "not applicable — fix the copy, do not lose the account",
+            "generic": "send the seat email without the number",
+            "salvage": "fix the number in the spec, then re-check — say the source",
+        },
+    ),
+    "tier-a-would-get-generic": (
+        "A Tier-A account would get the standard email",
+        {
+            "suppress": "keep it out of the standard sequence (reversible)",
+            "generic": "the seat email is fine for this account",
+            "salvage": "write a 1:1 instead, or name a better fact",
+        },
+    ),
+    "second-contact-same-account": (
+        "A second person at this account is already in this wave",
+        {
+            "suppress": "one person per account — drop this one (reversible)",
+            "generic": "email both (not recommended)",
+            "salvage": "swap: this person, not the first — say why",
+        },
+    ),
+}
+
 
 @dataclass
 class Routed:
@@ -178,10 +269,31 @@ class Routed:
     source: str = ""  # which records file the judge verdict came from
     decided: str = ""  # a prior decision or policy that was applied, if any
     flags: list[str] = field(default_factory=list)  # "ambiguous-judge", "contested", ...
+    #: A stable code for WHICH VERDICT BRANCH decided this row's lane, filled only when the
+    #: row never fired a hold/exclude trigger — see ``stable_reason`` below, which is what
+    #: everything downstream should read. Never read this field directly.
+    reason_code: str = ""
 
     @property
     def email(self) -> str:
         return (self.row.get("email") or "").strip().lower()
+
+    @property
+    def stable_reason(self) -> str:
+        """A short, stable reason code for this row — PS5.
+
+        Every routed row earns one: the ``trigger`` when a hold/exclude trigger fired (a
+        decided row stamps ``<choice>:<trigger>`` so a policy/ledger answer is visibly
+        distinct from a fresh hold), else the verdict-branch code ``router._verdict_lane``
+        (or the stickiness override) assigned. Unlike ``.reason`` below — the composed
+        ``lane_reason`` display string — this is meant to be joined on and compared, so it
+        never carries the free-text ``detail``.
+        """
+        if self.decided:
+            parts = self.decided.split(":", 2)
+            if len(parts) == 3 and parts[1] and self.trigger:
+                return f"{parts[1]}:{self.trigger}"
+        return self.trigger or self.reason_code
 
     @property
     def reason(self) -> str:

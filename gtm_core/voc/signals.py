@@ -144,6 +144,58 @@ class SignalValidationError(ValueError):
     """A signal record failed schema validation."""
 
 
+#: Shown for a rejected record whose ``id`` is itself missing or not a string — the reject still
+#: has to be findable in the file, which is what ``SignalReject.index`` is for.
+UNKNOWN_ID = "<no id>"
+
+
+@dataclass(frozen=True)
+class SignalReject:
+    """One record that did not validate, and why.
+
+    ``index`` is its position in the JSON array, because a record whose ``id`` is the broken
+    field cannot be located by id.
+    """
+
+    index: int
+    id: str
+    error: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class LoadReport:
+    """What a signal file actually contained: what validated, what did not, and why.
+
+    ``file_error`` is set when the file itself is unusable (missing, unreadable, not a JSON
+    array) — distinct from a readable file whose records failed, which yields ``rejects``.
+    """
+
+    records: list[SignalRecord]
+    rejects: list[SignalReject]
+    file_error: str | None = None
+
+    @property
+    def total(self) -> int:
+        """Records found in the file — validated plus rejected."""
+        return len(self.records) + len(self.rejects)
+
+    @property
+    def ok(self) -> bool:
+        return self.file_error is None and not self.rejects
+
+
+def _raw_id(item: object) -> str:
+    """Best-effort id for a record that failed to build."""
+    if isinstance(item, dict):
+        raw = item.get("id")
+        if isinstance(raw, str) and raw.strip():
+            return raw
+    return UNKNOWN_ID
+
+
 def _validate(signal: SignalRecord) -> None:
     """Raise ``SignalValidationError`` if *signal* violates the schema."""
     errors: list[str] = []
@@ -332,28 +384,49 @@ def load_content_signals(path: Path) -> list[dict]:
     return out
 
 
-def load(path: Path) -> list[SignalRecord]:
-    """Read a signal file. Missing or unreadable file → empty list."""
+def load_reporting(path: Path) -> LoadReport:
+    """Read a signal file, keeping BOTH the records that validated and the ones that did not.
+
+    ``load`` throws the rejects away, which is right for the read path and wrong for a gate:
+    a caller that only ever sees survivors cannot tell a clean 70-record file from a 76-record
+    file with 6 errors in it. Every reason a record or a file is unusable surfaces here, so
+    ``--validate`` can report it instead of re-implementing the loop.
+    """
     if not path.is_file():
-        return []
+        return LoadReport([], [], f"no such file: {path}")
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
-        return []
+    except OSError as exc:
+        return LoadReport([], [], f"unreadable: {exc}")
     try:
         data = json.loads(text)
-    except ValueError:
-        return []
+    except ValueError as exc:
+        return LoadReport([], [], f"not valid JSON: {exc}")
     if not isinstance(data, list):
-        return []
-    out: list[SignalRecord] = []
-    for item in data:
+        return LoadReport([], [], f"expected a JSON array of records, got {type(data).__name__}")
+    records: list[SignalRecord] = []
+    rejects: list[SignalReject] = []
+    for index, item in enumerate(data):
         try:
-            out.append(from_dict(item))
-        except SignalValidationError:
-            # A malformed line in a hand-edited file must not crash the issue.
-            continue
-    return out
+            records.append(from_dict(item))
+        # ValueError covers SignalValidationError; TypeError covers the coercions in from_dict
+        # (``int(raw["decay_days"])`` on a list, say). A malformed record in a hand-edited file
+        # must not crash the issue — including when it is malformed in a way the schema checks
+        # never reach.
+        except (ValueError, TypeError) as exc:
+            rejects.append(SignalReject(index=index, id=_raw_id(item), error=str(exc)))
+    return LoadReport(records, rejects)
+
+
+def load(path: Path) -> list[SignalRecord]:
+    """Read a signal file, keeping only the records that validate.
+
+    Missing, unreadable or malformed file → empty list; an individual bad record is skipped.
+    This is the forgiving READ path — a hand-edited file must never crash issue generation.
+    Anything that needs to *gate* on the file wants ``load_reporting``, which also returns
+    what was skipped and why.
+    """
+    return load_reporting(path).records
 
 
 def _file_date(path: Path) -> str | None:
@@ -400,9 +473,24 @@ def main(argv: list[str] | None = None) -> int:
     cfg = PathConfig.from_env(repo_root=args.repo_root)
 
     if args.validate:
-        signals = load(args.validate)
-        print(json.dumps({"valid": len(signals), "file": str(args.validate)}, indent=2))
-        return 0
+        # A gate reports what FAILED, not what survived. Printing only the survivor count made a
+        # 76-record file with 6 errors read exactly like a clean 70-record one, and exit 0 either
+        # way — so the six contradictions in it went unnoticed until each record was re-validated
+        # by hand.
+        report = load_reporting(args.validate)
+        payload: dict = {
+            "file": str(args.validate),
+            "total": report.total,
+            "valid": len(report.records),
+            "rejected": len(report.rejects),
+            "ok": report.ok,
+        }
+        if report.file_error:
+            payload["file_error"] = report.file_error
+        if report.rejects:
+            payload["rejects"] = [r.to_dict() for r in report.rejects]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if report.ok else 1
 
     path, signals = load_latest(cfg.content_root, args.profile)
     summary = {

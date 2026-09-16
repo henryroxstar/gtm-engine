@@ -22,7 +22,7 @@ from agent.pipeline import OK, PENDING, StageOutcome, new_manifest, reset_from_n
 PROFILE = "example"
 PACK = "prospecting"
 VARIANT = "prospect-outreach"
-NODES = ("prospect", "dossier", "outreach", "quality", "sequence")
+NODES = ("prospect", "dossier", "outreach", "quality", "sequence", "sequence-enroll")
 
 
 # ── reset_from_node: the primitive --from-node is built on ───────────────────
@@ -154,7 +154,7 @@ def test_from_node_reruns_only_that_node_and_its_descendants(activated, pack_har
         _run_pack(activated, PROFILE, PACK, VARIANT, from_node="outreach", run_id="r-two")
     )
     assert rc == 0
-    assert pack_harness == ["outreach", "quality", "sequence"]
+    assert pack_harness == ["outreach", "quality", "sequence", "sequence-enroll"]
     assert "prospect" not in pack_harness
     assert "dossier" not in pack_harness
 

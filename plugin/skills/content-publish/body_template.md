@@ -57,7 +57,7 @@ Only proceed to Step 2 if `"proceed": true`. If the post-check blocks (linter er
 missing disclosure, etc.), fix the source asset or report the blocker rather than staging a post
 that would fail at the gate.
 
-## Step 1b — Synthetic-media disclosure (EU AI Act Art. 50, §6.2)
+## Step 1b — Synthetic-media disclosure (EU AI Act Article 50, §6.2)
 
 If this item is a rendered video/clip/restyle asset, its manifest — `render-<ratio>.json`
 (video-render), `render-clips.json` (video-clip), or the restyle render json (video-restyle) —

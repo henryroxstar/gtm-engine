@@ -177,6 +177,7 @@ async def send_gate_push(
     run_id: str,
     gate_type: str,
     *,
+    node_id: str | None = None,
     transport: Transport | None = None,
 ) -> int:
     """Notify all registered devices for a workspace that a gate needs approval.
@@ -196,7 +197,7 @@ async def send_gate_push(
     if not tokens:
         return 0
 
-    payload = _build_payload(run_id, gate_type)
+    payload = _build_payload(run_id, gate_type, node_id)
     provider = _provider()
 
     if not provider:
@@ -311,12 +312,31 @@ async def _delete_tokens(pool: asyncpg.Pool, workspace_id: str, tokens: list[str
         )
 
 
-def _build_payload(run_id: str, gate_type: str) -> dict:
-    """Contentless: the run id + gate kind only. The device fetches the bytes over
-    the authenticated API — a notification never carries gate content."""
-    label = "Plan ready for review" if gate_type == "⟦GATE:plan⟧" else "Post ready to approve"
-    return {
-        "title": "GTM — action needed",
-        "body": label,
-        "data": {"run_id": run_id, "gate": gate_type},
-    }
+#: Notification body per gate kind — the same kinds the stream's ``awaiting_approval.gate``
+#: carries (``schemas/run-event.schema.json``). A kind outside this map reads as ``review``.
+_GATE_LABELS = {
+    "plan": "Plan ready for review",
+    "publish": "Post ready to approve",
+    "email_enroll": "Contacts ready to load into your sender",
+    "review": "Ready for your review",
+}
+
+
+def _gate_kind(gate_type: str) -> str:
+    """The wire gate kind. Accepts the kind itself (what the run lifecycle passes) or a raw
+    ``⟦GATE:plan⟧``/``⟦GATE:publish⟧`` sentinel, so a client reads one vocabulary everywhere."""
+    if "GATE:" in gate_type:  # a raw sentinel, not a kind
+        gate_type = "publish" if "publish" in gate_type else "plan"
+    return gate_type if gate_type in _GATE_LABELS else "review"
+
+
+def _build_payload(run_id: str, gate_type: str, node_id: str | None = None) -> dict:
+    """Contentless: the run id, gate kind and — for a pack run — the gated node's id. The
+    device fetches the bytes over the authenticated API — a notification never carries gate
+    content. ``node_id`` names which step is waiting, so a pack that pauses more than once
+    (plan, then pre-render) is distinguishable without a fetch."""
+    kind = _gate_kind(gate_type)
+    data = {"run_id": run_id, "gate": kind}
+    if node_id:
+        data["node_id"] = node_id
+    return {"title": "GTM — action needed", "body": _GATE_LABELS[kind], "data": data}

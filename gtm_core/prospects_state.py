@@ -2,7 +2,7 @@
 
 `latest.json` is a **cumulative** dashboard-state file: it grows across every
 prospect run and carries the operator's per-account ``status`` edits
-(contacted/qualified/disqualified) made between runs. A blind full-file
+(disqualified/replied/do-not-contact) made between runs. A blind full-file
 overwrite (writing only the current run's items) silently destroys every prior
 account and every status edit — a data-loss class this module exists to prevent.
 
@@ -46,6 +46,35 @@ SNAPSHOT_DIRNAME = ".snapshots"
 SNAPSHOT_KEEP = 30
 # Fields that belong to the operator / dashboard and must survive a re-merge.
 STICKY_FIELDS = ("status", "priority", "notes", "owner", "last_touched")
+
+#: The ledger's whole status vocabulary. ``new``/``disqualified``/``contact-resolved``/
+#: ``contact-defective`` are the values live today (confirmed via a ``Counter`` over
+#: ``content/<profile>/prospects/latest.json``); ``replied``/``do-not-contact``/
+#: ``closed-lost`` are added for the lifecycle PS6 wires up. :func:`set_status` refuses
+#: anything outside this set rather than let a typo'd status silently sit in the file —
+#: e.g. it is exactly what the ``engaged-account`` hold trigger
+#: (``gtm_core.lanes.context.DEFAULT_ENGAGED_STATUSES``) reads.
+LEDGER_STATUSES = frozenset(
+    {
+        "new",
+        "contact-resolved",
+        "contact-defective",
+        "disqualified",
+        "replied",
+        "meeting",
+        "engaged",
+        "in-conversation",
+        "customer",
+        "partner",
+        "do-not-contact",
+        "closed-lost",
+    }
+)
+
+#: Statuses a positive reply must never override. Each is a deliberate, already-decided
+#: exit from the pipeline (an eval disqualification, an opt-out, a closed-lost call) — a
+#: reply arriving afterward does not undo it.
+RETIRED_STATUSES = frozenset({"disqualified", "do-not-contact", "closed-lost"})
 
 #: The account's durable, opaque identity, stamped here and carried by every derived
 #: view. Sticky by the same rule as an operator's status edit — an incoming item never
@@ -331,7 +360,20 @@ def set_status(
     inventing an account from a writeback would be the same data-fabrication risk in the
     other direction. Snapshots first, writes atomically, and can never change the item
     count.
+
+    Raises ``ValueError`` for any status outside :data:`LEDGER_STATUSES` — this is the
+    ledger's whole vocabulary, so a typo here would otherwise sit in the file silently
+    and be invisible to every reader (the dashboard, the engaged-account hold trigger).
+    ``disqualified_reason``/``disqualified_by`` are stamped only when the new status IS
+    ``disqualified`` — writing them for any other status would misleadingly imply an
+    account was disqualified when it was not.
     """
+    bad = {s for s in updates.values() if s not in LEDGER_STATUSES}
+    if bad:
+        raise ValueError(
+            f"unknown status {sorted(bad)!r}; must be one of {sorted(LEDGER_STATUSES)}"
+        )
+
     current = load_latest(profile, content_root)
     items = [dict(it) for it in current.get("items", [])]
 
@@ -355,10 +397,11 @@ def set_status(
             if items[pos].get("status") == status:
                 continue
             items[pos]["status"] = status
-            if reason:
-                items[pos]["disqualified_reason"] = reason
-            if source:
-                items[pos]["disqualified_by"] = source
+            if status == "disqualified":
+                if reason:
+                    items[pos]["disqualified_reason"] = reason
+                if source:
+                    items[pos]["disqualified_by"] = source
             wrote = True
         (changed if wrote else unchanged).append(key)
 
@@ -381,6 +424,23 @@ def set_status(
         "total": len(items),
         "snapshot": str(snap) if snap else None,
     }
+
+
+def mark_replied(
+    profile: str,
+    emails: list[str] | set[str],
+    *,
+    source: str,
+    content_root: Path | None = None,
+) -> dict:
+    """Set ``status: replied`` in ``latest.json`` for the accounts that own these emails.
+
+    Implementation and candidate-key resolution across sources (ledger, ready-to-load,
+    master-list, cells.toml) live in :func:`gtm_core.reply_mark.mark_replied`.
+    """
+    from .reply_mark import mark_replied as _mark_replied
+
+    return _mark_replied(profile, emails, source=source, content_root=content_root)
 
 
 def restore(

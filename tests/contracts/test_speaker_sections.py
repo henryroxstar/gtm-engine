@@ -23,11 +23,20 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from gtm_core.voc import collect as voc
 
 REPO = Path(__file__).resolve().parents[2]
 BRIEF_TEMPLATE = (
     REPO / "plugin" / "skills" / "market-intelligence" / "references" / "brief-template.md"
+)
+
+# market-intelligence is `oss = "private"` (gtm_core/gating.toml) — the OSS carve stubs its
+# references out, so the two BRIEF_TEMPLATE tests have nothing to check in that distribution.
+_template_stubbed = pytest.mark.skipif(
+    not BRIEF_TEMPLATE.exists(),
+    reason="market-intelligence brief-template.md not present (paid-tier stub)",
 )
 
 # `mixed` holds two speakers at once and is split at read time per the source note, so it
@@ -72,6 +81,7 @@ def test_speaker_constants_match_the_manifest_vocabulary():
     )
 
 
+@_template_stubbed
 def test_every_speaker_has_a_section_in_the_brief_template():
     """THE regression guard: a speaker with no section is material collected and then dropped."""
     headings = "\n".join(_section_headings())
@@ -86,6 +96,7 @@ def test_every_speaker_has_a_section_in_the_brief_template():
     )
 
 
+@_template_stubbed
 def test_breadth_eligibility_is_stated_where_a_non_demand_speaker_renders():
     """Every non-demand speaker's section must say, in its own heading, that it is not demand.
 

@@ -41,12 +41,59 @@ echo "==> uv: $(uv --version)"
 echo "==> uv sync ..."
 uv sync
 
+# --- 2b. prove the interpreter is real and gtm_core actually imports --------
+# The Windows twin (scripts/bootstrap.ps1) needs this because `uv run python` there can
+# still be shadowed by the App Execution Alias stub; a modern-python shim on this side
+# blocks a bare `python` the same way. Either failure mode means every gtm_core.* CLI —
+# the budget guard, the ledger writers, the integrity gates — fails silently, one at a
+# time, and a pipeline run degrades into a hand-written result that looks finished. Fail
+# loudly HERE instead, before any of that.
+echo "==> interpreter probe ..."
+content_root="$(uv run python -m gtm_core.paths || true)"
+if [ -z "${content_root}" ]; then
+  echo "" >&2
+  echo "\`uv run python -m gtm_core.paths\` did not print a content root." >&2
+  echo "" >&2
+  echo "Do NOT continue to a pipeline run until this probe passes: the engine's budget" >&2
+  echo "guard, ledger writers and integrity gates are all Python, and they fail one at a" >&2
+  echo "time and quietly rather than stopping the run." >&2
+  exit 1
+fi
+echo "==> content root: ${content_root}"
+
+# --- 2c. ensure .claude/skills link is active for Claude Code ----------------
+if [ ! -d "${REPO_ROOT}/.claude/skills" ]; then
+  mkdir -p "${REPO_ROOT}/.claude"
+  rm -rf "${REPO_ROOT}/.claude/skills"
+  ln -sfn ../plugin/skills "${REPO_ROOT}/.claude/skills" 2>/dev/null || \
+    cp -R "${REPO_ROOT}/plugin/skills" "${REPO_ROOT}/.claude/skills"
+fi
+
+# --- 2d. system media tools probe (video pipeline) --------------------------
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "==> ffmpeg: $(ffmpeg -version 2>&1 | head -n 1)"
+else
+  echo "==> [Notice] ffmpeg is not installed on PATH."
+  echo "    Video rendering, local captions, and clip finishing require ffmpeg."
+  if [[ "${OSTYPE:-}" == "darwin"* ]]; then
+    echo "    To install on macOS: brew install ffmpeg"
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo "    To install on Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y ffmpeg"
+  fi
+fi
+
 # --- 3. environment self-check ----------------------------------------------
 echo ""
-uv run python -m gtm_core.check_env || {
+CHECK_CMD=(uv run python -m gtm_core.check_env)
+if command -v doppler >/dev/null 2>&1; then
+  echo "==> Doppler detected — running self-check via \`doppler run\` ..."
+  CHECK_CMD=(doppler run -- uv run python -m gtm_core.check_env)
+fi
+
+"${CHECK_CMD[@]}" || {
   echo ""
   echo "==> Bootstrap finished, but TIER 0 is not set yet."
-  echo "    Copy .env.example to .env and set ANTHROPIC_API_KEY, then re-run this."
+  echo "    Either ensure Doppler is logged in (\`doppler login\`) or copy .env.example to .env and set ANTHROPIC_API_KEY."
   exit 0   # not a hard failure — deps are installed; the user just needs a key
 }
 

@@ -102,6 +102,45 @@ def test_missing_measurement_is_not_a_clean_pass_by_accident():
     assert _tiers(vl.evaluate(_probe(), ratio="9:16", audio_context=None), "V10") == []
 
 
+def test_no_dead_air_is_not_the_same_as_a_soundtrack():
+    """2026-09-07: 0% silence, -13.9 LUFS, and nothing but a synthesized floor. The dead-air
+    rules stay quiet (correctly — there is level) and the floor-only rule is what fires."""
+    ctx = {
+        "silent_runs": [],
+        "silent_total_s": 0.0,
+        "silent_fraction": 0.0,
+        "integrated_lufs": -13.9,
+        "loudness_abruptness_lu": 0.58,
+        "loudness_event_fraction": 0.031,
+    }
+    rules = [
+        f.rule
+        for f in _tiers(
+            vl.evaluate(_probe(duration_s=30.2), ratio="9:16", audio_context=ctx), "V10"
+        )
+    ]
+    assert rules == ["audio_floor_only"]
+
+
+def test_the_shipped_dead_air_defect_does_not_also_read_as_a_floor():
+    """The two V10 shapes are disjoint: a track that is 39% digital silence has STEPS (into and
+    out of every gap) and so is events, not floor. Its dead-air findings are unchanged."""
+    ctx = {
+        "silent_runs": [
+            {"start": 0.0, "end": 10.384, "duration": 10.384},
+            {"start": 13.708, "end": 38.838, "duration": 25.13},
+            {"start": 70.363, "end": 74.493, "duration": 4.129},
+        ],
+        "silent_total_s": 39.643,
+        "silent_fraction": 0.3938,
+        "integrated_lufs": -18.0,
+        "loudness_abruptness_lu": 2.9,
+        "loudness_event_fraction": 0.25,
+    }
+    rules = {f.rule for f in _tiers(vl.evaluate(_probe(), ratio="9:16", audio_context=ctx), "V10")}
+    assert rules == {"dead_air_fraction", "dead_air_run"}
+
+
 # ── V11 — caption contrast ─────────────────────────────────────────────────────────────────
 
 
@@ -121,6 +160,31 @@ def test_captions_that_clear_aa_produce_nothing():
 def test_exactly_at_the_threshold_passes():
     ctx = [{"index": 0, "ratio": vl.MIN_CAPTION_CONTRAST_RATIO}]
     assert _tiers(vl.evaluate(_probe(), ratio="9:16", caption_contrast=ctx), "V11") == []
+
+
+def test_contrast_can_only_be_judged_on_geometry_that_exists():
+    """2026-09-07: `captions: null` with `caption_route: local` — V11 measured nothing and read
+    as clean. With the boxes present the contrast rule runs; without them, the manifest's own
+    claim is the finding. The two never fire together on one asset."""
+    boxes = {
+        "frame": [1080, 1920],
+        "screens": [{"index": 0, "box": {"x": 100, "y": 1400, "w": 880, "h": 150}}],
+    }
+    with_boxes = _tiers(
+        vl.evaluate(
+            _probe(),
+            ratio="9:16",
+            manifest=boxes,
+            caption_route="local",
+            caption_contrast=[{"index": 0, "ratio": 1.1}],
+        ),
+        "V11",
+    )
+    assert [f.rule for f in with_boxes] == ["caption_contrast"]
+    without = _tiers(
+        vl.evaluate(_probe(), ratio="9:16", manifest=None, caption_route="local"), "V11"
+    )
+    assert [f.rule for f in without] == ["caption_geometry_missing"]
 
 
 # ── the WCAG maths itself — this is where the 2026-08-28 misreport came from ────────────────

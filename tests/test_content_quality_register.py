@@ -149,3 +149,107 @@ def test_the_connective_set_covers_the_words_people_actually_start_with(word):
     from gtm_core.content_quality import _CONNECTIVES
 
     assert word in _CONNECTIVES
+
+
+# --- K3: captions extraction, pronoun-lead tell, and register_check on captions-only scripts ---
+
+
+def test_extract_captions_reads_varied_formats_and_skips_placeholders():
+    from gtm_core.content_quality import extract_captions
+
+    text = "\n".join(
+        [
+            "- `[CAPTION]` **Before sunrise, he shipped a month of work.**",
+            '- [CAPTION] "So he asked the tool everyone uses."',
+            "- **[CAPTION]** **It sounded like everyone.**",
+            "- `[CAPTION]` — none · no caption by design",
+            "- `[CAPTION]` — silent by design",
+            "- `[CAPTION]` **In your voice. Someone's waiting to hear it.**",
+        ]
+    )
+    assert extract_captions(text) == [
+        "Before sunrise, he shipped a month of work.",
+        "So he asked the tool everyone uses.",
+        "It sounded like everyone.",
+        "In your voice. Someone's waiting to hear it.",
+    ]
+
+
+def test_pronoun_lead_runs_detects_runs_of_three_or_more():
+    from gtm_core.content_quality.register import pronoun_lead_runs
+
+    lines_with_run = [
+        "Before sunrise, he shipped a month of work.",
+        "So he asked the tool everyone uses.",
+        "It sounded like everyone.",
+        "He deleted it and went to work.",
+        "Someone went looking for him.",
+        "In your voice. Someone's waiting to hear it.",
+    ]
+    runs = pronoun_lead_runs(lines_with_run)
+    assert len(runs) == 1
+    assert len(runs[0]) == 4  # So he, It, He, Someone
+
+    lines_without_run = [
+        "Before sunrise, he shipped a month of work.",
+        "The prompt asked for his voice.",
+        "Every phrase sounded borrowed.",
+        "He deleted it and went to work.",
+        "Six months with nothing published.",
+        "This one sounded like him.",
+    ]
+    assert pronoun_lead_runs(lines_without_run) == []
+
+
+def test_register_check_reads_captions_on_captions_only_script(tmp_path):
+    from gtm_core.content_quality import register_check
+
+    content_root = tmp_path / "content"
+    scripts_dir = content_root / "example" / "scripts"
+    scripts_dir.mkdir(parents=True)
+
+    # 1. Captions-only script with a run of 4 pronoun-lead captions
+    captions_script = "\n".join(
+        [
+            "source_item: ci-captions",
+            "claims_verified: 0/0 · log: none: no external claims",
+            "",
+            "- `[CAPTION]` **Before sunrise, he shipped a month of work.**",
+            "- `[CAPTION]` **So he asked the tool everyone uses.**",
+            "- `[CAPTION]` **It sounded like everyone.**",
+            "- `[CAPTION]` **He deleted it and went to work.**",
+            "- `[CAPTION]` **Someone went looking for him.**",
+            "- `[CAPTION]` **In your voice. Someone's waiting to hear it.**",
+        ]
+    )
+    (scripts_dir / "2026-09-07-captions.md").write_text(captions_script, encoding="utf-8")
+
+    result = register_check("example", "ci-captions", content_root=content_root)
+    assert result["proceed"] is True
+    assert result["checks"]["spoken_lines"] == 0
+    assert result["checks"]["captions"] == 6
+    assert result["checks"]["pronoun_lead_runs"] == 1
+    assert any("consecutive captions open on a pronoun subject" in w for w in result["warnings"])
+
+    # 2. Script with [SPOKEN] lines reads ONLY spoken lines
+    mixed_script = "\n".join(
+        [
+            "source_item: ci-mixed",
+            "claims_verified: 0/0 · log: none: no external claims",
+            "",
+            '- **[SPOKEN]** "A guy asked his assistant to get him in."',
+            '- **[SPOKEN]** "And it worked right away."',
+            '- **[SPOKEN]** "So nobody noticed for a week."',
+            '- **[SPOKEN]** "Because the door was wide open."',
+            '- **[SPOKEN]** "And that is every system your AI touches."',
+            "- `[CAPTION]` **He went there.**",
+            "- `[CAPTION]` **It did that.**",
+            "- `[CAPTION]` **She said this.**",
+        ]
+    )
+    (scripts_dir / "2026-09-08-mixed.md").write_text(mixed_script, encoding="utf-8")
+
+    result_mixed = register_check("example", "ci-mixed", content_root=content_root)
+    assert result_mixed["proceed"] is True
+    assert result_mixed["checks"]["spoken_lines"] == 5
+    assert "captions" not in result_mixed["checks"]

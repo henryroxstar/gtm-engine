@@ -81,6 +81,32 @@ quietly rather than stopping the run.
 }
 Write-Host "==> content root: $contentRoot"
 
+# --- 2c. ensure .claude/skills link is active for Claude Code ----------------
+$claudeDir = Join-Path $RepoRoot ".claude"
+$claudeSkills = Join-Path $claudeDir "skills"
+$targetSkills = Join-Path $RepoRoot "plugin\skills"
+
+if (-not (Test-Path -Path $claudeSkills -PathType Container)) {
+    if (Test-Path -Path $claudeSkills) {
+        Remove-Item -Force $claudeSkills
+    }
+    if (-not (Test-Path -Path $claudeDir)) {
+        New-Item -ItemType Directory -Path $claudeDir | Out-Null
+    }
+    try {
+        New-Item -ItemType Junction -Path $claudeSkills -Target $targetSkills | Out-Null
+    } catch {
+        Copy-Item -Recurse -Force $targetSkills $claudeSkills | Out-Null
+    }
+# --- 2d. system media tools probe (video pipeline) --------------------------
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    Write-Host "==> ffmpeg: detected"
+} else {
+    Write-Host "==> [Notice] ffmpeg is not installed on PATH."
+    Write-Host "    Video rendering, local captions, and clip finishing require ffmpeg."
+    Write-Host "    To install on Windows: winget install Gyan.FFmpeg"
+}
+
 # --- 3. environment self-check ----------------------------------------------
 Write-Host ""
 uv run python -m gtm_core.check_env

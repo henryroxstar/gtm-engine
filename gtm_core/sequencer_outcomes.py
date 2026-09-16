@@ -45,6 +45,15 @@ from pathlib import Path
 from gtm_core.cells import email_index, lane_index
 from gtm_core.outcomes import append_outcome, read_outcomes
 from gtm_core.paths import resolve_content_root
+from gtm_core.prospects_state import mark_replied
+
+#: The two outcomes that mean "this account replied and it went well" — the ledger
+#: write PS6 needs so the `engaged-account` hold trigger
+#: (`gtm_core.lanes.context.DEFAULT_ENGAGED_STATUSES`) has something to read.
+#: Deliberately excludes `reply`/`opt_out`: a bare reply carries no sentiment, and an
+#: opt-out is the opposite signal — marking either "replied" would be wrong in one
+#: direction or the other.
+REPLIED_OUTCOMES = frozenset({"positive_reply", "meeting"})
 
 #: Provider category name → the canonical tag written onto the outcome row.
 #: Keys are the provider's own default names so the operator tags in ONE place — the
@@ -242,6 +251,21 @@ def plan_rows(
     return records, unresolved
 
 
+def reply_emails_to_mark(records: list[dict]) -> set[str]:
+    """Prospect emails whose reply belongs in the ledger as ``replied``.
+
+    Pure — no I/O — so the boundary that decides who gets marked is unit-testable
+    without a real ``latest.json``/``ready-to-load.csv``. Reads only
+    :data:`REPLIED_OUTCOMES` rows (``positive_reply``/``meeting``); a bare ``reply`` or
+    an ``opt_out`` row is deliberately never included — see that constant's docstring.
+    """
+    return {
+        r["meta"]["prospect_email"]
+        for r in records
+        if r.get("outcome") in REPLIED_OUTCOMES and (r.get("meta") or {}).get("prospect_email")
+    }
+
+
 def reconcile(planned: list[dict], existing: list[dict]) -> tuple[list[dict], list[dict]]:
     """Split planned rows into (new replies, re-classifications) against the ledger.
 
@@ -342,6 +366,19 @@ def _cli(argv: list[str] | None = None) -> int:
     if args.apply:
         for r in records + reclass:
             append_outcome(root, args.profile, {k: v for k, v in r.items() if v is not None})
+        # Derive repliers from durable outcomes so previously unmatched or failed
+        # marks are retried idempotently on each run.
+        all_outcomes = read_outcomes(root, args.profile)
+        reply_emails = reply_emails_to_mark(all_outcomes)
+        if reply_emails:
+            mark_summary = mark_replied(
+                args.profile, reply_emails, source="sequencer_outcomes", content_root=root
+            )
+            print(
+                f"\nlatest.json: marked {mark_summary['changed']} account(s) replied "
+                f"({len(mark_summary['retired_skipped'])} retired-skipped, "
+                f"{len(mark_summary['unmatched'])} unmatched)"
+            )
 
     print(
         f"\n{len(records)} new row(s), {len(reclass)} re-classification(s), "

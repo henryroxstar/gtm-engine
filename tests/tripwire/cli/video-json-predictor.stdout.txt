@@ -52,5 +52,7 @@
   ],
   "suppressed": {
     "V5": 1
-  }
+  },
+  "audio": {},
+  "stale_suppressions": []
 }

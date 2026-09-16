@@ -38,10 +38,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .paths import _safe_segment, resolve_content_root
+
+#: A real finish manifest's name only — excludes ``finish-spec-<ratio>.json`` (the saved-spec
+#: sidecar), which the old bare ``finish-*.json`` glob also matched and fed to ``load_finish``,
+#: raising an uncaught TypeError on a dict that isn't a FinishManifest.
+_FINISH_MANIFEST_NAME_RE = re.compile(r"^finish-\d+x\d+\.json$")
 
 #: Outcome buckets used to derive rates. Everything else is still counted, just not rate-bearing.
 ATTEMPT_OUTCOMES = frozenset({"sent", "send", "delivered", "enrolled", "contacted"})
@@ -244,6 +250,27 @@ def _story_format(score_path: Path) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def _caption_attribution(
+    score_path: Path,
+) -> tuple[str | None, str | None, float | None]:
+    """``score.json``'s TOP-LEVEL caption craft fields (K8), or ``None`` when absent."""
+    try:
+        data = json.loads(score_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None, None
+    if not isinstance(data, dict):
+        return None, None, None
+    mode = data.get("caption_mode")
+    voice = data.get("caption_voice")
+    share = data.get("describe_share")
+    caption_mode = str(mode).strip() if isinstance(mode, str) and mode.strip() else None
+    caption_voice = str(voice).strip() if isinstance(voice, str) and voice.strip() else None
+    describe_share = (
+        float(share) if isinstance(share, (int, float)) and not isinstance(share, bool) else None
+    )
+    return caption_mode, caption_voice, describe_share
+
+
 def attribute(
     content_root: Path,
     profile: str,
@@ -302,6 +329,13 @@ def attribute(
             # A TAG, not a meta key: only tags are queryable by the correlator, and the whole
             # point of this field is that a later report can split share rate on it.
             tag_list.append(f"story_format:{'true' if story else 'false'}")
+        caption_mode, caption_voice, describe_share = _caption_attribution(score_path)
+        if caption_mode is not None:
+            tag_list.append(f"caption_mode:{caption_mode}")
+        if caption_voice is not None:
+            tag_list.append(f"caption_voice:{caption_voice}")
+        if describe_share is not None:
+            tag_list.append(f"describe_share:{describe_share}")
 
     if asset_sha256 is not None:
         for row in read_outcomes(content_root, profile):
@@ -354,6 +388,8 @@ def unattributed(
 
     gaps = []
     for finish_path in sorted(video_root.glob("*/finish-*.json")):
+        if not _FINISH_MANIFEST_NAME_RE.match(finish_path.name):
+            continue
         if cutoff_ts is not None and finish_path.stat().st_mtime < cutoff_ts:
             continue
         try:

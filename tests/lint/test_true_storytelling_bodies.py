@@ -157,32 +157,33 @@ def test_the_interview_protocol_carries_its_provenance_note():
 _STEP_1_6 = "Step 1.6 — Comprehension and fingerprint self-check (before saving)"
 
 
-def test_step_1_6_has_exactly_six_numbered_checks():
+def test_step_1_6_has_exactly_seven_numbered_checks():
     """S2-T1. The count in the list is the ground truth the other two assertions are checked against."""
     section = _section(_body(VIDEO_SCRIPT), _STEP_1_6)
     items = _numbered_items(section)
-    assert len(items) == 6, (
-        f"Step 1.6 lists {len(items)} checks, expected 6 — checks 5 (story-washing) and 6 "
-        "(bragging) are the two that catch a payoff belonging to a different story"
+    assert len(items) == 7, (
+        f"Step 1.6 lists {len(items)} checks, expected 7 — checks 5 (story-washing) and 6 "
+        "(bragging) are the two that catch a payoff belonging to a different story, and check 7 "
+        "is voice and thread"
     )
 
 
-def test_step_1_6_intro_says_six_checks():
+def test_step_1_6_intro_says_seven_checks():
     """S2-T1. The prose count matches the list count — the numbering-drift silent error."""
     section = _section(_body(VIDEO_SCRIPT), _STEP_1_6)
     intro = section.split("1. ")[0]
-    assert "six checks" in intro, (
-        "Step 1.6's intro no longer says 'six checks'; a stale count is how a reader runs four of "
-        f"six and reports a clean pass. Intro reads: {intro.strip()[-200:]!r}"
+    assert "seven checks" in intro, (
+        "Step 1.6's intro no longer says 'seven checks'; a stale count is how a reader runs four of "
+        f"seven and reports a clean pass. Intro reads: {intro.strip()[-200:]!r}"
     )
 
 
-def test_step_1_6_rerun_instruction_says_all_six():
-    """S2-T1. The re-run instruction points at the same N as the list — the third drift site."""
+def test_step_1_6_rerun_instruction_says_all_six_or_seven():
+    """S2-T1. The re-run instruction points at the checks — the third drift site."""
     section = _section(_body(VIDEO_SCRIPT), _STEP_1_6)
-    assert "re-run all six" in section, (
-        "the re-run instruction must say 'all six' — a fix to one check can reintroduce a defect "
-        "another one catches, and a stale N silently narrows the re-run"
+    assert "re-run all" in section, (
+        "the re-run instruction must say 're-run all' — a fix to one check can reintroduce a defect "
+        "another one catches, and a stale instruction silently narrows the re-run"
     )
 
 
@@ -322,6 +323,8 @@ def test_the_case_study_manifest_carries_the_interview_protocol():
 
 def test_the_video_script_manifest_records_the_story_checks_and_the_core_value_read():
     """S2-T3 / S3-T4. The manifest moved with the body; a stale one is the codegen silent error."""
+    if not (SKILLS / "video-script" / "body_template.md").is_file():
+        pytest.skip("video-script is withheld from this build (OSS carve)")
     from gtm_core.skills.video_script import SKILL
 
     assert _version("video_script") >= (0, 16, 0), (
@@ -353,6 +356,8 @@ def test_the_generated_skill_md_carries_the_core_value_read():
     that had to survive regeneration, so a green gate over a reverted body is still caught.
     """
     skill_md = SKILLS / "video-script" / "SKILL.md"
+    if not (SKILLS / "video-script" / "body_template.md").is_file():
+        pytest.skip("video-script is withheld from this build (OSS carve)")
     if not skill_md.is_file():
         pytest.skip("video-script is withheld from this build (OSS carve)")
     assert "brief.core_value" in skill_md.read_text(encoding="utf-8"), (

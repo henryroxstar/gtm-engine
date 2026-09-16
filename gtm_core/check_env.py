@@ -54,6 +54,7 @@ TIERS: tuple[_Tier, ...] = (
         vars=(
             _Var("DEEPSEEK_API_KEY", "cheap bulk worker drafts (else a Claude worker, costs more)"),
             _Var("FIRECRAWL_API_KEY", "structured web scraping (else keyless WebSearch/WebFetch)"),
+            _Var("SYFTEN_API_KEY", "community social-listening (else manual CSV export)"),
         ),
     ),
     _Tier(

@@ -5,7 +5,7 @@ import re
 from ..merge_hygiene import bare_host, clean_company, clean_first_name, clean_last_name, clean_title
 from ..prospects_state import _norm as _norm_company
 from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
-from .columns import _ALIASES
+from .columns import column_value
 
 # Apollo's `email_status` / `contact_email_status` vocabulary is exactly four values —
 # `verified`, `unverified`, `likely to engage`, `unavailable` (docs.apollo.io People API
@@ -34,11 +34,8 @@ _SITE_PUBLISHED_SEGMENTS = {"builder", "startup"}
 
 
 def _get(row: dict, field: str) -> str:
-    for key in _ALIASES.get(field, ()):
-        v = (row.get(key) or "").strip()
-        if v:
-            return v
-    return ""
+    """Local alias for :func:`columns.column_value` — kept because this module calls it a lot."""
+    return column_value(row, field)
 
 
 def _score_num(s: str) -> int:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import random
 
@@ -90,6 +91,43 @@ async def _live_entitlement(pool, workspace_id: str) -> str:
     return row["entitlement"] if row else Entitlement.FREE.value
 
 
+def _payload(row) -> dict:
+    """The claimed row's job record as a dict (asyncpg may hand JSONB back as text)."""
+    payload = row["payload"] or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _require_one_row(status: str | None, what: str) -> None:
+    """Raise unless an asyncpg command status says exactly one row was updated."""
+    if status != "UPDATE 1":
+        raise RuntimeError(f"{what} expected to update exactly one row, got {status!r}")
+
+
+async def _stamp_fake(pool, workspace_id: str, run_id: str) -> None:
+    """Durably mark a run as fake before it runs (``services/runs/fake.py``, "A fake run
+    stays fake"). A MERGE, so the job record (mode/pack/inputs) a reclaim re-reads survives.
+    Not best-effort: an unstamped fake is exactly the run a later claim or restart with the
+    flag off could hand to real spend, so a failed write — or one that matched no row —
+    raises and stops this dispatch instead."""
+    from .fake import STAMP_KEY
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        status = await conn.execute(
+            """UPDATE runs SET payload = COALESCE(payload, '{}'::jsonb)
+                                          || jsonb_build_object($3::text, true)
+               WHERE id = $1::uuid AND workspace_id = $2::uuid""",
+            run_id,
+            workspace_id,
+            STAMP_KEY,
+        )
+        _require_one_row(status, f"fake stamp on run {run_id}")
+
+
 async def dispatch_claimed(pool, repo_root, sessions, row) -> bool:
     """Turn one claimed row into a running task. True when a task was dispatched.
 
@@ -100,32 +138,53 @@ async def dispatch_claimed(pool, repo_root, sessions, row) -> bool:
     run that never moves.
     """
     from .executor import _execute_run
+    from .fake import FAKE_RUN_OFF_ERROR, _execute_fake_run, fake_runs_enabled, stamped_fake
     from .pack_executor import _execute_pack_run
 
     run_id = str(row["id"])
     workspace_id = str(row["workspace_id"])
-    payload = row["payload"] or {}
-    if isinstance(payload, str):
-        import json
-
-        try:
-            payload = json.loads(payload)
-        except ValueError:
-            payload = {}
+    payload = _payload(row)
     mode = payload.get("mode") or ("pack" if payload.get("pack") else "prompt")
     first_dispatch = row["prev_status"] == "queued"
 
     if row["attempts"] > MAX_ATTEMPTS:
-        await _fail_run(pool, workspace_id, run_id, "run failed too many times — not retried")
+        await _fail_run(
+            pool,
+            workspace_id,
+            run_id,
+            "run failed too many times — not retried",
+            error_code="retries_exhausted",
+        )
+        return False
+    if stamped_fake(payload) and not fake_runs_enabled():
+        # A run dispatched as a fake stays one. The real executor would spend, and could
+        # apply an approval recorded against the fake draft to a real one.
+        await _fail_run(
+            pool, workspace_id, run_id, FAKE_RUN_OFF_ERROR, error_code="fake_runs_disabled"
+        )
         return False
     if not first_dispatch and mode != "pack":
-        await _fail_run(pool, workspace_id, run_id, _RESTART_MESSAGE)
+        await _fail_run(pool, workspace_id, run_id, _RESTART_MESSAGE, error_code="run_interrupted")
         return False
 
     entitlement = await _live_entitlement(pool, workspace_id)
     agent_id = None if row["agent_id"] is None else str(row["agent_id"])
 
-    if mode == "pack":
+    if fake_runs_enabled():
+        # GTM_FAKE_RUNS (dev only; boot-guarded in backend.main): the same claim, slot, §R2
+        # check, gate row and events, with scripted work in place of the SDK — for both modes.
+        if not stamped_fake(payload):
+            await _stamp_fake(pool, workspace_id, run_id)
+        coro = _execute_fake_run(
+            pool,
+            repo_root,
+            workspace_id,
+            run_id,
+            row["profile_name"],
+            pack=payload.get("pack"),
+            variant=payload.get("variant"),
+        )
+    elif mode == "pack":
         inputs = payload.get("inputs")
         coro = _execute_pack_run(
             pool,
@@ -144,7 +203,13 @@ async def dispatch_claimed(pool, repo_root, sessions, row) -> bool:
         )
     else:
         if sessions is None:
-            await _fail_run(pool, workspace_id, run_id, "no agent session store on this worker")
+            await _fail_run(
+                pool,
+                workspace_id,
+                run_id,
+                "no agent session store on this worker",
+                error_code="worker_unavailable",
+            )
             return False
         coro = _execute_run(
             pool,

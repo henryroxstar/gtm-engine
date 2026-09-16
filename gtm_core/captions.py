@@ -192,6 +192,10 @@ class RenderedScreen:
     lines: tuple[str, ...]
     box: dict  # {"x": int, "y": int, "w": int, "h": int} — pixel bounds within the frame
     font_path: Path
+    #: The colour the type was actually drawn in. Recorded because a contrast measurement can
+    #: only judge the glyph it is told about: measured against an assumed white glyph, near-black
+    #: type on a dark picture reads as a PASS.
+    glyph_rgb: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -770,6 +774,29 @@ _FALLBACK_LIGHT_GLYPH = (255, 255, 255, 255)
 _FALLBACK_DARK_GLYPH = (30, 28, 22, 255)  # neutral near-black; overridden by [palette].ink
 
 
+#: A palette entry is a usable LIGHT glyph only above this relative luminance, and a usable DARK
+#: glyph only below the second — poles, not mid-tones, because neither pole is 4.5:1 from the
+#: middle (see the scrim comment in :func:`render`).
+_LIGHT_POLE_MIN_LUMA = 0.60
+_DARK_POLE_MAX_LUMA = 0.20
+#: Palette keys tried, in order, for each pole. ``canvas`` appears in BOTH lists on purpose — it
+#: is whichever tone the kit's ground is, and only its measured luminance says which.
+_LIGHT_CANDIDATE_KEYS = ("canvas", "surface", "primary", "accent")
+_DARK_CANDIDATE_KEYS = ("ink", "canvas", "secondary")
+
+
+def _first_pole(palette: dict, keys: tuple[str, ...], *, light: bool):
+    """First palette entry under ``keys`` whose measured luminance sits at the wanted pole."""
+    for key in keys:
+        rgba = _hex_to_rgba(palette.get(key) or "")
+        if rgba is None:
+            continue
+        luma = _relative_luminance(rgba[:3])
+        if (light and luma >= _LIGHT_POLE_MIN_LUMA) or (not light and luma <= _DARK_POLE_MAX_LUMA):
+            return rgba
+    return None
+
+
 def _resolve_glyph_rgba(
     kit: dict, backdrop_luma: float | None
 ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
@@ -781,17 +808,36 @@ def _resolve_glyph_rgba(
     asset: white-on-app-UI came out at **1.10:1** (WCAG AA wants 4.5:1), i.e. burned type that is
     physically present and cannot be read, plus two more captions at 3.97:1.
 
+    The two poles are DERIVED FROM MEASURED LUMINANCE, never from what a palette key is named.
+    Until 2026-09-11 ``palette.canvas`` was read as the light glyph and ``palette.ink`` as the
+    dark one. That holds for a cream kit (light canvas, dark ink) and fails for a dark-theme kit —
+    near-black ``canvas``, near-white ``primary``, no ``ink`` at all — where BOTH branches of the
+    backdrop decision then resolve to near-black type, and a captions-only film shipped with
+    captions nobody could read on its dark picture. ``canvas`` is whichever tone the kit's ground
+    is; only its luminance says which pole it can serve. A kit may also name the pair outright as
+    ``[captions].glyph_light`` / ``[captions].glyph_dark``, which wins over the derivation.
+
     The stroke is the belt-and-braces half and is not decoration: it is the OPPOSITE tone, so even
     if ``backdrop_luma`` is unrepresentative of the pixels actually behind the glyphs — a busy or
     mixed backdrop, a shot that changes brightness under the caption — the type still separates
     from the picture. Contrast then degrades gracefully instead of vanishing."""
     palette = kit.get("palette") if isinstance(kit, dict) else None
     palette = palette if isinstance(palette, dict) else {}
-    light = _hex_to_rgba(palette.get("canvas") or "") or _FALLBACK_LIGHT_GLYPH
-    dark = _hex_to_rgba(palette.get("ink") or "") or _FALLBACK_DARK_GLYPH
+    captions = kit.get("captions") if isinstance(kit, dict) else None
+    captions = captions if isinstance(captions, dict) else {}
+    light = (
+        _hex_to_rgba(captions.get("glyph_light") or "")
+        or _first_pole(palette, _LIGHT_CANDIDATE_KEYS, light=True)
+        or _FALLBACK_LIGHT_GLYPH
+    )
+    dark = (
+        _hex_to_rgba(captions.get("glyph_dark") or "")
+        or _first_pole(palette, _DARK_CANDIDATE_KEYS, light=False)
+        or _FALLBACK_DARK_GLYPH
+    )
     if backdrop_luma is None:
         # Unmeasured: prior behaviour (light glyphs), but still stroked.
-        return _FALLBACK_LIGHT_GLYPH, dark
+        return light, dark
     if backdrop_luma >= _DARK_GLYPH_LUMA_THRESHOLD:
         return dark, light
     return light, dark
@@ -959,6 +1005,7 @@ def render(
                     "h": round(block_height),
                 },
                 font_path=face,
+                glyph_rgb=glyph_rgba[:3],
             )
         )
     return rendered
@@ -1018,6 +1065,7 @@ def sidecar_payload(rendered: list[RenderedScreen], *, ratio: str) -> dict:
                 "lines": list(r.lines),
                 "box": r.box,
                 "png": str(r.png_path),
+                "glyph_rgb": list(r.glyph_rgb) if r.glyph_rgb is not None else None,
             }
             for i, r in enumerate(rendered)
         ],

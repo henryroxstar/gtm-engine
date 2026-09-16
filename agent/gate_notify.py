@@ -98,6 +98,80 @@ async def push_gate1(
         )
 
 
+async def push_pack_gate(
+    cfg: Config,
+    profiles_root: Path,
+    profile: str,
+    run_id: str,
+    node_ids: list[str],
+    *,
+    pack: str,
+    variant: str,
+) -> None:
+    """Send a pack-gate notification to the profile's configured Telegram chat.
+
+    Unlike :func:`push_gate1` (the news pipeline's `plan` stage, resolved from the
+    persistent cockpit chat session), a `--pack` CLI run has no session to resolve a gate
+    from — it is a one-shot subprocess (``systemd/gtm-*.service``), and Phase A now makes
+    every pack-declared `gate=true` node pause, not only ones shaped like a plan review.
+    This notifies for ANY such node and points the operator at the CLI gate-decision
+    verb (``agent/__main__.py --gate-decision``), the only way to resolve a pack gate
+    outside the backend's HTTP API. Same no-op-on-missing-config posture as
+    :func:`push_gate1`.
+    """
+    from agent.profiles import load_gate1_chat_id
+
+    token = cfg.telegram_bot_token
+    if not token:
+        logger.debug("push_pack_gate: TELEGRAM_BOT_TOKEN not set — skipping")
+        return
+
+    chat_id = load_gate1_chat_id(profiles_root, profile)
+    if chat_id is None:
+        logger.warning(
+            "push_pack_gate: telegram_gate1_chat_id not set for profile=%s — "
+            "gate notification suppressed. Add the field to profiles/%s/PROFILE.md.",
+            profile,
+            profile,
+        )
+        return
+
+    nodes = ", ".join(html.escape(n) for n in node_ids) or "(unknown)"
+    text = (
+        f"<b>[{html.escape(profile)}] Pack gate — waiting for approval</b>\n"
+        f"run_id: <code>{html.escape(run_id)}</code>\n"
+        f"node(s): {nodes}\n\n"
+        "Resolve from the VPS shell:\n"
+        f"<code>python -m agent --profile {html.escape(profile)} --pack {html.escape(pack)} "
+        f"--variant {html.escape(variant)} --run-id {html.escape(run_id)} "
+        "--gate-decision approve</code>\n"
+        "(or <code>--gate-decision reject</code> to discard it)."
+    )
+
+    import httpx  # lazy — keeps module + unit tests import-light (mirrors agent/publish.py)
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+            r = await client.post(
+                _TELEGRAM_API.format(token=token),
+                data={"chat_id": str(chat_id), "text": text, "parse_mode": "HTML"},
+            )
+        if r.status_code != 200:
+            logger.warning(
+                "push_pack_gate: Telegram returned %s for profile=%s run_id=%s",
+                r.status_code,
+                profile,
+                run_id,
+            )
+    except Exception:
+        logger.warning(
+            "push_pack_gate: HTTP error for profile=%s run_id=%s",
+            profile,
+            run_id,
+            exc_info=True,
+        )
+
+
 async def push_optout_alert(
     cfg: Config,
     profiles_root: Path,

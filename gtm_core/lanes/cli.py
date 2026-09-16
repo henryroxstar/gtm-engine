@@ -15,6 +15,7 @@ from ..adjudication import read_records
 from ..prospects_consolidate.paths import _sequences_dir
 from . import decisions as dec
 from .context import POLICY_FILE, load_context
+from .model import PROTECTIVE_HOLD_TRIGGERS
 from .router import route, summary, write_lanes
 from .sheet import write_sheet
 
@@ -83,6 +84,13 @@ def _cli_route(args) -> int:
     ]
     sheet = write_sheet(hold, hold.with_suffix(".html"), stamp=stamp, auto=auto)
     dec.write_state(result, dec.state_path(args.profile), stamp)
+    # Re-stamp `ready-to-load.csv` right now (PS2) rather than waiting for the next
+    # `consolidate` sweep to notice the new state file — a deferred import, matching
+    # `consolidate._stamp_lanes`'s own deferred import of `lanes.decisions`, since the two
+    # packages otherwise have no reason to import each other at module load time.
+    from ..prospects_consolidate.consolidate import restamp_ready_to_load
+
+    restamp_ready_to_load(args.profile)
     print()
     for lane, path in paths.items():
         print(f"  {lane:<12} {path}")
@@ -120,6 +128,11 @@ def _cli_suggest_rules(args) -> int:
     for trigger, counts in sorted(by_trigger.items()):
         total = sum(counts.values())
         choice, n = counts.most_common(1)[0]
+        if trigger in PROTECTIVE_HOLD_TRIGGERS:
+            print(
+                f"  {trigger}: {total} unanimous decisions — protective hold triggers are never proposed as policy"
+            )
+            continue
         if total >= args.threshold and n == total and choice in ("generic", "salvage"):
             proposals.append(f'{trigger} = "{choice}"')
         elif total >= args.threshold and n == total and choice == "suppress":

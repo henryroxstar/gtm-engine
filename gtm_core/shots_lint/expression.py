@@ -9,20 +9,11 @@ for that, and the storyboard's "muscles, not adjectives" field spec is its other
 
 **Over-direction** is the one nothing named. It arrives in two costumes:
 
-* an ADJECTIVE the writer never translated ("conversational and a little amused") — the model is
-  free to pick the magnitude, and it picks the maximum, because a beaming face is what the word
-  is attached to in its training data;
-* a STACK of true observations delivered at once. A shipped payoff beat asked for "eyes closing,
-  brows lifted at the inner ends and held wide apart, mouth closed and still, jaw loose, chin
-  steady, eyes wet and holding". Every clause in it is a real marker of being moved. Together
-  they are anguish, not restraint — and two of them disagree in muscle terms, since an inner-brow
-  lift is the moved signature while brows held wide apart is the surprise one. The stack is not
-  the writer's invention either: the story graph lists six reliable markers of a moved face in
-  one breath, and the writer used all six.
+* an ADJECTIVE the writer never translated — the model picks maximum magnitude;
+* a STACK of observations at once (e.g. moving multiple regions simultaneously).
+A regex decides reaction vocabulary and region count; guidance lives in
+``creator-brief/references/performance-lexicon.md``.
 
-So this module owns the two things a regex can honestly decide — a vocabulary that is always a
-reaction shot, and how MANY regions of one face are being moved at once — and leaves everything
-about what to write instead to ``creator-brief/references/performance-lexicon.md``. A lexicon
 cannot refuse anything and a linter cannot teach a grammar; each does the half it can.
 
 Three deliberate scoping choices, each of which was the other way round first:

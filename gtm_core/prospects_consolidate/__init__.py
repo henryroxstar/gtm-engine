@@ -91,6 +91,7 @@ from .columns import (  # noqa: F401
     _ASSIGNED_COLUMNS,
     _COLUMN_NOTES,
     MASTER_COLS,
+    column_value,
     csv_map_markdown,
 )
 from .confidence import (  # noqa: F401

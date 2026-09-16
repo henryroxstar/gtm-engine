@@ -129,8 +129,18 @@ def parse_reply_block(raw: str) -> ReplyDraft | None:
     if not body:
         return None
 
+    # Search every OTHER block only OUTSIDE the chosen REPLY span — never inside it, exactly
+    # as agent/publish.py does for the POST span. Without this, a well-formed
+    # ⟦THREAD⟧…⟦/THREAD⟧ or ⟦TO⟧…⟦/TO⟧ quoted INSIDE the reply body (which the sentinel
+    # stripping above only removes the visible markers of) was still found by a plain `raw`
+    # search and treated as genuine. `to` is the RECIPIENT and `thread_id` is the wire
+    # routing field which also feeds content_hash — so an inbound message could choose who a
+    # reply went to and move the approval binding, while the operator reviewed clean-looking
+    # body text. Excising the span closes it for every field at once.
+    outside_reply = raw[: m.start()] + raw[m.end() :]
+
     def _field(rx: re.Pattern[str]) -> str:
-        fm = rx.search(raw)
+        fm = rx.search(outside_reply)
         return _CONTROL_SENTINEL_RE.sub("", fm.group(1)).strip() if fm else ""
 
     return ReplyDraft(body=body, thread_id=_field(_THREAD_RE), to=_field(_TO_RE))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,70 @@ def _existing_plan_id(sidecar: Path) -> str | None:
         return json.loads(sidecar.read_text()).get("plan_id")
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _carried_suppressions(sidecar: Path, asset_name: str) -> list[dict]:
+    """``lint_suppressions`` entries from the PREVIOUS ``finish-<ratio>.json`` worth carrying
+    into this write: only ``dict`` entries whose ``asset`` names this run's own final asset.
+
+    Never raises — a missing, malformed, or oddly-shaped prior manifest carries nothing rather
+    than blocking the new write; re-validating what IS carried is
+    ``video_lint.suppress._validate_suppressions``'s job alone, not this one's. A re-run whose
+    plan_id changed (a graded param tweaked, a caption edited) used to drop every suppression a
+    human had already recorded, so V1/V10 fired again on findings that were already reviewed and
+    accepted — this is what stops that.
+    """
+    if not sidecar.is_file():
+        return []
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    raw = data.get("lint_suppressions")
+    if not isinstance(raw, list):
+        return []
+    return [
+        entry
+        for entry in raw
+        if isinstance(entry, dict) and str(entry.get("asset", "")) == asset_name
+    ]
+
+
+def _write_spec_sidecar(
+    spec: dict | None, *, out_dir: Path, ratio_slug: str, finish_plan: FinishPlan
+) -> None:
+    """Save the exact spec this run was given as ``finish-spec-<ratio>.json`` beside the
+    manifest — the replay input ``video-finish/body_template.md`` already names at
+    ``--spec content/<active>/video/<script-slug>/finish-spec-<ratio>.json``, now backed by code
+    that actually writes it.
+
+    Written verbatim (``plan()`` never mutates its ``spec`` argument), plus one extra recoverable
+    fact neither ``--source`` nor ``--product`` is recorded anywhere else once this runs:
+    ``_invocation``. ``product`` is read from the spec dict itself, never a CLI flag — this
+    function has no channel to ``--product`` — so a caller that wants it on record can declare it
+    there; ``plan()`` silently ignores unknown top-level spec keys, so neither this key nor its
+    absence ever perturbs ``plan_id``.
+
+    No-op when ``spec`` is falsy (a caller that never had one), and no-op when the target file
+    already holds byte-identical content — the case a caller hits by replaying
+    ``--spec <this exact file's own path>``: skip the write entirely rather than touch a file
+    that already says exactly this.
+    """
+    if not spec:
+        return
+    payload = {
+        **spec,
+        "_invocation": {"source": finish_plan.source, "product": spec.get("product")},
+    }
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    target = out_dir / f"finish-spec-{ratio_slug}.json"
+    if target.is_file() and target.read_text(encoding="utf-8") == text:
+        return
+    tmp = target.with_suffix(target.suffix + f".tmp{os.getpid()}")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def _build_filtergraph(
@@ -119,15 +184,30 @@ def _write_manifest(
     out_dir: Path,
     captions_payload: dict | None,
     repo_root: Path | None,
+    spec: dict | None = None,
 ) -> Path:
     """Write finish-<ratio>.json through the canonical render_manifest.FinishManifest schema —
     never an ad-hoc dict. FinishPlan.to_json() (with its 'source' key and dict-shaped stages) is
     the plan PREVIEW shown by --dry-run; it is a different contract from the on-disk manifest
     gtm_core.outcomes/gtm_core.video_lint read back via render_manifest.load_finish(), which
-    expects stage NAMES only and has no 'source' field."""
+    expects stage NAMES only and has no 'source' field.
+
+    Also carries forward any ``lint_suppressions`` scoped to this asset from the manifest this
+    write is about to replace (see :func:`_carried_suppressions`), and — when ``spec`` is given —
+    saves it beside the manifest as ``finish-spec-<ratio>.json`` (see :func:`_write_spec_sidecar`).
+    """
     from ..render_manifest import FinishManifest, write_finish_manifest
 
     ratio_slug = _ratio_slug(finish_plan.ratio)
+    sidecar_path = out_dir / f"finish-{ratio_slug}.json"
+    carried = _carried_suppressions(sidecar_path, asset_path.name)
+    if carried:
+        tiers = ", ".join(dict.fromkeys(str(e.get("tier", "")) for e in carried))
+        print(
+            f"carried {len(carried)} lint suppression(s) ({tiers}) from the previous manifest — "
+            "re-verify with video_lint --no-suppress",
+            file=sys.stderr,
+        )
     manifest = FinishManifest(
         profile=finish_plan.profile,
         slug=finish_plan.slug,
@@ -137,19 +217,26 @@ def _write_manifest(
         census=finish_plan.census(),
         executed=executed,
         plan_id=finish_plan.plan_id,
+        lint_suppressions=tuple(carried),
         captions=captions_payload,
         identity_used=_identity_used_from_render(out_dir, ratio_slug, finish_plan.spec_identity),
         caption_route=finish_plan.caption_route,
         caption_route_suppression=finish_plan.caption_route_suppression,
         audio_context=finish_plan.audio_context,
         spoken_text=finish_plan.spoken_text,
+        captions_preburned=finish_plan.captions_preburned,
+        overlays=finish_plan.preburned_overlays,
+        transitions=finish_plan.transitions,
     )
-    return write_finish_manifest(
+    written = write_finish_manifest(
         manifest,
         out_dir=out_dir,
         repo_root=repo_root,
         preset_resolved=bool(finish_plan.captions_preset),
+        declared_route=finish_plan.captions_route,
     )
+    _write_spec_sidecar(spec, out_dir=out_dir, ratio_slug=ratio_slug, finish_plan=finish_plan)
+    return written
 
 
 def execute(
@@ -159,10 +246,16 @@ def execute(
     out_dir: Path,
     kit: dict | None = None,
     repo_root: Path | None = None,
+    spec: dict | None = None,
 ) -> FinishResult:
     """Run a FinishPlan against the real source file. Raises FfmpegUnavailable when ffmpeg is not
     on PATH — captions still render (Pillow-only) and finish-<ratio>.json still gets written with
-    executed=False before the raise, so the degraded state is always on disk, never silent."""
+    executed=False before the raise, so the degraded state is always on disk, never silent.
+
+    ``spec`` — the raw dict this plan was built from — is saved beside the manifest as
+    ``finish-spec-<ratio>.json`` whenever the manifest itself is written (see
+    :func:`_write_spec_sidecar`); pass ``None`` to skip it.
+    """
     if any(s.name == "cuts" for s in finish_plan.stages):
         raise NotImplementedError(
             "execute() does not implement the 'cuts' stage yet (Phase A ships with cuts=[] only "
@@ -187,12 +280,27 @@ def execute(
     caption_stage = next((s for s in finish_plan.stages if s.name == "captions"), None)
     caption_rendered = None
     caption_manifest_path = None
-    captions_payload = None
+    # A pre-burned source's geometry (scaled at plan time) is the manifest's captions payload;
+    # a plan never carries both this and a captions stage (plan() refuses the pair).
+    captions_payload = finish_plan.preburned_captions
     if caption_stage is not None:
         from ..captions import render as render_captions
         from ..captions import resolve_placement, sidecar_payload, write_sidecar
+        from .burn import _measure_backdrop_luma
 
         screens = _screens_for_caption_stage(caption_stage.args)
+        placement = resolve_placement(kit or {}, ratio=finish_plan.ratio)
+        # One glyph choice covers the whole asset (render_captions takes a single
+        # backdrop_luma), so sample the span's midpoint rather than per-screen — the same
+        # single-measurement shape burn.py's per-shot stage already uses, just spanning the
+        # whole video instead of one shot. Unmeasured (ffmpeg/Pillow missing) falls back to
+        # render()'s prior default (light glyphs) exactly as before this measurement existed.
+        backdrop_luma = _measure_backdrop_luma(
+            Path(finish_plan.source),
+            ratio=finish_plan.ratio,
+            placement=placement,
+            at_s=(screens[0].start_s + screens[-1].end_s) / 2 if screens else 0.0,
+        )
         caption_rendered = render_captions(
             screens,
             ratio=finish_plan.ratio,
@@ -201,7 +309,8 @@ def execute(
             repo_root=repo_root,
             # ratio= is what makes an upper-placement preset resolve to lower on 9:16/16:9,
             # where the face band leaves upper no room clear of a presenter's head.
-            placement=resolve_placement(kit or {}, ratio=finish_plan.ratio),
+            placement=placement,
+            backdrop_luma=backdrop_luma,
         )
         caption_manifest_path = write_sidecar(
             caption_rendered, ratio=finish_plan.ratio, out_dir=out_dir
@@ -217,6 +326,7 @@ def execute(
             out_dir=out_dir,
             captions_payload=captions_payload,
             repo_root=repo_root,
+            spec=spec,
         )
         raise FfmpegUnavailable("ffmpeg is not on PATH — captions rendered, encoding did not run")
 
@@ -287,6 +397,7 @@ def execute(
         out_dir=out_dir,
         captions_payload=captions_payload,
         repo_root=repo_root,
+        spec=spec,
     )
 
     return FinishResult(

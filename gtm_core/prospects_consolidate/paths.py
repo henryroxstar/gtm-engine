@@ -18,11 +18,21 @@ def _sequences_dir(profile: str, content_root: Path | None = None) -> Path:
     return _prospects_dir(profile, content_root) / "sequences"
 
 
+def _pool_subdir(seq_dir: Path) -> Path:
+    """The single source of truth for where the hidden pool sits, given an already-resolved
+    ``sequences/`` directory. ``_pool_dir`` below is this same convention keyed by profile;
+    ``gtm_core.lanes.router.write_lanes`` builds on this directly (it is handed a ``seq_dir``
+    that may be a ``--out-dir`` override rather than ``_sequences_dir(profile, ...)``, so it
+    cannot re-derive one from a profile) — kept here rather than duplicated as a literal
+    ``seq_dir / ".pool"`` in both places."""
+    return seq_dir / ".pool"
+
+
 def _pool_dir(profile: str, content_root: Path | None = None) -> Path:
     """Hidden home for everything that isn't the one human-facing load file:
     the full master-list audit, the needs-verification hold queue, snapshots,
     and the blocked log. Keeps ``sequences/`` down to a single visible CSV."""
-    return _sequences_dir(profile, content_root) / ".pool"
+    return _pool_subdir(_sequences_dir(profile, content_root))
 
 
 def ready_to_load_path(profile: str, content_root: Path | None = None) -> Path:

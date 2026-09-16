@@ -33,6 +33,8 @@ render and no paid image/video generation. Visuals are an explicit, operator-gat
 - `profiles/<active>/knowledge/social-tuning.md` (via `resolve_knowledge`, optional) — the company's
   per-platform tuning. The `docs/*-optimization.md` playbooks below carry the generic method; the
   company-specific lead formats, posting clocks and "never" lists come from here.
+- `docs/direct-response-patterns.md` (when `item.goal == "conversion"`) — the 5 B2B Direct-Response
+  Desire Frameworks and dual-action platform bridge rules. Read whenever drafting a conversion piece.
 
 ## Step 0.5 — Pre-generation quality gate
 
@@ -71,7 +73,13 @@ it to the active company's voice and verify every claim against the research pac
 research pack. **Every post is engineered to be *felt*, not just useful:** compose it against
 `docs/virality-engineering.md` — stack at least 2 emotional triggers (target 3), earn the emotion the
 hook promised through the body, and close on an action; run the draft through that doc's scoring gate
-before you lint. **X drafts additionally choose a post structure** from `docs/x-tweet-patterns.md`
+before you lint. **Direct-response conversion items (`goal: "conversion"`)** follow
+`docs/direct-response-patterns.md`: structure the body around one of the 5 B2B frameworks
+(`dr-symptom-root-cause`, `dr-earned-authority`, `dr-gap-roadblock`, `dr-empirical-test`,
+`dr-industry-benchmark`), land the concrete mechanism, and close on the **Dual-Action Platform Bridge**
+(LinkedIn: comment + DM; X: reply + DM; IG: comment automation). Do not use generic "link in bio"
+or consumer hype syntax — obey `_ANTITHESIS_RES` (no "you're not X, you just Y") and avoid empty
+intensifiers. **X drafts additionally choose a post structure** from `docs/x-tweet-patterns.md`
 (see the `### X` section below). **All copy** obeys `docs/prose-craft.md` (no em dashes, no AI-tell
 words); the Step 2 lint flags prose issues as advisory warnings to clear or justify.
 

@@ -8,6 +8,8 @@ Identities are fictional per the third-party-PII rule; only the field structure 
 
 from __future__ import annotations
 
+import json
+
 from gtm_core import sequencer_outcomes as so
 
 TAXONOMY = {
@@ -229,3 +231,170 @@ def test_an_unsubscribe_emits_an_opt_out_row_that_is_not_a_reply():
         _email_item(categoryId=8, sentiment="Negative"), [_thread()], TAXONOMY, CELLS
     )
     assert "opt_out" in [r["outcome"] for r in rows], "a do-not-contact category is an opt-out"
+
+
+# --- PS6: reply_emails_to_mark — the boundary that decides who gets mark_replied ---- #
+
+
+def test_a_positive_interested_outcome_is_marked_for_replied():
+    rows, _ = so.plan_rows(_email_item(), [_thread()], TAXONOMY, CELLS)
+    assert [r["outcome"] for r in rows] == ["reply", "positive_reply"]
+    assert so.reply_emails_to_mark(rows) == {THEIRS}
+
+
+def test_a_meeting_outcome_is_marked_for_replied():
+    # categoryId=4 -> "Meeting Booked" in TAXONOMY's 1-based positional map.
+    rows, _ = so.plan_rows(
+        _email_item(categoryId=4, sentiment="Positive"), [_thread()], TAXONOMY, CELLS
+    )
+    assert "meeting" in [r["outcome"] for r in rows]
+    assert so.reply_emails_to_mark(rows) == {THEIRS}
+
+
+def test_an_opt_out_outcome_is_not_marked_for_replied():
+    """A do-not-contact category is an opt-out, never a positive reply — marking it
+    'replied' would be the opposite signal from what actually happened."""
+    rows, _ = so.plan_rows(
+        _email_item(categoryId=8, sentiment="Negative"), [_thread()], TAXONOMY, CELLS
+    )
+    assert "opt_out" in [r["outcome"] for r in rows]
+    assert so.reply_emails_to_mark(rows) == set()
+
+
+def test_a_bare_reply_with_no_positive_tag_is_not_marked_for_replied():
+    """An unresolved/unclassified reply — no 'positive:' tag at all — must not be
+    marked either. Only positive_reply/meeting count."""
+    rows, _ = so.plan_rows(
+        _email_item(categoryId=1, sentiment="Neutral"), [_thread()], TAXONOMY, CELLS
+    )
+    assert [r["outcome"] for r in rows] == ["reply"]
+    assert so.reply_emails_to_mark(rows) == set()
+
+
+def test_reply_emails_to_mark_is_empty_for_no_rows():
+    assert so.reply_emails_to_mark([]) == set()
+
+
+# --- PS6: the CLI's --apply path actually calls mark_replied ---------------------- #
+
+
+def test_cli_apply_calls_mark_replied_for_a_positive_reply(tmp_path, monkeypatch):
+    """Wiring proof: a positive reply staged end-to-end through the CLI's --apply path
+    reaches `mark_replied`. `--include-unattributed` sidesteps needing a real
+    `cells.toml` for this test — the cell/lane join is exercised elsewhere."""
+    emails_path = tmp_path / "emails.json"
+    threads_path = tmp_path / "threads.json"
+    taxonomy_path = tmp_path / "taxonomy.json"
+    emails_path.write_text(json.dumps(_email_item()), encoding="utf-8")
+    threads_path.write_text(json.dumps([_thread()]), encoding="utf-8")
+    taxonomy_path.write_text(json.dumps(TAXONOMY), encoding="utf-8")
+
+    calls = []
+
+    def fake_mark_replied(profile, emails, *, source, content_root=None):
+        calls.append((profile, set(emails), source, content_root))
+        return {"changed": 1, "retired_skipped": [], "unmatched": []}
+
+    monkeypatch.setattr(so, "mark_replied", fake_mark_replied)
+
+    so._cli(
+        [
+            "--profile",
+            "acme",
+            "--content-root",
+            str(tmp_path),
+            "--emails",
+            str(emails_path),
+            "--threads",
+            str(threads_path),
+            "--taxonomy",
+            str(taxonomy_path),
+            "--include-unattributed",
+            "--apply",
+        ]
+    )
+    assert calls == [("acme", {THEIRS}, "sequencer_outcomes", tmp_path)]
+
+
+def test_cli_apply_does_not_call_mark_replied_when_no_positive_reply(tmp_path, monkeypatch):
+    emails_path = tmp_path / "emails.json"
+    threads_path = tmp_path / "threads.json"
+    taxonomy_path = tmp_path / "taxonomy.json"
+    # Not Interested (categoryId=3) — a reply, but never a positive one.
+    emails_path.write_text(
+        json.dumps(_email_item(categoryId=3, sentiment="Negative")), encoding="utf-8"
+    )
+    threads_path.write_text(json.dumps([_thread()]), encoding="utf-8")
+    taxonomy_path.write_text(json.dumps(TAXONOMY), encoding="utf-8")
+
+    calls = []
+    monkeypatch.setattr(
+        so, "mark_replied", lambda *a, **kw: calls.append((a, kw)) or {"changed": 0}
+    )
+
+    so._cli(
+        [
+            "--profile",
+            "acme",
+            "--content-root",
+            str(tmp_path),
+            "--emails",
+            str(emails_path),
+            "--threads",
+            str(threads_path),
+            "--taxonomy",
+            str(taxonomy_path),
+            "--include-unattributed",
+            "--apply",
+        ]
+    )
+    assert calls == []
+
+
+def test_cli_apply_retries_prior_unmarked_outcomes(tmp_path, monkeypatch):
+    """PS-R C2: durable outcomes in outcomes.jsonl are retried on each --apply run."""
+    from gtm_core.outcomes import append_outcome
+
+    append_outcome(
+        tmp_path,
+        "acme",
+        {
+            "outcome": "positive_reply",
+            "meta": {"prospect_email": "prior@target.example"},
+        },
+    )
+
+    emails_path = tmp_path / "emails.json"
+    threads_path = tmp_path / "threads.json"
+    taxonomy_path = tmp_path / "taxonomy.json"
+    emails_path.write_text(
+        json.dumps(_email_item(categoryId=3, sentiment="Negative")), encoding="utf-8"
+    )
+    threads_path.write_text(json.dumps([_thread()]), encoding="utf-8")
+    taxonomy_path.write_text(json.dumps(TAXONOMY), encoding="utf-8")
+
+    calls = []
+
+    def fake_mark_replied(profile, emails, *, source, content_root=None):
+        calls.append((profile, set(emails), source, content_root))
+        return {"changed": 1, "retired_skipped": [], "unmatched": []}
+
+    monkeypatch.setattr(so, "mark_replied", fake_mark_replied)
+
+    so._cli(
+        [
+            "--profile",
+            "acme",
+            "--content-root",
+            str(tmp_path),
+            "--emails",
+            str(emails_path),
+            "--threads",
+            str(threads_path),
+            "--taxonomy",
+            str(taxonomy_path),
+            "--include-unattributed",
+            "--apply",
+        ]
+    )
+    assert calls == [("acme", {"prior@target.example"}, "sequencer_outcomes", tmp_path)]

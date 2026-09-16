@@ -33,17 +33,21 @@ def _signed_url(*, host="upload.example.test", age_s=10, expires_s=900):
 # --- host allowlist -------------------------------------------------------------------------
 
 
-def test_allowed_hosts_holds_exactly_the_one_observed_host():
+def test_allowed_hosts_holds_exactly_the_observed_hosts():
     """The rule was never "stay empty" — it was "never guess ahead of a live observation".
 
     The allowlist shipped empty from 2026-08-15 until 2026-08-20, when Reap's own
-    `request_upload_url` tool was called and the host read out of the `uploadUrl` it minted. This
-    asserts the *shape* that matters: exactly one exact bucket host, and no wildcard. A
+    `request_upload_url` tool was called and the host read out of the `uploadUrl` it minted; the
+    HeyGen bucket was read the same way out of `create_asset_upload`'s `upload_url` on
+    2026-09-14. This asserts the *shape* that matters: exact bucket hosts, and no wildcard. A
     `*.amazonaws.com` or `*.s3-accelerate.amazonaws.com` entry would admit every S3 tenant on the
     internet, which is not an allowlist.
     """
     assert ru.ALLOWED_UPLOAD_HOSTS == frozenset(
-        {"reap-user-upload-bkt-prod.s3-accelerate.amazonaws.com"}
+        {
+            "reap-user-upload-bkt-prod.s3-accelerate.amazonaws.com",
+            "heygen-resources-prod.s3-accelerate.amazonaws.com",
+        }
     )
     assert not any("*" in h for h in ru.ALLOWED_UPLOAD_HOSTS), "no wildcards in an allowlist"
 
@@ -117,6 +121,43 @@ def test_parse_tool_result_requires_id():
 def test_parse_tool_result_accepts_the_documented_shape():
     data = ru.parse_tool_result(_good_result())
     assert data["id"] == "upload-123"
+
+
+def _heygen_result(url="https://upload.example.test/k?X-Amz-Signature=abc", headers=None):
+    return json.dumps(
+        {
+            "asset_id": "asset-456",
+            "upload_url": url,
+            "upload_headers": headers
+            if headers is not None
+            else {"content-type": "image/png", "x-amz-server-side-encryption": "AES256"},
+            "expires_in_seconds": 86400,
+            "status": "pending_upload",
+        }
+    )
+
+
+def test_parse_tool_result_normalizes_the_heygen_shape():
+    data = ru.parse_tool_result(_heygen_result())
+    assert data["id"] == "asset-456"
+    assert data["uploadUrl"].startswith("https://upload.example.test/")
+    assert data["headers"] == {
+        "content-type": "image/png",
+        "x-amz-server-side-encryption": "AES256",
+    }
+
+
+def test_parse_tool_result_requires_the_heygen_asset_id():
+    with pytest.raises(ru.EgressRefused, match="'asset_id'"):
+        ru.parse_tool_result(json.dumps({"upload_url": "https://x/y"}))
+
+
+@pytest.mark.parametrize("name", ["Authorization", "Cookie", "x-amz-security-token", "X-Api-Key"])
+def test_parse_tool_result_refuses_a_header_outside_the_passthrough_set(name):
+    """Negative control: a credential-shaped header in the tool result is refused, not forwarded
+    and not silently dropped."""
+    with pytest.raises(ru.EgressRefused, match="refusing upload header"):
+        ru.parse_tool_result(_heygen_result(headers={"content-type": "image/png", name: "v"}))
 
 
 # --- signature freshness ----------------------------------------------------------------------
@@ -259,6 +300,47 @@ def test_upload_honours_the_content_type_the_signature_was_computed_against(tmp_
     assert result["status"] == 200
     sent = fake.requests[0]
     assert sent.get_header("Content-type") == "video/mp4"
+
+
+def test_upload_sends_the_headers_heygen_signed_and_nothing_else(tmp_path, monkeypatch):
+    """HeyGen puts content-type and x-amz-server-side-encryption in X-Amz-SignedHeaders; a PUT
+    without either is a 403. Both are forwarded; no auth or cookie header appears."""
+    monkeypatch.setattr(ru, "ALLOWED_UPLOAD_HOSTS", ALLOWED)
+    root, f = _seed_source(tmp_path)
+    fake = _FakeOpener()
+    monkeypatch.setattr(ru.urllib.request, "build_opener", lambda *a: fake)
+
+    result = ru.upload(f, _heygen_result(_signed_url()), profile="acme", content_root=root)
+
+    assert result["upload_id"] == "asset-456"
+    sent = fake.requests[0]
+    assert sent.get_header("Content-type") == "image/png"
+    assert sent.get_header("X-amz-server-side-encryption") == "AES256"
+    assert sent.get_header("Authorization") is None
+    assert sent.get_header("Cookie") is None
+
+
+def test_default_root_follows_a_symlinked_profile_directory(tmp_path, monkeypatch):
+    """content/<profile> may be a symlink to a synced drive. The default root is the profile's
+    RESOLVED tree, so a file there is accepted — and a sibling tenant's file is still refused."""
+    monkeypatch.setattr(ru, "ALLOWED_UPLOAD_HOSTS", ALLOWED)
+    content = tmp_path / "content"
+    content.mkdir()
+    drive = tmp_path / "drive" / "acme"
+    (drive / "video").mkdir(parents=True)
+    (content / "acme").symlink_to(drive, target_is_directory=True)
+    f = content / "acme" / "video" / "shot.png"
+    f.write_bytes(b"png")
+    other = content / "globex" / "x.png"
+    other.parent.mkdir()
+    other.write_bytes(b"png")
+    fake = _FakeOpener()
+    monkeypatch.setattr(ru.urllib.request, "build_opener", lambda *a: fake)
+    monkeypatch.setattr(ru, "resolve_content_root", lambda: content)
+
+    assert ru.upload(f, _heygen_result(_signed_url()), profile="acme")["status"] == 200
+    with pytest.raises(ru.EgressRefused, match="outside the resolved content root"):
+        ru.upload(other, _heygen_result(_signed_url()), profile="acme")
 
 
 def test_signed_content_type_helper_decodes_the_url_encoded_value():

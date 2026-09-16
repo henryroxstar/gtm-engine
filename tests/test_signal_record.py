@@ -76,6 +76,64 @@ def test_a_generic_row_needs_a_verdict_but_no_provenance():
     assert check_record(row, as_of=AS_OF) == []
 
 
+# --- signal_clause is derived, never stored (PS3, 2026-09-10) ------------
+#
+# `signal_clause` is not one of `ready-to-load.csv`'s 41 stored columns — it is
+# derived-only, so it is blank on every pooled row. Before this fell back to deriving
+# it from `why_now`, EVERY row on a real list took the "no clause" exit above and
+# skipped every source/date/evidence/subject/agent-kind check, whatever `why_now`
+# actually said.
+
+
+def test_why_now_without_a_signal_clause_column_still_triggers_provenance_checks():
+    """A row with no `signal_clause` value but a `why_now` that reduces to a real,
+    unsourced claim must not take the "nothing to source" exit — the fallback
+    derivation is what makes the checks run at all on a real pooled row."""
+    row = _row(
+        signal_clause="",
+        why_now="Halden Systems opened a new AI safety office",
+        signal_source_url="",
+        signal_observed="",
+        signal_evidence="",
+    )
+    findings = check_record(row, as_of=AS_OF)
+    rules = _rules(findings)
+    assert "signal-source-missing" in rules
+    assert "signal-observed-missing" in rules
+    assert "signal-evidence-missing" in rules
+
+
+def test_a_sourced_why_now_with_no_signal_clause_column_produces_no_findings():
+    """Negative control for the derivation above: a `why_now` that reduces to a clause
+    the row's OWN source/date/evidence genuinely support must clear the record — this
+    proves the fallback derives the right clause, not merely that any `why_now` at all
+    now fires a finding."""
+    row = _row(
+        signal_clause="",
+        why_now="raised a Series B to expand its agent orchestration platform",
+    )
+    assert check_record(row, as_of=AS_OF) == []
+
+
+def test_research_note_why_now_triggers_provenance_and_underivable_checks():
+    """PS-R I3: A row with a research-note why_now that does not reduce to a signal clause
+    must NOT take the 'nothing to source' exit — it must fire signal-clause-underivable
+    and require source/date/evidence provenance."""
+    row = _row(
+        signal_clause="",
+        why_now="enterprise automation platform (intent score 81)",
+        signal_source_url="",
+        signal_observed="",
+        signal_evidence="",
+    )
+    findings = check_record(row, as_of=AS_OF)
+    rules = _rules(findings)
+    assert "signal-clause-underivable" in rules
+    assert "signal-source-missing" in rules
+    assert "signal-observed-missing" in rules
+    assert "signal-evidence-missing" in rules
+
+
 # --- evidence support ----------------------------------------------------
 
 

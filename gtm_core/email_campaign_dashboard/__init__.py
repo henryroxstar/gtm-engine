@@ -57,6 +57,7 @@ from .model import (  # noqa: F401
     _spec_copy,
     build_model,
     market_split,
+    prospect_status_model,
     prospecting_runs,
     reconcile_snapshot,
     scope_to_campaign,

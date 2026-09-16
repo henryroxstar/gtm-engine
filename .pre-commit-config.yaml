@@ -155,3 +155,22 @@ repos:
         language: system
         pass_filenames: false
         files: (gtm_core/email_campaign_dashboard/.*\.py|tests/lint/rendered_prose_allow\.txt)$
+
+      # PS11 operator vocabulary: status lines, skill instructions to the operator, and
+      # dashboard status cards must use operator vocabulary, not pipeline jargon (lane/verdict/
+      # trigger ids/mcp__/jsonl). Delimited by <!-- operator --> in skill body templates.
+      - id: operator-vocabulary
+        name: refuse pipeline vocabulary in operator-facing text (PS11)
+        entry: uv run python tests/lint/operator_vocabulary.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Multi-agent config sync: regenerate .agents/mcp_config.json when the
+      # authoritative Python MCP config changes so Antigravity/Codex stay in sync.
+      - id: generate-agent-configs
+        name: sync .agents/mcp_config.json from agent/mcp_config.py
+        entry: uv run python scripts/generate_agent_configs.py
+        language: system
+        pass_filenames: false
+        files: ^agent/mcp_config\.py$

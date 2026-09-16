@@ -24,6 +24,18 @@ class IngestConfig(Protocol):
     onboarding_cap_usd: float | None
 
 
+class UrlIngestUnavailableError(RuntimeError):
+    """URL ingestion is not configured on this deployment (no Firecrawl key)."""
+
+
+class UrlIngestFailedError(ValueError):
+    """The crawl provider answered with a body that is not the JSON it documents."""
+
+
+class OnboardingCapReachedError(RuntimeError):
+    """This month's onboarding spend has reached ``onboarding_cap_usd`` (§R2)."""
+
+
 def _onboarding_month_spend(cfg: IngestConfig) -> float:
     """Return the current month's onboarding spend from content/_system/costs.jsonl.
 
@@ -56,6 +68,13 @@ def _onboarding_month_spend(cfg: IngestConfig) -> float:
     return total
 
 
+def _json_body(response) -> dict:
+    try:
+        return response.json()
+    except json.JSONDecodeError as exc:
+        raise UrlIngestFailedError(f"Firecrawl returned a non-JSON response: {exc}") from exc
+
+
 def _ingest_url(url: str, cfg: IngestConfig) -> str:
     """Crawl a URL via the Firecrawl REST API and return the combined markdown.
 
@@ -66,13 +85,15 @@ def _ingest_url(url: str, cfg: IngestConfig) -> str:
     import httpx
 
     if not cfg.firecrawl_api_key:
-        raise RuntimeError("URL ingestion requires FIRECRAWL_API_KEY — set it in Doppler or .env")
+        raise UrlIngestUnavailableError(
+            "URL ingestion requires FIRECRAWL_API_KEY — set it in Doppler or .env"
+        )
 
     # §R2 cost cap check BEFORE the paid crawl call.
     if cfg.onboarding_cap_usd is not None:
         spent = _onboarding_month_spend(cfg)
         if spent >= cfg.onboarding_cap_usd:
-            raise RuntimeError(
+            raise OnboardingCapReachedError(
                 f"Onboarding cost cap exceeded: ${spent:.4f} >= ${cfg.onboarding_cap_usd:.4f} "
                 f"(GTM_ONBOARDING_CAP_USD). Check content/_system/costs.jsonl."
             )
@@ -90,7 +111,7 @@ def _ingest_url(url: str, cfg: IngestConfig) -> str:
     with httpx.Client(timeout=60.0) as client:
         resp = client.post("https://api.firecrawl.dev/v1/crawl", headers=headers, json=payload)
         resp.raise_for_status()
-        data = resp.json()
+        data = _json_body(resp)
 
     pages: list[str] = []
     crawl_id = data.get("id")
@@ -104,7 +125,7 @@ def _ingest_url(url: str, cfg: IngestConfig) -> str:
                     headers=headers,
                 )
                 result.raise_for_status()
-                result_data = result.json()
+                result_data = _json_body(result)
                 if result_data.get("status") == "completed":
                     for item in result_data.get("data", []):
                         content = item.get("markdown") or item.get("content") or ""

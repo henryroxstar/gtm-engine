@@ -248,8 +248,8 @@ def test_the_backend_baked_extraction_is_non_vacuous():
 def test_every_backend_baked_path_triggers_the_backend_deploy():
     """Forward, for the API stack.
 
-    `schemas/` is the one this exists to catch: those files are the client contract that
-    `gtm-client-app` vendors, they are COPY'd into the backend image, and before this test
+    `schemas/` is the one this exists to catch: those files are the client contract a client
+    app vendors, they are COPY'd into the backend image, and before this test
     a change to them triggered no deploy of any kind — neither stack's filter named them.
     """
     shipped = _backend_baked() - _NOT_A_TRIGGER

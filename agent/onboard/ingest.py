@@ -7,6 +7,8 @@ if TYPE_CHECKING:  # annotations only — no runtime import
 
 from pathlib import Path
 
+from .errors import OnboardingInputError
+
 # ── ingest ────────────────────────────────────────────────────────────────────
 
 
@@ -36,12 +38,12 @@ def ingest(source: str, source_type: str, cfg: Config) -> str:
 
         text = _ingest_url(source, cfg)
     else:
-        raise ValueError(
+        raise OnboardingInputError(
             f"unsupported source_type: {source_type!r} — must be 'url', 'file', or 'text'"
         )
 
     if not text or not text.strip():
-        raise ValueError(
+        raise OnboardingInputError(
             "Ingested source has no readable text — the page may be blocked, JS-only, "
             "or an image-only PDF. Ask the founder to paste their About text or a deck."
         )
@@ -56,7 +58,9 @@ def _ingest_file(path: Path) -> str:
     elif suffix == ".pdf":
         return _ingest_pdf(path)
     else:
-        raise ValueError(f"unsupported file extension {suffix!r} — supported: .md, .txt, .pdf")
+        raise OnboardingInputError(
+            f"unsupported file extension {suffix!r} — supported: .md, .txt, .pdf"
+        )
 
 
 def _ingest_pdf(path: Path) -> str:

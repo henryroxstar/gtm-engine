@@ -100,7 +100,7 @@ from .model import (  # noqa: F401
     Tier,
     face_band,
 )
-from .probe import Probe, ProbeFailed, ProbeUnavailable, probe  # noqa: F401
+from .probe import Probe, ProbeFailed, ProbeUnavailable, ffmpeg_available, probe  # noqa: F401
 from .suppress import (  # noqa: F401
     _MIN_SUPPRESSION_REASON_CHARS,
     _PLACEHOLDER_REASONS,
@@ -108,6 +108,7 @@ from .suppress import (  # noqa: F401
     Suppression,
     _validate_suppressions,
     apply_suppressions,
+    stale_suppressions,
 )
 from .thresholds import (  # noqa: F401
     ASPECT_TOLERANCE,
@@ -172,6 +173,7 @@ __all__ = [
     "BadSuppression",
     "Probe",
     "probe",
+    "ffmpeg_available",
     "Suppression",
     "measure_cuts_and_motion",
     "measure_audio",
@@ -179,6 +181,7 @@ __all__ = [
     "measure_caption_contrast",
     "evaluate",
     "apply_suppressions",
+    "stale_suppressions",
     "report",
     "main",
 ]

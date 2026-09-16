@@ -62,6 +62,7 @@ SCAN_DIRS=("$ROOT/plugin/skills" "$ROOT/gtm_core/skills" "$ROOT/packs")
 SHIPPING_DOCS=(
   "$ROOT/docs/prose-craft.md"
   "$ROOT/docs/hook-craft.md"
+  "$ROOT/docs/direct-response-patterns.md"
   "$ROOT/docs/x-tweet-patterns.md"
   "$ROOT/docs/audience-psychology-method.md"
   "$ROOT/docs/virality-engineering.md"

@@ -17,5 +17,7 @@ SKILL = GTMSkill(
     capability_tier=Tier.CORE,
     version="0.4.0",
     phase="journey-m2",
-    description="Assembles the evidence pack for one builder-story build moment. Reads the chosen StoryCluster from content/<active>/journey/radar/, fetches the actual git commits, diffs, and design-doc text for its source_items via gtm_core.journey.gitscan, and compiles a structured evidence pack to content/<active>/journey/evidence/<id>.md. Evidence is primary-source only — no external fetches, no fact-checking against web sources. Equivalent to content-research in the news pipeline but for build history. This skill should be used after builder-radar when the user says 'gather evidence for this moment', 'pull the commits for this story', 'research this build moment', or after Gate 1 plan approval for a builder/journey item.",
+    description=(
+        'Assemble a primary-source evidence pack from git commits, diffs, and design docs for a builder-story moment. Trigger when the user says "gather evidence for this moment", "pull the commits for this story", "research this build moment", or after Gate 1 plan approval for a builder item.'
+    ),
 )

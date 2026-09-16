@@ -23,6 +23,10 @@ columns, which are one run stale on the live pool.
 from __future__ import annotations
 
 import csv
+import re
+import shutil
+import tomllib
+import uuid
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -33,8 +37,9 @@ from ..adjudication.defects import defect_scope, normalize_defect_class
 from ..merge_hygiene import row_signal_freshness
 from ..prospects_consolidate.columns import MASTER_COLS
 from ..prospects_consolidate.confidence import org_token
+from ..prospects_consolidate.paths import _pool_subdir
 from .context import RouterContext
-from .model import HOLD_ORDER, LANE_COLUMNS, LANES, Routed
+from .model import HOLD_ORDER, LANE_COLUMNS, LANES, PROTECTIVE_HOLD_TRIGGERS, Routed
 from .triggers import first_exclude, first_hold
 
 #: Lanes a prior decision or policy may route a held row INTO. ``suppress`` is deliberately
@@ -96,26 +101,34 @@ def _attach_judge(
 
 def _verdict_lane(
     row: dict, judge: Adjudication | None, ctx: RouterContext, cap: int
-) -> tuple[str, str]:
-    """The lane a row earns on verdicts alone (no hold/exclude fired)."""
+) -> tuple[str, str, str]:
+    """The lane a row earns on verdicts alone (no hold/exclude fired).
+
+    Returns ``(lane, detail, reason_code)`` — the third element is PS5's stable code for
+    which branch decided, read by ``Routed.stable_reason`` once ``trigger`` is empty (every
+    branch below leaves ``trigger`` empty; only hold/exclude/second-pass set it).
+    """
     verdict = (row.get("verdict") or "").strip().lower()
     clause, fresh = row_signal_freshness(row, as_of=ctx.as_of)
     if judge is not None and judge.verdict in ("re-angle", "drop"):
         if judge.repair_attempt is not None and judge.repair_attempt >= cap:
-            return "generic", f"repair cap reached ({judge.repair_attempt})"
+            return "generic", f"repair cap reached ({judge.repair_attempt})", "repair-cap"
         return (
             "repair",
             f"judge {judge.verdict} ({normalize_defect_class(judge.defect_class) or 'unclassed'})",
+            "judge-verdict",
         )
     if judge is not None and (judge.grounding or "").startswith("research="):
-        return "repair", f"grounding {judge.grounding}"
+        return "repair", f"grounding {judge.grounding}", "grounding"
     if verdict == "send" and clause and fresh and judge is not None and judge.verdict == "send":
-        return "personalised", "researcher send · fresh clause · judge send"
+        return "personalised", "researcher send · fresh clause · judge send", "researcher-send"
     if verdict == "send" and clause and fresh:
-        return "generic", "researcher send but NO judge verdict on file"
+        return "generic", "researcher send but NO judge verdict on file", "no-judge-verdict"
     if verdict == "send":
-        return "generic", "stale or unusable clause" if clause else "no signal clause"
-    return "generic", f"research verdict {verdict or '(empty)'}"
+        if clause:
+            return "generic", "stale or unusable clause", "stale-clause"
+        return "generic", "no signal clause", "no-signal-clause"
+    return "generic", f"research verdict {verdict or '(empty)'}", "research-verdict"
 
 
 def _apply_decision(
@@ -174,7 +187,7 @@ def route_row(
         if not _apply_decision(routed, hit[0], hit[1], ctx, decisions or {}):
             routed.lane = "hold"
         return routed
-    routed.lane, routed.detail = _verdict_lane(row, judge, ctx, cap)
+    routed.lane, routed.detail, routed.reason_code = _verdict_lane(row, judge, ctx, cap)
     _apply_stickiness(routed, previous or {})
     return routed
 
@@ -190,15 +203,23 @@ def _apply_stickiness(routed: Routed, previous: dict) -> None:
         routed.flags.append("contested")
         if routed.lane == "personalised":
             routed.lane, routed.detail = "generic", "contested judge verdict on an unchanged body"
+            routed.reason_code = "contested-judge"
 
 
 def _second_pass(result: RoutingResult, decisions: dict, ctx: RouterContext) -> None:
     """Holds that depend on the provisional lane or on the batch as a whole."""
     seen_accounts: dict[str, str] = {}
     for r in result.routed:
+        if r.lane not in ("hold", "excluded") and r.trigger in PROTECTIVE_HOLD_TRIGGERS:
+            tok = org_token(r.row.get("company_domain", ""), r.row.get("company", "")) or r.email
+            seen_accounts.setdefault(tok, r.lane)
+
+    for r in result.routed:
         if r.lane in ("hold", "excluded"):
             continue
         tok = org_token(r.row.get("company_domain", ""), r.row.get("company", "")) or r.email
+        if r.trigger in PROTECTIVE_HOLD_TRIGGERS:
+            continue
         if r.lane == "generic" and (r.row.get("tier") or "").strip().upper() == "A":
             _hold_or_decide(r, "tier-a-generic", "tier A on the generic email", ctx, decisions)
         if r.lane in ("hold", "excluded"):
@@ -221,6 +242,7 @@ def _hold_or_decide(
     r.trigger, r.detail = trigger, detail
     if not _apply_decision(r, trigger, detail, ctx, decisions):
         r.lane = "hold"
+        r.decided = ""
 
 
 def route(
@@ -260,7 +282,10 @@ def route(
         result.decided += bool(r.decided)
         result.judged += bool(r.judge_verdict)
         result.unjudged_sendable += "NO judge verdict" in r.detail
-    assert sum(result.counts.values()) == len(rows), "lanes must partition the input"
+    if sum(result.counts.values()) != len(rows):
+        raise AssertionError("lanes must partition the input")
+    if not all(r.stable_reason for r in result.routed):
+        raise AssertionError("every routed row needs a reason code")
     if rows and result.judged == 0:
         result.notes.append(
             "the judge records cover NONE of these rows — personalised needs a judge send, so run "
@@ -281,16 +306,84 @@ def _score(row: dict) -> float:
         return 0.0
 
 
+#: Lanes loadable by a sequencer, which stay visible in ``sequences/``. The other three
+#: (repair/hold/excluded) are pool artifacts a human never loads directly — PS17 hides them
+#: under ``.pool/lanes/``, the same ``.pool`` convention (``prospects_consolidate.paths.
+#: _pool_subdir``) already applied to ``master-list.csv``/``needs-verification.csv``.
+_LOADABLE_LANES = ("personalised", "generic")
+
+
+def _registered_cell_csvs(seq_dir: Path) -> set[str]:
+    """Base filenames of all CSVs currently registered in ``cells.toml``."""
+    cells_file = seq_dir / "cells.toml"
+    if not cells_file.is_file():
+        return set()
+    try:
+        with cells_file.open("rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return set()
+    names: set[str] = set()
+    for row in data.get("sequence", []):
+        csv_ref = row.get("csv")
+        if csv_ref:
+            names.add(Path(csv_ref).name)
+    return names
+
+
+def _supersede_previous_stamps(
+    seq_dir: Path, pool_lanes_dir: Path, superseded_dir: Path, lane: str
+) -> None:
+    """Move any PREVIOUS ``ready-to-load-<lane>-YYYY-MM-DD.csv`` — visible or already-hidden —
+    into ``.pool/.superseded/`` before a new stamp is written.
+
+    Never deletes. Never moves any file that ``cells.toml`` references, which would remove a
+    staged/enrolled list from the double-enrolment guard (C3). Matches only the exact stamp
+    shape, preserving legacy or custom lists.
+    """
+    stamp_re = re.compile(rf"^ready-to-load-{re.escape(lane)}-\d{{4}}-\d{{2}}-\d{{2}}\.csv$")
+    registered = _registered_cell_csvs(seq_dir)
+
+    found = [
+        p
+        for p in [
+            *seq_dir.glob(f"ready-to-load-{lane}-*.csv"),
+            *pool_lanes_dir.glob(f"ready-to-load-{lane}-*.csv"),
+        ]
+        if stamp_re.match(p.name) and p.name not in registered
+    ]
+    if not found:
+        return
+    superseded_dir.mkdir(parents=True, exist_ok=True)
+    for p in found:
+        dest = superseded_dir / p.name
+        if dest.exists():
+            dest = superseded_dir / f"{p.stem}.{uuid.uuid4().hex[:6]}{p.suffix}"
+        shutil.move(str(p), str(dest))
+
+
 def write_lanes(result: RoutingResult, seq_dir: Path, stamp: str) -> dict[str, Path]:
-    """One CSV per lane. ``signal_clause`` only where a personalised body will read it."""
+    """One CSV per lane. ``signal_clause`` only where a personalised body will read it.
+
+    ``personalised``/``generic`` — the loadable lanes — land in ``seq_dir`` itself;
+    ``repair``/``hold``/``excluded`` land in ``seq_dir/.pool/lanes/`` (PS17: they are pool
+    artifacts, not something a sequencer loads). Any prior stamp of a lane — wherever it
+    currently sits — is archived to ``seq_dir/.pool/.superseded/`` first.
+    """
     seq_dir.mkdir(parents=True, exist_ok=True)
+    pool_dir = _pool_subdir(seq_dir)
+    pool_lanes_dir = pool_dir / "lanes"
+    superseded_dir = pool_dir / ".superseded"
+    pool_lanes_dir.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
     for lane in LANES:
         rows = result.lane(lane)
-        cols = [*MASTER_COLS, *LANE_COLUMNS]
-        if lane in ("personalised", "repair"):
+        cols = list(dict.fromkeys([*MASTER_COLS, *LANE_COLUMNS]))
+        if lane in ("personalised", "repair") and "signal_clause" not in cols:
             cols.append("signal_clause")
-        path = seq_dir / f"ready-to-load-{lane}-{stamp}.csv"
+        _supersede_previous_stamps(seq_dir, pool_lanes_dir, superseded_dir, lane)
+        dest_dir = seq_dir if lane in _LOADABLE_LANES else pool_lanes_dir
+        path = dest_dir / f"ready-to-load-{lane}-{stamp}.csv"
         with path.open("w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
             w.writeheader()

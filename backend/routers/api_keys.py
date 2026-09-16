@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
 from ..schemas import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse
+from ..types import UuidStr
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
@@ -103,7 +104,7 @@ async def list_api_keys(
 
 @router.delete("/{key_id}", status_code=status.HTTP_200_OK)
 async def revoke_api_key(
-    key_id: str,
+    key_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> dict:
@@ -116,9 +117,15 @@ async def revoke_api_key(
             ws.workspace_id,
         )
     if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "API key not found")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "api_key_not_found", "message": "API key not found"},
+        )
     if row["revoked_at"] is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "API key is already revoked")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "api_key_already_revoked", "message": "API key is already revoked"},
+        )
 
     async with workspace_scope(pool, ws.workspace_id) as conn:
         await conn.execute(

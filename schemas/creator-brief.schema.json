@@ -468,6 +468,88 @@
               "type": "string"
             }
           }
+        },
+        "caption_voice": {
+          "$comment": "decision 10 (optional) — sets the narrative caption mode, voice, cross-beat threads, and anchor beats.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "source"
+          ],
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode",
+                "voice"
+              ],
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "subtitles",
+                    "narrative"
+                  ],
+                  "description": "subtitles = speech-anchored transcription; narrative = thought-anchored storytelling alongside picture."
+                },
+                "voice": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Who is speaking (e.g. 'close narrator', 'inner voice', 'second person', 'character', 'choric')."
+                },
+                "thread": {
+                  "type": "array",
+                  "description": "Motif word/phrase pairs connecting shots across the film.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "setup",
+                      "callback",
+                      "word"
+                    ],
+                    "properties": {
+                      "setup": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "callback": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "word": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                "anchor_beats": {
+                  "type": "array",
+                  "description": "Shot numbers where anchorage (literal narrowing of image meaning) is intentionally used (e.g. premise or message beats).",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "operator",
+                "profile_default",
+                "derived",
+                "model"
+              ],
+              "description": "Per-field provenance."
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
         }
       }
     }

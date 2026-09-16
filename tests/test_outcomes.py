@@ -726,6 +726,35 @@ def test_cli_unattributed_json_output(tmp_path, capsys):
     assert [g["slug"] for g in gaps] == ["slug-d"]
 
 
+def test_unattributed_ignores_a_finish_spec_sidecar_and_does_not_crash(tmp_path):
+    """Regression: video_finish.execute's finish-spec-<ratio>.json (a plain dict, not a
+    FinishManifest) used to match the bare `finish-*.json` glob and reach load_finish, which
+    raises an uncaught TypeError on anything that isn't a FinishManifest shape — reproduced
+    below directly against load_finish. The real manifest beside it must still be found."""
+    repo_root = tmp_path
+    content_root = tmp_path / "content"
+    finish_path = _write_finish(repo_root, content_root, slug="slug-spec")
+    spec_path = finish_path.parent / "finish-spec-9x16.json"
+    spec_path.write_text(json.dumps({"caption_text": "not a manifest at all"}))
+
+    gaps = oc.unattributed(content_root, "acme", days=None, repo_root=repo_root)
+    assert [g["slug"] for g in gaps] == ["slug-spec"]
+
+
+def test_finish_spec_sidecar_shape_really_does_crash_load_finish_directly(tmp_path):
+    """The crash unattributed()'s glob narrowing guards against, reproduced directly against the
+    function it used to hand every finish-*.json match to — proof the fix addresses a real
+    TypeError, not a hypothetical one."""
+    import pytest
+
+    from gtm_core.render_manifest import load_finish
+
+    spec_path = tmp_path / "finish-spec-9x16.json"
+    spec_path.write_text(json.dumps({"caption_text": "not a manifest"}))
+    with pytest.raises(TypeError):
+        load_finish(spec_path)
+
+
 def test_unattributed_recency_window_excludes_an_old_manifest(tmp_path):
     import os
     import time
@@ -906,3 +935,69 @@ def test_a_story_format_inside_recommended_is_not_promoted_to_a_tag(tmp_path):
         "a story_format nested in `recommended` became a tag — it must be read from the top level, "
         "so that the one place it works is the only place it appears to work"
     )
+
+
+# ── caption craft on the attribution path (K8, 2026-09-11) ───────────────────────────
+
+
+def test_attribute_carries_top_level_caption_craft_fields_as_tags(tmp_path):
+    """K8. Top-level caption_mode, caption_voice, describe_share carried as tags."""
+    repo_root = tmp_path
+    content_root = tmp_path / "content"
+    finish_path = _write_finish(repo_root, content_root)
+    score_path = _score(
+        tmp_path,
+        {
+            "recommended": {"band": "high"},
+            "caption_mode": "narrative",
+            "caption_voice": "close narrator",
+            "describe_share": 0.0,
+        },
+    )
+
+    record = oc.attribute(
+        content_root, "acme", finish_path=finish_path, repo_root=repo_root, score_path=score_path
+    )
+    assert "caption_mode:narrative" in record["tags"], record["tags"]
+    assert "caption_voice:close narrator" in record["tags"], record["tags"]
+    assert "describe_share:0.0" in record["tags"], record["tags"]
+
+
+def test_attribute_omits_caption_craft_tags_when_absent_from_score(tmp_path):
+    """K8. Absent means unknown; no caption tags produced when score.json omits them."""
+    repo_root = tmp_path
+    content_root = tmp_path / "content"
+    finish_path = _write_finish(repo_root, content_root)
+    score_path = _score(tmp_path, {"recommended": {"ratio": "9x16", "band": "high"}})
+
+    record = oc.attribute(
+        content_root, "acme", finish_path=finish_path, repo_root=repo_root, score_path=score_path
+    )
+    assert not any(
+        t.startswith(("caption_mode:", "caption_voice:", "describe_share:")) for t in record["tags"]
+    ), record["tags"]
+
+
+def test_caption_craft_fields_inside_recommended_are_not_promoted_to_tags(tmp_path):
+    """K8. The placement rule: nested in `recommended`, they land in meta, never tags."""
+    repo_root = tmp_path
+    content_root = tmp_path / "content"
+    finish_path = _write_finish(repo_root, content_root)
+    score_path = _score(
+        tmp_path,
+        {
+            "recommended": {
+                "band": "high",
+                "caption_mode": "narrative",
+                "caption_voice": "close narrator",
+                "describe_share": 0.0,
+            }
+        },
+    )
+
+    record = oc.attribute(
+        content_root, "acme", finish_path=finish_path, repo_root=repo_root, score_path=score_path
+    )
+    assert not any(
+        t.startswith(("caption_mode:", "caption_voice:", "describe_share:")) for t in record["tags"]
+    ), record["tags"]

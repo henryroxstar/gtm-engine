@@ -1,25 +1,10 @@
 ---
 name: identity-kit
 description: >-
-  Audits, creates, and writes back the active profile's (or product's) render-identity handles
-  in BRAND.toml — soul_id (a trained likeness), reference_element_ids (instant multi-subject
-  references), voice_id (a cloned voice) with an optional voice_engine (which TTS engine
-  renders it) and voice_grade (instant vs professional — HOW it was cloned, orthogonal to the
-  engine; only a professional clone may carry a shipped VO, and an unrecorded grade fails
-  closed), heygen_avatar_id (a trained digital twin), heygen_look_landscape /
-  heygen_look_portrait (the operator's approved avatar look, stored PER ORIENTATION because no
-  single look serves both a 16:9 master and a 9:16 cut), and restyle_preset_id (a brand
-  restyle look). The look is an operator PICK the skill never makes for them — it lists the
-  candidates for one orientation with their native pixels and records whichever they choose,
-  because which look someone wants to be seen in is an aesthetic call about their own face.
-  Zero-spend audit by default: checks each handle's liveness against the provider and reports
-  empty/stale/failed-training. Creation is gated behind explicit consent for anyone but the
-  operator's own likeness/voice — refuses a third-party Soul or voice clone until a dated
-  consent_note is recorded (EU AI Act Art. 50). Writes ONLY through the gtm_core.brandkit CLI,
-  never by editing the TOML directly, so every write is verified and dated. This skill should
-  be used when the user says 'set up my identity kit', 'audit my identity handles', 'train my
-  Soul', 'create a reference element', 'clone my voice', 'change my voice engine', or 'create
-  the brand restyle preset'.
+  Manage brand visual identities, avatar handles, cloned voice IDs, and compliance disclosure
+  configurations. Trigger when the user says "set up brand identity", "enroll reference
+  elements", "register voice clone ID", "configure avatar handles", or "update disclosure
+  line".
 metadata:
   version: "0.4.0"
   phase: "8"

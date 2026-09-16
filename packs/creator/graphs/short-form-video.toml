@@ -54,14 +54,14 @@ id = "brief"
 depends_on = ["plan"]
 model_role = "brain_plan"
 skill = "creator-brief"
-prompt = "Run the creator-brief skill on the approved item. Decide and RECORD the nine pre-spend decisions for this run — the cover designed before the content, the named outlier structure, the slot schema, the cheapest-medium answer with its reason, the capture contract, the invariant plus the aspect ratio, the planned b-roll list, the sampling curve with its selection criterion, and the visual hook as a shot spec. Fill every decision that has a profile default and LABEL it as defaulted; ask the operator only for a decision with no default. Write it through `python -m gtm_core.creator_brief write` — never by editing the file — so an invalid brief leaves nothing on disk. This node emits NO gate: the brief is produced under the plan approval that already happened, and there is no brief gate kind. Do not re-decide the modality or the lane; format-router and gtm_core.video_preflight own those and this brief records their answers with the reason."
+prompt = "Run the creator-brief skill on the approved item. Decide and RECORD the pre-spend decisions for this run — the cover designed before the content, the named outlier structure, the slot schema, the cheapest-medium answer with its reason, the capture contract, the invariant plus the aspect ratio, the planned b-roll list, the sampling curve with its selection criterion, the visual hook as a shot spec, and record caption_voice when caption mode is not subtitles. Fill every decision that has a profile default and LABEL it as defaulted; ask the operator only for a decision with no default. Write it through `python -m gtm_core.creator_brief write` — never by editing the file — so an invalid brief leaves nothing on disk. This node emits NO gate: the brief is produced under the plan approval that already happened, and there is no brief gate kind. Do not re-decide the modality or the lane; format-router and gtm_core.video_preflight own those and this brief records their answers with the reason."
 
 [[nodes]]
 id = "script"
 depends_on = ["brief"]
 model_role = "brain_plan"
 skill = "video-script"
-prompt = "Run the video-script skill on the approved video items: cold open, hook, timecoded beats, burned-in captions, payoff and CTA. Score retention-rubric Part A and do NOT pass an item to render below threshold — this is the free gate that protects the render budget. Carry the source item id, its hook_id if set, and its pillar/journey-stage/goal/format tags into the script/shots file so performance can be attributed later."
+prompt = "Run the video-script skill on the approved video items: cold open, hook, timecoded beats, burned-in captions, payoff and CTA. Declare caption_function on every narrative caption, verify thread pairing, and run checks 1a (comprehension), 1b (redundancy), and 7 (voice and thread). Score retention-rubric Part A and do NOT pass an item to render below threshold — this is the free gate that protects the render budget. Carry the source item id, its hook_id if set, and its pillar/journey-stage/goal/format tags into the script/shots file so performance can be attributed later."
 
 [[nodes]]
 id = "storyboard"
@@ -69,7 +69,7 @@ depends_on = ["script"]
 model_role = "brain_plan"
 skill = "video-storyboard"
 gate = true
-prompt = "Run the video-storyboard skill on the approved script. Generate operator-reviewable still(s) with the same identity anchor video-render resolves; write storyboard.json with the image path, provider job id, identity anchor, and dimensions for each presenter shot (skip broll/screen shots); present for approval. The approved still(s) are consumed directly by the render nodes as the image-to-video start frame."
+prompt = "Run the video-storyboard skill on the approved script. Generate operator-reviewable still(s) with the same identity anchor video-render resolves; write storyboard.json with the image path, provider job id, identity anchor, and dimensions for each presenter shot (skip broll/screen shots); present for approval alongside the caption read and declared functions. The approved still(s) are consumed directly by the render nodes as the image-to-video start frame."
 
 [[nodes]]
 id = "render-vertical"
@@ -90,7 +90,7 @@ id = "finish"
 depends_on = ["render-vertical", "render-feed"]
 model_role = "brain_plan"
 skill = "video-finish"
-prompt = "Run the video-finish skill once per rendered variant (9:16 and 4:5). Every asset gets exactly one finishing pass through `python -m gtm_core.video_finish` — normalize, upscale, grade once, burn captions inside the safe area, loudness-normalize, encode — then a `python -m gtm_core.video_lint` pass. Never draw text on a frame yourself and never run a second grade: the module owns both and asserts the count. Never re-render; this stage only finishes what render already produced."
+prompt = "Run the video-finish skill once per rendered variant (9:16 and 4:5). Every asset gets exactly one finishing pass through `python -m gtm_core.video_finish` — normalize, upscale, grade once, burn captions inside the safe area, loudness-normalize, encode — then a `python -m gtm_core.video_lint` pass. Run Step 3.7 cold read with the two caption questions (what the caption added, remembered line). Never draw text on a frame yourself and never run a second grade: the module owns both and asserts the count. Never re-render; this stage only finishes what render already produced."
 
 [[nodes]]
 id = "score"

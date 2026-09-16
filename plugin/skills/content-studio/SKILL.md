@@ -1,26 +1,11 @@
 ---
 name: content-studio
 description: >-
-  Draft and lint a publish-ready, platform-native asset for the active company from a
-  researched content item — across LinkedIn, X, and Instagram. Handles LinkedIn
-  carousel/infographic/infographic-handwritten/text, X thread/single, and Instagram
-  reel/carousel, and produces a genuinely localized variant when the item carries a
-  non-primary locale. All platform variants derive from one shared research pack and brief
-  (atomic repurposing, not N independent drafts). For X, selects a post structure
-  (`pattern_id`) from the closed, de-branded catalog in docs/x-tweet-patterns.md — 3
-  candidates across distinct patterns, presented as an operator choice, same discipline as the
-  hook-craft archetype workflow. Runs deterministic pre-generation checks before drafting,
-  gates every asset through the content linter after drafting, then runs `python -m
-  gtm_core.hook_score` to blend Part A retention, hook-bank prior, and pattern compliance,
-  reworking or downgrading assets that score low/uncertain. Runs post-generation checks before
-  setting status to review. Copies the item's hook_id, and for X the chosen pattern_id, into
-  the asset JSON metadata when present for later attribution. Copy/brief-only — no PDF render
-  and no paid image generation; visual render is a separate, operator-gated hand-off. This
-  skill should be used when the user says "draft the post", "make the carousel", "build the
-  asset", "content studio", "create the LinkedIn/X/Instagram post", "make the thread", "write
-  the reel", or after content-research.
+  Draft platform-native social copy across LinkedIn, X, and Instagram matching company voice
+  and approved content plans. Trigger when the user says "write the post", "draft content for
+  [item]", "generate copy for the plan", or as the studio stage of the content pipeline.
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
   phase: "2"
   capability_tier: core
 ---
@@ -59,6 +44,8 @@ render and no paid image/video generation. Visuals are an explicit, operator-gat
 - `profiles/<active>/knowledge/social-tuning.md` (via `resolve_knowledge`, optional) — the company's
   per-platform tuning. The `docs/*-optimization.md` playbooks below carry the generic method; the
   company-specific lead formats, posting clocks and "never" lists come from here.
+- `docs/direct-response-patterns.md` (when `item.goal == "conversion"`) — the 5 B2B Direct-Response
+  Desire Frameworks and dual-action platform bridge rules. Read whenever drafting a conversion piece.
 
 ## Step 0.5 — Pre-generation quality gate
 
@@ -97,7 +84,13 @@ it to the active company's voice and verify every claim against the research pac
 research pack. **Every post is engineered to be *felt*, not just useful:** compose it against
 `docs/virality-engineering.md` — stack at least 2 emotional triggers (target 3), earn the emotion the
 hook promised through the body, and close on an action; run the draft through that doc's scoring gate
-before you lint. **X drafts additionally choose a post structure** from `docs/x-tweet-patterns.md`
+before you lint. **Direct-response conversion items (`goal: "conversion"`)** follow
+`docs/direct-response-patterns.md`: structure the body around one of the 5 B2B frameworks
+(`dr-symptom-root-cause`, `dr-earned-authority`, `dr-gap-roadblock`, `dr-empirical-test`,
+`dr-industry-benchmark`), land the concrete mechanism, and close on the **Dual-Action Platform Bridge**
+(LinkedIn: comment + DM; X: reply + DM; IG: comment automation). Do not use generic "link in bio"
+or consumer hype syntax — obey `_ANTITHESIS_RES` (no "you're not X, you just Y") and avoid empty
+intensifiers. **X drafts additionally choose a post structure** from `docs/x-tweet-patterns.md`
 (see the `### X` section below). **All copy** obeys `docs/prose-craft.md` (no em dashes, no AI-tell
 words); the Step 2 lint flags prose issues as advisory warnings to clear or justify.
 

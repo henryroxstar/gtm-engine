@@ -4,66 +4,70 @@
 
 # Skill index
 
-**59 skills**, generated from the manifests in `gtm_core/skills/`. This is the single source of truth for the skill inventory — other docs link here rather than restate it.
+**63 skills**, generated from the manifests in `gtm_core/skills/`. This is the single source of truth for the skill inventory — other docs link here rather than restate it.
 
 | Skill | Tier | Requires product capability | What it does |
 |---|---|---|---|
-| [`account-dossier`](../plugin/skills/account-dossier/SKILL.md) | core | — | Generate a short, on-brand account + buyer dossier as a Word (.docx) that lets a non-technical seller walk into a… |
-| [`account-plan`](../plugin/skills/account-plan/SKILL.md) | core | — | Build a CRO-grade strategic account plan for one target company — deal stage + forecast category, ICP score, a… |
-| [`airq-scan`](../plugin/skills/airq-scan/SKILL.md) | production | gateway | Run an AIRQ-aligned agent-security assessment of a target company's AI agent product — from a GitHub repo, a… |
+| [`account-dossier`](../plugin/skills/account-dossier/SKILL.md) | core | — | Generate an on-brand executive or seller account dossier and meeting-prep brief as a Word docx or markdown research… |
+| [`account-plan`](../plugin/skills/account-plan/SKILL.md) | core | — | Build a strategic CRO-grade account plan with MEDDPICC scorecard, buying influence map, value hypothesis, and… |
+| [`airq-scan`](../plugin/skills/airq-scan/SKILL.md) | production | gateway | Run an AIRQ-aligned agent-security assessment of a target company's AI agent product, producing two LinkedIn-ready… |
 | [`build-deck`](../plugin/skills/build-deck/SKILL.md) | core | — | Build an on-brand sales deck, one-pager, POC proposal, or partner brief for the active company. Trigger when the… |
-| [`builder-evidence`](../plugin/skills/builder-evidence/SKILL.md) | core | — | Assembles the evidence pack for one builder-story build moment. Reads the chosen StoryCluster from… |
-| [`builder-radar`](../plugin/skills/builder-radar/SKILL.md) | core | — | Scans the active profile's configured repo history — git commits and any project design docs — to surface… |
-| [`builder-studio`](../plugin/skills/builder-studio/SKILL.md) | core | — | Drafts the asset bundle for one builder-story build moment in the founder's voice: a LinkedIn text post, a longer… |
-| [`call-prep`](../plugin/skills/call-prep/SKILL.md) | core | — | Prepare a pre-meeting brief for a sales call — account snapshot, attendee persona mapping, matched case study… |
-| [`campaign-plan`](../plugin/skills/campaign-plan/SKILL.md) | core | — | Build or refresh an executive-facing outbound program plan — a scaled, staged cross-org campaign grounded in the… |
-| [`carousel-auto`](../plugin/skills/carousel-auto/SKILL.md) | production | — | Automate the weekly carousel pipeline from market-scan signals to publish-ready package. This skill should be used… |
-| [`carousel-pdf`](../plugin/skills/carousel-pdf/SKILL.md) | core | — | Produce a LinkedIn 4:5 portrait carousel (PDF document post) from the active company's knowledge pack. This skill… |
-| [`carousel-visuals`](../plugin/skills/carousel-visuals/SKILL.md) | production | — | Generate AI visuals for the active company's LinkedIn and Instagram carousels using Higgsfield — cinematic 4:5… |
-| [`case-study`](../plugin/skills/case-study/SKILL.md) | core | — | Turn a solution design — or a delivered engagement — into a publishable 1-2 page customer story: Markdown, a… |
-| [`community-signal-analysis`](../plugin/skills/community-signal-analysis/SKILL.md) | core | — | Turn a community social-listening feed (Syften) into a high-signal, highly-visual market briefing. Pulls recent… |
-| [`consulting-partner-brief`](../plugin/skills/consulting-partner-brief/SKILL.md) | core | — | For a consulting partner — a systems integrator, dev shop, or consulting firm that both advises clients and builds… |
-| [`content-outcomes-sync`](../plugin/skills/content-outcomes-sync/SKILL.md) | pipeline | — | Close the CONTENT learning loop for the active company. Pulls published-post performance from multiple sources in… |
-| [`content-plan`](../plugin/skills/content-plan/SKILL.md) | core | — | Propose the week's content plan for the active company from the latest radar digests. Loads the last few… |
-| [`content-publish`](../plugin/skills/content-publish/SKILL.md) | pipeline | — | Stage a reviewed LinkedIn text post (plus hosted image/video media when present) for human-approved publishing to… |
-| [`content-radar`](../plugin/skills/content-radar/SKILL.md) | pipeline | — | News-driven content radar for the active company. Reads fresh PROD discovery_items via the read-only Postgres news… |
-| [`content-research`](../plugin/skills/content-research/SKILL.md) | core | — | Research a planned content item into verifiable, citable material for the active company. For a given ContentItem… |
-| [`content-studio`](../plugin/skills/content-studio/SKILL.md) | core | — | Draft and lint a publish-ready, platform-native asset for the active company from a researched content item… |
-| [`creator-brief`](../plugin/skills/creator-brief/SKILL.md) | pipeline | — | Decide, record and cross-examine the nine pre-spend decisions for one video run, before anything is generated.… |
-| [`deck-research`](../plugin/skills/deck-research/SKILL.md) | core | — | Research an account into a structured, reusable deck dossier that build-deck consumes to fill the account-specific… |
-| [`demo-capture`](../plugin/skills/demo-capture/SKILL.md) | production | — | Turn LOCAL footage the operator already has — a phone recording of themselves, a camera file, a webinar export, or… |
-| [`draft-outreach`](../plugin/skills/draft-outreach/SKILL.md) | core | — | Draft outreach for the active company's flagship product — LinkedIn DMs, cold emails, and follow-ups — in the… |
-| [`email-quality`](../plugin/skills/email-quality/SKILL.md) | pipeline | — | Close the loop between reading emails and improving them. Runs the four modes of the email-quality program: judge… |
-| [`email-sequence`](../plugin/skills/email-sequence/SKILL.md) | core | — | Turn composed outreach into a staged, multi-step email sequence in the connected sequencer — Saleshandy today… |
-| [`events-tracker`](../plugin/skills/events-tracker/SKILL.md) | core | — | Weekly GTM events scan and travel-budget tracker. Scans Luma, Eventbrite, Meetup, and the open web for conferences… |
-| [`format-router`](../plugin/skills/format-router/SKILL.md) | core | — | Cross-modal format dispatcher. Given an approved hook and pillar, decides which (format, platform) tuples to… |
-| [`gateway-runbook`](../plugin/skills/gateway-runbook/SKILL.md) | core | gateway | Produce a parameterized, step-by-step gateway setup runbook tailored to a specific account, use case, and stack… |
-| [`gtm-planning`](../plugin/skills/gtm-planning/SKILL.md) | core | — | Build or refresh the quarterly GTM plan for the colleague's market. This skill should be used when the user says… |
-| [`identity-kit`](../plugin/skills/identity-kit/SKILL.md) | core | — | Audits, creates, and writes back the active profile's (or product's) render-identity handles in BRAND.toml… |
-| [`inbound-triage`](../plugin/skills/inbound-triage/SKILL.md) | core | — | Read inbound replies from the connected inbox (Saleshandy today, Gmail via a per-profile inbound_source switch)… |
-| [`infographic-data`](../plugin/skills/infographic-data/SKILL.md) | production | — | Render a finished, postable data-dense editorial infographic — a single image with a bold headline, numbered… |
-| [`infographic-handwritten`](../plugin/skills/infographic-handwritten/SKILL.md) | production | — | Render a finished, postable handwritten-style infographic — a single image that looks like a real notebook page… |
-| [`knowledge-refresh`](../plugin/skills/knowledge-refresh/SKILL.md) | pipeline | — | Refresh the active company's knowledge corpus on a cadence, safely. Reads which knowledge topics are DUE for review… |
-| [`linkedin-engagers`](../plugin/skills/linkedin-engagers/SKILL.md) | core | — | Turn the people who engaged with a LinkedIn post — reactors (like/celebrate/support/love/insight/funny) and… |
-| [`linkedin-reply`](../plugin/skills/linkedin-reply/SKILL.md) | core | — | Craft a soft-sell reply to a LinkedIn post — a value-first public comment (and an optional DM / connection note)… |
-| [`market-harvest`](../plugin/skills/market-harvest/SKILL.md) | core | — | Pull the external market signal that the market-intelligence brief reads, across ten lanes — Syften social… |
-| [`market-intelligence`](../plugin/skills/market-intelligence/SKILL.md) | core | — | Turn the field data the GTM engine already generates into an internal, educational intelligence brief for the… |
-| [`market-scan`](../plugin/skills/market-scan/SKILL.md) | core | — | Weekly agentic-AI market signals sweep for the active company's GTM. Scans news, competitor moves, regulatory… |
-| [`outcomes-sync`](../plugin/skills/outcomes-sync/SKILL.md) | pipeline | — | Close the GTM learning loop for the active company. Pulls campaign/outreach RESULTS — email replies via the… |
-| [`product-partner-brief`](../plugin/skills/product-partner-brief/SKILL.md) | core | — | For a product company — a peer vendor that ships software, not a reseller and not a consultancy. Builds the… |
-| [`profile-onboard`](../plugin/skills/profile-onboard/SKILL.md) | core | — | Reads source text about a company (a website crawl, an uploaded PDF, or pasted content) and emits a single… |
-| [`prospect`](../plugin/skills/prospect/SKILL.md) | core | — | Run the active profile's prospecting routine — discover, qualify, score, and enrich ICP accounts, then output a… |
-| [`reddit-reply`](../plugin/skills/reddit-reply/SKILL.md) | core | — | Run the active company's Reddit engagement motion end to end — pick the right subreddit and thread, then draft a… |
-| [`setup`](../plugin/skills/setup/SKILL.md) | core | — | Guided one-time onboarding for the GTM engine plugin. This skill should be used when the user says "set me up"… |
-| [`solution-design`](../plugin/skills/solution-design/SKILL.md) | core | solution-architecture | Turn a use case and requirements into a solution architecture — either mapped onto the active company's flagship… |
-| [`solution-discovery`](../plugin/skills/solution-discovery/SKILL.md) | core | technical-discovery | Prepare for a technical deep-dive by profiling the account's engineering stack and gathering functional scope… |
-| [`solution-scope-check`](../plugin/skills/solution-scope-check/SKILL.md) | core | — | The customer-facing Scope Check — a short, on-brand 2-page Word (.docx) worksheet the buyer marks up to confirm or… |
-| [`video-avatar`](../plugin/skills/video-avatar/SKILL.md) | production | — | Render the SPEAKING PRESENTER beats of a shot list as a synthetic talking head on HeyGen, the only engine the… |
-| [`video-clip`](../plugin/skills/video-clip/SKILL.md) | production | — | Repurpose the operator's own long-form video into 1-20 short-form clips using Reap Video Studio's create_clips… |
-| [`video-finish`](../plugin/skills/video-finish/SKILL.md) | pipeline | — | Finish a rendered short-form video variant into a shippable artifact: normalize, upscale to the target frame, grade… |
-| [`video-render`](../plugin/skills/video-render/SKILL.md) | production | — | Render approved b-roll, product, environment and abstract shots for ONE target aspect ratio using Higgsfield… |
-| [`video-restyle`](../plugin/skills/video-restyle/SKILL.md) | production | — | Restyle the operator's own real footage (4-120s) into an on-brand short using Higgsfield's shorts_studio_create and… |
-| [`video-router`](../plugin/skills/video-router/SKILL.md) | core | — | A thin front-door skill that routes a 'make a video' request into the correct creator pack variant. First runs a… |
-| [`video-score`](../plugin/skills/video-score/SKILL.md) | pipeline | — | Score the rendered short-form variants for the active company and recommend which one ships where. Runs Higgsfield… |
-| [`video-script`](../plugin/skills/video-script/SKILL.md) | pipeline | — | Turn an approved short-form video item into a shot-by-shot script for the active company: cold open, hook line… |
-| [`video-storyboard`](../plugin/skills/video-storyboard/SKILL.md) | production | — | Generate operator-reviewable storyboard still(s) for an approved video script before any video render spend. Reads… |
+| [`builder-evidence`](../plugin/skills/builder-evidence/SKILL.md) | core | — | Assemble a primary-source evidence pack from git commits, diffs, and design docs for a builder-story moment.… |
+| [`builder-radar`](../plugin/skills/builder-radar/SKILL.md) | core | — | Scan repo git history and project design docs to surface story-worthy build milestones and generate dated digests… |
+| [`builder-studio`](../plugin/skills/builder-studio/SKILL.md) | core | — | Draft an authentic, developer-voiced builder story across LinkedIn and X formats grounded in primary git commits… |
+| [`call-prep`](../plugin/skills/call-prep/SKILL.md) | core | — | Prepare a pre-meeting brief for a sales call with attendee mapping, matched case study, objections, discovery… |
+| [`campaign-plan`](../plugin/skills/campaign-plan/SKILL.md) | core | — | Build or refresh an executive-facing outbound campaign plan grounded in live prospect data, market signals, and… |
+| [`carousel-auto`](../plugin/skills/carousel-auto/SKILL.md) | production | — | Automate weekly carousel production from market scan signals to finished on-brand slide decks and visuals. Trigger… |
+| [`carousel-pdf`](../plugin/skills/carousel-pdf/SKILL.md) | core | — | Produce an on-brand LinkedIn portrait carousel PDF and slide PNGs with caption variants from knowledge pack topics.… |
+| [`carousel-visuals`](../plugin/skills/carousel-visuals/SKILL.md) | production | — | Generate AI visuals, cinematic cover art, background cards, and motion teaser videos for carousels using… |
+| [`case-study`](../plugin/skills/case-study/SKILL.md) | core | — | Extract authentic customer success stories and proof points into structured case studies following the… |
+| [`commercial-proposal`](../plugin/skills/commercial-proposal/SKILL.md) | core | — | Draft a customized commercial proposal, pricing model, and business terms deck for enterprise prospects. Trigger… |
+| [`community-signal-analysis`](../plugin/skills/community-signal-analysis/SKILL.md) | core | — | Analyze community social-listening feeds from Syften to track share-of-voice, signal momentum, and render an HTML… |
+| [`consulting-partner-brief`](../plugin/skills/consulting-partner-brief/SKILL.md) | core | — | Build an executive joint-value and enablement brief for systems integrators and consulting partners. Trigger when… |
+| [`content-outcomes-sync`](../plugin/skills/content-outcomes-sync/SKILL.md) | pipeline | — | Sync published post performance from Buffer MCP and social channels into content outcome ledgers to calibrate… |
+| [`content-plan`](../plugin/skills/content-plan/SKILL.md) | core | — | Propose the week's multi-platform content plan from radar digests, platform playbooks, and hook banks behind Gate 1… |
+| [`content-publish`](../plugin/skills/content-publish/SKILL.md) | pipeline | — | Stage reviewed posts and hosted media for human-approved publishing to pre-authorized social channels behind… |
+| [`content-radar`](../plugin/skills/content-radar/SKILL.md) | pipeline | — | Scan news and discovery items, cluster stories by content pillars, rank angles, and generate dated digests and… |
+| [`content-research`](../plugin/skills/content-research/SKILL.md) | core | — | Research a planned content item into verifiable facts, quotes, counterpoints, and claims to avoid using web and… |
+| [`content-studio`](../plugin/skills/content-studio/SKILL.md) | core | — | Draft platform-native social copy across LinkedIn, X, and Instagram matching company voice and approved content… |
+| [`creator-brief`](../plugin/skills/creator-brief/SKILL.md) | pipeline | — | Plan a short-form video concept into an approved brief.json, creative brief, and beat sheet before script… |
+| [`deck-research`](../plugin/skills/deck-research/SKILL.md) | core | — | Research a target account into a structured deck dossier with persona slot-fills to feed presentation generation.… |
+| [`demo-capture`](../plugin/skills/demo-capture/SKILL.md) | production | — | Transform local product screen recordings or phone footage into polished short-form demo clips via Reap. Trigger… |
+| [`draft-outreach`](../plugin/skills/draft-outreach/SKILL.md) | core | — | Draft personalized cold emails, LinkedIn DMs, and follow-ups in the company voice using signals, hook matrices, and… |
+| [`email-quality`](../plugin/skills/email-quality/SKILL.md) | pipeline | — | Evaluate and score outbound email drafts against voice, spam triggers, length constraints, and relevance rubrics.… |
+| [`email-sequence`](../plugin/skills/email-sequence/SKILL.md) | core | — | Build structured multi-step email sequences staged in sequencer platforms in a paused state for human activation.… |
+| [`events-tracker`](../plugin/skills/events-tracker/SKILL.md) | core | — | Scan upcoming industry events and meetups, compute travel budgets, track conference pipelines, and extract… |
+| [`format-router`](../plugin/skills/format-router/SKILL.md) | core | — | Route approved hooks and pillars across formats and platforms based on profile mix, budgets, and historical hook… |
+| [`gateway-runbook`](../plugin/skills/gateway-runbook/SKILL.md) | core | gateway | Generate a step-by-step gateway setup runbook tailored to a specific account, pattern, and engineering stack with… |
+| [`gtm-planning`](../plugin/skills/gtm-planning/SKILL.md) | core | — | Build or refresh a quarterly GTM plan with target segments, ICP weighting, and motion milestones for the active… |
+| [`identity-kit`](../plugin/skills/identity-kit/SKILL.md) | core | — | Manage brand visual identities, avatar handles, cloned voice IDs, and compliance disclosure configurations. Trigger… |
+| [`inbound-triage`](../plugin/skills/inbound-triage/SKILL.md) | core | — | Classify and triage inbound replies by intent and priority, drafting response artifacts for human review behind… |
+| [`infographic-data`](../plugin/skills/infographic-data/SKILL.md) | production | — | Render postable data-dense editorial infographics with charts and callout stats using Higgsfield based on approved… |
+| [`infographic-handwritten`](../plugin/skills/infographic-handwritten/SKILL.md) | production | — | Render handwritten-style notebook, formula, or whiteboard infographics on paper texture using Higgsfield. Trigger… |
+| [`knowledge-refresh`](../plugin/skills/knowledge-refresh/SKILL.md) | pipeline | — | Safely scan and refresh stale knowledge pack topics from web sources, staging candidate updates for human… |
+| [`linkedin-engagers`](../plugin/skills/linkedin-engagers/SKILL.md) | core | — | Convert LinkedIn post reactions and comments into qualified prospects in the people ledger and exportable CSVs.… |
+| [`linkedin-reply`](../plugin/skills/linkedin-reply/SKILL.md) | core | — | Draft value-first public comments and soft-sell connection notes to target LinkedIn posts in the brand voice.… |
+| [`market-harvest`](../plugin/skills/market-harvest/SKILL.md) | core | — | Continuously harvest competitor, ecosystem, customer, and regulatory market signals into structured knowledge… |
+| [`market-intelligence`](../plugin/skills/market-intelligence/SKILL.md) | core | — | Turn field data into an educational intelligence brief for product and engineering teams, synthesizing customer… |
+| [`market-scan`](../plugin/skills/market-scan/SKILL.md) | core | — | Sweep weekly news, competitor moves, and standards to produce a dated market signal brief, post drafts, and… |
+| [`outcomes-sync`](../plugin/skills/outcomes-sync/SKILL.md) | pipeline | — | Sync campaign outreach results and publish engagement into outcome ledgers, distilling learnings to promote into… |
+| [`product-partner-brief`](../plugin/skills/product-partner-brief/SKILL.md) | core | — | Draft a strategic product integration and tech-partner co-selling brief outlining mutual architecture and… |
+| [`profile-onboard`](../plugin/skills/profile-onboard/SKILL.md) | core | — | Extract structured profile drafts from company websites, PDFs, or source text to stage new tenant bundles for… |
+| [`prospect`](../plugin/skills/prospect/SKILL.md) | core | — | Discover, score, and qualify high-fit target accounts and buyers against ICP criteria using research waterfalls.… |
+| [`reddit-reply`](../plugin/skills/reddit-reply/SKILL.md) | core | — | Draft helpful, non-promotional Reddit comments that directly address technical questions while subtly citing… |
+| [`setup`](../plugin/skills/setup/SKILL.md) | core | — | Guided onboarding for the GTM engine, learning company context, configuring optional integrations, and generating a… |
+| [`solution-design`](../plugin/skills/solution-design/SKILL.md) | core | solution-architecture | Turn technical requirements into an executive solution overview and architecture specification across Markdown and… |
+| [`solution-discovery`](../plugin/skills/solution-discovery/SKILL.md) | core | technical-discovery | Profile an account's engineering stack and requirements to produce a discovery brief and decision-mapped question… |
+| [`solution-scope-check`](../plugin/skills/solution-scope-check/SKILL.md) | core | — | Evaluate project technical scope, feasibility, resource requirements, and risk boundaries before commercial… |
+| [`video-avatar`](../plugin/skills/video-avatar/SKILL.md) | production | — | Render speaking presenter beats as synthetic talking heads on HeyGen with approved avatar looks, voices, and… |
+| [`video-clip`](../plugin/skills/video-clip/SKILL.md) | production | — | Repurpose long-form video into engaging short-form clips with branded captions, reframing, and highlight detection… |
+| [`video-finish`](../plugin/skills/video-finish/SKILL.md) | pipeline | — | Stitch rendered video beats, burn timed captions, mix audio beds, and apply transitions to produce ready-to-publish… |
+| [`video-footage`](../plugin/skills/video-footage/SKILL.md) | production | — | Ingest, clip, reframe, and restyle existing video footage, screen recordings, and demo assets. Trigger when the… |
+| [`video-plan`](../plugin/skills/video-plan/SKILL.md) | pipeline | — | Plan and route video concepts into approved presets, preflights, and brief.json before script generation. Trigger… |
+| [`video-preview`](../plugin/skills/video-preview/SKILL.md) | production | — | Generate operator-reviewable storyboard hero stills, animatics, and unified preview cards before video render… |
+| [`video-render`](../plugin/skills/video-render/SKILL.md) | production | — | Render b-roll and screen visuals from shot prompts and start images using video generation models. Trigger when the… |
+| [`video-restyle`](../plugin/skills/video-restyle/SKILL.md) | production | — | Apply trained brand styles, palettes, and visual presets to real footage using Higgsfield Shorts Studio. Trigger… |
+| [`video-router`](../plugin/skills/video-router/SKILL.md) | core | — | Analyze concept requirements, assets, and engine availability to route video projects to the optimal production… |
+| [`video-score`](../plugin/skills/video-score/SKILL.md) | pipeline | — | Score short-form video variants on retention and virality to recommend optimal cuts and platform destinations.… |
+| [`video-script`](../plugin/skills/video-script/SKILL.md) | pipeline | — | Turn an approved short-form video concept into a shot-by-shot script with cold opens, beats, captions, and visual… |
+| [`video-storyboard`](../plugin/skills/video-storyboard/SKILL.md) | production | — | Generate operator-reviewable storyboard hero stills and reference frame compositions before video render spend.… |

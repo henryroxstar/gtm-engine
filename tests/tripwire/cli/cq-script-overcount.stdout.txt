@@ -14,6 +14,7 @@
     "front_block_complete": true,
     "claims_verified_present": true,
     "claims_verified_parsed": true,
-    "verification_log_present": false
+    "verification_log_present": false,
+    "caption_functions_consistent": null
   }
 }

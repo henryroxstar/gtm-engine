@@ -1,11 +1,12 @@
 """Deterministic scoring of raw Syften match pulls → the quantitative signal-model fields.
 
 The numbers are computed here, in code, from Syften's **server-assigned** structured fields
-only — ``filter`` (which configured filter matched), ``analysis.accept`` (Syften's own AI
-verdict), and ``item.backend`` (the platform). None of those are author-controlled: a match's
-post *text/title/author* are never read for a metric. So injected free-text in a match body
-cannot move a count — the §R5 "metrics in code, not model narration" guarantee, enforced by
-``tests/community_signal/test_scoring.py``.
+only — ``filter`` (which configured filter matched), ``item.analysis.accept`` (Syften's own
+AI verdict — some responses serialise it as a Python-repr string rather than a JSON object;
+see ``_parse_analysis``), and ``item.backend`` (the platform). None of those are
+author-controlled: a match's post *text/title/author* are never read for a metric. So
+injected free-text in a match body cannot move a count — the §R5 "metrics in code, not model
+narration" guarantee, enforced by ``tests/community_signal/test_scoring.py``.
 
 Only the *bucketing labels* (which entity / category a filter belongs to) come from an optional
 caller-supplied ``mapping`` — the brain builds that from the Syften filter config ($brand/$tag)
@@ -35,6 +36,7 @@ CLI::
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -45,9 +47,38 @@ _OTHER = "other"
 _TOP_ENTITIES = 12
 
 
+def _parse_analysis(raw: Any) -> dict | None:
+    """Coerce a Syften ``analysis`` value into a dict, or ``None`` if it can't be.
+
+    Syften's ``items/get`` sometimes serialises this field as a Python-repr STRING
+    (e.g. ``"{'nsfw': False, 'accept': False, 'rejection_reason': '...'}"``) rather than a
+    JSON object — verified 2026-09-14 over 10,232 raw matches. Parse that shape with
+    ``ast.literal_eval`` (literal Python containers/values only — safe on untrusted
+    input, unlike the builtin that executes arbitrary code). A malformed or non-dict
+    string degrades to ``None`` (→ unscored), never raises."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = ast.literal_eval(raw)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 def _verdict(match: dict) -> str:
-    analysis = match.get("analysis")
-    accept = analysis.get("accept") if isinstance(analysis, dict) else None
+    """Bucket one match by Syften's AI verdict.
+
+    The verdict lives at ``item.analysis.accept`` (not top-level ``analysis`` — a prior
+    version of this function read only the top-level field and so returned ``unscored``
+    for every real match). Top-level ``analysis`` is kept as a fallback for older/synthetic
+    records that carry it there. Missing/unparseable ⇒ ``unscored``."""
+    item = match.get("item") if isinstance(match.get("item"), dict) else {}
+    analysis = _parse_analysis(item.get("analysis"))
+    if analysis is None:
+        analysis = _parse_analysis(match.get("analysis"))
+    accept = analysis.get("accept") if analysis else None
     if accept is True:
         return "accepted"
     if accept is False:

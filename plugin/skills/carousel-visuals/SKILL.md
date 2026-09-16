@@ -1,18 +1,10 @@
 ---
 name: carousel-visuals
 description: >-
-  Generate AI visuals for the active company's LinkedIn and Instagram carousels using
-  Higgsfield — cinematic 4:5 cover art for the carousel-pdf hook card, per-slide background
-  images for full image carousels, a 9:16 motion teaser video animated from the hook card,
-  4:5/1:1 per-card images for an Instagram feed or X multi-image carousel (7–10 cards; ≤4 for
-  X), and a full-text-card mode (V5) that renders every card's copy directly in the image as a
-  complete Slidev/deck-renderer bypass. `get_cost` preflight before every call; monthly-cap
-  precheck + hard-stops at PROFILE budget cap; free fallback is text-only carousel. Higgsfield
-  connector is optional. This skill should be used when the user says "add visuals to my
-  carousel", "generate cover art for the carousel", "make an image carousel", "make an
-  Instagram carousel", "make an X carousel", "create a motion teaser", "animate the hook
-  card", "make it visual", "add images to [carousel topic]", or "switch to Higgsfield, not
-  Slidev". Pairs with carousel-pdf (V1–V4), or replaces its render step entirely (V5).
+  Generate AI visuals, cinematic cover art, background cards, and motion teaser videos for
+  carousels using Higgsfield. Trigger when the user says "add visuals to my carousel",
+  "generate cover art for the carousel", "make an image carousel", "create a motion teaser",
+  or "make it visual".
 metadata:
   version: "0.7.0"
   phase: "3B"
@@ -30,3 +22,10 @@ specify.
 Its declared interface is above (`carousel-visuals`, tier `production`).
 
 See `docs/SKILLS.md` for the full skill roster.
+Docs it draws on that ship in this distribution: `docs/product-accuracy.md`.
+
+## Interface Contract
+
+- **Target & Output:** Generates AI visuals for LinkedIn/Instagram carousels via Higgsfield (V1 cover art 4:5, V2 background images, V3 9:16 motion teaser, V4 multi-image feed, V5 full-text card render).
+- **Brand & Theme:** Resolves brand palette and fonts via `gtm_core.brandkit`.
+- **Preflight & Budget:** Mandatory `get_cost` preflight; enforces monthly cap and per-run budget ceiling (`gtm_core.ledger_cli`). Free fallback is text-only Slidev deck.

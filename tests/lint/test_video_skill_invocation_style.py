@@ -23,6 +23,8 @@ from gtm_core.gating import stub_list
 REPO = Path(__file__).resolve().parents[2]
 
 VIDEO_SKILLS = (
+    "creator-brief",
+    "demo-capture",
     "video-router",
     "video-script",
     "video-storyboard",
@@ -32,7 +34,11 @@ VIDEO_SKILLS = (
     "video-restyle",
     "video-clip",
     "video-score",
+    "video-plan",
+    "video-preview",
+    "video-footage",
 )
+
 
 #: A `python -m` / `python3 -m` invocation NOT already prefixed by `uv run `. Matched in prose as
 #: well as in fenced blocks: an agent copies whichever form it reads, and a bare command quoted

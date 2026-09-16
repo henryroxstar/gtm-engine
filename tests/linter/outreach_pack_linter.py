@@ -532,6 +532,22 @@ _ANTI_CUES: dict[str, tuple[str, ...]] = {
     "ceo": ("vice president", "vice-president", "evp", "svp", "avp"),
 }
 
+#: The exec cues that name the JOB rather than a seniority band. ``_PERSONA_RULES`` puts
+#: ``ceo`` last on purpose, so a lower functional cue anywhere in a compound title wins the
+#: whole title: measured 2026-09-09, "Founder, chief executive officer, head of ai
+#: innovations" resolved to ``ai-platform`` and "Chief Operating Officer / Chief Compliance
+#: Officer" to ``compliance``. Both are execs, and the tempting reading of the resulting
+#: `seat-stakes-missing` is that the COPY is wrong. Across the 1,145-title content corpus
+#: this reclaims 14 titles (548 occurrences), including "Chief Executive Officer (former
+#: CTO, promoted 2026-05-20)" — seated by its own parenthetical.
+#:
+#: RANK cues stay out, and that is the whole design. "managing director" and "president"
+#: are bands a functional chief also holds ("Group CISO Managing Director" is a CISO), so
+#: promoting them would trade this mis-seat for a wider one. OWNERSHIP cues stay out too:
+#: "founder" says who owns the company, not which copy is owed, and 33 pooled
+#: "Co-Founder & CTO" rows are technical buyers whose current ``cto`` seat is correct.
+_CEO_TITLE_CUES = ("ceo", "chief executive", "chief operating", "chief operations")
+
 _PERSONA_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "data-compliance",
@@ -1536,6 +1552,11 @@ def persona_of(header: str) -> str | None:
     spec happened to declare, which is how a body written for a CISO reached an SME owner.
     """
     low = (header or "").lower()
+    # An explicit exec TITLE outranks a lower functional cue elsewhere in the same compound
+    # title; see :data:`_CEO_TITLE_CUES` for why rank and ownership cues are excluded. The
+    # anti-cues still veto, so "Executive Vice President, Engineering" is unaffected.
+    if _matches(_CEO_TITLE_CUES, low) and not _matches(_ANTI_CUES["ceo"], low):
+        return "ceo"
     for persona, cues in _PERSONA_RULES:
         if not _matches(cues, low):
             continue

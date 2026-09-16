@@ -175,6 +175,9 @@ reap:
 # Per-profile state tree (gitignored runtime state). Per-account deliverables go under
 # <output_folder>/accounts/<account-slug>/ — one folder per account. See CLAUDE.md "Per-account outputs".
 output_folder:   content/<profile>/
+# Optional: Central Google Drive folder URL for team second brain & shared deliverables.
+# Must be set per-tenant in real profiles; never hardcode a real link in the template.
+# google_drive_folder: <optional Google Drive folder URL>
 ```
 
 ## Deck defaults  *(used by build-deck)*

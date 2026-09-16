@@ -24,9 +24,23 @@ def _repo_root_default() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def clean_env_var(var_name: str) -> str | None:
+    """Return stripped os.getenv(var_name), or None if unset, blank, or an unexpanded placeholder."""
+    val = os.getenv(var_name)
+    if not val:
+        return None
+    val = val.strip().strip("\"'")
+    if not val or val.startswith("$") or (val.startswith("%") and val.endswith("%")):
+        return None
+    return val
+
+
+_clean_env_path = clean_env_var
+
+
 def resolve_content_root(repo_root: Path | None = None) -> Path:
     """Return the content root, honouring GTM_CONTENT_ROOT env override."""
-    override = os.getenv("GTM_CONTENT_ROOT")
+    override = clean_env_var("GTM_CONTENT_ROOT")
     if override:
         return Path(override).expanduser().resolve()
     return (_repo_root_default() if repo_root is None else repo_root).resolve() / "content"
@@ -34,7 +48,7 @@ def resolve_content_root(repo_root: Path | None = None) -> Path:
 
 def resolve_profiles_root(repo_root: Path | None = None) -> Path:
     """Return the profiles root, honouring GTM_PROFILES_ROOT env override."""
-    override = os.getenv("GTM_PROFILES_ROOT")
+    override = clean_env_var("GTM_PROFILES_ROOT")
     if override:
         return Path(override).expanduser().resolve()
     return (_repo_root_default() if repo_root is None else repo_root).resolve() / "profiles"
@@ -49,7 +63,7 @@ def resolve_workspaces_root(repo_root: Path | None = None) -> Path:
     ``GTM_CONTENT_ROOT`` / ``GTM_PROFILES_ROOT``. Only the backend binds a run to
     one workspace's subtree here so a tenant can never read another's files.
     """
-    override = os.getenv("GTM_WORKSPACES_ROOT")
+    override = clean_env_var("GTM_WORKSPACES_ROOT")
     if override:
         return Path(override).expanduser().resolve()
     base = (_repo_root_default() if repo_root is None else repo_root).resolve()
@@ -82,9 +96,18 @@ def _safe_segment(value: str, label: str) -> str:
     Knowledge filenames and product slugs flow in from PROFILE.md and skill
     arguments. The tenant boundary (CLAUDE.md) makes directory traversal the
     highest-risk error, so a segment must be a bare name — no separators, no
-    ``..``, no NUL. Raises ValueError otherwise.
+    ``..``, no NUL, and no unexpanded environment variable placeholders. Raises
+    ValueError otherwise.
     """
-    if not value or "/" in value or "\\" in value or "\x00" in value or value in (".", ".."):
+    if (
+        not value
+        or "/" in value
+        or "\\" in value
+        or "\x00" in value
+        or value in (".", "..")
+        or value.startswith("$")
+        or (value.startswith("%") and value.endswith("%"))
+    ):
         raise ValueError(f"unsafe {label}: {value!r}")
     return value
 
@@ -142,7 +165,9 @@ class PathConfig:
         return cls(
             content_root=resolve_content_root(root),
             profiles_root=resolve_profiles_root(root),
-            default_profile=os.getenv("ACTIVE_PROFILE", "template").strip() or "template",
+            default_profile=_clean_env_path("ACTIVE_PROFILE")
+            or _clean_env_path("GTM_PROFILE")
+            or "template",
         )
 
 

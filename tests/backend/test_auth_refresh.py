@@ -80,3 +80,52 @@ def test_refresh_rejected_for_deleted_user():
     token = create_refresh_token(USER_ID, WS_ID)
     resp = client.post("/v1/auth/refresh", json={"refresh_token": token})
     assert resp.status_code == 401
+
+
+def test_refresh_is_rate_limited():
+    """/auth/refresh mints credentials, so it gets /login's limit.
+
+    It was the only credential-minting route in this file without one: /register, /login
+    and /exchange all carry 10/minute, leaving refresh as a free oracle for guessing or
+    replaying refresh tokens.
+
+    The limiter is disabled under pytest (backend/ratelimit.py), so asserting behaviour
+    means re-enabling it for the duration — a test that ran with it off would pass whether
+    or not the decorator existed.
+    """
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
+    from backend.ratelimit import limiter
+
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {"password_changed_at": None}
+
+    @asynccontextmanager
+    async def _acquire():
+        yield conn
+
+    pool = MagicMock()
+    pool.acquire = _acquire
+
+    app = FastAPI()
+    app.include_router(auth_router.router, prefix="/v1")
+    app.state.pool = pool
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    token = create_refresh_token(USER_ID, WS_ID)
+    limiter.reset()
+    limiter.enabled = True
+    try:
+        with TestClient(app) as client:
+            codes = [
+                client.post("/v1/auth/refresh", json={"refresh_token": token}).status_code
+                for _ in range(11)
+            ]
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+    assert codes[:10] == [200] * 10, f"expected 10 successes before the limit, got {codes}"
+    assert codes[10] == 429

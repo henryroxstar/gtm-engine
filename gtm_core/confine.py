@@ -121,3 +121,28 @@ def confined_dir(path: Path | str, *, content_root: Path | None = None) -> Path:
             f"refusing to write outside the resolved content root: {resolved} (root: {root})"
         ) from exc
     return resolved
+
+
+def _first_symlink_under_root(raw_path: Path, root: Path) -> Path | None:
+    """Walk ``raw_path``'s ancestors (closest first, UNRESOLVED — symlinks not yet followed) and
+    return the first symlink found, but only when it sits directly inside ``root`` as root's own
+    immediate child (the shape of ``content/<profile>`` itself). A symlink found deeper in the
+    tree, or the walk reaching ``root``/the filesystem root with none found, returns ``None``.
+
+    A pure path-walk with no message attached: ``video_finish/confine.py``'s CLI-facing wrappers
+    are the only callers, and they alone decide whether the result becomes a hint appended to
+    their own ``PolishError``. This function changes none of this module's own refusal messages
+    or exception types — every other confined caller (elements, animatic, cover_frame,
+    shots_lint.cli, the MCP servers) calls the functions above unchanged and never sees a hint.
+    """
+    candidates = [raw_path, *raw_path.parents]
+    for p in candidates:
+        if p == root:
+            return None
+        try:
+            is_link = p.is_symlink()
+        except OSError:
+            return None
+        if is_link:
+            return p if p.parent == root else None
+    return None

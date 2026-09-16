@@ -20,7 +20,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from gtm_core.paths import resolve_content_root, resolve_profiles_root
+from gtm_core.paths import clean_env_var, resolve_content_root, resolve_profiles_root
 
 # Single source of truth for the default ElevenLabs voice (was duplicated across
 # config.py, web.py, and .env.example).
@@ -208,7 +208,9 @@ class Config:
             content_root=resolve_content_root(root),
             # ACTIVE_PROFILE is the DEFAULT only; each Telegram chat binds its own
             # profile in the SessionStore (no global mutable ACTIVE_PROFILE).
-            default_profile=os.getenv("ACTIVE_PROFILE", "template").strip() or "template",
+            default_profile=clean_env_var("ACTIVE_PROFILE")
+            or clean_env_var("GTM_PROFILE")
+            or "template",
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN") or None,
             telegram_allowed_chat_ids=_parse_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_ID")),
             news_db_dsn=os.getenv("NEWS_DB_DSN") or None,

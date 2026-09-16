@@ -4,6 +4,10 @@ single-grade invariant and the census assertable without a subprocess.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import asdict
+
 import pytest
 
 from gtm_core import video_finish as vf
@@ -292,3 +296,171 @@ def test_a_suppression_without_a_suppressed_route_is_refused():
 def test_an_unknown_route_is_refused_rather_than_stored():
     with pytest.raises(vf.PlanError, match="not one of"):
         _plan(_caption_spec(caption_route="handmade"))
+
+
+def test_a_kit_that_declares_the_local_route_owes_no_suppression_beside_its_preset():
+    """`[captions] route = "local"` next to a `preset` is a decision the kit already wrote down:
+    the preset is a style/placement hint and the local burn is the sanctioned route, not a
+    bypass. Demanding a suppression here asks the operator to apologise for the configured
+    route."""
+    p = _plan(_caption_spec(captions_preset="system_indigo", captions_route="local"))
+    assert p.caption_route == "local"
+    assert p.captions_route == "local"
+    assert not p.caption_route_suppression
+
+
+def test_a_kit_that_declares_the_reap_route_still_owes_the_suppression():
+    with pytest.raises(vf.PlanError, match="caption_route_suppression"):
+        _plan(_caption_spec(captions_preset="system_indigo", captions_route="reap"))
+
+
+def test_an_unknown_declared_route_is_refused():
+    with pytest.raises(vf.PlanError, match="captions_route"):
+        _plan(_caption_spec(captions_route="handmade"))
+
+
+# --- pre-burned sidecars beside the source ------------------------------------------------------
+#
+# Captions burned per shot and stitched reach `plan()` as a source with a merged
+# `<source stem>.captions.json` beside it and a spec with no caption_text. Until 2026-09-11 that
+# planned as `caption_route: "none"`, `captions: null` — the manifest of a captioned film said it
+# had no captions, so the lint's contrast tier never ran on it.
+
+
+def _sidecar(tmp_path, *, kind="captions", frame=(1080, 1920), entries=None) -> str:
+    source = tmp_path / "master.mp4"  # plan() is pure: only the sidecar has to exist
+    list_key = {"captions": "screens", "overlays": "overlays"}[kind]
+    (tmp_path / f"master.{kind}.json").write_text(
+        json.dumps({"frame": list(frame), list_key: entries or []})
+    )
+    return str(source)
+
+
+_SCREEN = {
+    "index": 0,
+    "text": "hi",
+    "start_s": 0.0,
+    "end_s": 1.0,
+    "box": {"x": 538, "y": 1600, "w": 538, "h": 100},
+}
+
+
+def test_a_source_with_a_caption_sidecar_plans_as_preburned_local_captions(tmp_path):
+    source = _sidecar(tmp_path, entries=[_SCREEN])
+    p = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    assert p.captions_preburned is True
+    assert p.caption_route == "local"
+    assert not any(s.name == "captions" for s in p.stages), "nothing to render — already burned"
+    assert p.preburned_captions["frame"] == [1080, 1920]
+    assert p.preburned_captions["screens"][0]["box"] == _SCREEN["box"]  # same frame: untouched
+    assert p.to_json()["captions_preburned"] is True
+
+
+def test_preburned_boxes_are_scaled_to_the_finish_frame(tmp_path):
+    """The lint measures the FINISHED file. A 1076x1926 source is scaled to 1080x1920 by the
+    normalize/upscale stage, so a box in source pixels is the wrong box afterwards."""
+    source = _sidecar(tmp_path, frame=(1076, 1926), entries=[_SCREEN])
+    p = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    sx, sy = 1080 / 1076, 1920 / 1926
+    assert p.preburned_captions["frame"] == [1080, 1920]
+    assert p.preburned_captions["screens"][0]["box"] == {
+        "x": round(538 * sx),
+        "y": round(1600 * sy),
+        "w": round(538 * sx),
+        "h": round(100 * sy),
+    }
+    assert p.preburned_captions["screens"][0]["box"] != _SCREEN["box"]
+
+
+def test_an_overlays_sidecar_is_ingested_and_scaled_the_same_way(tmp_path):
+    overlay = {
+        "kind": "lower-third",
+        "start_s": 0.0,
+        "end_s": 1.0,
+        "box": {"x": 0, "y": 0, "w": 538, "h": 963},
+    }
+    source = _sidecar(tmp_path, kind="overlays", frame=(1076, 1926), entries=[overlay])
+    p = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    assert p.captions_preburned is False and p.preburned_captions is None
+    assert p.preburned_overlays == [{**overlay, "box": {"x": 0, "y": 0, "w": 540, "h": 960}}]
+    assert p.caption_route == "none"
+
+
+def test_without_a_sidecar_the_plan_is_unchanged(tmp_path):
+    """Every plan_id minted before sidecars existed must still resolve: the hash payload gains
+    a key only when a sidecar is present."""
+    source = str(tmp_path / "m.mp4")
+    p = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    assert p.captions_preburned is False
+    assert p.preburned_captions is None and p.preburned_overlays is None
+    assert p.caption_route == "none"
+    legacy_payload = {
+        "profile": "acme",
+        "slug": "s",
+        "ratio": "9:16",
+        "source": source,
+        "stages": [asdict(st) for st in p.stages],
+    }
+    expected = hashlib.sha256(vf._canonical_json(legacy_payload).encode()).hexdigest()[:16]
+    assert p.plan_id == expected
+
+
+def test_the_sidecar_is_part_of_the_plan_id_only_when_present(tmp_path):
+    """A sidecar that appears or changes after a run must not be short-circuited into a stale
+    `captions: null` manifest — the manifest is part of the output the id guards."""
+    source = str(tmp_path / "master.mp4")
+    without = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    _sidecar(tmp_path, entries=[_SCREEN])
+    with_sidecar = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    same_again = vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={})
+    assert with_sidecar.plan_id != without.plan_id
+    assert with_sidecar.plan_id == same_again.plan_id
+    moved = {**_SCREEN, "box": {**_SCREEN["box"], "y": 1500}}
+    _sidecar(tmp_path, entries=[moved])
+    assert vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec={}).plan_id not in (
+        with_sidecar.plan_id,
+        without.plan_id,
+    )
+
+
+def test_caption_text_over_a_preburned_source_is_refused(tmp_path):
+    source = _sidecar(tmp_path, entries=[_SCREEN])
+    with pytest.raises(vf.PlanError, match="already carries burned captions"):
+        vf.plan(profile="acme", slug="s", ratio="9:16", source=source, spec=_caption_spec())
+
+
+def test_a_declared_route_contradicting_a_preburned_source_is_refused(tmp_path):
+    source = _sidecar(tmp_path, entries=[_SCREEN])
+    with pytest.raises(vf.PlanError, match="pre-burned local captions"):
+        vf.plan(
+            profile="acme", slug="s", ratio="9:16", source=source, spec={"caption_route": "none"}
+        )
+
+
+def test_preburned_captions_still_answer_to_a_resolving_preset(tmp_path):
+    """The route the asset took is local; a resolving preset makes that a recorded decision."""
+    source = _sidecar(tmp_path, entries=[_SCREEN])
+    with pytest.raises(vf.PlanError, match="caption_route_suppression"):
+        vf.plan(
+            profile="acme",
+            slug="s",
+            ratio="9:16",
+            source=source,
+            spec={"captions_preset": "system_indigo"},
+        )
+    p = vf.plan(
+        profile="acme",
+        slug="s",
+        ratio="9:16",
+        source=source,
+        spec={"captions_preset": "system_indigo", "captions_route": "local"},
+    )
+    assert p.captions_preburned and p.caption_route == "local"
+
+
+def test_a_sidecar_without_a_frame_is_refused_not_ingested_blind(tmp_path):
+    (tmp_path / "master.captions.json").write_text(json.dumps({"screens": [_SCREEN]}))
+    with pytest.raises(vf.PlanError, match="no usable frame"):
+        vf.plan(
+            profile="acme", slug="s", ratio="9:16", source=str(tmp_path / "master.mp4"), spec={}
+        )

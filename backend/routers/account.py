@@ -4,8 +4,17 @@ PATCH  /v1/account         — update display_name and/or password
 DELETE /v1/account         — hard-delete the authenticated user (Apple App Store requirement)
 GET    /v1/account/export  — GDPR Art. 20 data export (all workspace data as JSON)
 
-Both mutation endpoints require authentication. Password change additionally requires
-current_password to prevent account takeover via an unattended session.
+Both mutation endpoints require authentication. Password change and DELETE additionally
+require a step-up re-auth, so an unattended session cannot take over or erase the account.
+The step-up credential is fixed by the account type, and neither substitutes for the other:
+
+- Password account (``users.password_hash`` set): ``current_password``, bcrypt-verified.
+- Federated account (password-less, created by POST /v1/auth/exchange — V016): DELETE takes an
+  ``idp_token`` issued within the last 5 minutes (``oidc.STEP_UP_MAX_AGE_S``), verified by
+  backend/oidc.py as the exchange verifies it plus that ``iat`` freshness rule, whose
+  (issuer, subject) must map to THIS user in ``external_identities``. It has no password to
+  change, and PATCH refuses to set a first one (409) — from a bearer token alone that would let
+  a stolen access token plant a persistent login.
 
 DELETE cascades via Postgres FK: users → workspaces → subscriptions / profiles /
 runs / push_tokens / api_keys / cost_records.
@@ -22,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from gtm_core.paths import workspace_content_root, workspace_tree
 
 from .. import auth as _auth
+from .. import oidc
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
 from ..schemas import DeleteAccountRequest, PatchAccountRequest
@@ -45,17 +55,24 @@ async def patch_account(
         )
 
     if body.new_password is not None:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT password_hash FROM users WHERE id = $1::uuid", ws.user_id
+            )
+        if row is not None and not row["password_hash"]:
+            # Federated account: no password credential exists to change, and setting
+            # a first one on a bearer token alone would plant a persistent login.
+            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "no_password_credential"})
         if body.current_password is None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "current_password is required to change password",
             )
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT password_hash FROM users WHERE id = $1::uuid", ws.user_id
-            )
         if row is None or not _auth.verify_password(body.current_password, row["password_hash"]):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                {"code": "invalid_credentials", "message": "Current password is incorrect"},
+            )
 
         new_hash = _auth.hash_password(body.new_password)
         async with pool.acquire() as conn:
@@ -204,6 +221,32 @@ async def export_account(
     }
 
 
+# The step-up's identity-link check. A module constant so the live-DB tier
+# (tests/backend/test_rls_live.py) runs this exact text against a real schema.
+LINKED_IDENTITY_SQL = (
+    "SELECT 1 FROM external_identities WHERE issuer = $1 AND subject = $2 AND user_id = $3::uuid"
+)
+
+
+async def _verify_federated_step_up(pool, user_id: str, idp_token: str | None) -> None:
+    """Step-up for a password-less account: an IdP token issued within the last
+    ``oidc.STEP_UP_MAX_AGE_S``, verified by the same backend/oidc.py path as POST
+    /v1/auth/exchange, whose (issuer, subject) is linked to THIS user. Every credential
+    failure is the same generic 401 as the exchange's."""
+    cfg, subject, _claims = await oidc.require_federated_identity(
+        idp_token, max_age_s=oidc.STEP_UP_MAX_AGE_S
+    )
+
+    # A valid token for SOMEONE ELSE's identity must not erase this account.
+    async with pool.acquire() as conn:
+        linked = await conn.fetchval(LINKED_IDENTITY_SQL, cfg.issuer, subject, user_id)
+    if not linked:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "federated_token_invalid", "message": oidc.INVALID_TOKEN_DETAIL},
+        )
+
+
 @router.delete("", status_code=status.HTTP_200_OK)
 async def delete_account(
     body: DeleteAccountRequest,
@@ -212,7 +255,8 @@ async def delete_account(
 ) -> dict:
     """Hard-delete the authenticated user and ALL their data — DB **and** on-disk.
 
-    Requires the current password (step-up re-auth) for an irreversible action.
+    Requires a step-up re-auth for an irreversible action: ``current_password`` for a
+    password account, a fresh ``idp_token`` for a federated one (module docstring).
     Postgres CASCADE propagates the DB rows (workspace → subscriptions, profiles,
     runs, push_tokens, api_keys, cost_records); the workspace's on-disk tree
     (``data/workspaces/<ws>/`` — account dossiers, prospect PII, outreach) is
@@ -226,8 +270,18 @@ async def delete_account(
         row = await conn.fetchrow("SELECT password_hash FROM users WHERE id = $1::uuid", ws.user_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-    if not _auth.verify_password(body.current_password, row["password_hash"]):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
+    if row["password_hash"]:
+        # Password account: only the password steps up — an idp_token is never consulted.
+        if body.current_password is None or not _auth.verify_password(
+            body.current_password, row["password_hash"]
+        ):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                {"code": "invalid_credentials", "message": "Current password is incorrect"},
+            )
+    else:
+        # Federated account: only the IdP steps up — current_password is never consulted.
+        await _verify_federated_step_up(pool, ws.user_id, body.idp_token)
 
     # 1. Remove on-disk PII FIRST: a filesystem failure then leaves the DB intact
     #    (caller can retry) instead of orphaning files after the rows are gone.

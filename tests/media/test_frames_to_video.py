@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 
 from gtm_core import video_finish as vf
+from gtm_core.frame_sequence import FrameSequenceError
 
 
 def _write_frames(out_dir: Path, *, count: int, w: int = 320, h: int = 400) -> str:
@@ -111,3 +112,66 @@ def test_never_leaves_a_part_file_behind_on_success(tmp_path):
     out_path = tmp_path / "out.mp4"
     vf.frames_to_video(frames_glob, fps=12, out_path=out_path)
     assert not out_path.with_suffix(".mp4.part").exists()
+
+
+# ── frame-sequence validation (plan #8) ──────────────────────────────────────
+
+
+def test_a_glob_pattern_is_refused_naming_the_printf_form(tmp_path):
+    (tmp_path / "frames").mkdir()
+    with pytest.raises(FrameSequenceError, match="printf form like 'prefix-%04d.png'"):
+        vf.frames_to_video(str(tmp_path / "frames" / "*.png"), fps=12, out_path=tmp_path / "o.mp4")
+
+
+def test_a_gap_in_the_sequence_is_refused_naming_it(tmp_path):
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    for i in (0, 1, 2, 4):
+        Image.new("RGB", (16, 16), (0, 0, 0)).save(frames_dir / f"f-{i:04d}.png")
+    with pytest.raises(FrameSequenceError, match="missing f-0003.png"):
+        vf.frames_to_video(str(frames_dir / "f-%04d.png"), fps=12, out_path=tmp_path / "out.mp4")
+
+
+def test_no_matching_frames_is_refused(tmp_path):
+    (tmp_path / "frames").mkdir()
+    with pytest.raises(FrameSequenceError, match="no frames found matching"):
+        vf.frames_to_video(
+            str(tmp_path / "frames" / "f-%04d.png"), fps=12, out_path=tmp_path / "out.mp4"
+        )
+
+
+def test_a_contiguous_sequence_starting_at_one_is_accepted(tmp_path):
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    for i in (1, 2, 3):
+        Image.new("RGB", (16, 16), (0, 0, 0)).save(frames_dir / f"f-{i:04d}.png")
+    out = vf.frames_to_video(str(frames_dir / "f-%04d.png"), fps=12, out_path=tmp_path / "out.mp4")
+    assert out.exists()
+
+
+def test_overlay_frames_gets_the_identical_contiguity_check(tmp_path):
+    """Not just frames_to_video — overlay_frames composites a locally-drawn sequence over a
+    provider render and must refuse the same gap before ever touching ffmpeg."""
+    base_frames = _write_frames(tmp_path / "base", count=8)
+    base = vf.frames_to_video(base_frames, fps=8, out_path=tmp_path / "base.mp4")
+    overlay_dir = tmp_path / "overlay"
+    overlay_dir.mkdir()
+    for i in (0, 1, 3):  # gap at 2
+        Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(overlay_dir / f"ov-{i:04d}.png")
+    with pytest.raises(FrameSequenceError, match="missing ov-0002.png"):
+        vf.overlay_frames(
+            base, str(overlay_dir / "ov-%04d.png"), fps=8, out_path=tmp_path / "out.mp4"
+        )
+
+
+def test_a_hyphenated_literal_prefix_is_not_misread_as_multiple_prefixes(tmp_path):
+    """`hero-reveal-%04d.png` — a hardcoded 'digits after the last hyphen' assumption would
+    wrongly refuse this valid pattern."""
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    for i in range(4):
+        Image.new("RGB", (16, 16), (0, 0, 0)).save(frames_dir / f"hero-reveal-{i:04d}.png")
+    out = vf.frames_to_video(
+        str(frames_dir / "hero-reveal-%04d.png"), fps=12, out_path=tmp_path / "out.mp4"
+    )
+    assert out.exists()

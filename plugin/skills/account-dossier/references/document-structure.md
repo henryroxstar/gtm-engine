@@ -22,7 +22,7 @@ safe defaults, so the render never crashes on a partial spec):
 | 6 Regulatory | `heading` + `paragraph` + `{"type":"callout","variant":"angle"}` |
 | 7 Tech stack | `heading` + `facts_table` (+ optional `image` `flow.png`) |
 | 8 How to engage | `heading` + `paragraph` + `{"type":"two_col","leftTitle":"DO","rightTitle":"DON'T","left":[…],"right":[…]}` |
-| 9 Questions | `heading` + `{"type":"questions","groups":[{"title","items":[…]}]}` |
+| 9 Questions | `heading` + anchor `{"type":"callout","variant":"info"}` + `{"type":"questions","groups":[{"title","items":[…]}]}` |
 | 10 Honesty notes | `heading` + `paragraph` |
 | 11 Sources | `heading` + `{"type":"sources","external":[{"text","url"}],"internal":[…]}` |
 | 12 Footer | automatic — page numbers + `closingLine` on every page |
@@ -91,10 +91,30 @@ than in §5.
 - A **DO / DON'T two-column table** (3–4 rows each side).
 
 ### 9. Questions to ask
-Three grouped sets, **3 questions each**. Questions double as discovery that tells us whether we fit:
-- **Open the conversation**
-- **Go deeper / test for fit**
-- **Test for a pilot / next step**
+Sequenced by **SPIN question type** per `docs/sales-questions-by-deal-phase.md` (Phase 2 + Phase 4)
+and its anchor-first technique — three groups built on **one anchored finding** from earlier in the
+document (§5 the gap, §6 regulatory, §7 tech stack, §8 persona), not three stages of small talk on
+the general topic:
+
+- **Anchor callout, before the groups.** One accent-shaded callout (like §2's) naming: the single
+  sharpest constraint/friction point this dossier's research turned up, which section it came from,
+  and why it beat the alternatives. If research surfaced no concrete friction point, say so here
+  instead of writing confident questions on nothing.
+- **Open the conversation** (Situation, 3 questions) — establish context, per Phase 2.
+- **The cost of staying as-is** (Problem → Implication, 3 questions) — start from the anchored
+  Problem, then escalate at least 2 of the 3 into **Implication** questions (the cost/risk of the
+  status quo) per Phase 4. This is where a question bank stalls if it never leaves "how does X work
+  today" — the group name is a forcing function against that.
+- **What solving it is worth** (Need-payoff, 3 questions) — get the buyer to state the value of
+  solving it, per Phase 4. Never a solution-shaped pitch dressed as a question (e.g. "would
+  [our approach] be useful to you?") — an aggressive close reads as pressure this early and belongs
+  in §8's DO/DON'T or the call-prep handoff instead, not spent as one of these three.
+- **One conditional branch.** Under the anchored Problem question, add one line: *if they confirm
+  the pain, ask [the paired Implication question next]; if they don't, [what that tells the seller,
+  and where to pivot]* — so the seller has the branch ready live, not just a flat list to read from.
+
+Every question must trace back to the anchor — cut and replace any that would read the same
+regardless of what was anchored on.
 
 ### 10. Honesty notes
 Candid limits to state out loud — what we do vs. don't do, beta / maturity caveats. Builds trust with

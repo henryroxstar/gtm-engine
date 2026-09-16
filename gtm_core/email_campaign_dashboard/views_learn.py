@@ -328,6 +328,12 @@ def _ops_view(m: dict) -> str:
         )
 
     if drifted:
+        drifted_seqs = {
+            msg["sequence_id"]
+            for msg in m["messages"]
+            if (msg.get("lint") or {}).get("drift") and msg.get("sequence_id")
+        }
+        distinct_seqs = {msg["sequence_id"] for msg in m["messages"] if msg.get("sequence_id")}
         rows = ""
         for msg in drifted:
             lint = msg["lint"]
@@ -343,7 +349,7 @@ def _ops_view(m: dict) -> str:
         cards += f"""
       <div class="card banner">
         <h2>Re-push before anyone starts a sequence</h2>
-        <p><strong>{len(drifted)} of {len(m["messages"])} sequences</strong> were revised
+        <p><strong>{len(drifted_seqs)} of {len(distinct_seqs)} sequences</strong> were revised
         after they were last pushed to the sending tool. The tool still holds the older
         emails and the older recipient list, so every check on this page describes the
         revised files rather than what would actually go out today. Starting one now would

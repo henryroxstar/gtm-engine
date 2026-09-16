@@ -10,6 +10,8 @@ third-party-PII rule (docs/RULES.md R9): real people and real companies live onl
 from __future__ import annotations
 
 import csv
+import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -30,6 +32,7 @@ from gtm_core.account_integrity import (
     stale_artifact_string,
     why_now_not_a_signal,
 )
+from gtm_core.prospect_paths import evals_dir
 from gtm_core.signal_record import RECORD_COLUMNS
 
 PROFILE = "acme"
@@ -244,6 +247,34 @@ def test_competitor_match_by_alias_and_domain():
     assert competitor_match("Rival", "", competitors)
 
 
+def test_load_competitors_indexes_rows_regardless_of_product(tmp_path):
+    """A product-scoped row (e.g. `product = "quarry-digital"`) must still be indexed and
+    hard-stopped for every product — `load_competitors` never prospects a competitor of
+    ANY product. Pins today's behaviour: the field is ignored, not filtered on."""
+    root = tmp_path / "profiles"
+    (root / PROFILE / "knowledge").mkdir(parents=True)
+    (root / PROFILE / "knowledge" / "competitors.toml").write_text(
+        'schema = 1\nreviewed = "2026-08-01"\n\n'
+        "[[competitor]]\n"
+        'name = "Quarry Digital Rival"\n'
+        'tier = "direct"\n'
+        'product = "quarry-digital"\n'
+        'aliases = ["QD Rival"]\n'
+        'domains = ["qdrival.example"]\n'
+        "watch_urls = []\n"
+        'syften_filter = ""\n'
+        'first_seen = "2026-08-01"\n'
+        'last_reviewed = "2026-08-01"\n'
+        'status = "active"\n'
+        'note = "Contests Quarry Digital directly."\n',
+        encoding="utf-8",
+    )
+    competitors = load_competitors(PROFILE, root)
+    hit = competitor_match("Quarry Digital Rival", "qdrival.example", competitors)
+    assert hit is not None
+    assert hit.tier == "direct" and hit.direct
+
+
 def test_competitor_match_none_for_an_unrelated_account(tmp_path):
     root = _write_competitors(tmp_path)
     competitors = load_competitors(PROFILE, root)
@@ -420,6 +451,14 @@ def test_the_warn_tier_blocks_once_it_stops_being_readable(tmp_path):
                 email=f"person{i}@parentco.example",  # domain-mismatch on every row
                 company=f"Acct {i}",
                 company_domain=f"acct-{i}.example",
+                # No signal at all — not just an empty `signal_clause` column. Since
+                # gtm_core.signal_record.check_record now falls back to deriving the
+                # clause from `why_now` (PS3, 2026-09-10), leaving the fixture's
+                # default `why_now` in place would make this row carry a genuine
+                # dated claim with no provenance behind it, adding unrelated
+                # signal-* findings this test isn't about — it exists to pin the
+                # WARN-tier readability budget on domain-mismatch alone.
+                why_now="",
                 signal_clause="",
                 signal_source_url="",
                 signal_observed="",
@@ -606,10 +645,38 @@ def _verdict_csv(tmp_path, rows):
     return p
 
 
+def _write_lane_states(content_root: Path, profile: str, recs: list[dict]) -> None:
+    state_dir = evals_dir(profile, content_root)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with (state_dir / "lanes-state.jsonl").open("w", encoding="utf-8") as fh:
+        for r in recs:
+            rec = {
+                "email": "",
+                "lane": "signal",
+                "trigger": "t1",
+                "judge_verdict": "",
+                "body_hash": "",
+                "stamp": "2026-09-01",
+            }
+            rec.update(r)
+            fh.write(json.dumps(rec) + "\n")
+
+
 def _run_filter(tmp_path, rows, capsys):
-    p = _verdict_csv(tmp_path, rows)
-    ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
-    return capsys.readouterr().out
+    content_root = tmp_path / "content"
+    old_root = os.environ.get("GTM_CONTENT_ROOT")
+    os.environ["GTM_CONTENT_ROOT"] = str(content_root)
+    try:
+        recs = [{"email": r.get("email", ""), "lane": "signal"} for r in rows]
+        _write_lane_states(content_root, "acme", recs)
+        p = _verdict_csv(tmp_path, rows)
+        ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+        return capsys.readouterr().out
+    finally:
+        if old_root is None:
+            os.environ.pop("GTM_CONTENT_ROOT", None)
+        else:
+            os.environ["GTM_CONTENT_ROOT"] = old_root
 
 
 def test_an_uncalibrated_judge_drop_does_not_remove_the_row(tmp_path, capsys):
@@ -842,8 +909,11 @@ def test_unknown_lane_is_refused():
         ai.filter_by_verdict([], "send", lane="fast")
 
 
-def test_csv_lane_column_must_match_the_lane_flag(tmp_path, capsys):
+def test_csv_lane_column_must_match_the_lane_flag(tmp_path, capsys, monkeypatch):
     """Positive control first: a generic-routed CSV enrolled with --lane signal is refused."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": "generic"}])
     p = tmp_path / "list.csv"
     cols = ["email", "company", "company_domain", "verdict", "lane"]
     with p.open("w", newline="", encoding="utf-8") as fh:
@@ -898,11 +968,38 @@ def test_generic_lane_downgrades_research_absence_but_keeps_every_other_error(tm
     )
     assert any(line.startswith("no-dossier:") and "GENERIC" in line for line in generic.warnings)
     # One aggregate line per class, not one per row — the WARN budget must survive a
-    # 300-row un-researched list, which is the list this lane exists for.
     assert sum(1 for line in generic.warnings if line.startswith("verdict-missing:")) == 1
 
 
-def test_every_enrollable_lane_can_be_named_at_the_gate(tmp_path, capsys):
+def test_generic_lane_demotes_signal_and_agent_kind_errors(tmp_path):
+    """PS-R I4: In the generic lane, signal-* and agent-kind-* errors must be demoted
+    to warnings because generic templates do not reference research copy."""
+    rows = [
+        _row(
+            email="a@vertex.example",
+            why_now="enterprise automation platform (intent score 81)",
+            signal_source_url="",
+            signal_agent_kind="",
+            verdict="send",
+            category_relation="prospect",
+        )
+    ]
+    signal_audit = audit_rows(rows, PROFILE, content_root=tmp_path, lane="signal")
+    generic_audit = audit_rows(rows, PROFILE, content_root=tmp_path, lane="generic")
+
+    signal_rules = {e.split(":", 1)[0] for e in signal_audit.errors}
+    assert "signal-source-missing" in signal_rules or "signal-clause-underivable" in signal_rules
+    assert "agent-kind-unresolved" in signal_rules
+
+    generic_rules = {e.split(":", 1)[0] for e in generic_audit.errors}
+    assert "signal-source-missing" not in generic_rules
+    assert "signal-clause-underivable" not in generic_rules
+    assert "agent-kind-unresolved" not in generic_rules
+    assert any("signal-" in line for line in generic_audit.warnings)
+    assert any("agent-kind-" in line for line in generic_audit.warnings)
+
+
+def test_every_enrollable_lane_can_be_named_at_the_gate(tmp_path, capsys, monkeypatch):
     """§R18 — a lane-consistency check the operator cannot reach is not a check.
 
     Until 2026-09-09 `--lane` carried a hand-written choices list that omitted
@@ -916,6 +1013,9 @@ def test_every_enrollable_lane_can_be_named_at_the_gate(tmp_path, capsys):
     `hold` and `excluded` stay unnameable on purpose: they never enrol, so they are absent
     from LANE_VERDICTS, and `filter_by_verdict` refuses them.
     """
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "b@acme.example", "lane": "personalised"}])
     p = tmp_path / "list.csv"
     cols = ["email", "company", "company_domain", "verdict", "lane"]
     with p.open("w", newline="", encoding="utf-8") as fh:
@@ -945,3 +1045,539 @@ def test_every_enrollable_lane_can_be_named_at_the_gate(tmp_path, capsys):
     # rubber stamp for every string the router writes.
     with pytest.raises(SystemExit):
         ai.main([*base, "--lane", "excluded"])
+
+
+# --------------------------------------------------------- PS1: hold/excluded (2026-09-10)
+#
+# `hold` and `excluded` never enrol anywhere (LANE_VERDICTS omits them on purpose — see
+# `test_every_enrollable_lane_can_be_named_at_the_gate` above), but until this gains an
+# `else` branch, a CSV carrying either lane reached ready-to-load via the exact
+# *documented* command — `--require-verdict send`, no `--lane` — because the existing
+# lane-column check only ever runs when `--lane` IS passed. Live 2026-09-10 tenant
+# pool: 52 `excluded/already-enrolled` + 14 `hold` rows at verdict=send, reachable this
+# way.
+
+
+def _write_lane_csv(path: Path, cols: list[str], rows: list[dict]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+
+def _write_lane_state(content_root: Path, profile: str, **fields) -> None:
+    """Write one `lanes-state.jsonl` row for ``profile`` under ``content_root``,
+    creating ``evals/`` as needed — the record `lanes route` itself appends, and
+    `_refuse_lane_state_mismatch` reads. Caller still owns
+    ``monkeypatch.setenv("GTM_CONTENT_ROOT", ...)``; this only writes the file."""
+    rec = {
+        "email": "",
+        "lane": "",
+        "trigger": "t1",
+        "judge_verdict": "",
+        "body_hash": "",
+        "stamp": "2026-09-01",
+    }
+    rec.update(fields)
+    state_dir = evals_dir(profile, content_root)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "lanes-state.jsonl").write_text(json.dumps(rec) + "\n", encoding="utf-8")
+
+
+def test_hold_and_excluded_rows_are_refused_by_the_documented_enrollment_command(
+    tmp_path, capsys, monkeypatch
+):
+    """The exact live shape: `excluded/already-enrolled` and `hold` rows both present,
+    enrolled with `--require-verdict send` and no `--lane` — the documented command."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(
+        content_root,
+        "acme",
+        [
+            {
+                "email": "a@acme.example",
+                "lane": "excluded",
+                "reason": "already-enrolled",
+            },
+            {
+                "email": "b@acme.example",
+                "lane": "excluded",
+                "reason": "already-enrolled",
+            },
+            {
+                "email": "c@acme.example",
+                "lane": "hold",
+                "reason": "",
+            },
+        ],
+    )
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane", "lane_reason"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "excluded",
+                "lane_reason": "already-enrolled",
+            },
+            {
+                "email": "b@acme.example",
+                "company": "Acme B",
+                "company_domain": "acmeb.example",
+                "verdict": "send",
+                "lane": "excluded",
+                "lane_reason": "already-enrolled",
+            },
+            {
+                "email": "c@acme.example",
+                "company": "Acme C",
+                "company_domain": "acmec.example",
+                "verdict": "send",
+                "lane": "hold",
+                "lane_reason": "",
+            },
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED" in err
+    # Both counts named: 2 excluded/already-enrolled + 1 hold, 3 total at verdict=send.
+    assert "excluded" in err and "already-enrolled" in err and "hold" in err
+    assert "3 row(s)" in err
+    assert "3 of them are at verdict" in err
+
+
+def test_two_enrollable_lanes_with_no_lane_flag_is_refused(tmp_path, capsys, monkeypatch):
+    """No hold/excluded row here — the second half of PS1: a CSV that mixes two
+    lanes THAT DO enrol (`signal` and `generic`) with no `--lane` to say which."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(
+        content_root,
+        "acme",
+        [
+            {"email": "a@acme.example", "lane": "signal"},
+            {"email": "b@acme.example", "lane": "generic"},
+        ],
+    )
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "signal",
+            },
+            {
+                "email": "b@acme.example",
+                "company": "Acme B",
+                "company_domain": "acmeb.example",
+                "verdict": "send",
+                "lane": "generic",
+            },
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED" in err
+    assert "generic" in err and "signal" in err
+
+
+def test_refuse_ambiguous_lane_ignores_blank_lane_values():
+    """Direct reproduction of the reported false positive: `_refuse_ambiguous_lane`
+    (unlike its sibling `_refuse_lane_state_mismatch`'s `foreign` computation, which
+    already excluded `""`) did not exclude a blank `lane` value from the enrollable-
+    lanes set, so a blank-lane row plus one real enrollable lane read as TWO enrollable
+    lanes (`['', 'signal']`) and was wrongly refused. A blank lane names no lane at
+    all — it must not count as a second one."""
+    rows = [{"lane": "", "verdict": "send"}, {"lane": "signal", "verdict": "send"}]
+    assert ai._refuse_ambiguous_lane(rows) is None
+
+
+def test_a_blank_lane_row_does_not_count_as_a_second_enrollable_lane(tmp_path, capsys, monkeypatch):
+    """End-to-end version of the regression above, through the documented enrollment
+    command: a CSV mixing a genuinely blank `lane` (plausible on a hand-edited or
+    merged list, per PS2's docstring) with exactly one real lane must not be refused
+    for carrying "more than one enrollable lane"."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(
+        content_root,
+        "acme",
+        [
+            {"email": "a@acme.example", "lane": "signal"},
+            {"email": "b@acme.example", "lane": "signal"},
+        ],
+    )
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "",
+            },
+            {
+                "email": "b@acme.example",
+                "company": "Acme B",
+                "company_domain": "acmeb.example",
+                "verdict": "send",
+                "lane": "signal",
+            },
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+    err = capsys.readouterr().err
+    assert "REFUSED" not in err
+    assert rc == 0
+
+
+def test_a_plain_audit_is_unaffected_by_the_hold_excluded_check(tmp_path, capsys):
+    """Same shape as the positive control above, but with no `--require-verdict` at
+    all — a plain audit must not trip this check; it exists to protect enrollment,
+    not every read of a CSV."""
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane", "lane_reason"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "excluded",
+                "lane_reason": "already-enrolled",
+            },
+            {
+                "email": "c@acme.example",
+                "company": "Acme C",
+                "company_domain": "acmec.example",
+                "verdict": "send",
+                "lane": "hold",
+                "lane_reason": "",
+            },
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    assert rc == 0
+    assert "REFUSED" not in capsys.readouterr().err
+
+
+# --------------------------------------------------------- PS2: lane-state gate half (2026-09-10)
+#
+# `lanes route`'s own `evals/lanes-state.jsonl` records the LAST lane it decided for
+# each email. A CSV whose own `lane` column disagrees — re-routed since the CSV was
+# cut, or hand-edited — must not enrol on the strength of the stale column. The route
+# half of this (re-deriving/re-running the router) is Track B's job; this is the gate
+# half only: read the state file and refuse a disagreement.
+
+
+def test_a_csv_lane_disagreeing_with_lanes_state_is_refused(tmp_path, monkeypatch, capsys):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_state(content_root, "acme", email="a@acme.example", lane="generic")
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "signal",  # disagrees with the state file's "generic"
+            }
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED" in err
+    assert "lanes-state.jsonl" in err
+
+
+def test_a_csv_lane_agreeing_with_lanes_state_is_not_refused(tmp_path, monkeypatch, capsys):
+    """Positive control — the same lane on both sides is not a disagreement."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_state(content_root, "acme", email="a@acme.example", lane="signal")
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "signal",
+            }
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    assert rc == 0
+
+
+def test_a_missing_lanes_state_file_skips_the_check_not_an_error(tmp_path, monkeypatch, capsys):
+    """No state file yet — nothing has been routed for this profile — is not the same
+    as a disagreement; it must not refuse."""
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    p = tmp_path / "list.csv"
+    cols = ["email", "company", "company_domain", "verdict", "lane"]
+    _write_lane_csv(
+        p,
+        cols,
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme A",
+                "company_domain": "acmea.example",
+                "verdict": "send",
+                "lane": "signal",
+            }
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    assert rc == 0
+
+
+# --------------------------------------------------------- PS-R I1 & I2: Enrollment gates (2026-09-11)
+
+
+def test_i1_missing_lanes_state_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED: evals/lanes-state.jsonl is missing" in err
+
+
+def test_i1_empty_lanes_state_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    state_dir = evals_dir("acme", content_root)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "lanes-state.jsonl").write_text("\n", encoding="utf-8")
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED: evals/lanes-state.jsonl is empty" in err
+
+
+def test_i1_unrouted_row_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": "signal"}])
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [
+            {"email": "a@acme.example", "company": "Acme", "verdict": "send"},
+            {"email": "unrouted@acme.example", "company": "Acme", "verdict": "send"},
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "REFUSED: 1 row(s) missing from evals/lanes-state.jsonl" in err
+
+
+def test_i1_blank_lane_in_state_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": ""}])
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "have blank lane in evals/lanes-state.jsonl" in err
+
+
+def test_i1_hold_or_excluded_in_state_refused_even_without_lane_column(
+    tmp_path, capsys, monkeypatch
+):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(
+        content_root,
+        "acme",
+        [{"email": "a@acme.example", "lane": "hold", "reason": "negative-reply"}],
+    )
+    # CSV has NO lane column at all
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "carry lane 'hold' or 'excluded'" in err
+
+
+def test_i2_retired_account_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": "signal"}])
+    prospects_dir = content_root / "acme" / "prospects"
+    prospects_dir.mkdir(parents=True, exist_ok=True)
+    (prospects_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-09-11T00:00:00Z",
+                "profile": "acme",
+                "items": [
+                    {
+                        "company": "Acme",
+                        "domain": "acme.example",
+                        "status": "disqualified",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "company_domain", "verdict"],
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme",
+                "company_domain": "acme.example",
+                "verdict": "send",
+            }
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert (
+        "REFUSED: 1 row(s) belong to accounts with retired or engaged status in latest.json (disqualified: 1)"
+        in err
+    )
+
+
+def test_i2_engaged_account_refused_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": "signal"}])
+    prospects_dir = content_root / "acme" / "prospects"
+    prospects_dir.mkdir(parents=True, exist_ok=True)
+    (prospects_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-09-11T00:00:00Z",
+                "profile": "acme",
+                "items": [
+                    {
+                        "contact_email": "a@acme.example",
+                        "company": "Acme",
+                        "status": "replied",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "verdict"],
+        [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert (
+        "REFUSED: 1 row(s) belong to accounts with retired or engaged status in latest.json (replied: 1)"
+        in err
+    )
+
+
+def test_i2_unblocked_account_passes_under_require_verdict(tmp_path, capsys, monkeypatch):
+    content_root = tmp_path / "content"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    _write_lane_states(content_root, "acme", [{"email": "a@acme.example", "lane": "signal"}])
+    prospects_dir = content_root / "acme" / "prospects"
+    prospects_dir.mkdir(parents=True, exist_ok=True)
+    (prospects_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-09-11T00:00:00Z",
+                "profile": "acme",
+                "items": [
+                    {
+                        "company": "Acme",
+                        "domain": "acme.example",
+                        "status": "new",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    p = tmp_path / "list.csv"
+    _write_lane_csv(
+        p,
+        ["email", "company", "company_domain", "verdict"],
+        [
+            {
+                "email": "a@acme.example",
+                "company": "Acme",
+                "company_domain": "acme.example",
+                "verdict": "send",
+            }
+        ],
+    )
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+    err = capsys.readouterr().err
+    assert "REFUSED" not in err
+    assert rc == 0

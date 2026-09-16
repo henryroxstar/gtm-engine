@@ -41,9 +41,12 @@ EXPECTED_SCENES = frozenset(
         "caller-row-clinic",
         "caller-row-hotel",
         "caller-row-telco",
+        "chat-bubble",
         "checkpoint-flow",
         "class-booking",
+        "hero-reveal",
         "message-card",
+        "phone-walkthrough",
         "record-agent-identity",
         "record-bank",
         "record-clean",
@@ -66,6 +69,7 @@ EXPECTED_RATIOS = frozenset({"16:9", "1:1", "4:5", "9:16"})
 #: scenes whose strings go through ``_fit_or_refuse`` and so appear in an audit-fit report
 FITTED_SCENES = frozenset(
     {
+        "chat-bubble",
         "checkpoint-flow",
         "message-card",
         "record-grid",
@@ -194,22 +198,30 @@ def test_frames_match_the_committed_fingerprints(outcomes):
 def test_every_frame_is_the_ratios_pixel_size_and_only_call_ui_keeps_alpha(outcomes):
     for name in RENDERS:
         for key, png in outcomes[name].artifacts.items():
+            if png["kind"] != "png":
+                # `screen-ui-build.json` (PRD 2026-09-16 change #3) fingerprints a text kind, not
+                # a frame — it has no `size`/`mode` to check here at all.
+                continue
             assert png["size"] == DIMS[name.rsplit("-", 1)[-1] if name[-4:] in DIMS else "16x9"], (
                 key
             )
             # Overlay scenes — composited onto footage by `video_finish.overlay_frames` — keep
-            # their alpha: the `call-ui-*` family and `message-card` (masked to its own card).
+            # their alpha: the `call-ui-*` family, `message-card` (masked to its own card) and
+            # `chat-bubble` (a bubble beside a phone, the picture visible around it).
             scene = BY_NAME[name].argv[0]
             assert png["mode"] == (
-                "RGBA" if scene.startswith("call-ui-") or scene == "message-card" else "RGB"
+                "RGBA"
+                if scene.startswith("call-ui-") or scene in {"message-card", "chat-bubble"}
+                else "RGB"
             )
 
 
 @needs_toolchain
 def test_audit_fit(outcomes):
     wide = outcomes["su-audit-fit-16x9"].json()
-    assert (wide["ratio"], wide["strings"], wide["below_min_tolerance"]) == ("16:9", 40, 0)
-    assert len(wide["rows"]) == 40 and {r["scene"] for r in wide["rows"]} == FITTED_SCENES
+    # 41 = the 40 card strings plus `chat-bubble`'s one-line default at 16:9.
+    assert (wide["ratio"], wide["strings"], wide["below_min_tolerance"]) == ("16:9", 41, 0)
+    assert len(wide["rows"]) == 41 and {r["scene"] for r in wide["rows"]} == FITTED_SCENES
     tolerances = [r["tolerance"] for r in wide["rows"]]
     assert tolerances == sorted(tolerances), "the fragile strings must come first"
     assert all(t > 1.0 for t in tolerances), "at 16:9 every string survives the fixture face"
@@ -221,15 +233,16 @@ def test_audit_fit(outcomes):
     tall = outcomes["su-audit-fit-9x16-min-tolerance"]
     doc = tall.json()
     assert doc["ratio"] == "9:16" and doc["strings"] >= 1
-    # `message-card` is a phone-shaped composition, so its strings survive 9:16 with room to
-    # spare; every OTHER fitted scene's strings are fragile there. It is those fragile rows that
-    # make this invocation exit 1 — so pin which side of the threshold each scene lands on, not
-    # the pre-message-card claim that no survivor is comfortable.
+    # `message-card` and `chat-bubble` are phone-shaped compositions that WRAP their copy to
+    # their own width, so their strings survive 9:16 with room to spare; every OTHER fitted
+    # scene's strings are fragile there. It is those fragile rows that make this invocation exit
+    # 1 — so pin which side of the threshold each scene lands on, not the pre-message-card claim
+    # that no survivor is comfortable.
     argv = BY_NAME["su-audit-fit-9x16-min-tolerance"].argv
     min_tolerance = float(argv[argv.index("--min-tolerance") + 1])
     roomy = {r["scene"] for r in doc["rows"] if r["tolerance"] >= min_tolerance}
-    assert roomy == {"message-card"}
-    assert doc["below_min_tolerance"] == sum(r["scene"] != "message-card" for r in doc["rows"])
+    assert roomy == {"message-card", "chat-bubble"}
+    assert doc["below_min_tolerance"] == sum(r["scene"] not in roomy for r in doc["rows"])
     assert doc["below_min_tolerance"] >= 1  # the exit-1 path still fires
     assert {r["scene"] for r in doc["rows"]} <= FITTED_SCENES
 
@@ -237,7 +250,11 @@ def test_audit_fit(outcomes):
 @needs_toolchain
 def test_flag_paths(outcomes):
     def png_hashes(name: str) -> list[str]:
-        return [v["sha256"] for _, v in sorted(outcomes[name].artifacts.items())]
+        # kind == "png" only: `screen-ui-build.json` (change #3) sorts ahead of a 0000.png by
+        # name and would otherwise be compared as if it were a frame.
+        return [
+            v["sha256"] for _, v in sorted(outcomes[name].artifacts.items()) if v["kind"] == "png"
+        ]
 
     # --logo on a scene outside _SCENE_EXTRAS is silently DROPPED (the help text says
     # "refused") — the frames are byte-identical to the plain render. Pinned as-is.

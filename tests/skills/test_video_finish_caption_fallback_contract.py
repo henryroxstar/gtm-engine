@@ -15,9 +15,13 @@ import pytest
 
 from gtm_core import video_finish as vf
 
-BODY = (
+BODY_FILE = (
     Path(__file__).resolve().parents[2] / "plugin" / "skills" / "video-finish" / "body_template.md"
-).read_text(encoding="utf-8")
+)
+BODY = BODY_FILE.read_text(encoding="utf-8") if BODY_FILE.is_file() else ""
+_body_stubbed = pytest.mark.skipif(
+    not BODY_FILE.is_file(), reason="video-finish body_template.md not present (paid-tier stub)"
+)
 
 
 # ── the vocabulary and format, which code owns ───────────────────────────────────────────
@@ -94,29 +98,32 @@ def test_the_same_plan_without_a_suppression_is_still_refused():
 
 
 # ── the attempt/fallback flow, which the prompt owns ─────────────────────────────────────
-
-
+@_body_stubbed
 def test_the_body_names_the_local_burn_verb():
     assert "burn-captions" in BODY
 
 
+@_body_stubbed
 def test_the_body_names_the_suppression_helper_rather_than_free_text():
     assert "vendor_fallback_suppression" in BODY
     for code in ("tool_unavailable", "schema_marshalling", "quota_exhausted", "vendor_error"):
         assert code in BODY, f"the body does not offer the {code!r} class"
 
 
+@_body_stubbed
 def test_the_body_makes_the_fallback_automatic_not_a_question():
     """The failure mode being fixed is a human having to notice. If this instruction softens back
     into "ask the operator", an uncaptioned asset ships again while somebody is asleep."""
     assert "do not stop and do not ask" in BODY
 
 
+@_body_stubbed
 def test_the_body_records_the_known_vendor_failure_so_it_is_not_re_diagnosed():
     assert "Invalid literal value, expected true" in BODY
     assert "schema" in BODY
 
 
+@_body_stubbed
 def test_the_body_says_why_the_burn_is_per_shot():
     """Without the reason, the next reader burns onto the master because it is one command."""
     assert "0.637" in BODY

@@ -28,6 +28,12 @@ SKILLS = REPO / "plugin" / "skills"
 FINISH_BODY = SKILLS / "video-finish" / "body_template.md"
 ROUTER_BODY = SKILLS / "video-router" / "body_template.md"
 
+if not FINISH_BODY.exists() and not ROUTER_BODY.exists():
+    pytest.skip(
+        "video-finish and video-router are private (paid-tier stubs in this distribution)",
+        allow_module_level=True,
+    )
+
 #: Substrings that must survive in video-finish's body. Kept deliberately short and lowercase-
 #: matched so a legitimate rewrite of the surrounding sentence passes, while deleting the concept
 #: fails. Each maps to a real pixel/loudness operation the module owns.

@@ -106,7 +106,7 @@ point strategy, proof story selection, and a sequenced 5-step action plan.
 **`gtm-planning`** — Structured quarterly plan: market snapshot, ICP priorities, tiered target
 accounts, proof story selection, week-by-week motion calendar, risks, and open decisions.
 
-> The full set is **59 skills** across prospecting, content, short-form video, account prep, planning, engagement,
+> The full set is **63 skills** across prospecting, content, short-form video, account prep, planning, engagement,
 > proof and partnerships, risk, and the founder-journey track. Browse `plugin/skills/` for the
 > complete list.
 

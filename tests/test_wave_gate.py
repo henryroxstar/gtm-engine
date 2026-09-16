@@ -153,10 +153,116 @@ def test_the_gate_does_not_judge_the_rate(tmp_path):
     Demanding a rate would block the pipeline on a baseline nobody has established.
     """
     wg.append_report(
-        wg.WaveReport(wave="w1", date="2026-08-20", sends=40, positive_replies=0),
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=40, positive_replies=0, opt_outs=1),
         "acme",
         content_root=tmp_path,
     )
     ok, message = wg.check("acme", content_root=tmp_path)
     assert ok
     assert "0.0%" in message
+
+
+def test_high_optout_rate_large_sample_blocks_without_ack(tmp_path):
+    """Wave with >= 30 sends and > 5.0% opt-outs must be blocked unless acked."""
+    # 40 sends, 3 opt-outs = 7.5% > 5.0%
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=40, positive_replies=2, opt_outs=3),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert not ok
+    assert "opt-out rate is too high" in message
+    assert "3/40" in message
+    assert "7.5%" in message
+    assert "--ack-high-optout" in message
+
+    # Passes when acknowledged
+    ok_ack, message_ack = wg.check("acme", content_root=tmp_path, ack_high_optout=True)
+    assert ok_ack
+    assert "7.5%" in message_ack
+
+
+def test_high_optout_rate_small_sample_blocks_without_ack(tmp_path):
+    """Wave with < 30 sends and > 3 raw opt-outs must be blocked unless acked."""
+    # 25 sends, 4 opt-outs = 16.0% (and > 3 raw opt-outs)
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=25, positive_replies=1, opt_outs=4),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert not ok
+    assert "opt-out rate is too high" in message
+    assert "4/25" in message
+    assert ">3 raw opt-outs ceiling" in message
+
+    # Passes when acknowledged
+    ok_ack, _ = wg.check("acme", content_root=tmp_path, ack_high_optout=True)
+    assert ok_ack
+
+
+def test_small_sample_acceptable_optouts_passes(tmp_path):
+    """Wave with < 30 sends and <= 3 raw opt-outs passes even if percentage is high."""
+    # 24 sends, 1 opt-out = 4.2% <= 3 raw opt-outs
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=24, positive_replies=1, opt_outs=1),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert ok
+    assert "1 opt-out (4.2%)" in message
+
+
+def test_boundary_exact_30_sends_5_percent_passes(tmp_path):
+    """Exactly at 30 sends and exactly 5.0% opt-out rate (not strictly greater) passes."""
+    # Note: 5% of 40 is 2; 5% of 60 is 3. At 40 sends, 2 opt-outs = 5.0% exactly.
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=40, positive_replies=2, opt_outs=2),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert ok
+    assert "2 opt-out (5.0%)" in message
+
+
+def test_boundary_exact_29_sends_3_optouts_passes(tmp_path):
+    """At 29 sends (<30 sample size) and exactly 3 opt-outs (<=3 ceiling) passes."""
+    # 3 opt-outs / 29 sends = 10.3% > 5%, but N < 30 and opt-outs <= 3, so it passes.
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=29, positive_replies=1, opt_outs=3),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert ok
+    assert "3 opt-out (10.3%)" in message
+
+
+def test_boundary_exact_30_sends_exceeding_5_percent_blocks(tmp_path):
+    """At 30 sends, 2 opt-outs is 6.7% > 5.0% — must block."""
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=30, positive_replies=1, opt_outs=2),
+        "acme",
+        content_root=tmp_path,
+    )
+    ok, message = wg.check("acme", content_root=tmp_path)
+    assert not ok
+    assert "opt-out rate is too high" in message
+    assert "2/30" in message
+    assert "6.7%" in message
+
+
+def test_cli_check_ack_high_optout_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    wg.append_report(
+        wg.WaveReport(wave="w1", date="2026-08-20", sends=40, positive_replies=1, opt_outs=4),
+        "acme",
+        content_root=tmp_path,
+    )
+    # Default check exits 1
+    assert wg.main(["check", "--profile", "acme"]) == 1
+    # Check with --ack-high-optout exits 0
+    assert wg.main(["check", "--profile", "acme", "--ack-high-optout"]) == 0

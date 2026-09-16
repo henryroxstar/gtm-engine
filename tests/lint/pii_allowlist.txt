@@ -161,6 +161,11 @@ claude.ai
 # Public infrastructure, package indexes, standards bodies, documentation sites:
 github.com
 githubusercontent.com
+# Video platforms supported for video ingestion / two-door routing:
+youtube.com
+youtu.be
+vimeo.com
+loom.com
 linkedin.com
 google.com
 google.dev
@@ -222,6 +227,14 @@ lnkd.in
 # asserts it is REFUSED (the negative control that distinguishes a per-host pin from a
 # *.heygen.ai wildcard), so it must stay spellable in the fixture.
 heygen.ai
+# Loopback — the local backend under test, never a real host. tests/test_dev_seed.py
+# points its httpx client at http://127.0.0.1:8000 to assert proxy/redirect behaviour.
+127.0.0.1
+# RFC 5737 TEST-NET-1 — reserved for documentation/example use, guaranteed never assigned
+# to a real host (the numeric-IP equivalent of *.example). tests/live/test_support_unit.py
+# uses it as the NEGATIVE fixture for is_loopback (a real, routable-shaped IP that is not
+# loopback), the same way 127.0.0.1 above is the positive one.
+192.0.2.10
 
 [third-party-allowed]
 # Names the derived third-party roster (tests/lint/third_party_roster.py) must NOT treat

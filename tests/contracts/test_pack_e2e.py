@@ -232,19 +232,20 @@ def test_creator_pack_budget_guard_fires_before_the_render_batch(cfg, monkeypatc
 
 
 def test_prospecting_pack_runs_start_to_finish_when_nothing_gates(cfg):
-    """A chain with a gate at the END (outreach) — everything before it must run
-    uninterrupted through the real runner."""
+    """One pause, at `sequence` — discovery, drafting and judging must all run uninterrupted
+    through the real runner before it, and `outreach` must NOT stop the run."""
     ran: list[str] = []
     _pack, _engine, manifest = run_pack(
         cfg,
         PROSPECTING_GRAPH,
         run_id="e2e-prospect-1",
-        outcomes_by_skill={"draft-outreach": StageOutcome(status=AWAITING_APPROVAL)},
+        outcomes_by_skill={"email-sequence": StageOutcome(status=AWAITING_APPROVAL)},
         ran=ran,
     )
-    assert ran == ["prospect", "dossier", "outreach"]
+    assert ran == ["prospect", "dossier", "outreach", "quality", "sequence"]
     by_name = {s["name"]: s["status"] for s in manifest["stages"]}
-    assert by_name["outreach"] == AWAITING_APPROVAL
+    assert by_name["outreach"] == OK
+    assert by_name["sequence"] == AWAITING_APPROVAL
 
 
 def test_planning_pack_three_roots_dispatch_in_one_batch(cfg):

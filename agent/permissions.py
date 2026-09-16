@@ -225,6 +225,13 @@ _EXTERNAL_EFFECT_LEAVES: frozenset[str] = frozenset(
         "publish_clip",
         "schedule_clips",
         "update_publisher_post",
+        # ── Saleshandy: lead/prospect enrollment — a PII egress into a real (if paused)
+        # sequence (A11). Denied outright, exactly like the Reap publish verbs above: the
+        # pack graph's `sequence` node is instructed never to call these, and the deny here
+        # is the actual structural guarantee — an instruction the model could ignore or a
+        # future skill regression cannot reach Saleshandy. See agent/email_dispatch.py.
+        "add_leads_to_sequence",
+        "import_prospects_to_sequence",
     }
 )
 
@@ -239,11 +246,30 @@ _REAP_PUBLISH_LEAVES: frozenset[str] = frozenset(
     }
 )
 
+#: Saleshandy verbs that enroll a lead/prospect (a PII egress). Denied everywhere EXCEPT
+#: inside an approved enrollment dispatch (``agent/email_dispatch.py``), so the brain can
+#: never initiate them directly but Python can call them after operator approval — the
+#: same shape as ``_REAP_PUBLISH_LEAVES``/``publish_context()``, for a second effect kind.
+_SALESHANDY_ENROLL_LEAVES: frozenset[str] = frozenset(
+    {
+        "add_leads_to_sequence",
+        "import_prospects_to_sequence",
+    }
+)
+
 #: Thread/async-safe flag: True only while ``agent/publish.py`` is dispatching an
 #: operator-approved publish. Used by ``_classify_mcp`` to allow Reap publish verbs
 #: in that narrow window and deny them everywhere else.
 _publish_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "agent_publish_context", default=False
+)
+
+#: Thread/async-safe flag: True only while ``agent/email_dispatch.py`` is dispatching an
+#: operator-approved lead enrollment. Used by ``_classify_mcp`` to allow the Saleshandy
+#: enrollment verbs in that narrow window and deny them everywhere else. Mirrors
+#: ``_publish_context`` exactly, for the A11 email-enrollment gate.
+_email_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "agent_email_context", default=False
 )
 
 
@@ -267,6 +293,26 @@ def publish_context():
         _publish_context.reset(token)
 
 
+def in_email_context() -> bool:
+    """True when running inside an approved enrollment dispatch."""
+    return _email_context.get()
+
+
+@contextlib.contextmanager
+def email_context():
+    """Set the email-context flag for the duration of the block.
+
+    Used by ``agent/email_dispatch.dispatch_approved_enrollment`` to wrap the actual
+    Saleshandy enrollment call. ContextVars propagate across async/await, so a call made
+    inside this block sees the flag; the brain's own tool calls never run inside it.
+    """
+    token = _email_context.set(True)
+    try:
+        yield
+    finally:
+        _email_context.reset(token)
+
+
 # Note: `reframe` is a leaf on BOTH the Reap and Higgsfield MCP servers. Both class-allow today —
 # no live bug — but this rule is leaf-keyed by design (a claude.ai connector's server segment is an
 # opaque per-user UUID), so it cannot distinguish the two vendors. If Reap's `reframe` ever needs
@@ -280,19 +326,25 @@ def _classify_mcp(tool_name: str) -> Decision:
     Reap publish/schedule/update verbs are denied by default but allowed inside the
     narrow publish context set by ``agent/publish_dispatch.dispatch_approved_publish``
     — that is the only window where Python (not the brain) may call them after operator
-    approval.
+    approval. Saleshandy enrollment verbs (A11) are denied by default the same way,
+    allowed only inside the narrow email context set by
+    ``agent/email_dispatch.dispatch_approved_enrollment``.
 
     ``tool_name`` is ``mcp__<server>__<leaf>``; ``<server>`` may itself contain ``__``, so the leaf
     is taken from the **last** separator. Precedence:
 
-    1. An external-effect leaf is **denied** outright, on any connector (§R7 publish gate),
-       unless it is a Reap publish verb and we are inside an approved publish context.
+    1. An external-effect leaf is **denied** outright, on any connector (§R7 publish gate /
+       A11 enrollment gate), unless it is a Reap publish verb and we are inside an approved
+       publish context, or a Saleshandy enrollment verb and we are inside an approved email
+       context.
     2. A leaf matching a family prefix must be on that family's allowlist — else denied (AP-02).
     3. Otherwise the class-allow applies: MCP is the sanctioned egress path.
     """
     leaf = tool_name[len(_MCP_PREFIX) :].rsplit("__", 1)[-1]
     if leaf in _EXTERNAL_EFFECT_LEAVES:
         if leaf in _REAP_PUBLISH_LEAVES and in_publish_context():
+            return "allow"
+        if leaf in _SALESHANDY_ENROLL_LEAVES and in_email_context():
             return "allow"
         return "deny"
     for prefix, allowed in _MCP_CONNECTOR_ALLOWLISTS.items():
@@ -380,7 +432,14 @@ _DANGEROUS_PROGRAMS: frozenset[str] = frozenset(
         "curl",
         "wget",
         "npx",
+        "uvx",  # npx's twin: fetches and executes an arbitrary package
         "npm",
+        # Doppler injects every secret as a process env var, so printing the environment
+        # dumps the lot into the transcript — the secret-echo ban by a route the secret-PATH
+        # check cannot see, because no file is read. `env <cmd>` still resolves to <cmd>
+        # (see _segment_program); only a bare dump lands here.
+        "env",
+        "printenv",
         "pip",
         "pip3",
         "sudo",
@@ -493,8 +552,40 @@ def _split_segments(command: str) -> list[str]:
     return segments
 
 
+#: Programs that RUN another program. The floor is a claim about what executes, so these are
+#: transparent: the wrapped program is classified, not the wrapper. Without this,
+#: ``env curl …``, ``xargs curl …`` and ``timeout 5 curl …`` were all allowed while a bare
+#: ``curl`` was denied — the denylist was matching first tokens, not shell semantics.
+_WRAPPER_PROGRAMS: frozenset[str] = frozenset(
+    {
+        "env",
+        "command",
+        "nice",
+        "nohup",
+        "stdbuf",
+        "setsid",
+        "time",
+        "timeout",
+        "ionice",
+        "chrt",
+        "xargs",
+    }
+)
+
+#: A wrapper's own operands, skipped while looking for the wrapped program: flags
+#: (``-n1``, ``-I{}``), a bare duration/niceness (``timeout 5``, ``nice -n 10``), and the
+#: placeholder/terminator tokens ``find -exec`` uses.
+_WRAPPER_OPERAND_RE = re.compile(r"^(-.*|\d+[smhd]?|\{\}|;|\\;)$")
+
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+
+
 def _segment_program(segment: str) -> str | None:
-    """Return the program name of one command segment, skipping ``FOO=bar`` env prefixes.
+    """Return the program a command segment actually RUNS.
+
+    Skips ``FOO=bar`` env prefixes, and sees through transparent wrappers
+    (:data:`_WRAPPER_PROGRAMS`) and ``find -exec`` to the program they execute — a denylist
+    that stops at the first token is not a floor, it is a spelling test.
 
     Returns ``None`` for an empty/unparseable segment (treated as benign by the caller).
     """
@@ -502,13 +593,41 @@ def _segment_program(segment: str) -> str | None:
         tokens = shlex.split(segment, comments=True)
     except ValueError:
         return ""  # unbalanced quotes etc. — unparseable ⇒ caller escalates
-    for tok in tokens:
+
+    i = 0
+    saw_wrapper = False
+    while i < len(tokens):
+        tok = tokens[i]
         # Skip leading environment assignments (`KEY=value cmd ...`).
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tok):
+        if _ASSIGNMENT_RE.fullmatch(tok):
+            i += 1
             continue
         # Strip a path prefix: /usr/bin/curl -> curl.
-        return tok.rsplit("/", 1)[-1]
-    return None
+        prog = tok.rsplit("/", 1)[-1]
+
+        if prog in _WRAPPER_PROGRAMS:
+            saw_wrapper = True
+            i += 1
+            while i < len(tokens) and (
+                _WRAPPER_OPERAND_RE.match(tokens[i]) or _ASSIGNMENT_RE.fullmatch(tokens[i])
+            ):
+                i += 1
+            continue
+
+        if prog in ("find", "gfind"):
+            # `find … -exec <prog> …` runs <prog> once per hit. Classify that, not `find`.
+            for j in range(i + 1, len(tokens) - 1):
+                if tokens[j] in ("-exec", "-execdir", "-ok", "-okdir"):
+                    return tokens[j + 1].rsplit("/", 1)[-1]
+            return prog
+
+        return prog
+
+    # Nothing but wrappers and their operands. A bare `env` prints the whole environment —
+    # and Doppler injects every secret as a process env var, so that is a secret dump by a
+    # route the secret-PATH check cannot see (no file is read). Report it as `env` so the
+    # denylist decides.
+    return "env" if saw_wrapper else None
 
 
 def _segment_tokens(segment: str) -> list[str]:
@@ -545,6 +664,41 @@ def _segment_redirects_from_secret(segment: str) -> bool:
     for match in re.finditer(r"<\s*([^\s<>|&]+)", segment):
         if _is_secret_path(match.group(1)):
             return True
+    return False
+
+
+def _is_uv_run_arbitrary_python(segment: str) -> bool:
+    """Return True if segment is `uv run ... python -c/-` arbitrary execution."""
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return False
+    rest = [t for t in tokens[1:] if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t)]
+    if len(rest) < 2 or rest[0] != "run":
+        return False
+    idx = 1
+    opt_takes_arg = frozenset(
+        {
+            "--with",
+            "--extra",
+            "--package",
+            "--python",
+            "-p",
+            "--directory",
+            "--project",
+            "--env-file",
+            "--group",
+        }
+    )
+    while idx < len(rest) and rest[idx].startswith("-"):
+        idx += 2 if rest[idx] in opt_takes_arg else 1
+    if idx < len(rest) and (
+        rest[idx] in ("python", "python3")
+        or rest[idx].endswith("/python")
+        or rest[idx].endswith("/python3")
+    ):
+        py_args = " ".join(rest[idx + 1 :])
+        return bool(re.match(r"^(-c(\s|$|[\"'\w])|\s*-c|-\s|-$)", py_args))
     return False
 
 
@@ -594,25 +748,15 @@ def _classify_bash(command: str) -> Decision:
             #                       "read from stdin", which is whatever the shell pipes in)
             # Script paths, module calls (-m), and all other invocation forms are allowed.
             args = segment.split(None, 1)[1].strip() if " " in segment else ""
-            seg_decision = "deny" if re.match(r"^(-c\s|-\s|-$)", args) else "allow"
+            # `-c` binds its argument with or without whitespace (`python -c'x'`). This
+            # branch required a space while the `uv run python` branch above did not, so the
+            # cheaper spelling walked through the narrower check.
+            seg_decision = "deny" if re.match(r"^(-c(\s|$|[\"\'\w])|-\s|-$)", args) else "allow"
         elif program == "uv":
             # Block `uv run python -c '...'` and `uv run python -`; everything else (uv run
             # script.py, uv add, uv sync, etc.) is allowed — the dangerous-program check on
             # individual segments already catches `uv run curl` etc.
-            try:
-                tokens = shlex.split(segment)
-            except ValueError:
-                tokens = []
-            rest = [t for t in tokens[1:] if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t)]
-            if (
-                len(rest) >= 2
-                and rest[0] == "run"
-                and rest[1] in ("python", "python3")
-                and re.match(r"^(-c\s|-\s|-$)", " ".join(rest[2:]))
-            ):
-                seg_decision = "deny"
-            else:
-                seg_decision = "allow"
+            seg_decision = "deny" if _is_uv_run_arbitrary_python(segment) else "allow"
         elif program in ("bash", "sh", "zsh"):
             seg_decision = "escalate"  # nested shell can run anything ⇒ never auto-allow
         else:

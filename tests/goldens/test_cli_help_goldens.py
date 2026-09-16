@@ -41,9 +41,12 @@ SUBCOMMANDS = (
     "split",
     "stitch",
     "burn-captions",
+    "overlays",
+    "overlay-scene",
     "find-transient",
     "mix-sfx",
     "room-tone",
+    "voice-polish",
     "narration-track",
     "contact-sheet",
     "reframe",
@@ -134,7 +137,7 @@ def test_screen_ui_help_renders_now_that_the_percent_is_escaped(tmp_path):
 
 def test_screen_ui_usage_lists_every_scene_and_ratio(tmp_path):
     usage = _run(gm.SCREEN_UI, (), tmp_path).stderr
-    assert "{" + ",".join((*gm.SCENES, "audit-fit")) + "}" in usage
+    assert "{" + ",".join((*gm.SCENES, "audit-fit", "fit-layout")) + "}" in usage
     assert "--ratio {16:9,1:1,4:5,9:16}" in usage
     assert usage.rstrip().endswith(
         "error: the following arguments are required: scene, --kit-json, --ratio"

@@ -4,6 +4,7 @@ usage: python -m gtm_core.video_finish stitch [-h] --segments SEGMENTS
                                               [--video-bitrate VIDEO_BITRATE]
                                               [--normalize]
                                               [--crossfade-s CROSSFADE_S]
+                                              [--transitions-from-shots TRANSITIONS_FROM_SHOTS]
                                               [--content-root CONTENT_ROOT]
                                               [--json]
 
@@ -24,5 +25,11 @@ options:
   --crossfade-s CROSSFADE_S
                         0 (default) = hard cut via concat demuxer + stream
                         copy; >0 re-encodes with xfade
+  --transitions-from-shots TRANSITIONS_FROM_SHOTS
+                        a shot list whose per-shot production.transition_in
+                        says how each shot is cut into (dissolve/fade/push,
+                        absent = hard cut); its shots must be the --segments,
+                        in order. Not combinable with --crossfade-s, which
+                        dissolves every join alike
   --content-root CONTENT_ROOT
   --json

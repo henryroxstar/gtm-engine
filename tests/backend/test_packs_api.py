@@ -332,7 +332,10 @@ def test_pack_mode_runs_the_default_graph_sequence(ws_env):
     # publish is short-circuited to SKIPPED inside execute_stage on the REAL path;
     # the fake executor records every dispatched node, which is the graph order.
     assert recorded == list(STAGES)
-    final_updates = [c.args[0] for c in conn.execute.call_args_list if "status = 'ok'" in c.args[0]]
+    # RL-03: complete_run now reads its guarded write's match back via `fetchrow(...
+    # RETURNING id)` instead of a bare `execute` — check both call lists.
+    calls = list(conn.execute.call_args_list) + list(conn.fetchrow.call_args_list)
+    final_updates = [c.args[0] for c in calls if "status = 'ok'" in c.args[0]]
     assert final_updates, "run must terminate ok"
 
 
@@ -385,7 +388,10 @@ def test_pack_mode_gate1_pause_approve_resume(ws_env):
     assert promoted.is_file(), "approve must promote the draft to the final plan"
     assert all(i["status"] == "planned" for i in json.loads(promoted.read_text()))
     assert not (pending / "2026-32.draft.json").exists(), "draft removed on promotion"
-    assert any("status = 'ok'" in c.args[0] for c in conn.execute.call_args_list)
+    # RL-03: complete_run reads its guarded write's match back via `fetchrow(...
+    # RETURNING id)` instead of a bare `execute` — check both call lists.
+    calls = list(conn.execute.call_args_list) + list(conn.fetchrow.call_args_list)
+    assert any("status = 'ok'" in c.args[0] for c in calls)
 
 
 def test_pack_mode_gate1_reject_stops_run(ws_env):
@@ -425,7 +431,10 @@ def test_pack_mode_gate1_reject_stops_run(ws_env):
         asyncio.run(_go(conn))
 
     assert recorded == ["radar", "plan"], "nothing downstream of a rejected gate runs"
-    assert any("status = 'rejected'" in c.args[0] for c in conn.execute.call_args_list)
+    # RL-03: reject_run reads its guarded write's match back via `fetchrow(...
+    # RETURNING id)` instead of a bare `execute` — check both call lists.
+    calls = list(conn.execute.call_args_list) + list(conn.fetchrow.call_args_list)
+    assert any("status = 'rejected'" in c.args[0] for c in calls)
     assert not (pending / "2026-32.draft.json").exists(), "reject discards the draft"
 
 
@@ -437,5 +446,8 @@ def test_pack_mode_budget_guard_blocks_batch(ws_env):
         ws_env, recorded, budget_side_effect=[True, False, False, False, False, False]
     )
     assert recorded == [], "no stage may run once the cap check denies the batch"
-    fails = [c.args for c in conn.execute.call_args_list if "status = 'failed'" in c.args[0]]
+    # RL-03: _fail_run reads its guarded write's match back via `fetchrow(...
+    # RETURNING id)` instead of a bare `execute` — check both call lists.
+    calls = list(conn.execute.call_args_list) + list(conn.fetchrow.call_args_list)
+    fails = [c.args for c in calls if "status = 'failed'" in c.args[0]]
     assert fails and "monthly cost cap" in fails[-1][2]

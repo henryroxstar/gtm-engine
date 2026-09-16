@@ -189,10 +189,10 @@ def _what_view(m: dict) -> str:
               ({lint.get("rows", 0):,} people × {lint.get("touches", 0)} emails),
               <strong>{len(catalogue):,} different checks</strong> per render.
               {lint.get("errors", 0)} blocking problem(s), {lint.get("warnings", 0)} cosmetic note(s).</p>
-              <table><thead><tr><th>What is checked</th><th>Checks</th><th>Flagged here</th>
+              <table><thead><tr><th>What is checked</th><th>Checks</th><th>Issues found</th>
               </tr></thead><tbody>{cat_rows}</tbody></table>
               <details><summary>The {len(fired)} check(s) that flagged something</summary>
-              <table><thead><tr><th>Check</th><th>Protects against</th><th>Blocking</th>
+              <table><thead><tr><th>Check</th><th>Protects against</th><th>Blocking issues</th>
               <th>Cosmetic</th></tr></thead><tbody>{finding_rows}</tbody></table></details>"""
         else:
             qa = (

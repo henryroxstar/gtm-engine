@@ -49,7 +49,9 @@ VO_WORDS_PER_SEC = 2.77
 #: the slow rate alone it under-fires: a 5/4/5/5/7/5 shot list whose real VO needed 4/3/4/4/4/3
 #: passed this linter with zero findings on 2026-08-19, a 9-second overstatement across six shots.
 VO_WORDS_PER_SEC_SLOW = 2.76
-VO_WORDS_PER_SEC_FAST = 3.51
+#: Clamped to 2.85 wps per V-4: Higgsfield and HeyGen provider authoring ceiling is 2.9 wps
+#: before syllable truncation and RUSHED rejection fire.
+VO_WORDS_PER_SEC_FAST = 2.85
 
 #: The provider's OWN authoring ceiling, above which Higgsfield's `narrator` workflow rejects a
 #: take as ``rate=RUSHED`` (probed 2026-08-29). Recorded, deliberately NOT enforced.

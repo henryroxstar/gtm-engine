@@ -76,6 +76,43 @@ _MARKET_ALIASES = {
     "people's republic of china": "china",
 }
 
+# Region/continent shorthand that is not a single jurisdiction. Email law differs per country
+# within a region (see the Hong Kong/India additions above — each was its own operator decision,
+# cleared with counsel), so a region name in `target_markets` must never be silently expanded
+# into "every country in it": that would open several jurisdictions at once with none of the
+# per-country review the gate exists to force. `read_target_markets` rejects these outright.
+#
+# Confirmed 2026-09-14: a tenant's PROFILE.md declared `target_markets: [..., Southeast Asia,
+# ...]`, which this gate compared literally against each lead's `country` — so a real Singapore
+# or Malaysia lead FAILED as "out of market" (silently narrowing, the opposite failure from the
+# HK-SAR case above, but the same root cause: a value in `target_markets` that no lead's country
+# column can ever literally equal). The profile's own knowledge docs glossed "Southeast Asia" as
+# meaning one specific country — evidence that the fix is a wording correction to PROFILE.md,
+# not a region-to-countries expansion in code.
+_REGION_NAMES = {
+    "southeast asia",
+    "south east asia",
+    "sea",
+    "asia",
+    "asia pacific",
+    "apac",
+    "europe",
+    "emea",
+    "north america",
+    "south america",
+    "latin america",
+    "latam",
+    "middle east",
+    "gcc",
+    "africa",
+    "sub-saharan africa",
+    "oceania",
+    "anz",
+    "nordics",
+    "benelux",
+    "dach",
+}
+
 
 # --------------------------------------------------------------------------- city ↔ country
 #
@@ -525,8 +562,9 @@ class Result:
 def read_target_markets(profile: str, profiles_root: Path | None = None) -> list[str]:
     """Parse ``target_markets: [a, b]`` out of a profile's PROFILE.md.
 
-    Raises FileNotFoundError if the profile has no PROFILE.md, ValueError if the key is absent —
-    both are hard stops: an unbounded market list is exactly the thing this guards against.
+    Raises FileNotFoundError if the profile has no PROFILE.md, ValueError if the key is absent
+    or names a region rather than a country (see ``_REGION_NAMES``) — all three are hard stops:
+    an unbounded or region-shaped market list is exactly the thing this guards against.
     """
     root = profiles_root or resolve_profiles_root()
     path = root / profile / "PROFILE.md"
@@ -543,6 +581,19 @@ def read_target_markets(profile: str, profiles_root: Path | None = None) -> list
         markets = [_strip_quotes(m.strip()) for m in inner.split(",") if m.strip()]
         markets = [m for m in markets if m]
         if markets:
+            regions = [m for m in markets if normalize_market(m) in _REGION_NAMES]
+            if regions:
+                raise ValueError(
+                    f"{path} `target_markets` names a region, not a country: {regions!r}. "
+                    "Email law differs per country within a region, and a lead's `country` "
+                    "column is never literally the region's name, so this gate would either "
+                    "silently drop every real lead in it (compared literally, nothing matches) "
+                    "or — if expanded in code — silently open several jurisdictions at once "
+                    "with none of the per-country legal review the gate exists to force. List "
+                    "the actual countries explicitly instead (operator decision, ideally "
+                    "cleared with counsel — see an existing profile's PROFILE.md for the "
+                    "pattern)."
+                )
             return markets
     raise ValueError(f"{path} has no `target_markets:` assignment — cannot bound the send")
 

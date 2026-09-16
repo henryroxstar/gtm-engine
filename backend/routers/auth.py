@@ -27,7 +27,10 @@ async def register(body: RegisterRequest, request: Request) -> TokenResponse:
         # Check email not already taken
         existing = await conn.fetchval("SELECT id FROM users WHERE email = $1", body.email)
         if existing:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"code": "already_exists", "message": "Email already registered"},
+            )
 
         password_hash = _auth.hash_password(body.password)
 
@@ -66,7 +69,10 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
         or row["password_hash"] is None
         or not _auth.verify_password(body.password, row["password_hash"])
     ):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "invalid_credentials", "message": "Invalid credentials"},
+        )
 
     user_id = row["id"]
     async with pool.acquire() as conn:
@@ -81,6 +87,7 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("10/minute")  # rate-limited like /login and /exchange: this route mints credentials
 async def refresh(body: RefreshRequest, request: Request) -> TokenResponse:
     """Exchange a refresh token for a new access + refresh pair.
 
@@ -93,8 +100,16 @@ async def refresh(body: RefreshRequest, request: Request) -> TokenResponse:
 
     try:
         payload = _auth.decode_token(body.refresh_token, expected_type="refresh")
+    except _jwt.ExpiredSignatureError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "refresh_token_expired", "message": "Refresh token expired"},
+        ) from exc
     except _jwt.InvalidTokenError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_invalid", "message": "Invalid refresh token"},
+        ) from exc
 
     # `users` is not RLS-scoped — read it on the plain pool, as login does.
     pool = request.app.state.pool
@@ -103,9 +118,15 @@ async def refresh(body: RefreshRequest, request: Request) -> TokenResponse:
             "SELECT password_changed_at FROM users WHERE id = $1::uuid", payload["sub"]
         )
     if row is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_revoked", "message": "User no longer exists"},
+        )
     if _auth.token_predates_password_change(payload, row["password_changed_at"]):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalidated by password change")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_revoked", "message": "Token invalidated by password change"},
+        )
 
     return TokenResponse(**_auth.token_pair(payload["sub"], payload["workspace_id"]))
 
@@ -121,15 +142,7 @@ async def exchange(body: ExchangeRequest, request: Request) -> TokenResponse:
     user (+ workspace via the V001 trigger); the identity key is (issuer, subject),
     stored in external_identities — an IdP-asserted email never links accounts.
     """
-    issuers = oidc.get_issuers()
-    if not issuers:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, {"code": "federation_not_configured"}
-        )
-    try:
-        cfg, subject, claims = await oidc.verify_external_token(body.token, issuers=issuers)
-    except oidc.ExchangeError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid federated token") from exc
+    cfg, subject, claims = await oidc.require_federated_identity(body.token)
 
     pool = request.app.state.pool
     async with pool.acquire() as conn:

@@ -24,6 +24,7 @@ from .render_profile import (
     _render_profile_md,
     _render_voice_md,
 )
+from .slug import slugify
 
 
 def render(
@@ -72,7 +73,13 @@ def render(
     files["knowledge/audience-psychology.md"] = _render_audience_psych_stub(icp)
 
     for product in products:
-        slug = product["slug"]
+        # The brain returns this slug. It becomes a PATH SEGMENT below, so it is normalised
+        # through the one canonical slugger (which ends in _safe_segment) rather than
+        # interpolated raw — "../../etc" would otherwise walk out of the staging root.
+        # slugify() is idempotent on an already-valid slug, so this does not move the files
+        # of any product that was rendered before it landed (pinned by the characterisation
+        # test in tests/agent/test_onboard_path_containment.py).
+        slug = slugify(product["slug"])
         files[f"products/{slug}/PRODUCT.md"] = _render_per_product_md(product)
         files[f"products/{slug}/knowledge/icp-personas.md"] = _render_icp_md(
             icp, draft.get("settings")

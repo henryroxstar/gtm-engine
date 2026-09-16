@@ -34,7 +34,7 @@
 
 > **A word you'll see in the other docs:** running the engine this way — a folder open in the Claude desktop app, you typing prompts — is called **"Cowork mode"**. It's the default and it's what this guide sets up. The only alternative is a self-hosted server, which is an admin's job, not yours.
 
-> **Why Claude specifically?** GTM Engine is built as a Claude-native plugin — its skills and the "set me up" experience are wired directly into Claude's plugin system, so ChatGPT, Gemini, and Copilot can't load or run them today. **A version that works with Gemini and Codex is coming soon** — until then, GTM Engine runs in the Claude desktop app.
+> **Why Claude for this guide?** For someone who wants zero terminal commands, the Claude desktop app is the easiest turn-key chat experience. For technical users and developers, GTM Engine also runs natively in **Google Antigravity**, **Cursor**, and **Codex** via the in-repo `.agents/` configuration and tool translation layer.
 
 ---
 
@@ -68,7 +68,7 @@ Once the code is down, paste this:
 
 > **Run the bootstrap script for my operating system, then tell me what the interpreter probe printed.**
 
-That installs the engine's toolchain and runs a one-second self-check. **Wait for it to report a real answer** — it should print a folder path ending in `content`. If it can't, stop here and fix it before doing anything else (Step 5 onward will *look* like it's working while quietly producing nothing).
+That installs the engine's toolchain and runs a one-second self-check — on Windows, `scripts\bootstrap.ps1`; on Mac or Linux, `scripts/bootstrap.sh`. Both end with the same probe. **Wait for it to report a real answer** — it should print a line reading `==> content root: ` followed by a folder path ending in `content`. If it can't, stop here and fix it before doing anything else (Step 5 onward will *look* like it's working while quietly producing nothing).
 
 > **⚠️ Windows: the "install Python" trap.** Windows ships a fake `python` — a zero-byte stub that opens the Microsoft Store instead of running anything. It's on your PATH by default and it **hides a real Python installed afterwards**, so "just install Python" does not fix it. If you ever see *"Python was not found; run without arguments to install from the Microsoft Store"*, that's this.
 >
@@ -91,7 +91,19 @@ If a colleague already ran setup for your company, or your admin handed you a fo
 
 Claude will confirm it found your profile and switch into it. You can skip Step 5 (onboarding) entirely and go straight to Step 6.
 
+### Keeping your profile safe across updates
+
+When you or your team update GTM Engine by pulling new releases from GitHub, **your company data is never deleted or replaced**:
+- **Automatic Protection:** The engine automatically ignores customer profile folders (`profiles/<your-company>/`) and generated deliverables (`content/`). Updates download around your data, leaving your materials and history intact.
+- **Pro-Tip (Out-of-Tree Storage):** For complete peace of mind, you can store your company data entirely outside the engine folder. In your `.env` file, specify:
+  ```bash
+  GTM_PROFILES_ROOT=~/.gtm/profiles
+  GTM_CONTENT_ROOT=~/.gtm/content
+  ```
+  The engine will read your profile and save all deliverables to `~/.gtm/`, completely insulating your assets even if you ever re-download or move the engine repository.
+
 ---
+
 
 ## Step 5 — Onboard: "set me up"
 
@@ -180,6 +192,7 @@ Just say these in plain English:
 - *"Prep me for my call with [company]"* — the buyer, their persona, matched proof stories
 - *"Make a dossier for [account]"* — a ~4-page meeting-prep brief
 - *"Build an account plan for [company]"*
+- *"Write a commercial proposal for [company]"* — what we offer, what it costs over the whole term, and what agreement it becomes; plus a separate internal brief for your approvers that is never sent. It is a draft for discussion, never a contract
 
 **Reach out**
 - *"Draft outreach to [name] at [company]"*
@@ -230,6 +243,24 @@ Just say these in plain English:
 | **Profile** | The engine's memory of your company — built during "set me up" |
 | **Connector** | A plug in the app that lets the assistant use an outside tool (like Vibe) |
 | **MCP / API / VPS / CLI** | Developer plumbing — **out of scope**; you never touch these |
+
+---
+
+## Status words
+
+Ask the engine "where do I stand?" at any point and it answers in one of six words — never a raw
+count, never a lane name, never a column header. Each word says the same thing: whose move it is
+next. It is never stored anywhere — asking for it re-derives it fresh from today's route and today's
+ledger every time.
+
+| Word | Whose move |
+|---|---|
+| **Waiting on you** | yours — one decision |
+| **Ready to send** | nobody's — it is done |
+| **Being fixed** | the machine's — no action |
+| **In the sending tool** | already loaded — do not load again |
+| **Not emailing** | closed |
+| **Needs an address** | accounts in the ledger — the machine's, then yours if it misses |
 
 ---
 

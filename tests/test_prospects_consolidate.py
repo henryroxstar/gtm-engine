@@ -591,14 +591,17 @@ def test_split_by_signal_separates_usable_triggers_from_the_rest(tmp_path):
     assert result["signal_led"] == 1
     assert result["generic"] == 3
 
-    seq = pdir / "sequences"
-    signal = pc._load_master(seq / "ready-to-load-signal.csv")
+    # PS17: neither split is loaded directly by a human, so both live under the hidden
+    # `.pool/`, not visibly in `sequences/`.
+    pool = pdir / "sequences" / ".pool"
+    assert not (pdir / "sequences" / "ready-to-load-signal.csv").exists()
+    signal = pc._load_master(pool / "ready-to-load-signal.csv")
     assert [r["email"] for r in signal] == ["a@x.com"]
-    with (seq / "ready-to-load-signal.csv").open(encoding="utf-8") as fh:
+    with (pool / "ready-to-load-signal.csv").open(encoding="utf-8") as fh:
         row = next(csv.DictReader(fh))
     assert row["signal_clause"] == "Agent Control Layer launch"
 
-    generic = {r["email"] for r in pc._load_master(seq / "ready-to-load-generic.csv")}
+    generic = {r["email"] for r in pc._load_master(pool / "ready-to-load-generic.csv")}
     assert generic == {"b@y.com", "c@z.com", "d@w.com"}
 
 
@@ -617,6 +620,132 @@ def test_split_by_signal_totals_always_reconcile(tmp_path):
     pc.consolidate(profile, content_root=tmp_path)
     result = pc.split_by_signal(profile, content_root=tmp_path)
     assert result["signal_led"] + result["generic"] == result["ready_total"]
+
+
+def test_split_by_signal_csv_headers_have_no_duplicate_columns(tmp_path, monkeypatch):
+    """PS4 defensive check (§R18): `queues.py` builds column lists using `dict.fromkeys`
+    to guarantee deduplication. We monkeypatch MASTER_COLS in `queues` to include `signal_clause`
+    to prove that deduplication actually fires and prevents duplicate columns in output CSVs,
+    with a negative control showing that naive list concatenation fails."""
+    from gtm_core.prospects_consolidate import queues
+
+    # Negative control: naive concatenation with duplicate column produces duplicates
+    naive_cols = [*queues.MASTER_COLS, "signal_clause", "signal_clause"]
+    assert len(naive_cols) != len(set(naive_cols))
+
+    # Monkeypatch queues.MASTER_COLS to contain signal_clause, creating a collision
+    # with the explicit "signal_clause" appended in queues.py line 99
+    monkeypatch.setattr(queues, "MASTER_COLS", (*queues.MASTER_COLS, "signal_clause"))
+
+    profile = "acme"
+    pdir = _prospects_dir(tmp_path, profile)
+    _write_csv(
+        pdir / "prospects-20260101-a-hubspot.csv",
+        ["First Name", "Email", "Company Name", "Email Status", "GTM_Why_Now"],
+        [["Ann", "a@x.com", "Rain", "RocketReach A", "Agent Control Layer launch (2026-06-09)"]],
+    )
+    pc.consolidate(profile, content_root=tmp_path)
+    pc.split_by_signal(profile, content_root=tmp_path)
+    pool = pdir / "sequences" / ".pool"
+    for name in ("ready-to-load-signal.csv", "ready-to-load-generic.csv"):
+        with (pool / name).open(newline="", encoding="utf-8") as fh:
+            header = csv.DictReader(fh).fieldnames or []
+        assert len(header) == len(set(header)), f"{name}: duplicate columns in {header}"
+        assert header.count("signal_clause") == 1
+
+
+def test_split_by_signal_supersedes_a_pre_ps17_visible_stamp(tmp_path):
+    """PS17 moved `ready-to-load-signal.csv`/`ready-to-load-generic.csv` from visibly in
+    `sequences/` to hidden under `sequences/.pool/`, but only for the destination this run
+    writes to — a copy already sitting VISIBLY in `sequences/` from before that change
+    shipped is never touched by the new write, and is orphaned on disk forever. The next
+    `split_by_signal` run must find that stale visible copy and archive it, exactly as
+    `lanes.router.write_lanes` already does for its own lane CSVs."""
+    profile = "acme"
+    pdir = _prospects_dir(tmp_path, profile)
+    seq = pdir / "sequences"
+    seq.mkdir(parents=True)
+    legacy_signal = seq / "ready-to-load-signal.csv"
+    legacy_signal.write_text("email\nstale@old.example\n", encoding="utf-8")
+    legacy_generic = seq / "ready-to-load-generic.csv"
+    legacy_generic.write_text("email\nstale2@old.example\n", encoding="utf-8")
+
+    _write_csv(
+        pdir / "prospects-20260101-a-hubspot.csv",
+        ["First Name", "Email", "Company Name", "Email Status", "GTM_Why_Now"],
+        [["Ann", "a@x.com", "Rain", "RocketReach A", "Agent Control Layer launch (2026-06-09)"]],
+    )
+    pc.consolidate(profile, content_root=tmp_path)
+    pc.split_by_signal(profile, content_root=tmp_path)
+
+    # The stale visible copies are gone from `sequences/` — moved, never deleted — and the
+    # fresh run wrote the new pair at `.pool/`.
+    assert not legacy_signal.exists()
+    assert not legacy_generic.exists()
+    pool = seq / ".pool"
+    assert (pool / "ready-to-load-signal.csv").is_file()
+    assert (pool / "ready-to-load-generic.csv").is_file()
+    superseded = pool / ".superseded"
+    assert (superseded / "ready-to-load-signal.csv").read_text(encoding="utf-8") == (
+        "email\nstale@old.example\n"
+    )
+    assert (superseded / "ready-to-load-generic.csv").read_text(encoding="utf-8") == (
+        "email\nstale2@old.example\n"
+    )
+
+
+def test_stamp_lanes_prefers_reason_over_trigger_and_blanks_rows_missing_from_state(
+    tmp_path,
+):
+    """PS2 + PS5, first test coverage for `_stamp_lanes` itself.
+
+    A row whose email is no longer in `lanes-state.jsonl` — dropped from the pool, or from
+    an earlier route the state file no longer covers — must get a BLANK `lane`/`lane_reason`
+    rather than keep whatever it last had; a stale stamp reads as "still routed this way",
+    which is worse than an admittedly-unrouted row.
+    """
+    from gtm_core.lanes.decisions import state_path
+    from gtm_core.prospects_consolidate.consolidate import _stamp_lanes
+
+    profile = "acme"
+    state_file = state_path(profile, tmp_path)
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(
+        "\n".join(
+            json.dumps(r)
+            for r in [
+                {
+                    "email": "a@x.example",
+                    "lane": "personalised",
+                    "trigger": "",
+                    "reason": "researcher-send",
+                },
+                {
+                    "email": "b@y.example",
+                    "lane": "hold",
+                    "trigger": "tier-a-generic",
+                    "reason": "tier-a-generic",
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rows = [
+        {"email": "a@x.example", "lane": "", "lane_reason": ""},
+        {"email": "b@y.example", "lane": "", "lane_reason": ""},
+        # Stale: routed `generic` on a previous sweep, but no longer in the state file.
+        {"email": "c@z.example", "lane": "generic", "lane_reason": "generic:old-trigger"},
+    ]
+    stamped = _stamp_lanes(rows, profile, tmp_path)
+    assert stamped == 2
+    by_email = {r["email"]: r for r in rows}
+    assert by_email["a@x.example"]["lane"] == "personalised"
+    assert by_email["a@x.example"]["lane_reason"] == "researcher-send"
+    assert by_email["b@y.example"]["lane"] == "hold"
+    assert by_email["b@y.example"]["lane_reason"] == "tier-a-generic"
+    assert by_email["c@z.example"]["lane"] == ""
+    assert by_email["c@z.example"]["lane_reason"] == ""
 
 
 def test_dnc_and_sent_are_excluded_from_loadable_but_kept_in_master(tmp_path):
@@ -2021,3 +2150,92 @@ def test_an_empty_hand_send_list_is_still_written(tmp_path):
     assert result["hand_send"] == 0 and result["hand_send_refused"] == 1
     assert (pdir / "sequences" / "hand-send.csv").exists()
     assert pc._load_master(pdir / "sequences" / "hand-send.csv") == []
+
+
+# ------------------------------------------------------ the header-variant accessor
+
+
+def test_column_value_prefers_the_newest_prefix_then_falls_back():
+    """One reader for `_ALIASES`, so no module has to hardcode a spelling.
+
+    `email_campaign_dashboard.roster` hardcoded `GTM_*`, so an export written under an
+    earlier column prefix rendered a whole campaign's roster as blank tier / blank score /
+    no signal, silently.
+    """
+    from gtm_core.prospects_consolidate import column_value
+
+    assert column_value({"GTM_Segment": "Builder"}, "segment") == "Builder"
+    assert column_value({"OLD_Segment": "builder"}, "segment") == "builder"
+    assert column_value({"segment": "startup"}, "segment") == "startup"
+    # Newest prefix wins when a row somehow carries both.
+    assert column_value({"GTM_Tier": "A", "OLD_Tier": "B"}, "tier") == "A"
+    # An empty newer value must not shadow a populated older one.
+    assert column_value({"GTM_Tier": "  ", "OLD_Tier": "B"}, "tier") == "B"
+
+
+def test_column_value_is_fail_quiet_on_an_unaliased_field():
+    """Callers depend on "" rather than a raise — the same contract `_get` always had."""
+    from gtm_core.prospects_consolidate import column_value
+
+    assert column_value({"x": "y"}, "no_such_field") == ""
+    assert column_value({}, "segment") == ""
+
+
+def test_a_column_written_under_an_older_prefix_still_resolves():
+    """Reachability, not membership — and the distinction is the whole point.
+
+    Some live exports were written before the current column prefix. The engine must read
+    them, and it must do so WITHOUT naming the old prefix: a prefix is one tenant's spelling
+    of its own export history, so a literal in ``gtm_core`` is tenant data in company-
+    agnostic code and the release carve refuses it outright. So the accessor matches the
+    column's shape, and this test asserts the value comes back rather than asserting a
+    particular string sits in ``_ALIASES``.
+
+    The prefixes below are arbitrary on purpose. If the assertion only held for the one real
+    legacy prefix, the implementation would be an enumeration wearing a regex's clothes.
+    """
+    from gtm_core.prospects_consolidate import column_value
+    from gtm_core.prospects_consolidate.columns import _ALIASES
+
+    for prefix in ("LEGACY", "OLD", "V1"):
+        assert column_value({f"{prefix}_Segment": "builder"}, "segment") == "builder"
+        assert column_value({f"{prefix}_Tier": "A"}, "tier") == "A"
+        assert column_value({f"{prefix}_Why_Now": "shipped"}, "why_now") == "shipped"
+        assert column_value({f"{prefix}_Persona_Tier": "Champion"}, "cohort") == "Champion"
+
+    # And no prefix is named in the engine: the alias map carries only the current one.
+    named = {
+        a.split("_", 1)[0] for v in _ALIASES.values() for a in v if "_" in a and a[0].isupper()
+    }
+    assert named <= {
+        "GTM",
+        "First",
+        "Last",
+        "Job",
+        "Contact",
+        "Company",
+        "Email",
+        "HQ",
+        "Why",
+        "Case",
+        "Top",
+        "Intent",
+        "Lead",
+        "Signal",
+        "Category",
+        "Qualification",
+        "Persona",
+    }, (
+        f"an unexpected column prefix is hardcoded in _ALIASES: {sorted(named)}. A tenant's "
+        "own prefix belongs in its data, not in company-agnostic code."
+    )
+
+
+def test_a_current_spelling_is_never_shadowed_by_the_shape_fallback():
+    """The fallback runs only after every explicit alias came back empty."""
+    from gtm_core.prospects_consolidate import column_value
+
+    assert column_value({"GTM_Tier": "A", "OLD_Tier": "B"}, "tier") == "A"
+    assert column_value({"Tier": "A", "OLD_Tier": "B"}, "tier") == "A"
+    # A field with no underscore-bearing alias cannot match by shape at all.
+    assert column_value({"OLD_Conf": "9"}, "conf") == ""

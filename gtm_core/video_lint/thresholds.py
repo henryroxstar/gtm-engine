@@ -34,6 +34,46 @@ SILENCE_MIN_RUN_S = 2.0  # detection floor: shorter gaps are inter-sentence paus
 MAX_DEAD_AIR_FRACTION = 0.15
 MAX_DEAD_AIR_RUN_S = 5.0
 
+#: Floor-only soundtrack. V10's dead-air rules measure LEVEL, and a soundtrack that is nothing
+#: but level clears them: on 2026-09-07 a 30s film shipped whose only audio was a synthesized
+#: room-tone floor, laid so that dead-air would pass, with none of the designed cues or bed —
+#: 0% silence, -13.9 LUFS integrated, a fully green V10. "Audio present" and "a flat noise floor
+#: with no events" are the same thing to a silence detector, so this rule reads the 100ms
+#: momentary-loudness series from the same ebur128 pass and asks whether the loudness ever
+#: MOVES ABRUPTLY. A soundtrack has events (a word, a tick, a chime) and events are steps; a
+#: floor is smooth however loud it is normalised, and a fade is a ramp, which is why the
+#: measure is the SECOND difference (see ``measure.momentary_dynamics``).
+#:
+#: Calibrated 2026-09-11 on three real finished assets plus a module-synthesized room tone. The
+#: summary numbers first proposed for this rule — loudness range (LRA) and crest factor — did
+#: NOT separate them: the floor-only film measured LRA 4.7 LU / crest 13.7 dB against two
+#: voice-led films at LRA 2.7 & 4.8 LU / crest 14.5 & 14.6 dB, because every finished asset is
+#: loudnorm'd and loudnorm flattens both. A threshold on those would have been a check that
+#: cannot discriminate. The momentary dynamics did, with margin on both sides:
+#:
+#:   abruptness (mean |Δ²M|, LU, saturated at 8)   event fraction (|Δ²M| > 2 LU)
+#:   floor-only film      0.57                         0.031             MUST FIRE
+#:   synthesized tone     0.30                         0.000             MUST FIRE
+#:   voice-led film A     2.33                         0.361             must not
+#:   voice-led film B     2.28                         0.361             must not
+#:
+#: Both must sit under their ceiling to fire. The abruptness ceiling sits at the geometric
+#: midpoint of the two populations (~2.1x above the loudest floor, ~1.9x below the quietest
+#: soundtrack); the event-fraction ceiling ~3.9x / ~3x. A deliberate drone score with no onset
+#: at all can land here — that is what a suppression with a reason is for; the rule cannot tell
+#: a designed drone from a substitute floor, and it should not pretend to.
+AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU = 1.2
+AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION = 0.12
+#: A second difference over this many LU is an event (a step), not drift.
+AUDIO_FLOOR_ONLY_EVENT_STEP_LU = 2.0
+#: Each frame's second difference saturates here before it enters the mean. A hard gap into
+#: digital silence is a ~55 LU step; unsaturated, four such corners in a 30s floor add ~0.7 LU
+#: to the mean and two gaps would carry a substitute floor past the ceiling. An event counts
+#: as an event, not as its magnitude.
+AUDIO_FLOOR_ONLY_EVENT_SATURATION_LU = 8.0
+#: Under this runtime a single held bed can legitimately be the whole soundtrack.
+AUDIO_FLOOR_ONLY_MIN_DURATION_S = 10.0
+
 #: Burned type must clear WCAG AA (4.5:1) against whatever is actually behind it. Not a style
 #: preference: a caption exists to be read on a phone, in daylight, with the sound off.
 MIN_CAPTION_CONTRAST_RATIO = 4.5

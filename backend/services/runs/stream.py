@@ -62,7 +62,7 @@ class _Opening:
 async def _read_opening(conn, workspace_id: str, run_id: str, since: int | None) -> _Opening | None:
     """The single opening read. None when the run vanished between the 404 check and here."""
     row = await conn.fetchrow(
-        """SELECT id::text, status, output, error, pending_gate, pending_content
+        """SELECT id::text, status, output, error, error_code, pending_gate, pending_content
            FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid""",
         run_id,
         workspace_id,
@@ -137,6 +137,8 @@ def _terminal_frame(row) -> str:
         done["output"] = row["output"]
     if row["error"] is not None:
         done["error"] = row["error"]
+    if row.get("error_code") is not None:
+        done["error_code"] = row["error_code"]
     return _sse_frame("done", done)
 
 

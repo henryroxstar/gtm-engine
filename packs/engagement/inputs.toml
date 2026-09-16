@@ -49,7 +49,7 @@ required = false
 freshness = "evergreen"
 
 [[knowledge]]
-topic = "company"               # market-scan, call-prep
+topic = "company"               # call-prep
 required = false
 freshness = "evergreen"
 
@@ -58,7 +58,3 @@ topic = "social-tuning"         # reddit-reply
 required = false
 freshness = "evergreen"
 
-[[knowledge]]
-topic = "market-scan-config"    # market-scan
-required = false
-freshness = "evergreen"

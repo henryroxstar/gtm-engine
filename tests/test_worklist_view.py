@@ -20,6 +20,7 @@ Two properties are pinned here, and they are the two the panel exists for:
 from __future__ import annotations
 
 import csv
+import itertools
 
 import pytest
 
@@ -34,8 +35,18 @@ from gtm_core.email_campaign_dashboard.views_worklist import (
 GROUP_IDS = [g for g, _, _ in GROUPS]
 
 
+#: Fixture rows are hand-built rather than folded by ``roster_model``, so they need the
+#: canonical index it assigns. UNIQUENESS is the property the panel depends on — both
+#: tables stamp it as ``data-row`` and the filter hides by it, so two rows sharing an index
+#: would hide as one. Contiguity is ``roster_model``'s business and is tested there.
+_INDEX = itertools.count()
+
+
 def _row(company, *, email="", named=True, verdict="re-angle", tier="B", seat="Founder"):
+    i = next(_INDEX)
     return {
+        "i": i,
+        "ci": i,
         "company": company,
         "seat": seat,
         "email": email,
@@ -92,8 +103,17 @@ def test_each_state_lands_in_its_own_group(row, expected):
     assert _group_of(row, set(), {}) == expected
 
 
-def test_a_written_pack_outranks_every_other_state():
-    """A pack is work already done for a named person; it is what someone would act on."""
+def test_a_written_pack_outranks_every_NOT_ENROLLED_state():
+    """A pack is work already done for a named person, so it beats every reason-nothing-is-
+    ready state below it — including a `drop` verdict, which would otherwise send this row
+    to `excluded`.
+
+    Renamed 2026-09-09. It was `..._outranks_every_other_state`, which stopped being true
+    the moment enrolment was given precedence, and the test kept passing because it passes
+    an EMPTY candidate map and so never exercises the one state that now beats it. A test
+    whose name asserts a property it does not exercise is docs/RULES.md §R18 wearing a
+    green tick; `test_enrolment_outranks_a_pack_file_on_disk` below covers the other half.
+    """
     row = _row("Northgate Labs", email="a@northgate.example", verdict="drop")
     assert _group_of(row, {"northgate-labs"}, {}) == "pack"
 
@@ -183,3 +203,84 @@ def test_a_scope_with_no_roster_says_so_instead_of_listing_the_pool():
     out = _worklist_view({"profile": "acme", "roster": {}, "packs": {}, "messages": []})
     assert "no campaign roster" in out
     assert "<table" not in out, "a rosterless scope must not render an empty table"
+
+
+def test_enrolment_outranks_a_pack_file_on_disk():
+    """A pack on disk records that someone once hand-wrote an email; being on a sequencer's
+    list is what is true about the send now.
+
+    Regression 2026-09-09: the 5 Tier-A pack contacts were folded onto the generic arc and
+    enrolled, but `pack` was checked first, so the worklist kept filing them under "sent by
+    hand" while the provider had them loaded — the page disagreeing with the sequencer about
+    six people. The pack files stay on disk deliberately; they are history, not a work state.
+    """
+    row = _row("Northgate Labs", email="a@northgate.example")
+    packs = {"northgate-labs"}
+    enrolled = {"a@northgate.example": {"sequence": "seqA", "admissible": True}}
+
+    assert _group_of(row, packs, enrolled) == "staged"
+    # Control: with no enrolment the same row is still a pack, so this is a precedence
+    # change and not a removal of the pack group.
+    assert _group_of(row, packs, {}) == "pack"
+
+
+# ----------------------------------------------------------------- PS14: the Status column
+
+
+def test_row_html_shows_the_status_word_joined_by_email():
+    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
+
+    row = _row("Northgate", email="a@northgate.example", verdict="send")
+    m = {
+        "prospect_status": {
+            "available": True,
+            "by_email": {"a@northgate.example": "ready_to_send"},
+        }
+    }
+    assert "Ready to send" in _row_html(m, row, "held", {})
+
+
+def test_row_html_reads_not_yet_routed_for_an_address_the_router_never_saw():
+    """A roster row and a router row are different populations — a miss is ordinary, not
+    an error, and must read as a plain sentence rather than a blank cell."""
+    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
+
+    row = _row("Northgate", email="a@northgate.example")
+    m = {"prospect_status": {"available": True, "by_email": {}}}
+    assert "not yet routed" in _row_html(m, row, "held", {})
+
+
+def test_row_html_reads_a_dash_when_the_router_has_never_run():
+    """No `lanes-state.jsonl` at all — a different, stronger refusal than a miss on one
+    address: nothing has been routed on this profile, not just this row."""
+    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
+
+    row = _row("Northgate", email="a@northgate.example")
+    assert "muted" in _row_html({}, row, "held", {})
+    assert "muted" in _row_html(
+        {"prospect_status": {"available": False, "by_email": {}}}, row, "held", {}
+    )
+
+
+def test_the_worklist_table_carries_a_status_column_and_marks_research_verdict_technical():
+    rows = [_row("Northgate", email="a@northgate.example", verdict="send")]
+    m = {
+        "profile": "acme",
+        "_content_root": None,
+        "roster": {"rows": rows},
+        "packs": {"packs": []},
+        "messages": [],
+        "campaigns": {"campaigns": [{"sequences": []}]},
+        "prospect_status": {
+            "available": True,
+            "by_email": {"a@northgate.example": "ready_to_send"},
+        },
+    }
+    html = _worklist_view(m)
+    assert "<th>Status</th>" in html
+    assert '<th class="tech">Research verdict</th>' in html
+    assert "Ready to send" in html
+    # One column added (Account/Status/Contact/Email/Verified/Research verdict/Where it
+    # stands = 7) — the group-header row's colspan must grow with the table or it will not
+    # span every column.
+    assert 'colspan="7"' in html

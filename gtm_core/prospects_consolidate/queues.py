@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import shutil
 import sys
+import uuid
 from pathlib import Path
 
 from ..merge_hygiene import row_signal_freshness
@@ -18,6 +20,28 @@ from .paths import (
 from .suppression import _load_dnc
 
 
+def _supersede_visible_stamp(seq_dir: Path, pool_dir: Path, name: str) -> None:
+    """PS17 moved ``name``'s home from ``sequences/`` (visible) to ``sequences/.pool/``
+    (hidden). A copy written under the old, pre-PS17 layout must not be silently orphaned
+    on disk once this run starts writing fresh copies under ``.pool/`` instead — move it to
+    ``.pool/.superseded/`` first. Never deletes.
+
+    Mirrors ``gtm_core.lanes.router``'s ``_supersede_previous_stamps`` — replicated rather
+    than imported, because ``lanes`` already imports from ``prospects_consolidate.paths``
+    at module load time and importing back here would make the cycle's safety depend on
+    ``prospects_consolidate/__init__.py``'s current import order.
+    """
+    legacy = seq_dir / name
+    if not legacy.exists():
+        return
+    superseded_dir = pool_dir / ".superseded"
+    superseded_dir.mkdir(parents=True, exist_ok=True)
+    dest = superseded_dir / name
+    if dest.exists():
+        dest = superseded_dir / f"{legacy.stem}.{uuid.uuid4().hex[:6]}{legacy.suffix}"
+    shutil.move(str(legacy), str(dest))
+
+
 def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
     """Split ``ready-to-load.csv`` into a signal-led list and a generic one.
 
@@ -29,6 +53,12 @@ def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
       render (:func:`gtm_core.merge_hygiene.signal_clause`), with that clause in a
       ``signal_clause`` column for the sequencer to map to a custom field.
     * ``ready-to-load-generic.csv`` — everything else, for the existing generic copy.
+
+    Both land under ``sequences/.pool/`` (PS17), not ``sequences/`` itself: neither is
+    something a human loads directly — a merge sequence is built FROM one of them by a
+    later, explicit step — so they belong beside ``master-list.csv``/
+    ``needs-verification.csv`` in the hidden pool rather than cluttering the one visible
+    folder with two more derived CSVs.
 
     Fail-closed: a row whose signal cannot be reduced verbatim and safely lands in the
     generic list. Intent-topic scores ("machine learning (intent score 81)") and research
@@ -56,12 +86,19 @@ def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
                 stale_signal += 1
             generic_rows.append(row)
 
+    pool_dir = _pool_dir(profile, content_root)
     seq_dir = _sequences_dir(profile, content_root)
-    signal_path = seq_dir / "ready-to-load-signal.csv"
-    generic_path = seq_dir / "ready-to-load-generic.csv"
+    signal_path = pool_dir / "ready-to-load-signal.csv"
+    generic_path = pool_dir / "ready-to-load-generic.csv"
+    # A copy written before PS17 moved these under `.pool/` sits VISIBLY in `sequences/`
+    # (the old layout). Archive it before writing the fresh one, or it is orphaned on disk
+    # forever — the next line writes a new `pool_dir` copy but never touches the old path.
+    _supersede_visible_stamp(seq_dir, pool_dir, signal_path.name)
+    _supersede_visible_stamp(seq_dir, pool_dir, generic_path.name)
 
-    _atomic_write_csv_cols(signal_path, signal_rows, [*MASTER_COLS, "signal_clause"])
-    _atomic_write_csv_cols(generic_path, generic_rows, MASTER_COLS)
+    signal_cols = list(dict.fromkeys([*MASTER_COLS, "signal_clause"]))
+    _atomic_write_csv_cols(signal_path, signal_rows, signal_cols)
+    _atomic_write_csv_cols(generic_path, generic_rows, list(dict.fromkeys(MASTER_COLS)))
 
     populated = sum(1 for r in ready if (r.get("why_now") or "").strip())
     result = {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from ..video_lint import SAFE_AREAS
 from .constants import (
@@ -25,6 +26,120 @@ class Stage:
 #: reason that module keeps its own copy of the identity vocabulary: a drift between the two is
 #: something a shared test should catch, not something a shared import should hide.
 _CAPTION_ROUTES = frozenset({"reap", "local", "none"})
+
+#: Timed-overlay sidecars a media file may carry beside it as ``<stem>.<kind>.json``, mapped to
+#: the key each keeps its timed entries under: ``{"frame": [w, h], "<key>": [{"start_s",
+#: "end_s", "box": {x, y, w, h}, ...}]}``. ``burn_captions`` writes one per shot, ``stitch``
+#: merges them onto the master's timeline, and :func:`plan` ingests the master's into the finish
+#: manifest — the chain that carries per-shot caption geometry to ``video_lint``'s V3/V11.
+#:
+#: Before this chain existed the geometry stopped at the burn. A 30s captions-only film was
+#: burned per shot, stitched, then finished from a spec with no ``caption_text``, so its finish
+#: manifest said ``captions: null`` / ``caption_route: "none"`` and the contrast tier — which
+#: only runs when the manifest supplies geometry — never ran. Near-black type on a dark picture
+#: shipped past a lint that reported clean.
+SIDECAR_KINDS: dict[str, str] = {"captions": "screens", "overlays": "overlays"}
+
+#: The one other sidecar kind, kept OUT of ``SIDECAR_KINDS`` because it is not timed geometry:
+#: ``<master stem>.transitions.json`` records the non-cut joins ``stitch`` actually applied
+#: (``{"joins": [{"join": k, "kind", "duration_s", "into"}]}``, join k being the cut into segment
+#: k+1). It has no frame and no boxes, so it is neither merged nor scaled — only carried onto the
+#: finish manifest, where ``gtm_core.shots_coverage`` reads it back against the shot list's
+#: declared ``production.transition_in``.
+TRANSITIONS_KIND: str = "transitions"
+
+
+def sidecar_path(media: Path, kind: str) -> Path:
+    """``<media stem>.<kind>.json`` beside ``media`` — the one spelling of the convention."""
+    return media.with_name(f"{media.stem}.{kind}.json")
+
+
+def _sibling_sidecar(source: str, kind: str) -> dict | None:
+    """The ``kind`` sidecar beside ``source``, or ``None`` when there is none. Malformed is a
+    refusal, not an absence — a sidecar that exists and cannot be read is a broken chain."""
+    path = sidecar_path(Path(source), kind)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PlanError(f"{path} is not readable JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise PlanError(f"{path} must hold a JSON object, got {type(payload).__name__}")
+    return payload
+
+
+def _scaled_to_frame(payload: dict, *, list_key: str, width: int, height: int) -> dict:
+    """``payload`` with every entry's ``box`` scaled from the sidecar's own frame to the finish
+    target, and ``frame`` set to the target. The normalize/upscale stage is a plain ``scale=``,
+    so the x and y ratios are independent, and the lint measures the FINISHED file — a box in
+    the source's pixels is the wrong box once the source has been resized."""
+    frame = payload.get("frame")
+    if not (isinstance(frame, list) and len(frame) == 2 and all(int(v) > 0 for v in frame)):
+        raise PlanError(f"sidecar has no usable frame: {frame!r} (expected [width, height])")
+    sx, sy = width / int(frame[0]), height / int(frame[1])
+    entries = []
+    for entry in payload.get(list_key) or []:
+        if not isinstance(entry, dict):
+            continue
+        scaled = dict(entry)
+        box = entry.get("box")
+        if isinstance(box, dict):
+            scaled["box"] = {
+                "x": round(float(box.get("x", 0)) * sx),
+                "y": round(float(box.get("y", 0)) * sy),
+                "w": round(float(box.get("w", 0)) * sx),
+                "h": round(float(box.get("h", 0)) * sy),
+            }
+        entries.append(scaled)
+    return {**payload, "frame": [width, height], list_key: entries}
+
+
+def _preburned_from_source(
+    source: str, *, caption_text: object, width: int, height: int
+) -> tuple[dict | None, list | None]:
+    """(captions payload, overlays entries) from the sidecars beside ``source``, scaled to the
+    finish frame — ``None`` for each kind that has no sidecar."""
+    preburned = _sibling_sidecar(source, "captions")
+    if preburned is not None and caption_text:
+        raise PlanError(
+            f"{Path(source).name} already carries burned captions (its sibling "
+            f"{sidecar_path(Path(source), 'captions').name} records "
+            f"{len(preburned.get('screens') or [])} screens) and the spec also sets "
+            "caption_text — the finish would burn a second set of captions over the first. "
+            "Drop caption_text, or finish the uncaptioned source."
+        )
+    captions = (
+        _scaled_to_frame(preburned, list_key="screens", width=width, height=height)
+        if preburned is not None
+        else None
+    )
+    overlays_sidecar = _sibling_sidecar(source, "overlays")
+    overlays = (
+        _scaled_to_frame(overlays_sidecar, list_key="overlays", width=width, height=height)[
+            "overlays"
+        ]
+        if overlays_sidecar is not None
+        else None
+    )
+    return captions, overlays
+
+
+def _sibling_transitions(source: str) -> list | None:
+    """The joins ``stitch`` recorded beside ``source``, or ``None`` when it recorded none.
+
+    Carried through to the finish manifest unchanged: unlike caption and overlay geometry there
+    is nothing to rescale — a dissolve is a fact about the timeline, not about the frame."""
+    payload = _sibling_sidecar(source, TRANSITIONS_KIND)
+    if payload is None:
+        return None
+    joins = payload.get("joins")
+    if not isinstance(joins, list) or not joins:
+        raise PlanError(
+            f"{sidecar_path(Path(source), TRANSITIONS_KIND)} exists but records no joins — an "
+            "all-cut stitch writes no sidecar at all rather than an empty one"
+        )
+    return joins
 
 
 @dataclass(frozen=True)
@@ -57,6 +172,21 @@ class FinishPlan:
     #: The voice-over line the captions were cut from, for V8's caption/voice divergence check.
     #: Dormant for the same reason and fixed the same way.
     spoken_text: str = ""
+    #: The tenant's ``captions.route`` as the CALLER read it from the brand kit ("" = none
+    #: declared). A kit that says ``route = "local"`` beside a ``preset`` has chosen the local
+    #: burn — the preset is then a style/placement hint, not a bypassed route.
+    captions_route: str = ""
+    #: The source already carried burned captions (a ``<source stem>.captions.json`` sidecar
+    #: sat beside it), so this plan has no captions stage and the manifest's geometry comes from
+    #: ``preburned_captions`` instead of a render.
+    captions_preburned: bool = False
+    #: That sidecar's payload, boxes scaled to the finish frame — see :func:`_scaled_to_frame`.
+    preburned_captions: dict | None = None
+    #: Same for a sibling ``<source stem>.overlays.json``: its timed entries, scaled.
+    preburned_overlays: list | None = None
+    #: The non-cut joins from a sibling ``<source stem>.transitions.json``, verbatim — see
+    #: :func:`_sibling_transitions`.
+    transitions: list | None = None
 
     def census(self) -> dict[str, int]:
         counts = {"grade": 0, "overlay": 0, "loudnorm": 0, "concat": 0}
@@ -80,6 +210,7 @@ class FinishPlan:
             "plan_id": self.plan_id,
             "stages": [asdict(s) for s in self.stages],
             "census": self.census(),
+            "captions_preburned": self.captions_preburned,
         }
 
 
@@ -181,6 +312,61 @@ def _screens_for_caption_stage(args: dict):
     return screens
 
 
+def _caption_route_from_spec(
+    spec: dict, *, burns_locally: bool, captions_preburned: bool, source: str
+) -> tuple[str, str, str, str]:
+    """(captions_preset, captions_route, caption_route, caption_route_suppression) — the route
+    facts of a plan, validated. ``burns_locally`` is whether this plan burns captions itself or
+    finishes a pre-burned source; ``captions_preburned`` is the latter alone."""
+    captions_preset = str(spec.get("captions_preset") or "").strip()
+    captions_route = str(spec.get("captions_route") or "").strip()
+    caption_route = str(spec.get("caption_route") or "").strip()
+    caption_suppression = str(spec.get("caption_route_suppression") or "").strip()
+    if captions_route and captions_route not in _CAPTION_ROUTES:
+        raise PlanError(
+            f"spec captions_route={captions_route!r} (the kit's captions.route) is not one of "
+            f"{sorted(_CAPTION_ROUTES)}"
+        )
+    if not caption_route:
+        # Derive the honest default from what this plan will actually DO. Reap captions are burned
+        # by the vendor outside this module, so they can only ever be declared, never inferred.
+        # A pre-burned source took the local route before this plan existed; that is still the
+        # route the asset took.
+        caption_route = "local" if burns_locally else "none"
+    if caption_route not in _CAPTION_ROUTES:
+        raise PlanError(
+            f"spec caption_route={caption_route!r} is not one of {sorted(_CAPTION_ROUTES)}"
+        )
+    if captions_preburned and caption_route != "local":
+        raise PlanError(
+            f"spec sets caption_route={caption_route!r} but the source carries pre-burned local "
+            f"captions ({sidecar_path(Path(source), 'captions').name}) — the route this asset "
+            "actually took is 'local'. A manifest that says otherwise hides the geometry the "
+            "contrast tier needs."
+        )
+    if caption_route != "local" and caption_suppression:
+        raise PlanError(
+            f"spec sets caption_route={caption_route!r} with a caption_route_suppression "
+            f"({caption_suppression!r}) — a suppression only means something when the configured "
+            "route was not taken."
+        )
+    # A kit that declares `route = "local"` beside its preset has chosen the local burn; the
+    # preset is then a placement/style hint (see captions.resolve_placement), not a route that
+    # was skipped. Only an UNDECLARED or reap-declared route owes the suppression.
+    preset_is_the_route = bool(captions_preset) and captions_route != "local"
+    if caption_route == "local" and preset_is_the_route and not caption_suppression:
+        raise PlanError(
+            f"spec resolves captions_preset={captions_preset!r} but burns captions locally with "
+            "no caption_route_suppression. The tenant configured a Reap preset, so that is the "
+            "route: `transcribe` for real per-word timings, then `add_captions` with the preset. "
+            "This is the bypass that put 24 caption screens over the speaker's face on "
+            "2026-08-18 while the Reap plan sat at 0 of 600 credits used — it was already "
+            "forbidden in prose and skipped anyway, which is why it is checked here. To override "
+            "deliberately, set caption_route_suppression to the reason."
+        )
+    return captions_preset, captions_route, caption_route, caption_suppression
+
+
 def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> FinishPlan:
     """Build the ordered stage list for one finish run. Pure — no ffmpeg, no filesystem writes.
 
@@ -194,6 +380,11 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
                                                           makes caption_route checkable
         caption_route: str | None                     — "reap" | "local" | "none"; derived from
                                                           the stages when omitted
+        captions_route: str | None                    — the tenant's captions.route as the
+                                                          caller read it from the brand kit; a
+                                                          declared "local" makes the local burn
+                                                          the sanctioned route, so no suppression
+                                                          is owed beside a resolving preset
         caption_route_suppression: str | None          — why local was taken while a preset
                                                           resolved. Required in exactly that case
         disclosure_line: str | None                   — Article 50 line, burned onto the asset's
@@ -205,6 +396,13 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
                                                           to
         loudness_target: float                        — LUFS target, default -14.0
         crf / preset / gop / threads                  — encode overrides
+
+    A sibling ``<source stem>.captions.json`` (the merged per-shot sidecar ``stitch`` writes) is
+    read here: the source is then PRE-BURNED — no captions stage is added, ``caption_route`` is
+    ``"local"`` and its geometry rides into the finish manifest, boxes scaled to the target
+    frame. A sibling ``<source stem>.overlays.json`` is ingested the same way. A spec that sets
+    ``caption_text`` over a pre-burned source is refused: that is a second caption pass over the
+    first.
     """
     if ratio not in SAFE_AREAS:
         raise ValueError(f"unknown ratio {ratio!r} — expected one of {sorted(SAFE_AREAS)}")
@@ -262,6 +460,13 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
         screens = _screens_for_caption_stage(caption_args)
         stages.append(Stage("captions", {**caption_args, "num_screens": len(screens)}))
 
+    # --- pre-burned sidecars beside the source ---------------------------------------------
+    preburned_captions, preburned_overlays = _preburned_from_source(
+        source, caption_text=caption_text, width=area.width, height=area.height
+    )
+    captions_preburned = preburned_captions is not None
+    transitions = _sibling_transitions(source)
+
     stages.append(
         Stage("loudnorm", {"target_lufs": spec.get("loudness_target", DEFAULT_LOUDNESS_LUFS)})
     )
@@ -288,6 +493,16 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
         "source": source,
         "stages": [asdict(s) for s in stages],
     }
+    # Only when present, so every plan_id minted before sidecars existed is unchanged. Included
+    # at all because the manifest is part of the output: a sidecar that appears or changes after
+    # a run must not be short-circuited into a stale ``captions: null``.
+    if preburned_captions is not None or preburned_overlays is not None:
+        plan_id_payload["preburned"] = {
+            "captions": preburned_captions,
+            "overlays": preburned_overlays,
+        }
+    if transitions is not None:
+        plan_id_payload["transitions"] = transitions
     plan_id = hashlib.sha256(_canonical_json(plan_id_payload).encode()).hexdigest()[:16]
 
     # --- caption route -------------------------------------------------------------------
@@ -296,33 +511,12 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
     # tenant that configured `captions.preset` has chosen the Reap route; taking the local burn-in
     # instead is allowed but must be WRITTEN DOWN. Resolved here rather than at manifest-write
     # time so it fails before the encode, while the fix is still cheap.
-    captions_preset = str(spec.get("captions_preset") or "").strip()
-    caption_route = str(spec.get("caption_route") or "").strip()
-    caption_suppression = str(spec.get("caption_route_suppression") or "").strip()
-    if not caption_route:
-        # Derive the honest default from what this plan will actually DO. Reap captions are burned
-        # by the vendor outside this module, so they can only ever be declared, never inferred.
-        caption_route = "local" if any(s.name == "captions" for s in stages) else "none"
-    if caption_route not in _CAPTION_ROUTES:
-        raise PlanError(
-            f"spec caption_route={caption_route!r} is not one of {sorted(_CAPTION_ROUTES)}"
-        )
-    if caption_route != "local" and caption_suppression:
-        raise PlanError(
-            f"spec sets caption_route={caption_route!r} with a caption_route_suppression "
-            f"({caption_suppression!r}) — a suppression only means something when the configured "
-            "route was not taken."
-        )
-    if caption_route == "local" and captions_preset and not caption_suppression:
-        raise PlanError(
-            f"spec resolves captions_preset={captions_preset!r} but burns captions locally with "
-            "no caption_route_suppression. The tenant configured a Reap preset, so that is the "
-            "route: `transcribe` for real per-word timings, then `add_captions` with the preset. "
-            "This is the bypass that put 24 caption screens over the speaker's face on "
-            "2026-08-18 while the Reap plan sat at 0 of 600 credits used — it was already "
-            "forbidden in prose and skipped anyway, which is why it is checked here. To override "
-            "deliberately, set caption_route_suppression to the reason."
-        )
+    captions_preset, captions_route, caption_route, caption_suppression = _caption_route_from_spec(
+        spec,
+        burns_locally=any(s.name == "captions" for s in stages) or captions_preburned,
+        captions_preburned=captions_preburned,
+        source=source,
+    )
 
     return FinishPlan(
         profile=profile,
@@ -337,6 +531,11 @@ def plan(*, profile: str, slug: str, ratio: str, source: str, spec: dict) -> Fin
         captions_preset=captions_preset,
         audio_context=_audio_context_from_spec(spec),
         spoken_text=str(spec.get("spoken_text") or ""),
+        captions_route=captions_route,
+        captions_preburned=captions_preburned,
+        preburned_captions=preburned_captions,
+        preburned_overlays=preburned_overlays,
+        transitions=transitions,
     )
 
 

@@ -54,6 +54,28 @@ async def _reserve_or_deny(pool, workspace_id: str, run_id: str) -> bool:
         )
 
 
+async def admits(
+    pool, workspace_id: str, agent_id: str | None, agent_budget_usd: float | None
+) -> bool:
+    """RL-08/M-06: the SAME fail-closed §R2 verdict ``pack_executor._budget_guard``
+    computes before every dispatch batch — exposed here so ``create_run`` can refuse an
+    over-cap run synchronously at POST time, before any row is written or a concurrency
+    slot is spent. Not a new check: ``_reserve_or_deny``/``_budget_guard`` still run
+    unchanged inside the executor as the defense-in-depth backstop against a cap
+    exhausted by OTHER runs in the gap between this admission check and dispatch.
+
+    Workspace cap AND (if an agent is acting) the agent's own narrower cap — the same AND
+    ``_budget_guard`` uses. ``acheck_agent_budget`` is imported locally to avoid a
+    circular import (``backend.agents`` imports from this package's siblings).
+    """
+    from ...agents import acheck_agent_budget
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        return await acheck_budget(
+            pool, workspace_id, table="cost_records", conn=conn, fail_closed=True
+        ) and await acheck_agent_budget(conn, workspace_id, agent_id, agent_budget_usd)
+
+
 async def _settle_run_reservations(pool, workspace_id: str, run_id: str) -> None:
     """Close (settle) any open reservations for a terminal run. Best-effort, never raises.
 

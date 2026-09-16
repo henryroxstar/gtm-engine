@@ -208,6 +208,8 @@ def test_capture_mode_has_exactly_one_author_in_the_tree():
     #                                       contract"`) for the brief's markdown twin.
     #   gtm_core/shots_lint/identity.py   — advice inside an error message, telling an operator
     #                                       which value to set. Advice, not a write.
+    #   gtm_core/video_presets.py         — preset dictionary template converting preset decisions
+    #                                       into creator brief decision envelopes.
     #
     # A new entry here means a second place is deciding the mode. That is the drift this pins:
     # the linter applying live-action exemptions to a list the pack never marked as a shoot, or
@@ -216,6 +218,7 @@ def test_capture_mode_has_exactly_one_author_in_the_tree():
         "packs/creator/graphs/live-action-video.toml",
         "gtm_core/creator_brief.py",
         "gtm_core/shots_lint/identity.py",
+        "gtm_core/video_presets.py",
     ], (
         f"the capture_mode surface changed: {authors}. Exactly one place may INSTRUCT a run to "
         "set it (the live-action graph's script node); the other two are a label map and an "

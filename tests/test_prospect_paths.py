@@ -75,3 +75,41 @@ def test_ready_to_load_is_the_only_visible_file_in_sequences(tmp_path):
     assert pp.ready_to_load("acme", content_root=tmp_path).parent == seq
     for pooled in (pp.master_list, pp.needs_verification, pp.suppression_ledger):
         assert pooled("acme", content_root=tmp_path).parent == seq / ".pool"
+
+
+def test_unexpanded_env_placeholders_fall_back_to_defaults(monkeypatch, tmp_path):
+    import pytest
+
+    from agent.config import Config
+    from gtm_core import paths
+
+    # Test all placeholder variants: ${VAR}, $VAR, $(VAR), %VAR%, quoted "${VAR}"
+    for placeholder in (
+        "${GTM_CONTENT_ROOT}",
+        "$GTM_CONTENT_ROOT",
+        "$(GTM_CONTENT_ROOT)",
+        "%GTM_CONTENT_ROOT%",
+        '"${GTM_CONTENT_ROOT}"',
+        "'${GTM_CONTENT_ROOT}'",
+        "",
+        "   ",
+    ):
+        monkeypatch.setenv("GTM_CONTENT_ROOT", placeholder)
+        monkeypatch.setenv("GTM_PROFILES_ROOT", placeholder)
+        monkeypatch.setenv("ACTIVE_PROFILE", placeholder)
+        monkeypatch.setenv("GTM_PROFILE", placeholder)
+
+        assert paths.resolve_content_root(tmp_path) == tmp_path / "content"
+        assert paths.resolve_profiles_root(tmp_path) == tmp_path / "profiles"
+        cfg = paths.PathConfig.from_env(tmp_path)
+        assert cfg.default_profile == "template"
+
+        agent_cfg = Config.from_env(repo_root=tmp_path)
+        assert agent_cfg.default_profile == "template"
+        assert agent_cfg.content_root == tmp_path / "content"
+        assert agent_cfg.profiles_root == tmp_path / "profiles"
+
+    # Verify _safe_segment raises on unexpanded placeholders
+    for bad_seg in ("${GTM_PROFILE}", "$PROFILE", "%USERPROFILE%"):
+        with pytest.raises(ValueError, match="unsafe profile"):
+            paths._safe_segment(bad_seg, "profile")

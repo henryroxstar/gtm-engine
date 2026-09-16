@@ -26,6 +26,15 @@ _VALID_FRESHNESS = frozenset({"evergreen", "90d"})
 # NONE is the resolver's "not yet synced" sentinel, never an authorable tier.
 _VALID_MIN_ENTITLEMENTS = frozenset(e.value for e in Entitlement if e is not Entitlement.NONE)
 
+# The closed set of external_effect values a gate=true node may declare. Each names a
+# Python-only dispatcher that runs the effect after operator approval — "publish"
+# (agent/publish_dispatch.py, agent/publish.py) and "email_enroll" (agent/email_dispatch.py,
+# the Saleshandy lead-enrollment PII egress). Adding a third value is the same class of
+# change as adding one of these two: it needs its own Python dispatcher, its own tool-level
+# denial in agent/permissions.py, and backend Gate-2 branching in
+# backend/services/runs/pack_executor.py — never just flipping this set.
+_ALLOWED_EXTERNAL_EFFECTS = frozenset({"publish", "email_enroll"})
+
 
 class PackValidationError(ValueError):
     """Raised when a pack graph or inputs file fails a named validation rule."""
@@ -45,9 +54,14 @@ class PackNode:
     skill: str | None = None
     prompt: str = ""
     gate: bool = False
-    # Declared external side effect, if any. Only "publish" may coexist with gate=True —
-    # any other value marks a gate on a node that does something irreversible besides
-    # pausing for review, which is not what a gate is for (§6 rule 5).
+    # Declared external side effect, if any. Only a value in _ALLOWED_EXTERNAL_EFFECTS
+    # ("publish", "email_enroll") may coexist with gate=True — each names a Python-only
+    # dispatcher (agent/publish_dispatch.py, agent/email_dispatch.py) that runs the actual
+    # side effect after operator approval; the brain never calls it directly
+    # (agent/pipeline_executor.py short-circuits the node to SKIPPED before any model call).
+    # Any other value would mark a gate on a node that does something irreversible besides
+    # pausing for review or dispatching through one of those two Python paths, which is not
+    # what a gate is for (§6 rule 5).
     external_effect: str | None = None
     # RESERVED, and refused at load: the engine has no revision-loop semantics, so a
     # declared back-edge would validate and then be dropped by
@@ -135,12 +149,16 @@ def validate_node_semantics(nodes: tuple[PackNode, ...]) -> None:
             resolve_model(n.model_role)
         except ValueError as exc:
             raise PackValidationError("unknown_model_role", f"node {n.id!r}: {exc}") from exc
-        if n.gate and n.external_effect not in (None, "publish"):
+        if (
+            n.gate
+            and n.external_effect is not None
+            and n.external_effect not in _ALLOWED_EXTERNAL_EFFECTS
+        ):
             raise PackValidationError(
                 "unsafe_gate",
                 f"node {n.id!r} has gate=true with external_effect={n.external_effect!r} — "
-                "a gate may only pause for review or the publish mechanism, never another "
-                "irreversible side effect",
+                "a gate may only pause for review, or dispatch through one of "
+                f"{sorted(_ALLOWED_EXTERNAL_EFFECTS)}, never another irreversible side effect",
             )
         if not n.gate and n.external_effect is not None:
             raise PackValidationError(
@@ -180,9 +198,9 @@ def load_pack_graph(path: Path) -> PackGraph:
     Raises :class:`PackValidationError` (rule name in ``.rule``) on: a missing/duplicate
     node id, a dependency on an undeclared node, a dependency cycle, an unknown
     ``model_role``, an unknown ``skill``, any ``revisable_from``/``max_visits``
-    declaration (the engine cannot run a revision back-edge), ``gate=true`` combined with a
-    non-``"publish"`` ``external_effect``, an ``external_effect`` on a non-gated node, or an
-    unknown ``min_entitlement``.
+    declaration (the engine cannot run a revision back-edge), ``gate=true`` combined with an
+    ``external_effect`` outside ``_ALLOWED_EXTERNAL_EFFECTS`` (``"publish"``/``"email_enroll"``),
+    an ``external_effect`` on a non-gated node, or an unknown ``min_entitlement``.
     """
     with Path(path).open("rb") as f:
         raw = tomllib.load(f)

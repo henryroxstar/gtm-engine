@@ -1,27 +1,10 @@
 ---
 name: account-dossier
 description: >-
-  Generate a short, on-brand account + buyer dossier as a Word (.docx) that lets a
-  non-technical seller walk into a meeting prepared, assuming zero prior context on the
-  account or buyer. A friendly ~4-page prep briefing — NOT a technical solution design or a
-  deck. Also supports a hard 1-page exec one-pager variant
-  (references/exec-onepager-template.json) for a principal who already knows how to run the
-  call and needs only a product brief + credibility read, not seller coaching, a hard 1-page
-  prospecting-brief variant (references/prospecting-brief-template.json) for a cold,
-  scored-but-unmet Tier-A lead with no meeting booked yet — understand-the-business +
-  likely-needs + concrete product-fit, no deep research pass, AND a markdown-only
-  research-pack variant for bulk, mixed-tier dossier coverage where even the prospecting-brief
-  docx render is too much per-account overhead. Trigger when the user says "make a dossier for
-  [account]", "prep me on [account/person]", "account dossier", "brief for my meeting with
-  [name]", "one-pager on [company] and [buyer]", "exec one-pager for [principal] on
-  [account]", "prospecting brief for [account]", "cold brief on [account]", "research pack for
-  [account]", "who is [buyer] at [account] and how do I engage", or any similar request for a
-  standalone, forward-to-a-seller (or forward-to-an-exec) meeting-prep doc. Research-first:
-  mines any provided materials and prior skill outputs, verifies time-sensitive facts
-  (funding, leadership, launches, regulatory dates) against fresh web sources (skipped for the
-  prospecting-brief and research-pack variants), then builds the .docx via the docx skill (or
-  a plain markdown file for the research-pack variant). Reads PROFILE for brand, byline,
-  output folder, and language.
+  Generate an on-brand executive or seller account dossier and meeting-prep brief as a Word
+  docx or markdown research pack. Trigger when the user says "make a dossier for [account]",
+  "prep me on [account/person]", "account dossier", "one-pager on [company]", or "prospecting
+  brief for [account]".
 metadata:
   version: "0.4.0"
   phase: "4"
@@ -242,6 +225,20 @@ pdftoppm -jpeg -r 150 <doc>.pdf page   # one page-NN.jpg per page → eyeball + 
 - **Every external claim gets a source** (§11). Internal docs are referenced as plain text — never
   as `#` placeholder links (they break docx validation).
 - **No fake urgency.** If a regulatory deadline moved, say so and turn it into an honest angle.
+- **§9 questions follow the evidence-based method, not vibes.** Sequence and phrase them per
+  `docs/sales-questions-by-deal-phase.md` (Phase 2 + Phase 4, and its anchor-first technique) and
+  `references/document-structure.md` §9 for how that plays out in this document's three groups.
+  Escalate to Implication and Need-payoff questions — don't stop at Situation.
+- **Match §9's sequencing weight to deal complexity.** Run the full anchor → Problem → Implication →
+  Need-payoff chain when the account reads as a considered, multi-stakeholder buy (most of this
+  ICP — security/compliance/infra decisions pull in more than one approver regardless of company
+  size). Compress toward Situation + Need-payoff only when research clearly shows a single
+  decision-maker, low-consequence purchase — don't run major-sale-weight discovery on a self-serve
+  buy, and don't skip it just because the account is small.
+- **Fail closed on §9 if there's nothing to anchor on.** If §5/§6/§7 didn't surface a concrete
+  friction point, say so in the anchor callout and ask for more detail rather than emitting nine
+  confident questions on a thin research pass — this matters most on a **research pack** or
+  **prospecting-brief** account, where Step 4's deep verification was deliberately skipped.
 - **Hard cap 4 pages.** If it overflows, tighten prose — don't drop required sections.
 - **Don't run environment checks before the real step.** No `which`, `command -v`, version flags,
   `python -c "import …"`, or `python3 - <<'PY'` heredocs. The container image pre-installs

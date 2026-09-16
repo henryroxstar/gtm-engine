@@ -13,6 +13,15 @@ from pathlib import Path
 
 from .slug import _STAGING_DIR
 
+
+class ProfileAlreadyExistsError(ValueError):
+    """promote() refused: a live profile with this slug already exists."""
+
+
+class DraftNotStagedError(ValueError):
+    """promote() refused: the staging dir is gone or was never a staged draft."""
+
+
 # ── staging ───────────────────────────────────────────────────────────────────
 
 
@@ -30,6 +39,7 @@ def stage(
     Returns:
         (draft_id, staged_root)
     """
+    from gtm_core.confine import confined_output_path
     from gtm_core.paths import _safe_segment
 
     _safe_segment(slug, "staging slug")
@@ -37,8 +47,14 @@ def stage(
     staging_root.mkdir(parents=True, exist_ok=True)
 
     for rel_path, content in files.items():
+        # Confine BEFORE writing. render() normalises the slugs it controls, but stage()
+        # writes whatever dict it is handed and `rel_path` is a multi-segment relative path
+        # — which _safe_segment cannot validate (it rejects "/" outright). confined_output_path
+        # resolves first, so "a/../../x" and a symlinked parent are both caught, which a
+        # lexical check cannot do.
         dest = staging_root / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
+        dest = confined_output_path(dest, content_root=staging_root)
         dest.write_text(content, encoding="utf-8")
 
     draft_id = str(uuid.uuid4())
@@ -99,11 +115,13 @@ def promote(slug: str, draft_id: str, staged_root: Path, draft: dict, cfg: Confi
 
     meta_file = staged_root / ".onboard-meta.json"
     if not meta_file.exists():
-        raise ValueError(f"No .onboard-meta.json in {staged_root} — not a valid staging dir")
+        raise DraftNotStagedError(
+            f"No .onboard-meta.json in {staged_root} — not a valid staging dir"
+        )
 
     live_root = cfg.profiles_root / slug
     if live_root.exists():
-        raise ValueError(
+        raise ProfileAlreadyExistsError(
             f"Profile '{slug}' already exists at {live_root}. "
             "Pick a new slug or manually remove the existing profile directory."
         )

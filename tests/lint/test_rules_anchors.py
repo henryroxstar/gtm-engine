@@ -115,3 +115,65 @@ def test_quick_reference_covers_every_rule():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── the rules doc must not name code that does not exist ──────────────────────
+# §R13 says a permanent ban lives in code, not prose. Applied to RULES.md itself: a rule
+# that cites an enforcing function is making a checkable claim. Two of the three it cited
+# were fiction — `sanitize_control_markers()` (§R5) had never been written, and
+# `Ledgers.within_monthly_cap()` (§R2) named the inverse of the real `over_monthly_cap()`,
+# so the documented cap snippet admitted exactly the calls it was meant to refuse.
+
+SYMBOL = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\(\)`")
+
+# Illustrative names in ❌-Wrong snippets and third-party APIs — not claims about our code.
+SYMBOL_EXEMPT = {"trigger_publish"}
+
+
+def _rules_symbols() -> set[str]:
+    return {m.group(1) for m in SYMBOL.finditer(RULES.read_text(encoding="utf-8"))} - SYMBOL_EXEMPT
+
+
+def _resolves(dotted: str) -> bool:
+    """True when the last segment is defined somewhere in first-party source.
+
+    Deliberately a name search, not an import: RULES.md cites bare method names
+    (`over_monthly_cap()`) and module-private helpers, and importing every owner would
+    drag the Agent SDK into a lint tier that installs only pytest.
+    """
+    leaf = dotted.rsplit(".", 1)[-1]
+    pat = re.compile(rf"^\s*(?:async\s+)?def\s+{re.escape(leaf)}\s*\(", re.MULTILINE)
+    for pkg in ("agent", "backend", "cockpit", "gtm_core", "mcp_server", "scripts", "tests"):
+        root = REPO / pkg
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.py"):
+            if any(part in SKIP_DIRS for part in path.parts):
+                continue
+            try:
+                if pat.search(path.read_text(encoding="utf-8")):
+                    return True
+            except (OSError, UnicodeDecodeError):
+                continue
+    return False
+
+
+def test_every_function_rules_md_names_exists():
+    symbols = _rules_symbols()
+    assert symbols, "no `symbol()` citations found — the extractor stopped discriminating"
+    missing = sorted(s for s in symbols if not _resolves(s))
+    assert not missing, (
+        "docs/RULES.md cites functions that do not exist: "
+        + ", ".join(missing)
+        + ". Fix the doc (or write the function) — a rule that names a phantom enforcer "
+        "teaches the next reader to call it."
+    )
+
+
+def test_the_symbol_checker_detects_a_phantom():
+    """Anti-vacuity (§R12/§R18): prove the check above can fail."""
+    assert not _resolves("sanitize_control_markers")
+    assert not _resolves("within_monthly_cap")
+    # …and that it says yes to ones that are real, so it is not just always-False.
+    assert _resolves("over_monthly_cap")
+    assert _resolves("validate_disclosure")

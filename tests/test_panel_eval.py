@@ -202,3 +202,62 @@ def test_the_thresholds_are_the_pre_registered_ones():
     assert pe.MIN_JUDGES == 5
     assert pe.MIN_CLIPS_PER_CONDITION == 3
     assert pe.CONDITIONS == ("real", "avatar", "hybrid")
+
+
+# --- the CLI (PS4.1) ---------------------------------------------------------------------------
+
+
+def test_panel_eval_cli_build_sheet_and_score(tmp_path):
+    """Test CLI commands build-sheet and score end-to-end."""
+    import json
+    from dataclasses import asdict
+
+    clips = _clips(real=4, avatar=4, hybrid=4)
+    clips_file = tmp_path / "clips.json"
+    clips_file.write_text(json.dumps([asdict(c) for c in clips]), encoding="utf-8")
+
+    out_sheet = tmp_path / "sheet.md"
+    out_key = tmp_path / "key.json"
+
+    # 1. Run build-sheet
+    rc = pe.main(
+        [
+            "build-sheet",
+            "--clips",
+            str(clips_file),
+            "--salt",
+            "test-salt-123",
+            "--out-sheet",
+            str(out_sheet),
+            "--out-key",
+            str(out_key),
+        ]
+    )
+    assert rc == 0
+    assert out_sheet.is_file()
+    assert out_key.is_file()
+
+    # 2. Build sheet object and mock judgements
+    sheet_data, _ = pe.build_sheet(clips, salt="test-salt-123")
+    sheet_file = tmp_path / "sheet.json"
+    sheet_file.write_text(json.dumps([asdict(c) for c in sheet_data]), encoding="utf-8")
+
+    # 5 judges, passing
+    judgements = _panel(
+        sheet_data, judges=5, called_real=True, naturalness=4, condition="avatar"
+    ) + _panel(sheet_data, judges=5, called_real=True, naturalness=5, condition="real")
+    judgements_file = tmp_path / "judgements.json"
+    judgements_file.write_text(json.dumps([asdict(j) for j in judgements]), encoding="utf-8")
+
+    # 3. Run score
+    rc = pe.main(
+        [
+            "score",
+            "--sheet",
+            str(sheet_file),
+            "--judgements",
+            str(judgements_file),
+            "--json",
+        ]
+    )
+    assert rc == 0

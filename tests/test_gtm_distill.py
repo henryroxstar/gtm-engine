@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -268,7 +269,9 @@ def test_fatigued_hooks_detected(tmp_profile: tuple[Path, Path, str]) -> None:
     profiles_root, content_root, profile = tmp_profile
     _write_hooks(profiles_root, profile)
 
-    # Exceed max_impressions (100) inside the window.
+    # Exceed max_impressions (100) inside the 30-day window. Dated relative to now: a fixed
+    # date silently ages out of the rolling window and turns this test red a month later.
+    inside_window = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     oc.append_outcome(
         content_root,
         profile,
@@ -277,7 +280,7 @@ def test_fatigued_hooks_detected(tmp_profile: tuple[Path, Path, str]) -> None:
             "outcome": "impressions",
             "value": 150,
             "tags": ["hook:acme-augmentation", "format:linkedin-text"],
-            "ts": "2026-08-15T00:00:00Z",
+            "ts": inside_window,
         },
     )
 

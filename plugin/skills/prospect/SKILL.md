@@ -1,26 +1,10 @@
 ---
 name: prospect
 description: >-
-  Run the active profile's prospecting routine — discover, qualify, score, and enrich ICP
-  accounts, then output a scored brief, Tier-A outreach packs, and a HubSpot-ready CSV.
-  Product-agnostic: markets, ICP, and the lead product all come from whichever profile is
-  active. Use when the user says "run my prospecting", "find prospects", "build a prospect
-  list", "weekly prospecting run", "find accounts for [the lead product]", or "prospect
-  [market]". Uses three data sources when connected — Vibe Prospecting (discovery +
-  firmographics + Bombora topic-intent + events), RocketReach (contact resolution + Intentsify
-  topic-intent + news/hiring signals + job-change timing), and Apollo (contact-resolution
-  backstop, buying-intent company search, job-posting signals, bulk enrichment); free
-  web-search is the fallback. Respects budget caps before any metered call. The dossier sweep
-  (Step 11) checks every tier by default, not just Tier-A — a bulk-sourced account reaching a
-  sequence with no research behind its Why Now clause is exactly the gap a Tier-A-only check
-  misses. Research does not finish at a sentence: every signal-carrying row also records where
-  the fact came from, when it was observed, the verbatim source span it reduces, the entity it
-  is actually about, whether its "agents" are AI or people, and what the account is to us
-  (prospect/competitor/partner/adjacent) — the fields that turn a clause about the wrong
-  company, a stale claim, or a number absent from its source into a load-time type error
-  instead of something a careful reader might notice on the third pass. Every finalist also
-  leaves with a send/re-angle/drop verdict and a reason, so "not sendable" is a representable
-  output rather than an outcome the pipeline has no way to express.
+  Discover, score, and qualify high-fit target accounts and buyers against ICP criteria using
+  research waterfalls. Trigger when the user says "prospect for accounts", "find buyers at
+  [company]", "build prospect list for [industry]", "qualify leads", or "run prospecting
+  sweep".
 metadata:
   version: "0.13.0"
   phase: "1"
@@ -134,6 +118,21 @@ email funnel → ready/verifying/blocked, plus cost and next steps), refreshed b
 the operator there when they ask "where's the data / how many are ready / what's next" instead of
 enumerating CSVs. Confirm the mode (§Modes above) — **bulk mode** if the operator stated a large target the standard intake can't reach, **standard mode** otherwise — and state which in the run header.
 
+**Open the run header with the current status, in the operator's own words — never composed by
+hand.** Run:
+
+```bash
+uv run python -m gtm_core.prospects status --profile <active>
+```
+
+and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
+Step 13 paste again at the end of the run, so the operator reads progress as movement between two
+identical snapshots rather than as three reports in three vocabularies:
+
+<!-- operator -->
+[paste the command's output here, unedited]
+<!-- /operator -->
+
 **Where output goes — two folders, not interchangeable.** Run-level files (the run markdown, the
 export CSV, `latest.json`, the pool) live under `content/<active>/prospects/`. **Per-account
 deliverables — outreach packs, dossiers, briefs — live under
@@ -146,7 +145,7 @@ up with two folders. Print this profile's exact paths at any time:
 uv run python -m gtm_core.prospects paths --profile <active>
 ```
 
-**Exclude set.** Build the **60-day exclude set** from prior run files in that folder (`prospects-*.md`, `prospects-*-hubspot.csv`): any company published <60 days ago is excluded. Also read `content/<active>/prospects/latest.json` if it exists — any account with `status: contacted|qualified|disqualified` is excluded from this run (respects agent and dashboard edits between runs). If an account tracker spreadsheet exists in the folder, also exclude its worked accounts and offer to append new rows at the end. **Pick the data path:** discovery **defaults to Vibe** whenever `tools_metered` includes it — actually attempt a Vibe call (e.g. `estimate-cost` or a small `fetch-entities` probe) before falling back; do not skip straight to the web-search path because the run is small, scoped, or narrow. Fall back to web only when that attempt fails or Vibe is confirmed disconnected, and **state the specific reason** in the run header (not just "unavailable"). **A null/empty result from RocketReach `company_search` is not a discovery result and does not satisfy this requirement** — that tool checks signals on a candidate you already have, it doesn't generate candidates; if it comes back empty, you still owe Vibe an attempt before web. **If Apollo is connected, run its free preflight once at the top of the run** — `apollo_usage` on the in-repo worker, or `apollo_users_api_profile` (with `include_credit_usage: true`) on the hosted connector. **Tool names differ per surface — check which Apollo tools the session actually offers before concluding Apollo is absent** (`discovery-and-budget.md` §"Apollo surface note" has the full mapping). Two failure modes to tell apart, because they look similar and mean opposite things: (a) **no Apollo tools in the session at all** ⇒ genuinely not connected, proceed without it; (b) tools present but a data call returns **`error_code: API_INACCESSIBLE`** ⇒ connected but the **Apollo plan doesn't include API access** (this is the case on a Free Apollo plan — verified 2026-07-27). In case (b) do **not** retry, do **not** report it as a miss or an outage: state "Apollo: API not included in plan" in the run header and fall through the waterfall exactly as if Apollo were absent. A non-zero Apollo credit balance does **not** mean the API is reachable — those credits are spendable in Apollo's web UI only. Contact enrichment via **RocketReach** if connected, else Vibe `enrich-prospects`, else **Apollo**'s person-enrich tool if connected and its plan allows API access, else public web (unverified). Note in the run header which sources are live and, for any fallback, why.
+**Exclude set.** Build the **60-day exclude set** from prior run files in that folder (`prospects-*.md`, `prospects-*-hubspot.csv`): any company published <60 days ago is excluded. Also read `content/<active>/prospects/latest.json` if it exists — any account with `status: disqualified|replied|do-not-contact|closed-lost` is excluded from this run. That is the actual ledger vocabulary (`gtm_core.prospects_state`); the old exclude set named `contacted`/`qualified`, which never existed as real status values, so it excluded nothing on either. This respects agent and dashboard edits between runs, and `replied` means a positive reply now protects the account from the next wave (PS6). If an account tracker spreadsheet exists in the folder, also exclude its worked accounts and offer to append new rows at the end. **Pick the data path:** discovery **defaults to Vibe** whenever `tools_metered` includes it — actually attempt a Vibe call (e.g. `estimate-cost` or a small `fetch-entities` probe) before falling back; do not skip straight to the web-search path because the run is small, scoped, or narrow. Fall back to web only when that attempt fails or Vibe is confirmed disconnected, and **state the specific reason** in the run header (not just "unavailable"). **A null/empty result from RocketReach `company_search` is not a discovery result and does not satisfy this requirement** — that tool checks signals on a candidate you already have, it doesn't generate candidates; if it comes back empty, you still owe Vibe an attempt before web. **If Apollo is connected, run its free preflight once at the top of the run** — `apollo_usage` on the in-repo worker, or `apollo_users_api_profile` (with `include_credit_usage: true`) on the hosted connector. **Tool names differ per surface — check which Apollo tools the session actually offers before concluding Apollo is absent** (`discovery-and-budget.md` §"Apollo surface note" has the full mapping). Two failure modes to tell apart, because they look similar and mean opposite things: (a) **no Apollo tools in the session at all** ⇒ genuinely not connected, proceed without it; (b) tools present but a data call returns **`error_code: API_INACCESSIBLE`** ⇒ connected but the **Apollo plan doesn't include API access** (this is the case on a Free Apollo plan — verified 2026-07-27). In case (b) do **not** retry, do **not** report it as a miss or an outage: state "Apollo: API not included in plan" in the run header and fall through the waterfall exactly as if Apollo were absent. A non-zero Apollo credit balance does **not** mean the API is reachable — those credits are spendable in Apollo's web UI only. Contact enrichment via **RocketReach** if connected, else Vibe `enrich-prospects`, else **Apollo**'s person-enrich tool if connected and its plan allows API access, else public web (unverified). Note in the run header which sources are live and, for any fallback, why.
 
 **Step 2 — Connectivity preflight (MANDATORY, free, before ANY spend).** Probe every connector with its cheapest liveness call, then adjudicate the result — **a note is not a gate**. On 2026-08-11 a bulk run spent ~$77 discovering and scoring 500 accounts and delivered **zero contacts**, because RocketReach was not loaded into the session and Apollo was paywalled. Both were knowable in ten seconds for nothing. Discovery spend is **not** recoverable by connecting the tool afterwards — you cannot retro-fit contacts onto a finished run without paying again.
 
@@ -158,7 +157,13 @@ uv run python -m gtm_core.preflight --profile <active> \
   --need discovery,intent,contacts
 ```
 
-It maps connectors → capabilities (`discovery`, `intent`, `double_intent`, `contacts`, `sequencing`), **exits 2** when a requested capability is gone or down to the free web floor, and warns when one is merely on a **fallback** provider (e.g. contacts via Vibe because RocketReach is absent — materially worse: no phone, lower match rate). Put the rendered table in the run header, and repeat any degradation in the final report. **On exit 2, stop and tell the operator what to connect** — do not spend and then apologise. `--need` must list what this run actually promises: a run that will produce outreach needs `contacts`; a re-score needs only `intent`.
+It maps connectors → capabilities (`discovery`, `intent`, `double_intent`, `contacts`, `sequencing`), **exits 2** when a requested capability is gone or down to the free web floor, and warns when one is merely on a **fallback** provider (e.g. contacts via Vibe because RocketReach is absent — materially worse: no phone, lower match rate). Put the rendered table in the run header, state the connectivity summary plainly in the operator's words:
+
+<!-- operator -->
+> "Working: Vibe, RocketReach. Not connected: Apollo (plan does not include API access)."
+<!-- /operator -->
+
+and repeat any degradation in the final report. **On exit 2, stop and tell the operator what to connect** — do not spend and then apologise. `--need` must list what this run actually promises: a run that will produce outreach needs `contacts`; a re-score needs only `intent`.
 
 Distinguish the two Apollo failure modes (they look alike, mean opposites): no Apollo tools at all ⇒ genuinely absent; tools present but `error_code: API_INACCESSIBLE` ⇒ connected on a plan without API access — record `api_inaccessible`, do not retry, do not report it as an outage. **A missing MCP server is not a broken API**: RocketReach was reported "not working" on 2026-08-11 when in fact the server simply was not loaded in that session; `account` later showed 1,285 premium lookups remaining and every rate limit healthy. Check `claude mcp list` before concluding a provider is down.
 
@@ -179,6 +184,13 @@ python -m gtm_core.funnel --target <delivered> --tier <a+b|a> --why-now-mode <st
   --profile-root profiles/<active> --pool-available <net-new after exclusions> \
   --backlog-ready <already-qualified accounts needing only a contact> --lookup-credits <remaining>
 ```
+
+and restate the closing figure in the operator's words:
+
+<!-- operator -->
+> "This run should end with N more Ready to send."
+<!-- /operator -->
+
 
 It returns the discovery target, per-stage expected counts, and lookups required — or **exits 2 and refuses** when the pool or credits cannot support the ask, naming the shortfall and what would fix it. A refusal is the correct outcome: report it and re-scope with the operator rather than starting a run that cannot finish.
 
@@ -252,7 +264,12 @@ Note what this costs to comply with: nothing. The refusal vocabulary is two step
 file, and `verdict` is the one column research owns outright. A free-text field that can hold a
 negative result is the same defect `signal_record` exists to remove — an unverifiable claim in prose
 — one field to the left. The candidate stays in `latest.json`; what changes is that it says what it
-is.
+is, and the sweep concludes in plain language:
+
+<!-- operator -->
+> "No dated public reason to reach out — this account keeps its place, on a standard email."
+<!-- /operator -->
+
 
 **Step 7 — Record the signal, don't just write the clause.** A why-now is not finished when a
 sentence exists. The sentence is the *output*; what makes it checkable later is the record behind it.
@@ -414,20 +431,25 @@ for truthfulness. Sending a thin-research personalised body makes the opposite t
 this: `tier` means "rubric score band" and overloading it breaks cross-segment conversion analysis.
 Lane is the axis; tier stays what it is.
 
-**Then ask the operator once — never auto-include.** Same interaction shape as Step 11's dossier
-sweep: name the count and a few example companies, state the tradeoff in one line, and wait.
+**Then ask the operator once for the whole group — never once per account.** Same interaction shape
+as Step 11's dossier sweep and the hold sheet's per-question grouping (PS12): one question, in the
+operator's own words, naming the count and a few example companies, stating the tradeoff in one
+line, and waiting.
 
-> "N accounts cleared the fit gates but have no usable signal — e.g. <A>, <B>, <C>. Route them to
-> the generic lane (no account-specific claim, lower expected reply rate, measured separately), or
-> hold them for research?"
+<!-- operator -->
+> "N accounts are a good fit but we found no story specific to them. Send the standard email, or
+> hold them for more research?"
+<!-- /operator -->
 
 **Respect the share cap before you ask.** `generic_lane_share_cap` in
 `content/<active>/settings.json` (default 0.5) bounds generic as a fraction of the run's enrollable
-rows. Over the cap, propose only up to it and say which accounts you held back and why. The cap
-exists because a lane that accepts blank verdicts is exactly the lane every under-researched row
-drifts into, and a pipeline that is 100% generic has stopped doing research without anyone deciding
-to. Reply rate **by lane** is already reported (`gtm_core.cells`, with a Wilson interval), so this
-is measurable — but only if generic never silently becomes the default.
+rows — nothing in `gtm_core` reads this setting today, so honouring it is this step's job, done by
+hand: count the run's enrollable rows, and if routing every no-signal candidate to generic would
+exceed the cap, propose only up to it and say which accounts you held back and why. The cap exists
+because a lane that accepts blank verdicts is exactly the lane every under-researched row drifts
+into, and a pipeline that is 100% generic has stopped doing research without anyone deciding to.
+Reply rate **by lane** is already reported (`gtm_core.cells`, with a Wilson interval), so this is
+measurable — but only if generic never silently becomes the default.
 
 **Step 9 — Persona enrichment.** For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **Contact resolution → RocketReach first** (when connected): resolve the top-1 persona's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the official connector) — or the bulk variant (`rocketreach_bulk_lookup` / `BulkLookup`, capped at 25 finalists per call) when resolving several finalists at once. See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping between surfaces. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, `enrich-prospects-contacts` on the resulting table. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete with ≥1 champion/primary-buyer contact. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
 
@@ -480,7 +502,7 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   ```
   This parses every pack under `content/<active>/accounts/*/prospects-*outreach-*.md` (this run's and all prior ones) and rewrites `content/<active>/prospects/outreach-log.md` + `.csv` — date, account, tier, persona, verified email, subject, channels, path back to the full pack. Idempotent and cheap (0 credits, no LLM call); safe to run even if this run produced zero Tier-A packs.
 - If appending to a local tracker spreadsheet, add the run's rows now.
-- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (contacted/qualified/disqualified). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file.** Build a JSON array of this run's item objects (shape below) and merge it through the safe writer, which snapshots the current file first, upserts by company (keeping existing `status`/operator fields), and writes atomically — merge-only, so it can never shrink the cumulative file:
+- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file.** Build a JSON array of this run's item objects (shape below) and merge it through the safe writer, which snapshots the current file first, upserts by company (keeping existing `status`/operator fields), and writes atomically — merge-only, so it can never shrink the cumulative file:
   ```bash
   python -m gtm_core.prospects_state merge --profile <active> \
     --items <path-to-this-run-items.json> --source-run <run-id>
@@ -532,7 +554,7 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   ```bash
   python -m gtm_core.lanes route --profile <active> \
     --csv content/<active>/prospects/sequences/ready-to-load.csv \
-    --records content/<active>/prospects/evals/*.jsonl
+    --records content/<active>/prospects/evals/judge/*.jsonl
   ```
   Then report the split (Step 12). Never hand-write a `lane` value into a pooled CSV — those files
   are rebuilt, so the edit is discarded on the next sweep, exactly as with a corrected `why_now`
@@ -589,10 +611,17 @@ re-generated under a second, duplicate folder.
 - Otherwise, **ask the operator once**, naming the count and a few example companies, before
   generating anything (same pattern as the email-sequence skill's hold-queue auto-drain approval —
   a batch operation with real per-account cost gets exactly one confirmation, not per-account nagging
-  and not silent execution). At bulk scale, name the cost tradeoff too: a **Tier-A** candidate gets the
+  and not silent execution):
+
+<!-- operator -->
+> "N accounts have no research file yet. Research them now?"
+<!-- /operator -->
+
+  At bulk scale, name the cost tradeoff too: a **Tier-A** candidate gets the
   full prospecting-brief pass below; every other candidate defaults to the cheaper **research-pack**
   variant (`account-dossier` skill §"Research pack variant") unless the operator asks for more depth —
   say so explicitly so the operator isn't surprised by the lighter output on a Tier-B account.
+
 - **On confirmation, for each candidate:**
   1. Invoke `account-dossier` — **prospecting-brief mode** for a Tier-A candidate (its lightest *docx*
      variant: no deep web research, built from the candidate's `why_now`/`cohort`/`top_intent_score`
@@ -621,20 +650,32 @@ re-generated under a second, duplicate folder.
   `email-sequence` skill's account-integrity gate is what actually blocks on those before copy is
   composed; running this step first just means fewer of its findings are `no-dossier`.
 
-**Step 12 — QA & close.** Run the §8 checklist in `output-templates.md`. Report a short summary: counts, Tier-A count, **the lane split**, discovery path, spend vs cap, and the file names produced. Offer to draft/refine outreach (`draft-outreach`) or to schedule the weekly run.
+**Step 12 — QA & close.** Run the §8 checklist in `output-templates.md`. Report a short summary:
+counts, Tier-A count, discovery path, spend vs cap, and the file names produced, plus the current
+status. Offer to draft/refine outreach (`draft-outreach`) or to schedule the weekly run.
 
-**Never report a Tier-A count without the lane split beside it.** Tier-A is the *pack* tier — the
-rows earning a 1:1 outreach pack — and it was repeatedly misread as the send gate, which made a
-healthy run look like a failing one. On 2026-09-04 a run reported "2 Tier-A" for a 20-account set
-whose pool at that moment held 1,187 accounts above the publish threshold and 363 rows already
-routed `generic`; the natural reading of "2" was that the ICP gate had rejected everything, when the
-gate rejects about 6% of what it scores. Report both numbers, always, in this shape:
+**Never report a Tier-A count on its own.** Tier-A is the *pack* tier — the rows earning a 1:1
+outreach pack — and reporting it alone was repeatedly misread as the send gate, which made a
+healthy run look like a failing one: a low Tier-A count reads as "the ICP gate rejected almost
+everything" when the gate typically rejects a small minority of what it scores and everything else
+is queued work, not rejected work. State the Tier-A count as *"T earned a hand-written email"* and
+put it beside the same status block Step 1 opened with — never a bare number and never the old
+`lanes: personalised P / repair R / generic G / hold H / excluded X` breakdown, which names no
+whose-move-is-it and drifted out of sync with Step 13's own report. Run:
 
-> `N accounts · T Tier-A (packs) · lanes: personalised P / repair R / generic G / hold H / excluded X`
+```bash
+uv run python -m gtm_core.prospects status --profile <active>
+```
 
-and state what each non-`personalised` lane needs to move — research for `hold`, a re-draft for
-`repair`, an operator decision for `generic`. A row in a lane is work queued, not work rejected;
-say so, or the next reader re-derives "we have no prospects" from a number that never meant that.
+and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table) — byte-identical to the block Step 1
+opened the run with and the block Step 13 closes it with:
+
+<!-- operator -->
+[paste the command's output here, unedited]
+<!-- /operator -->
+
+A row behind any non-`Ready to send` line is work queued, not work rejected; say so, or the next
+reader re-derives "we have no prospects" from a number that never meant that.
 
 **Step 13 — Always last: render the status page AT THIS RUN'S SCOPE, then prove it is fresh.** **Every run of this skill — any mode, including re-score/refresh-heat and enrichment-only passes that skip the sweep — ends with this. Never skip it.** It is cheap and read-only. Two commands, not one:
 ```bash
@@ -650,7 +691,25 @@ uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope op
 
 **Do not read a refused tile as a zero.** Where a figure cannot be aggregated honestly across the scope the page renders `—` and a reason (a sending ceiling is shared infrastructure and is never summed; a forecast is refused outright when the campaigns run different cadences; a roster covering only some of them is not shown at all). That is the page declining to guess — quote the reason, do not substitute a number from one campaign.
 
-Then **surface the page to the operator** — one line, e.g. *"📊 Status: `content/<active>/campaign-open.html` — 30 ready · 417 verifying · 1,231 accounts to enrich"* — so they always land on the one page that shows the whole picture (account backlog → email funnel → ready/verifying/blocked, cost, next steps) instead of hunting through CSVs. The full `consolidate` sweep in Step 1 / Step 10 regenerates the profile-wide page only; Step 13 is what produces a page at the *run's* scope and proves it fresh. Ask for the path rather than spelling it: `uv run python -m gtm_core.prospects paths --profile <active>`.
+Then **close the run with the current status, same shape as Step 1 opened with.** Run:
+
+```bash
+uv run python -m gtm_core.prospects status --profile <active>
+```
+
+and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table):
+
+<!-- operator -->
+[paste the command's output here, unedited]
+<!-- /operator -->
+
+
+Then point the operator at the page itself — one line, e.g. *"here's the full picture:
+`content/<active>/campaign-open.html`"* — so they always land on the one page that shows the whole
+picture (account backlog → email funnel → ready/verifying/blocked, cost, next steps) instead of
+hunting through CSVs. The full `consolidate` sweep in Step 1 / Step 10 regenerates the profile-wide
+page only; Step 13 is what produces a page at the *run's* scope and proves it fresh. Ask for the
+path rather than spelling it: `uv run python -m gtm_core.prospects paths --profile <active>`.
 
 **There is one renderer, and it is `email_campaign_dashboard`.** `gtm_core.prospects_dashboard` is the status *model* (`build_status`) and nothing else — its second renderer and the `status-standalone.html` it wrote were retired 2026-09-05, so the module now exports no writer at all and the command that used to call it no longer exists.
 

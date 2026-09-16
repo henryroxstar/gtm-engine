@@ -15,6 +15,7 @@ Security invariants enforced here:
 
 from __future__ import annotations
 
+from .errors import OnboardingExtractError, OnboardingInputError  # noqa: F401
 from .extract import (  # noqa: F401
     _REQUIRED_DRAFT_FIELDS,
     _VALID_CONFIDENCE,
@@ -62,7 +63,15 @@ from .render_profile import (  # noqa: F401
 # every submodule is imported here, so module-level registrations run on
 # `import <package>` exactly as they did on `import <module>`.
 from .slug import _MAX_SLUG_LEN, _RESERVED_SLUGS, _STAGING_DIR, slugify  # noqa: F401
-from .staging import _staged_root_for_draft_id, cancel, diff, promote, stage  # noqa: F401
+from .staging import (  # noqa: F401
+    DraftNotStagedError,
+    ProfileAlreadyExistsError,
+    _staged_root_for_draft_id,
+    cancel,
+    diff,
+    promote,
+    stage,
+)
 
 __all__ = [
     "slugify",

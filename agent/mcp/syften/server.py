@@ -11,9 +11,11 @@ Authorization header"). No secret in this module — the key is read at call tim
 process env (``SYFTEN_API_KEY``) and never logged or returned.
 
 Signal-quality is computed **in code**: ``syften_get_matches`` aggregates Syften's own AI
-verdict (``analysis.accept``) into per-filter accepted/rejected tallies and returns those,
-so injected free-text in a match body can never move a number (§R5 hardening). The raw pull
-is written to disk (untrusted content kept out of the brain's context by default).
+verdict (``item.analysis.accept`` — sometimes serialised as a Python-repr string rather
+than a JSON object; see ``_parse_analysis``) into per-filter accepted/rejected tallies and
+returns those, so injected free-text in a match body can never move a number (§R5
+hardening). The raw pull is written to disk (untrusted content kept out of the brain's
+context by default).
 
 Run it with::
 
@@ -22,6 +24,7 @@ Run it with::
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import os
@@ -33,10 +36,15 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from gtm_core.paths import resolve_content_root
+
 # --- Syften wiring ------------------------------------------------------------ #
-# Base URL confirmed against syften.com/documentation: endpoints live under
-# ``/api/0.0`` and all use POST. Overridable for tests.
-SYFTEN_BASE_URL = os.getenv("SYFTEN_BASE_URL", "https://syften.com/api/0.0").rstrip("/")
+# Base URL confirmed against syften.com/documentation (re-checked 2026-09-14 — Syften
+# bumped ``/api/0.0`` to ``/api/0.1`` at some point after the original check; the old
+# path returns a bare 401 regardless of token validity, which reads exactly like a bad
+# key and cost real time chasing a token-rotation ghost). Endpoints live under
+# ``/api/0.1`` and all use POST. Overridable for tests.
+SYFTEN_BASE_URL = os.getenv("SYFTEN_BASE_URL", "https://syften.com/api/0.1").rstrip("/")
 _API_KEY_ENV = "SYFTEN_API_KEY"
 _HTTP_TIMEOUT_S = 30.0
 
@@ -175,16 +183,45 @@ def _cutoff(timeframe: str, since: str) -> tuple[datetime | None, str]:
 # --- match aggregation (deterministic; the §R5 metrics-in-code guarantee) ----- #
 
 
-def _verdict(match: dict) -> str:
-    """Bucket one match by Syften's AI verdict. ``analysis.accept`` is True/False when AI
-    filtering ran, absent otherwise. Missing/None ⇒ ``unscored`` (AI filtering did not run).
+def _parse_analysis(raw: object) -> dict | None:
+    """Coerce a Syften ``analysis`` value into a dict, or ``None`` if it can't be.
 
-    In practice ``items/get`` omits ``analysis`` entirely (verified over 3,531 matches on
-    2026-08-11), so this returns ``unscored`` for every row. Kept as-is rather than removed: the
-    field is documented upstream and may appear on other endpoints/plans, and degrading to
-    ``unscored`` is the correct fail-open behaviour if it does."""
-    analysis = match.get("analysis")
-    accept = analysis.get("accept") if isinstance(analysis, dict) else None
+    Syften's ``items/get`` sometimes serialises this field as a Python-repr STRING
+    (e.g. ``"{'nsfw': False, 'accept': False, 'rejection_reason': '...'}"``) rather than a
+    JSON object — verified 2026-09-14 over 10,232 raw matches. Parse that shape with
+    ``ast.literal_eval`` (literal Python containers/values only — safe on untrusted
+    input, unlike the builtin that executes arbitrary code). A malformed or non-dict
+    string degrades to ``None`` (→ unscored), never raises."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = ast.literal_eval(raw)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _verdict(match: dict) -> str:
+    """Bucket one match by Syften's AI verdict.
+
+    The verdict lives at ``item.analysis.accept`` (True/False when AI filtering ran).
+    Top-level ``analysis`` is checked as a fallback for older/synthetic records that carry
+    it there. Missing/unparseable ⇒ ``unscored`` (AI filtering did not run, or the field
+    couldn't be parsed).
+
+    Verified 2026-09-14 over 10,232 raw matches in
+    ``content/<profile>/community-signals/raw/pull-*.json``: all but one carry
+    ``item.analysis``, and ~60% are ``accept: False``. A prior version of this function read
+    only the (near-always-absent) top-level ``analysis`` field and so returned ``unscored``
+    for effectively every real match — the per_filter accepted/rejected tallies and the
+    ``community_signal.score`` metrics built from them were silently all-zero."""
+    item = match.get("item") if isinstance(match.get("item"), dict) else {}
+    analysis = _parse_analysis(item.get("analysis"))
+    if analysis is None:
+        analysis = _parse_analysis(match.get("analysis"))
+    accept = analysis.get("accept") if analysis else None
     if accept is True:
         return "accepted"
     if accept is False:
@@ -214,16 +251,15 @@ def _summarize(matches: list[dict]) -> dict:
 
 
 def _raw_dir() -> Path | None:
-    """The profile's raw-pull directory under the content tree, or None if the scoping
-    env vars aren't set (degraded: the caller returns a small inline sample instead)."""
-    content_root = os.environ.get("GTM_CONTENT_ROOT")
+    """The profile's raw-pull directory under the resolved content tree, or None if
+    ``GTM_PROFILE`` is unset or unsafe (degraded: the caller returns an inline sample)."""
     profile = os.environ.get("GTM_PROFILE")
-    if not content_root or not profile:
+    if not profile:
         return None
     # profile is a server-issued/config value, not free-form input, but guard it anyway.
     if "/" in profile or "\\" in profile or profile in (".", ".."):
         return None
-    return Path(content_root) / profile / "community-signals" / "raw"
+    return resolve_content_root() / profile / "community-signals" / "raw"
 
 
 def _write_raw(matches: list[dict], window_label: str) -> str | None:
@@ -245,7 +281,7 @@ def _sample(matches: list[dict], n: int = 3) -> list[dict]:
     out = []
     for m in matches[:n]:
         item = m.get("item") if isinstance(m.get("item"), dict) else {}
-        analysis = m.get("analysis") if isinstance(m.get("analysis"), dict) else {}
+        analysis = _parse_analysis(item.get("analysis")) or _parse_analysis(m.get("analysis")) or {}
         out.append(
             {
                 "matched_on": m.get("matched_on"),
@@ -296,13 +332,13 @@ async def syften_get_matches(
     ``{ok, window, since, fetched, pages, truncated, raw_path, per_filter:{<filter>:{accepted,
     rejected,unscored,total}}, backends:{…}, types:{…}, note}``.
 
-    **``per_filter`` accepted/rejected is normally all-``unscored`` — do not plan around it.**
-    Verified 2026-08-11 over a 3,531-match pull: ``items/get`` returns records with exactly four
-    keys (``filter``, ``id``, ``item``, ``matched_on``) — there is **no ``analysis`` key at all**, so
-    the AI verdict never populates on this endpoint. This docstring previously called it "the
-    primary signal-quality measure", which sent a reader looking for a number that cannot arrive.
-    Judge signal quality by reading the raw file instead. On failure returns a
-    ``[syften-error] …`` string.
+    ``per_filter`` accepted/rejected IS the AI signal-quality measure: the verdict lives at
+    ``item.analysis.accept`` (sometimes serialised as a Python-repr string rather than a JSON
+    object — parsed by ``_parse_analysis``), not at a top-level ``analysis`` key. Verified
+    2026-09-14 over 10,232 raw matches: all but one carry ``item.analysis``, ~60% ``accept:
+    False``. (This docstring previously claimed the field was absent entirely and that
+    per_filter was always-unscored — that was wrong; see ``_verdict`` for detail.) On
+    failure returns a ``[syften-error] …`` string.
     """
     cutoff, err = _cutoff(timeframe, since)
     if cutoff is None:

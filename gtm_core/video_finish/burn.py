@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from collections.abc import Sequence
@@ -10,6 +11,7 @@ from ..video_lint import SAFE_AREAS
 from .constants import DEFAULT_GOP, DEFAULT_PRESET, DEFAULT_THREADS
 from .errors import FfmpegUnavailable
 from .ffmpeg import _probe_duration, _run_ffmpeg
+from .plan import sidecar_path
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,11 @@ class BurnedShot:
     #: over-broad box both invents a face-band overlap the captions do not have and makes V11
     #: average mostly un-scrimmed background, so the rule under-reports its own fix.
     boxes: tuple[dict, ...] = ()
+    #: ``<out stem>.captions.json`` beside the burned file — the same geometry as ``boxes``, with
+    #: each screen's window in seconds RELATIVE TO THIS SHOT, in the shape ``video_lint`` reads.
+    #: ``stitch`` merges these onto the master's timeline and ``plan`` ingests the merged one, so
+    #: the geometry survives the stitch instead of stopping here (see ``plan.SIDECAR_KINDS``).
+    sidecar_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -177,7 +184,13 @@ def burn_captions(
 
     Never writes over its input: each burn lands at ``out_dir/<shot_id>-captioned.mp4``.
     """
-    from ..captions import overlay_filtergraph, render, resolve_placement, split_screens_segmented
+    from ..captions import (
+        overlay_filtergraph,
+        render,
+        resolve_placement,
+        sidecar_payload,
+        split_screens_segmented,
+    )
 
     if ratio not in SAFE_AREAS:
         raise ValueError(f"unknown ratio {ratio!r} — expected one of {sorted(SAFE_AREAS)}")
@@ -309,6 +322,10 @@ def burn_captions(
         _run_ffmpeg(args)
         os.replace(part_path, out_path)
 
+        payload = {**sidecar_payload(rendered, ratio=ratio), "shot_id": shot_id, "text": text}
+        sidecar = sidecar_path(out_path, "captions")
+        sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
         burned.append(
             BurnedShot(
                 shot_id=shot_id,
@@ -319,6 +336,7 @@ def burn_captions(
                 screens=len(rendered),
                 duration_s=round(duration_s, 6),
                 boxes=tuple(dict(r.box) for r in rendered),
+                sidecar_path=str(sidecar),
             )
         )
 

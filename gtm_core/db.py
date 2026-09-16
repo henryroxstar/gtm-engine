@@ -19,10 +19,11 @@ for the annotations. ``backend/database.py`` re-exports both names for back-comp
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
+
+from gtm_core.deploy_env import is_hardened
 
 if TYPE_CHECKING:
     import asyncpg
@@ -75,7 +76,10 @@ async def assert_runtime_role_least_privilege(pool: Any) -> None:
             f"bypassrls={row['bypassrls']} — RLS is INERT. Point DATABASE_URL at the "
             f"non-owner gtm_api role (see backend/schema/V009__rls_force_and_role.sql)."
         )
-        if os.getenv("ENV", "production") == "production":
+        # Hardened, not just production: on staging a superuser/BYPASSRLS runtime role means
+        # RLS is INERT and one tenant can read another's rows. Degrading that to a warning on
+        # the only deployed stack was the fail-open this resolver exists to close.
+        if is_hardened():
             raise RuntimeError(msg)
         import warnings
 

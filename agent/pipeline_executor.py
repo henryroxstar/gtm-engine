@@ -2,12 +2,13 @@
 
 Each stage drives one ``ClaudeSDKClient`` turn with the appropriate skill prompt. The executor returns
 a :class:`~agent.pipeline.StageOutcome` — including ``AWAITING_APPROVAL`` when the brain emits the
-plan gate sentinel — so :class:`~agent.pipeline.PipelineRunner` can stop cleanly and wait for an
-operator action from the cockpit.
+plan gate sentinel **or** the stage's node is pack-declared ``gate=true`` — so
+:class:`~agent.pipeline.PipelineRunner` can stop cleanly and wait for an operator action from the
+cockpit (or, for a pack run, the backend's ``POST /gate`` / the VPS CLI's gate-decision verb).
 
-This is intentionally thin: prompts are strings, detection is string-search, and failure is any
-unhandled exception. The real gate logic (resume, cockpit routing) lives in ``cockpit/bot.py``;
-this file just drives the LLM steps.
+This is intentionally thin: prompts are strings, detection is string-search plus a declared-gate
+lookup, and failure is any unhandled exception. The real gate logic (resume, cockpit routing) lives
+in ``cockpit/bot.py``; this file just drives the LLM steps.
 """
 
 from __future__ import annotations
@@ -125,12 +126,14 @@ async def execute_stage(
     cfg: Config,
     profile: str,
     stage_name: str,
-    manifest: dict,  # noqa: ARG001 — available for future use (e.g. passing run_id in prompt)
+    manifest: dict,
     prompts: dict[str, str] | None = None,
     stage_roles: dict[str, str] | None = None,
     usage_sink=None,
     allowed_skills: frozenset[str] | None = None,
     external_effects: dict[str, str | None] | None = None,
+    gates: dict[str, bool] | None = None,
+    run_id_stages: frozenset[str] | None = None,
     language: str | None = None,
 ) -> StageOutcome:
     """Run one pipeline stage by querying the brain with the stage's skill prompt.
@@ -141,9 +144,15 @@ async def execute_stage(
     per-node prompt + ``model_role`` here instead, generalizing the two hardcoded dicts into pack
     data without changing this function's behavior for callers that omit them.
 
-    Returns ``StageOutcome(AWAITING_APPROVAL)`` if the plan gate sentinel appears in the output,
-    ``StageOutcome(SKIPPED)`` for the publish stage (manual in Phase 1), and ``StageOutcome(OK)``
-    on a clean run. Any exception becomes ``StageOutcome(FAILED)``.
+    Returns ``StageOutcome(AWAITING_APPROVAL)`` if the plan gate sentinel appears in the output OR
+    ``gates`` declares this stage ``gate=true`` (A11: a pack node's ``gate=true`` is a structural
+    pause, not merely a hint the skill may or may not honour with a sentinel — see
+    ``agent.packs.make_executor_from_pack``, which is the only caller that ever passes ``gates``).
+    ``gates=None`` (every caller over ``DEFAULT_GRAPH``, i.e. the non-pack news/journey cron path)
+    preserves the historical marker-only behavior exactly — that path carries no pack `gate`
+    declarations to enforce. Returns ``StageOutcome(SKIPPED)`` for a node with a declared
+    ``external_effect`` (the publish/email-enrollment dispatch stages), and ``StageOutcome(OK)`` on
+    a clean, non-gated run. Any exception becomes ``StageOutcome(FAILED)``.
     """
     # A node with a declared external effect is a DISPATCH point, not brain work:
     # short-circuit it to SKIPPED so the brain never performs the effect itself —
@@ -172,6 +181,14 @@ async def execute_stage(
     prompt = _prompts.get(stage_name)
     if prompt is None:
         return StageOutcome(status=FAILED, error=f"unknown stage: {stage_name!r}")
+    node_declared_gate = gates is not None and bool(gates.get(stage_name))
+    if stage_name in (run_id_stages or ()) and manifest.get("run_id"):
+        # An enrollment gate's draft is named after its run so the gate reads this run's draft
+        # and never another's (client issue #245) — which the model can only do if it is told.
+        prompt += (
+            f"\n\nPack run id: {manifest['run_id']}. Wherever a skill names a file after "
+            "<run-id>, use exactly this value."
+        )
 
     _roles = stage_roles if stage_roles is not None else _STAGE_ROLES
     role = _roles.get(stage_name, "brain_plan")
@@ -224,7 +241,7 @@ async def execute_stage(
     except Exception as exc:  # noqa: BLE001 — chain exhausted (or a non-retryable error) → failed stage
         return StageOutcome(status=FAILED, error=f"{type(exc).__name__}: {exc}")
 
-    if _GATE_PLAN_SENTINEL in full_output:
+    if _GATE_PLAN_SENTINEL in full_output or node_declared_gate:
         # Defence-in-depth: the plan brain occasionally emits the gate marker but skips the durable
         # draft write — hallucinating a "lock"/permission block when there is none (the dir is
         # writable, Write is allowed). A Gate-1 pause with no persisted draft is a silent dead end
@@ -242,6 +259,10 @@ async def execute_stage(
                         "(draft was not saved to disk)"
                     ),
                 )
+        # A11: a node declared gate=true pauses REGARDLESS of what the skill did or didn't emit —
+        # the sentinel check above is a second, independent way to reach the same pause, kept for
+        # the marker-only callers (gates=None). Neither condition alone is trusted over the other;
+        # either is sufficient.
         return StageOutcome(status=AWAITING_APPROVAL, outputs=(stage_name,), text=full_output)
 
     return StageOutcome(status=OK, outputs=(stage_name,), text=full_output)

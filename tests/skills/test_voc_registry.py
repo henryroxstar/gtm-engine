@@ -7,6 +7,7 @@ updates are operator-gated via ``propose`` + ``apply``.
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,71 @@ def test_apply_refuses_watch_url_on_wrong_domain(tmp_path):
         )
 
 
+def test_apply_refuses_candidate_with_unknown_product(tmp_path):
+    """apply() must validate a candidate's product (safe segment + dir exists) BEFORE
+    writing anything — an unqualified product must not slip a row into competitors.toml."""
+    profiles = tmp_path / "profiles"
+    registry_path = profiles / "acme" / "knowledge" / "competitors.toml"
+    proposals = tmp_path / "proposals.json"
+    candidates = [
+        {
+            "name": "Ghost",
+            "tier": "direct",
+            "product": "no-such-product",
+            "aliases": [],
+            "watch_urls": ["https://ghost.example/blog/"],
+            "domains": ["ghost.example"],
+            "syften_filter": "",
+        }
+    ]
+    proposals.write_text(json.dumps({"candidates": candidates}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unknown product 'no-such-product'"):
+        reg.apply(
+            profiles_root=profiles,
+            profile="acme",
+            proposals_path=proposals,
+            accept=["Ghost"],
+        )
+    assert not registry_path.exists()
+
+
+def test_apply_writes_a_valid_product(tmp_path):
+    """apply() must accept a candidate whose product names a real products/<slug>/
+    directory, write the `product` key (right after `tier`), and load() must return it."""
+    profiles = tmp_path / "profiles"
+    _make_product_dir(profiles, "acme", "widget-app")
+    (profiles / "acme" / "knowledge").mkdir(parents=True)
+    proposals = tmp_path / "proposals.json"
+    candidates = [
+        {
+            "name": "Clay",
+            "tier": "direct",
+            "product": "widget-app",
+            "aliases": [],
+            "watch_urls": ["https://clay.example/blog/"],
+            "domains": ["clay.example"],
+            "syften_filter": "",
+        }
+    ]
+    proposals.write_text(json.dumps({"candidates": candidates}), encoding="utf-8")
+
+    appended = reg.apply(
+        profiles_root=profiles,
+        profile="acme",
+        proposals_path=proposals,
+        accept=["Clay"],
+    )
+    assert appended == ["Clay"]
+
+    registry_path = profiles / "acme" / "knowledge" / "competitors.toml"
+    written_keys = list(tomllib.loads(registry_path.read_text(encoding="utf-8"))["competitor"][0])
+    assert written_keys.index("product") == written_keys.index("tier") + 1
+
+    registry = reg.load(profile="acme", profiles_root=profiles)
+    assert registry["competitor"][0]["product"] == "widget-app"
+
+
 def test_apply_appends_and_is_idempotent(tmp_path):
     profiles = tmp_path / "profiles"
     registry_path = profiles / "acme" / "knowledge" / "competitors.toml"
@@ -147,6 +213,198 @@ def test_apply_appends_and_is_idempotent(tmp_path):
         accept=["NewCo"],
     )
     assert appended2 == []
+
+
+def test_cli_apply_output_shows_each_appended_rows_product(tmp_path, capsys):
+    """§R5: the operator approves by name only, but a proposal's `product` rides in
+    with it — the CLI output must surface that on the approval surface."""
+    profiles = tmp_path / "profiles"
+    _make_product_dir(profiles, "acme", "widget-app")
+    (profiles / "acme" / "knowledge").mkdir(parents=True)
+    proposals = tmp_path / "proposals.json"
+    candidates = [
+        {
+            "name": "Clay",
+            "tier": "direct",
+            "product": "widget-app",
+            "aliases": [],
+            "watch_urls": ["https://clay.example/blog/"],
+            "domains": ["clay.example"],
+            "syften_filter": "",
+        },
+        {
+            "name": "Apollo",
+            "tier": "direct",
+            "aliases": [],
+            "watch_urls": ["https://apollo.example/blog/"],
+            "domains": ["apollo.example"],
+            "syften_filter": "",
+        },
+    ]
+    proposals.write_text(json.dumps({"candidates": candidates}), encoding="utf-8")
+
+    exit_code = reg.main(
+        [
+            "--profile",
+            "acme",
+            "--repo-root",
+            str(tmp_path),
+            "apply",
+            "--proposals",
+            str(proposals),
+            "--accept",
+            "Clay",
+            "Apollo",
+        ]
+    )
+    assert exit_code == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "Appended 2 competitor(s): Clay [widget-app], Apollo [all products]"
+
+
+def _write_registry(root: Path, profile: str, rows_toml: str) -> Path:
+    path = root / profile / "knowledge" / "competitors.toml"
+    _write(path, f'schema = 1\nreviewed = "2026-07-01"\n{rows_toml}')
+    return path
+
+
+def _make_product_dir(root: Path, profile: str, slug: str) -> None:
+    (root / profile / "products" / slug).mkdir(parents=True)
+
+
+ROW_NO_PRODUCT = (
+    '[[competitor]]\nname = "AllProducts"\ntier = "direct"\naliases = []\n'
+    'watch_urls = []\ndomains = []\nsyften_filter = ""\n'
+)
+
+ROWS_TWO_PRODUCTS = (
+    ROW_NO_PRODUCT + "\n"
+    '[[competitor]]\nname = "GadgetRival"\ntier = "direct"\nproduct = "gadget-app"\n'
+    'aliases = []\nwatch_urls = []\ndomains = []\nsyften_filter = ""\n\n'
+    '[[competitor]]\nname = "WidgetRival"\ntier = "direct"\nproduct = "widget-app"\n'
+    'aliases = []\nwatch_urls = []\ndomains = []\nsyften_filter = ""\n'
+)
+
+
+def test_validate_accepts_absent_product():
+    data = {"schema": 1, "competitor": [{"name": "X", "tier": "direct"}]}
+    reg.validate(data)  # must not raise
+
+
+def test_validate_rejects_empty_product():
+    data = {"schema": 1, "competitor": [{"name": "X", "tier": "direct", "product": ""}]}
+    with pytest.raises(ValueError, match="product"):
+        reg.validate(data)
+
+
+def test_validate_rejects_unsafe_product_slug():
+    for bad in ("../x", "a/b"):
+        data = {"schema": 1, "competitor": [{"name": "X", "tier": "direct", "product": bad}]}
+        with pytest.raises(ValueError, match="unsafe product"):
+            reg.validate(data)
+
+
+def test_load_absent_product_applies_to_all(tmp_path):
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROW_NO_PRODUCT)
+    _make_product_dir(root, "acme", "gadget-app")
+
+    unfiltered = reg.load(profile="acme", profiles_root=root)
+    assert [c["name"] for c in unfiltered["competitor"]] == ["AllProducts"]
+
+    filtered = reg.load(profile="acme", profiles_root=root, product="gadget-app")
+    assert [c["name"] for c in filtered["competitor"]] == ["AllProducts"]
+
+
+def test_load_filters_by_product(tmp_path):
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROWS_TWO_PRODUCTS)
+    _make_product_dir(root, "acme", "gadget-app")
+    _make_product_dir(root, "acme", "widget-app")
+
+    gadget = reg.load(profile="acme", profiles_root=root, product="gadget-app")
+    assert {c["name"] for c in gadget["competitor"]} == {"AllProducts", "GadgetRival"}
+
+    widget_app = reg.load(profile="acme", profiles_root=root, product="widget-app")
+    assert {c["name"] for c in widget_app["competitor"]} == {"AllProducts", "WidgetRival"}
+
+    unfiltered = reg.load(profile="acme", profiles_root=root)
+    assert len(unfiltered["competitor"]) == 3
+
+
+def test_load_raises_on_unknown_product_slug(tmp_path):
+    root = tmp_path / "profiles"
+    rows = (
+        '[[competitor]]\nname = "Ghost"\ntier = "direct"\nproduct = "no-such-product"\n'
+        'aliases = []\nwatch_urls = []\ndomains = []\nsyften_filter = ""\n'
+    )
+    _write_registry(root, "acme", rows)
+    # No products/no-such-product directory created.
+    with pytest.raises(ValueError, match="Ghost") as exc_info:
+        reg.load(profile="acme", profiles_root=root)
+    assert "no-such-product" in str(exc_info.value)
+
+
+def test_load_rejects_unsafe_product_argument(tmp_path):
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROW_NO_PRODUCT)
+    for bad in ("../x", "a/b"):
+        with pytest.raises(ValueError, match="unsafe product"):
+            reg.load(profile="acme", profiles_root=root, product=bad)
+
+
+def test_load_raises_on_unknown_requested_product(tmp_path):
+    """A REQUESTED --product that doesn't exist must be rejected, not silently
+    return only the unscoped rows — same failure mode a typo'd row product hides."""
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROW_NO_PRODUCT)
+    _make_product_dir(root, "acme", "gadget-app")
+    with pytest.raises(ValueError, match="unknown product 'nope'"):
+        reg.load(profile="acme", profiles_root=root, product="nope")
+
+
+def test_cli_show_filters_by_product(tmp_path, capsys):
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROWS_TWO_PRODUCTS)
+    _make_product_dir(root, "acme", "gadget-app")
+    _make_product_dir(root, "acme", "widget-app")
+
+    exit_code = reg.main(
+        ["--profile", "acme", "--repo-root", str(tmp_path), "show", "--product", "gadget-app"]
+    )
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert {c["name"] for c in payload["competitor"]} == {"AllProducts", "GadgetRival"}
+
+
+def test_cli_show_raises_on_unknown_requested_product(tmp_path):
+    root = tmp_path / "profiles"
+    _write_registry(root, "acme", ROW_NO_PRODUCT)
+    _make_product_dir(root, "acme", "gadget-app")
+
+    with pytest.raises(ValueError, match="unknown product 'nope'"):
+        reg.main(["--profile", "acme", "--repo-root", str(tmp_path), "show", "--product", "nope"])
+
+
+def test_cli_budget_counts_only_that_products_rows(tmp_path, capsys):
+    root = tmp_path / "profiles"
+    rows = (
+        '[[competitor]]\nname = "GadgetRival"\ntier = "direct"\nproduct = "gadget-app"\n'
+        'aliases = []\nwatch_urls = []\ndomains = []\nsyften_filter = "gadget-tag"\n\n'
+        '[[competitor]]\nname = "WidgetRival"\ntier = "direct"\nproduct = "widget-app"\n'
+        'aliases = []\nwatch_urls = []\ndomains = []\nsyften_filter = "fl-tag"\n'
+    )
+    _write_registry(root, "acme", rows)
+    _make_product_dir(root, "acme", "gadget-app")
+    _make_product_dir(root, "acme", "widget-app")
+
+    exit_code = reg.main(
+        ["--profile", "acme", "--repo-root", str(tmp_path), "budget", "--product", "gadget-app"]
+    )
+    assert exit_code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["total"] == 1
+    assert report["uncovered_direct"][0]["name"] == "GadgetRival"
 
 
 def test_filter_budget_report_matches_tags():

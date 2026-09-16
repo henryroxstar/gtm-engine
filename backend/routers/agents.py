@@ -24,6 +24,7 @@ from ..agents import _AGENT_COLS, agent_row_to_dict, fetch_agent
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
 from ..schemas import AgentCreateRequest, AgentResponse, AgentUpdateRequest
+from ..types import UuidStr
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -154,7 +155,7 @@ async def list_agents(
 
 @router.get("/{agent_id}", response_model=AgentResponse, response_model_exclude_none=True)
 async def get_agent(
-    agent_id: str,
+    agent_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> AgentResponse:
@@ -168,7 +169,7 @@ async def get_agent(
 
 @router.patch("/{agent_id}", response_model=AgentResponse, response_model_exclude_none=True)
 async def update_agent(
-    agent_id: str,
+    agent_id: UuidStr,
     body: AgentUpdateRequest,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
@@ -223,7 +224,7 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_agent(
-    agent_id: str,
+    agent_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> None:

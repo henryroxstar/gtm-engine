@@ -29,7 +29,7 @@ from pathlib import Path
 from ..lane_verdicts import LANE_VERDICTS
 from ..prospects_consolidate import _prospects_dir
 from ..slugify import slug
-from .format import _e
+from .format import _e, _row_status, roster_partial, scope_label
 
 #: Group id -> (heading, the one-line explanation of what being in this group means).
 #: ORDER IS THE READING ORDER, and it is work-first: the groups a person can act on today
@@ -132,18 +132,25 @@ def _provider_enrolled(m: dict) -> dict[str, int]:
 def _group_of(row: dict, packs: set[str], candidates: dict[str, dict]) -> str:
     """Which group this account belongs to. First match wins, and the order is the claim.
 
-    Pack and enrolment come first because they are POSITIVE facts about work already done —
-    an account with a written pack is in the pack group even if its verdict is thin, since
-    the pack is what someone would act on. Everything after them is a reason nothing is
-    ready.
+    Enrolment and pack come first because they are POSITIVE facts about work already done.
+    Between the two, enrolment wins: a sequencer holding the row describes the send that is
+    about to happen, while a pack file describes one that was drafted. Everything after them
+    is a reason nothing is ready.
     """
-    if slug(row["company"]) in packs:
-        return "pack"
     cand = candidates.get(row["email"].lower())
+    # ENROLMENT OUTRANKS A PACK FILE, and the order matters. A pack on disk is a record that
+    # someone once hand-wrote an email; being on a sequencer's list is what is true about the
+    # send NOW. On 2026-09-09 the 5 Tier-A pack contacts were folded onto the generic arc, and
+    # with `pack` checked first the worklist kept filing them under "sent by hand" while the
+    # provider had them enrolled — the page disagreeing with the sequencer about six people.
+    # The pack files are deliberately left on disk; they are history, not a work state.
+    #
     # On a candidate list AND admissible. A row the gate refuses is not staged, whichever
     # file it sits in — it falls through to `excluded` below, where its verdict puts it.
     if cand and cand["admissible"]:
         return "staged"
+    if slug(row["company"]) in packs:
+        return "pack"
     if row["verdict"] and row["verdict"] not in _SENDABLE:
         return "excluded"
     if not row["email"]:
@@ -184,18 +191,22 @@ def _verified(row: dict) -> str:
     return "verified contact lookup"
 
 
-def _row_html(row: dict, group: str, candidates: dict[str, dict]) -> str:
+def _row_html(m: dict, row: dict, group: str, candidates: dict[str, dict]) -> str:
     tier = f' <span class="pill">{_e(row["tier"])}</span>' if row.get("tier") else ""
     contact = _e(row["seat"]) if row.get("seat") else '<span class="muted">no named seat</span>'
     email = _e(row["email"]) if row["email"] else '<span class="muted">none</span>'
     verdict = _e(row["verdict"]) if row.get("verdict") else '<span class="muted">—</span>'
     return (
-        "<tr>"
+        # `data-row` is the CANONICAL roster index, not this table's display position: the
+        # who-tab renders the same rows in a different order and stamps the same index, so
+        # one filter selection hides the same account on both.
+        f'<tr data-row="{row["i"]}">'
         f"<td><strong>{_e(row['company'])}</strong>{tier}</td>"
+        f"<td>{_row_status(m, row['email'])}</td>"
         f"<td>{contact}</td>"
         f"<td class='mono'>{email}</td>"
         f"<td>{_e(_verified(row))}</td>"
-        f"<td>{verdict}</td>"
+        f"<td class='tech'>{verdict}</td>"
         f"<td>{_e(_stands(row, group, candidates))}</td>"
         "</tr>"
     )
@@ -275,24 +286,43 @@ def _worklist_view(m: dict) -> str:
             continue
         rows.sort(key=lambda r: (r.get("tier") != "A", r["company"].lower()))
         body.append(
-            f'<tr class="grp"><td colspan="6"><strong>{_e(heading)}</strong> '
-            f'<span class="pill">{len(rows)}</span>'
+            f'<tr class="grp" data-group="{_e(gid)}"><td colspan="7">'
+            f"<strong>{_e(heading)}</strong> "
+            f'<span class="pill" data-group-count="{_e(gid)}">{len(rows)}</span>'
             f'<div class="note">{_e(blurb)}</div></td></tr>'
         )
-        body.extend(_row_html(r, gid, candidates) for r in rows)
+        body.extend(_row_html(m, r, gid, candidates) for r in rows)
 
+    # Each chip is a slot the filter rewrites, so the pills, the headings and the visible
+    # rows cannot drift apart. `*` is the whole shown set rather than a seventh group.
     counts = " · ".join(
-        f"{_e(h.split(' — ')[0])} {len(buckets[g])}" for g, h, _ in GROUPS if buckets[g]
+        f'<span data-group="{_e(g)}">{_e(h.split(" — ")[0])} '
+        f'<span data-group-count="{_e(g)}">{len(buckets[g])}</span></span>'
+        for g, h, _ in GROUPS
+        if buckets[g]
+    )
+    # The worklist has one line per ROW — a (campaign, account) pair — while every tile on
+    # this page counts distinct accounts. They are equal until two campaigns work the same
+    # account, and the day they differ the reader is told rather than left to add up pills
+    # that do not reach the headline.
+    accounts = len({r["company"] for r in roster})
+    shared = (
+        f" {placed - accounts} of these lines are an account a second campaign is also "
+        "working, so the account total above is lower."
+        if placed != accounts
+        else ""
     )
     return f"""
     <div class="card">
       <h2>Every account, and what is left to do with it</h2>
-      <p class="note">All {placed} accounts in this campaign, each in exactly one group,
-      ordered closest-to-sending first. {_e(counts)}.</p>
+      <p class="note">All <span data-group-count="*">{placed}</span> accounts in
+      {_e(scope_label(m))}, each in exactly one group, ordered closest-to-sending first.
+      {counts}. {_e(shared)} {_e(roster_partial(m))}</p>
       <table>
         <thead><tr>
-          <th>Account</th><th>Contact</th><th>Email</th>
-          <th>How it was verified</th><th>Research verdict</th><th>Where it stands</th>
+          <th>Account</th><th>Status</th><th>Contact</th><th>Email</th>
+          <th>How it was verified</th><th class="tech">Research verdict</th>
+          <th>Where it stands</th>
         </tr></thead>
         <tbody>{"".join(body)}</tbody>
       </table>

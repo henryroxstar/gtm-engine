@@ -10,10 +10,10 @@
 No. You never open a "terminal" or type commands. You talk to the assistant in plain English — *"set me up," "find prospects," "prep me for my call with Acme"* — and it does the technical work for you. If you can hold a chat conversation, you can run this.
 
 **Which app do I use?**
-The **Claude desktop app** ([claude.ai/download](https://claude.ai/download)). GTM Engine is built for Claude — its skills and the "set me up" flow are part of Claude itself.
+For this non-technical guide, the **Claude desktop app** ([claude.ai/download](https://claude.ai/download)). Technical users and developers can also run GTM Engine in **Google Antigravity**, **Cursor**, or **Codex**.
 
 **Can I use ChatGPT, Gemini, or Copilot instead?**
-No. The engine's skills only load inside Claude — this isn't a "pick your favorite AI" situation. Other assistants can't run it. If your company uses a different assistant for other things, that's fine; for GTM Engine specifically, you use the Claude desktop app.
+For general non-technical chat, the guide is written for Claude desktop Cowork mode because it requires zero configuration. If you work in developer environments, **Gemini (via Google Antigravity)** and **Copilot/Codex** are supported out of the box using the repository's `.agents/` configuration and tool translation rules.
 
 **How long until I'm actually using it?**
 About 30 minutes, and most of that is the engine reading your website and materials. The "set me up" conversation itself is a couple of minutes of your attention.

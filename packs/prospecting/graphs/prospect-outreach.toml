@@ -7,13 +7,28 @@
 # rendered email bodies are all customer PII (CLAUDE.md tenant boundary), so this pack has
 # no brain_radar stage, unlike marketing's news-triage nodes.
 #
-# TWO gates, both load-bearing and deliberately NOT collapsed into one:
-#   * `outreach` — the human copy review.
-#   * `sequence` — the PII-egress confirmation before rows reach a third-party processor.
-# The `quality` node (the judge) sits between them. It RANKS and never gates: it writes a
-# verdict column, and the deterministic `account_integrity --require-verdict send` is what
-# refuses a row. A language-model check must not become a gate, and it does not replace
-# the human review at `outreach`.
+# ONE human pause, placed where a decision matters (the pack gate rule: pause only to commit a
+# direction, protect an expensive step, or stop something leaving the system) — here, before
+# prospect data leaves the system. `outreach` was
+# gated too until 2026-09-14; that pause guarded neither spend nor egress (the copy was
+# already written, and `quality` is cheap), so the operator reviews the finished copy AND the
+# lead list together at `sequence`. Removing a lead after that is done in the sequencer —
+# the sequence is PAUSED and nothing sends until a human activates it.
+#   * `sequence` — the one pause: the PII-egress confirmation before rows reach a third-party
+#     processor. This node only DRAFTS the sequence structure + the lead-enrollment plan; it never
+#     calls Saleshandy's enrollment endpoint itself (add_leads_to_sequence /
+#     import_prospects_to_sequence are denied to the brain outright — agent/permissions.py).
+#   * `sequence-enroll` — not a pause: the actual enrollment call, dispatched by PYTHON ONLY
+#     (agent/email_dispatch.py), never the brain, and only after the `sequence` gate above
+#     is approved — the same shape as the publish gate: build is a capability the brain
+#     holds, the side effect is not (see the email-sequence design PRD and its 2026-09-14
+#     addendum). The brain never runs this node at all: `external_effect =
+#     "email_enroll"` short-circuits it to SKIPPED before any model call
+#     (agent/pipeline_executor.py's dispatch check).
+# The `quality` node (the judge) sits between `outreach` and `sequence`. It RANKS and never
+# gates: it writes a verdict column, and the deterministic `account_integrity
+# --require-verdict send` is what refuses a row. A language-model check must not become a
+# gate, and it does not replace the human review at `sequence`.
 
 pack = "prospecting"
 variant = "prospect-outreach"
@@ -36,8 +51,7 @@ id = "outreach"
 depends_on = ["dossier"]
 model_role = "brain_plan"
 skill = "draft-outreach"
-gate = true
-prompt = "Run the draft-outreach skill to draft outreach for each dossiered account and present it for approval before send."
+prompt = "Run the draft-outreach skill to draft outreach for each dossiered account. Nothing is sent from this step; the operator reviews the finished copy with the lead list at the sequence gate."
 
 # --- quality + staging (added 2026-08-25) -----------------------------------
 #
@@ -55,7 +69,7 @@ id = "quality"
 depends_on = ["outreach"]
 model_role = "brain_plan"
 skill = "email-quality"
-prompt = "Run the email-quality skill in judge mode: score EVERY drafted row against the rubric, assert record count equals row count, and write a verdict per row. The judge ranks; it does not replace the human review at the outreach gate."
+prompt = "Run the email-quality skill in judge mode: score EVERY drafted row against the rubric, assert record count equals row count, and write a verdict per row. The judge ranks; it does not replace the human review at the sequence gate."
 
 [[nodes]]
 id = "sequence"
@@ -63,4 +77,12 @@ depends_on = ["quality"]
 model_role = "brain_plan"
 skill = "email-sequence"
 gate = true
-prompt = "Run the email-sequence skill to stage only send-verdict rows as a PAUSED sequence in the connected sequencer. Enrolling pushes prospect PII to a third-party processor, so this node is gated. Never activate — the operator activates in the sequencer's own UI."
+prompt = "Run the email-sequence skill to build a PAUSED sequence for only the send-verdict rows in the connected sequencer, and compose the lead-enrollment plan as a reviewable draft. Write the plan as an `import_prospects_to_sequence` request carrying both halves of what the operator approves: `steps` — every step of the paused sequence with all of its variants (`subject`, `content`, `preheader` if set), copied verbatim from what you staged — and `prospect_list`, one row per person keyed by Saleshandy field label (`Email`, `First Name`, `Last Name`, `Company`, plus every custom field the copy merges, such as `Why Now` from `signal_clause`), never bare `add_leads_to_sequence` lead IDs — so the approval names the actual people and the exact words they will receive. Enrollment reads the sequence back from Saleshandy and enrolls nobody if its copy differs from `steps`. Do NOT enroll any lead and do NOT call add_leads_to_sequence or import_prospects_to_sequence — those tools are denied to you outright. Write the enrollment plan to `.pending/<run-id>.enroll-draft.json`, named with the pack run id given at the end of this prompt, and stop; present it for approval. Before stopping, also regenerate the campaign status page (`python -m gtm_core.email_campaign_dashboard --profile <active>`) so the operator has the full account/sequence picture alongside the plan. Enrollment happens only after this gate is approved, dispatched by Python (never you) in the sequence-enroll step. Never activate the sequence — the operator activates it in the sequencer's own UI."
+
+[[nodes]]
+id = "sequence-enroll"
+depends_on = ["sequence"]
+model_role = "brain_plan"
+gate = true
+external_effect = "email_enroll"
+prompt = "Enrollment dispatch — Python-only, after operator approval; the brain never runs this node."

@@ -269,6 +269,308 @@ def test_status_tab_is_first_and_shows_sending_and_prospecting(tmp_path):
     assert "Finding new people" in page
 
 
+# ----------------------------------------------------------------- PS14: the status tiles
+
+
+def _write_lane_state(tmp_path, profile, rows):
+    evals = pc._prospects_dir(profile, tmp_path) / "evals"
+    evals.mkdir(parents=True, exist_ok=True)
+    with (evals / "lanes-state.jsonl").open("w", encoding="utf-8") as fh:
+        for r in rows:
+            fh.write(json.dumps(r) + "\n")
+
+
+def test_status_tiles_render_a_dash_when_the_router_has_never_run(tmp_path):
+    """No `lanes-state.jsonl` at all must read as an honest refusal per tile — the same
+    "—" plus a reason shape the sending-ceiling tile already uses — never a misleading zero
+    that would read as "nothing is waiting" when the truth is "nobody has looked yet".
+    Includes positive and negative controls (§R18)."""
+    profile = _seed(tmp_path)
+    page = _page(tmp_path, profile)
+    for label in (
+        "Waiting on you",
+        "Ready to send",
+        "Being fixed",
+        "In the sending tool",
+        "Not emailing",
+    ):
+        assert label in page
+    assert "run your prospecting first" in page
+    assert "Needs an address" in page
+
+    # Proof that tiles render "—" and NOT "0":
+    # exactly 5 lane tiles must render "—" as their stat-value
+    assert page.count('<div class="stat-value">—</div>') >= 5
+
+    # Negative control (§R18): once lanes-state exists, the 5 lane tiles do NOT render "—"
+    _write_lane_state(
+        tmp_path,
+        profile,
+        [{"email": "ada@analytical.example", "lane": "personalised", "reason": "researcher-send"}],
+    )
+    page_with_state = _page(tmp_path, profile)
+    assert "These five sum to" in page_with_state
+    assert page_with_state.count('<div class="stat-value">—</div>') < 5
+
+
+def test_status_tiles_sum_to_the_derived_total_and_hold_out_the_unmapped(tmp_path):
+    """The five tiles must sum to a number DERIVED from the model, never typed (§R14), and
+    a `(lane, reason)` pair `status_of` does not recognise must not blank the whole page."""
+    profile = _seed(tmp_path)
+    _write_lane_state(
+        tmp_path,
+        profile,
+        [
+            {"email": "a@x.example", "lane": "hold", "reason": "tier-a-generic"},
+            {"email": "b@x.example", "lane": "personalised", "reason": "personalised"},
+            {"email": "c@x.example", "lane": "repair", "reason": "repair"},
+            {"email": "d@x.example", "lane": "excluded", "reason": "already-enrolled"},
+            {"email": "e@x.example", "lane": "excluded", "reason": "optout"},
+            # unmapped on purpose — a trigger `status_of` has never seen.
+            {"email": "z@x.example", "lane": "hold", "reason": "not-a-real-trigger"},
+        ],
+    )
+    model = gd.build_model(profile, tmp_path)
+    assert model["prospect_status"]["total"] == 5
+    assert model["prospect_status"]["unmapped"] == 1
+    page = gd.render_html(model)
+    assert "These five sum to <strong>5</strong>" in page
+    assert "1 more row(s)" in page and "does not recognise" in page
+
+
+def test_needs_address_is_kept_out_of_the_five_tile_total(tmp_path):
+    """A different, larger population — the account ledger, not the current routed list —
+    and the page must say so rather than implying it is folded into the five-tile sum."""
+    profile = _seed(tmp_path)
+    _write_lane_state(
+        tmp_path,
+        profile,
+        [{"email": "a@x.example", "lane": "personalised", "reason": "personalised"}],
+    )
+    (pc._prospects_dir(profile, tmp_path) / "latest.json").write_text(
+        json.dumps(
+            {
+                "kind": "prospects",
+                "profile": profile,
+                "items": [
+                    {
+                        "account_id": "1",
+                        "contact_name": "Ada Lovelace",
+                        "contact_email": "",
+                        "status": "new",
+                    },
+                    # Retired — a named contact with no address here does not need one.
+                    {
+                        "account_id": "2",
+                        "contact_name": "Bo Nyte",
+                        "contact_email": "",
+                        "status": "disqualified",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    model = gd.build_model(profile, tmp_path)
+    assert model["prospect_status"]["total"] == 1
+    assert model["prospect_status"]["needs_address"] == 1
+    page = gd.render_html(model)
+    assert "A different population" in page
+    assert "not part of the 1 above" in page
+
+
+def test_status_column_appears_on_both_row_level_tables_and_marks_seat_kind_technical(
+    tmp_path,
+):
+    """PS14's Status column, end to end: joined by email onto the worklist AND the who-tab
+    table, with the existing machine columns moved behind the technical-detail toggle."""
+    profile = _seed(tmp_path)
+    pros = pc._prospects_dir(profile, tmp_path)
+    (pros / "mine-hubspot.csv").write_text(
+        "First Name,Last Name,Email,Company Name,Company Domain Name,Email Status,GTM_Tier\n"
+        "Ada,L,ada@analytical.example,Analytical Engine,analytical.example,verified,A\n",
+        encoding="utf-8",
+    )
+    (pros.parent / "plans" / "campaigns" / "c1.campaign.toml").write_text(
+        'slug = "c1"\ntitle = "Campaign One"\nsequences = ["S1"]\n'
+        'roster_globs = ["mine-hubspot.csv"]\n\n[targets]\nemails = 9\n',
+        encoding="utf-8",
+    )
+    _write_lane_state(
+        tmp_path,
+        profile,
+        [{"email": "ada@analytical.example", "lane": "personalised", "reason": "personalised"}],
+    )
+    page = _page(tmp_path, profile)
+    assert page.count("<th>Status</th>") == 2, "one on the worklist table, one on who's"
+    assert "Ready to send" in page
+    assert '<th class="tech">Seat kind</th>' in page
+    assert '<th class="tech">Research verdict</th>' in page
+
+
+def test_i9_machine_columns_hidden_or_relabeled_in_page_headers(tmp_path):
+    """PS-R I9: Eight machine columns must not be default-visible as table headers:
+    forecast Lane -> Audience, views_status State -> Status, Counted as -> How it is counted,
+    views_who Seat (class="tech"), Signal -> Buying signal, Route -> Qualification path,
+    views_what Flagged here -> Issues found, Blocking -> Blocking issues.
+    """
+    import re
+
+    profile = _seed(tmp_path)
+    pros = pc._prospects_dir(profile, tmp_path)
+    (pros / "mine-hubspot.csv").write_text(
+        "First Name,Last Name,Email,Company Name,Company Domain Name,Email Status,GTM_Tier\n"
+        "Ada,L,ada@analytical.example,Analytical Engine,analytical.example,verified,A\n",
+        encoding="utf-8",
+    )
+    (pros.parent / "plans" / "campaigns" / "c1.campaign.toml").write_text(
+        'slug = "c1"\ntitle = "Campaign One"\nsequences = ["S1"]\n'
+        'roster_globs = ["mine-hubspot.csv"]\n\n[targets]\nemails = 9\n',
+        encoding="utf-8",
+    )
+    page = _page(tmp_path, profile)
+
+    th_matches = re.findall(r"<th(\s+[^>]*)?>(.*?)</th>", page, re.DOTALL | re.IGNORECASE)
+    default_visible_headers = [
+        re.sub(r"<[^>]+>", "", text).strip()
+        for attrs, text in th_matches
+        if 'class="tech"' not in (attrs or "") and "class='tech'" not in (attrs or "")
+    ]
+    tech_headers = [
+        re.sub(r"<[^>]+>", "", text).strip()
+        for attrs, text in th_matches
+        if 'class="tech"' in (attrs or "") or "class='tech'" in (attrs or "")
+    ]
+
+    banned_default = [
+        "Lane",
+        "Counted as",
+        "State",
+        "Seat",
+        "Signal",
+        "Route",
+        "Flagged here",
+        "Blocking",
+    ]
+    for col in banned_default:
+        assert col not in default_visible_headers, (
+            f"Machine column {col!r} is default-visible in table headers: {default_visible_headers}"
+        )
+
+    assert "Seat" in tech_headers
+    assert "Seat kind" in tech_headers
+    assert "Research verdict" in tech_headers
+
+
+def test_i10_status_tiles_scope_note_on_campaign_page_and_provenance(tmp_path):
+    """PS-R I10: On a campaign-scoped page, status card must render _pool_scope_note,
+    and status tiles must declare their provenance token (status:<key>) resolved by resolve_src."""
+    from gtm_core.email_campaign_dashboard import format as fmt
+    from tests.contracts.test_dashboard_tile_provenance import check_tiles
+
+    profile = _seed(tmp_path)
+    camp = pc._prospects_dir(profile, tmp_path).parent / "plans" / "campaigns"
+    (camp / "c1.campaign.toml").write_text(
+        'slug = "c1"\ntitle = "Campaign One"\nsequences = ["S1"]\n'
+        'roster_globs = ["mine-hubspot.csv"]\n\n[targets]\nemails = 9\n',
+        encoding="utf-8",
+    )
+    _write_lane_state(
+        tmp_path,
+        profile,
+        [{"email": "ada@analytical.example", "lane": "personalised", "reason": "personalised"}],
+    )
+
+    model = gd.build_model(profile, tmp_path)
+    scoped = gd.scope_to_campaign(model, "c1")
+    page = gd.render_html(scoped)
+
+    assert "Profile-wide, not" in page
+    assert "The prospect pool is shared" in page
+
+    status_tiles = [t for t in fmt._tiles_recorded() if str(t.get("src", "")).startswith("status:")]
+    assert len(status_tiles) >= 5, "Status tiles must declare status:<key> provenance"
+    check_tiles(scoped, status_tiles)
+
+
+def test_m15_m16_lane_state_malformed_and_unmapped_status(tmp_path):
+    """M15 & M16: _read_lane_state handles malformed and non-dict lines gracefully;
+    unmapped rows are recorded as 'unmapped' in by_email and rendered as
+    '<span class="pill warn">status unmapped</span>'."""
+    from gtm_core.email_campaign_dashboard.format import _row_status
+    from gtm_core.email_campaign_dashboard.model import prospect_status_model
+
+    profile = _seed(tmp_path)
+    state_file = tmp_path / profile / "prospects" / "evals" / "lanes-state.jsonl"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        '{"email": "good@example.com", "lane": "personalised", "reason": "personalised"}\n'
+        "not json\n"
+        "null\n"
+        "42\n"
+        '{"email": "unmapped@example.com", "lane": "hold", "reason": "not-a-real-trigger"}\n',
+        encoding="utf-8",
+    )
+    ps = prospect_status_model(profile, tmp_path)
+    assert ps["available"] is True
+    assert ps["unmapped"] == 1
+    assert ps["by_email"]["good@example.com"] == "ready_to_send"
+    assert ps["by_email"]["unmapped@example.com"] == "unmapped"
+
+    m = {"prospect_status": ps}
+    assert (
+        _row_status(m, "unmapped@example.com") == '<span class="pill warn">status unmapped</span>'
+    )
+    assert _row_status(m, "good@example.com") == "Ready to send"
+    assert _row_status(m, "other@example.com") == '<span class="muted">not yet routed</span>'
+
+
+def test_m17_ops_view_drifted_deduplication_by_sequence_id():
+    """M17: views_learn._ops_view deduplicates messages by sequence_id."""
+    from gtm_core.email_campaign_dashboard.views_learn import _ops_view
+
+    m = {
+        "campaigns": {
+            "campaigns": [{"state": "not_sending", "targets": {"emails": 10}, "sequences": []}]
+        },
+        "status": {"sequences": []},
+        "messages": [
+            {"sequence_id": "seq1", "lint": {"drift": ["body changed"]}},
+            {"sequence_id": "seq1", "lint": {"drift": ["body changed"]}},  # duplicate registration
+            {"sequence_id": "seq2", "lint": {"drift": []}},
+        ],
+    }
+    html = _ops_view(m)
+    assert "<strong>1 of 2 sequences</strong> were revised" in html
+
+
+def test_m18_render_dashboard_syncs_tech_toggle_on_load(tmp_path):
+    """M18: render.py calls syncTech on page load to restore checkbox state on reload."""
+    profile = _seed(tmp_path)
+    page = _page(tmp_path, profile)
+    assert "syncTech()" in page
+    assert "techToggle.addEventListener('change', syncTech)" in page
+
+
+def test_m19_prospect_status_card_no_state_diff_note(tmp_path):
+    """M19: When available is False, the Needs-an-address card notes 'not part of the routed list'."""
+    from gtm_core.email_campaign_dashboard import views_status
+
+    m = {
+        "prospect_status": {
+            "available": False,
+            "counts": {},
+            "total": 0,
+            "unmapped": 0,
+            "needs_address": 5,
+        },
+        "campaigns": {"campaigns": []},
+    }
+    html = views_status._prospect_status_block(m)
+    assert "A different population — not part of the routed list." in html
+    assert "not part of the 0 above" not in html
+
+
 def test_good_to_email_says_what_it_does_not_mean(tmp_path):
     """The bucket guarantees deliverability, market and suppression — NOT that the account
     was ICP-scored, that intent was found, that a dossier exists, or that copy was drafted.
@@ -925,6 +1227,18 @@ def _exports(tmp_path, *files):
     return d
 
 
+def _src(*globs, campaign="c1", product="Brightpath Health"):
+    """A `RosterSource` for the direct `roster_model` tests.
+
+    The signature took a bare glob list until 2026-09-10. It takes sources now because a row
+    has to know which campaign contributed it — a bare list cannot say, and a row that cannot
+    say is unfilterable by campaign or product.
+    """
+    from gtm_core.email_campaign_dashboard.roster import RosterSource
+
+    return RosterSource(campaign, product, tuple(globs))
+
+
 def test_roster_folds_by_company_keeping_the_richest_row(tmp_path):
     """A discovery pass then an enrichment pass. Taking the first would report the
     pre-enrichment snapshot: on 2026-09-04 that was 18 accounts with 2 addresses, against 26
@@ -936,7 +1250,7 @@ def test_roster_folds_by_company_keeping_the_richest_row(tmp_path):
         ("a-hubspot.csv", "Halden,,,CTO,B,,,\nBorea,,,CEO,A,,,\n"),
         ("b-hubspot.csv", "Halden,Dana,dana@halden.example,CTO,B,send,shipped a thing,https://x\n"),
     )
-    r = roster_model("p", ["*-hubspot.csv"], tmp_path)
+    r = roster_model("p", [_src("*-hubspot.csv")], tmp_path)
     assert r["accounts"] == 2, "folded by company, not summed"
     assert r["contact_verified"] == 1 and r["named_seat"] == 1
     assert r["signal"] == 1 and r["signal_sourced"] == 1
@@ -955,7 +1269,11 @@ def test_tier_a_sorts_first_in_the_rendered_rows(tmp_path):
     from gtm_core.email_campaign_dashboard.model import roster_model
 
     _exports(tmp_path, ("a-hubspot.csv", "Zeta,,,CTO,B,,,\nAlpha,,,CEO,A,,,\n"))
-    assert [x["tier"] for x in roster_model("p", ["*-hubspot.csv"], tmp_path)["rows"]] == ["A", "B"]
+    rows = roster_model("p", [_src("*-hubspot.csv")], tmp_path)["rows"]
+    assert [x["tier"] for x in rows] == ["A", "B"]
+    # Every row inherits its source's identity — the whole point of RosterSource.
+    assert {x["campaign"] for x in rows} == {"c1"}
+    assert {x["product"] for x in rows} == {"Brightpath Health"}
 
 
 def test_a_pool_wide_block_is_removed_on_a_scoped_page_not_labelled():
@@ -1075,6 +1393,44 @@ def test_the_forecast_covers_hand_sent_lanes_not_only_the_sequencer(tmp_path):
     )
     assert lanes[-1]["span"] == 10, "the pack ladder, not the sequence, sets the finish date"
     assert lanes[-1]["emails"] == 15, "the LinkedIn touch is not an email and is not counted"
+
+
+def test_one_sequence_reachable_from_four_registrations_is_counted_once(tmp_path):
+    """`cells.toml` can register the same physical sequence more than once — a second
+    segment variant, a second campaign's row pointing at the address the first already
+    claimed — and each registration became its own entry in `model.py`'s `messages`. Before
+    the dedup fix, `reviewed` summed every registration's `lint.rows` and the per-lane loop
+    appended one lane per registration, so a sequence reachable from four sources counted
+    its reviewed rows and its enrolled people four times over."""
+    from gtm_core.email_campaign_dashboard.forecast import _lanes
+
+    one_registration = {
+        "sequence_id": "S1",
+        "spec": "named.md",
+        "copy": [{"day": 0}, {"day": 5}],
+        "lint": {"rows": 4},
+    }
+    m = {
+        # Four `[[sequence]]` rows in `cells.toml`, all pointing at the same sequence.
+        "messages": [dict(one_registration) for _ in range(4)],
+        "campaigns": {
+            "campaigns": [
+                {
+                    "sequences": [{"sequence_id": "S1", "enrolled": 4}],
+                    "targets": {"prospects": 4},
+                }
+            ]
+        },
+        "samples": {"rendered": [], "touches": [], "packs": []},
+    }
+    lanes = _lanes(m)
+    assert len(lanes) == 1, "one physical sequence must produce one lane row, not four"
+    assert lanes[0]["people"] == 4, (
+        "the sequence's own reviewed/enrolled count, not four registrations' worth of it"
+    )
+    assert sum(ln["people"] for ln in lanes) == 4, (
+        "the same sequence must not be counted once per registration in the final total"
+    )
 
 
 def test_prospecting_runs_are_scoped_out_of_a_campaign_page(tmp_path):

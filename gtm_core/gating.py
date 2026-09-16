@@ -23,6 +23,7 @@ Stdlib-only (mirrors gtm_core.packs.loader's ``tomllib`` choice — no new depen
 from __future__ import annotations
 
 import fnmatch
+import re
 import shutil
 import tomllib
 from dataclasses import dataclass
@@ -436,7 +437,45 @@ def stale_stub_bearing_declarations(
     return sorted(policy.carve_stub_bearing_graphs - set(found))
 
 
-def render_stub_body(skill: GTMSkill, graph_refs: list[str]) -> str:
+_INTERFACE_HEADING_RE = re.compile(
+    r"^(##\s+(?:Interface(?:\s+Contract)?|Contract)\b.*?)$", re.MULTILINE | re.IGNORECASE
+)
+_NEXT_HEADING_RE = re.compile(r"^#{1,2}\s+", re.MULTILINE)
+
+
+def extract_interface_contract(text: str) -> str:
+    """Extract the interface contract section from a skill's body text if present."""
+    m = _INTERFACE_HEADING_RE.search(text)
+    if not m:
+        return ""
+    start = m.end()
+    rest = text[start:]
+    next_heading = _NEXT_HEADING_RE.search(rest)
+    if next_heading:
+        return rest[: next_heading.start()].strip()
+    return rest.strip()
+
+
+def strip_interface_contract(text: str) -> str:
+    """Strip the interface contract section from a skill's body text so only the
+    withheld implementation remains for leak checking."""
+    m = _INTERFACE_HEADING_RE.search(text)
+    if not m:
+        return text
+    start = m.start()
+    rest = text[m.end() :]
+    next_heading = _NEXT_HEADING_RE.search(rest)
+    if next_heading:
+        return text[:start] + rest[next_heading.start() :]
+    return text[:start]
+
+
+def render_stub_body(
+    skill: GTMSkill,
+    graph_refs: list[str],
+    contract: str = "",
+    referenced_docs: list[str] = (),
+) -> str:
     lines = [
         "This skill's implementation is part of the hosted product and is not included",
         "in this distribution.",
@@ -453,7 +492,42 @@ def render_stub_body(skill: GTMSkill, graph_refs: list[str]) -> str:
         joined = ", ".join(f"`{r}`" for r in graph_refs)
         lines.append(f"Pack graph node(s) that invoke it: {joined}.")
     lines += ["", "See `docs/SKILLS.md` for the full skill roster."]
+    if referenced_docs:
+        joined = ", ".join(f"`{d}`" for d in referenced_docs)
+        lines.append(f"Docs it draws on that ship in this distribution: {joined}.")
+    if contract.strip():
+        lines += ["", "## Interface Contract", "", contract.strip()]
     return "\n".join(lines) + "\n"
+
+
+#: Any docs/*.md-shaped path — mirrors tests/lint/carve_surface_check.py's DOC_REF, kept
+#: separate rather than imported since gtm_core must not depend on the tests/ tree.
+_DOC_REF = re.compile(r"docs/[A-Za-z0-9/_.-]+\.md")
+
+
+def _public_doc_refs(skill_dir: Path, carved_root: Path) -> list[str]:
+    """``docs/*.md`` paths cited anywhere in a private skill's withheld files that also
+    ship publicly (already carved under ``carved_root/docs``). The doc's own presence in
+    the public tree means citing its filename leaks nothing new — this only lets a stub
+    say which shipped doc its (withheld) recipe draws on, e.g. for
+    ``tests/test_direct_response_patterns.py``'s cross-skill citation check."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for p in sorted(skill_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for m in _DOC_REF.finditer(text):
+            doc = m.group(0)
+            if doc in seen:
+                continue
+            seen.add(doc)
+            if (carved_root / doc).is_file():
+                found.append(doc)
+    return sorted(found)
 
 
 def stub_carve(carved_root: Path) -> list[str]:
@@ -488,7 +562,22 @@ def stub_carve(carved_root: Path) -> list[str]:
                 "missing_skill_dir",
                 f"private skill {name!r} has no carved directory at {skill_dir}",
             )
-        body = render_stub_body(skill, _graph_refs_for_skill(name, packs_root))
+        contract = ""
+        body_template_path = skill_dir / "body_template.md"
+        if body_template_path.is_file():
+            try:
+                contract = extract_interface_contract(
+                    body_template_path.read_text(encoding="utf-8")
+                )
+            except OSError:
+                contract = ""
+        referenced_docs = _public_doc_refs(skill_dir, carved_root)
+        body = render_stub_body(
+            skill,
+            _graph_refs_for_skill(name, packs_root),
+            contract=contract,
+            referenced_docs=referenced_docs,
+        )
         shutil.rmtree(skill_dir)
         skill_dir.mkdir(parents=True)
         # render_frontmatter() only (not codegen.render()): deliberately never emit a
@@ -520,6 +609,8 @@ def _collect_lines(paths: list[Path], min_len: int = _MIN_LEAK_LINE_LEN) -> set[
             text = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        if p.name == "body_template.md":
+            text = strip_interface_contract(text)
         for raw in text.splitlines():
             line = raw.strip()
             if len(line) >= min_len:

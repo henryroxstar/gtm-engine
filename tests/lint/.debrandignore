@@ -28,3 +28,11 @@ tests/contracts/test_deck_theme_matches_brand_kit.py:
 # correct there (only profiles/_template/ exists). Filtered by path so a copy elsewhere
 # still flags.
 tests/lint/cross_tenant_allow.txt:
+
+# Roster-identity regression test pins LIVE tenant figures (accounts/contact_verified/
+# named_seat/signal counts) against the real profile on disk, same reasoning as the
+# deck-theme test above — the tenant name IS the fixture under test, not a leak. This
+# test has no fictional-profile equivalent: it exists to catch a fold-key regression in
+# the real numbers a human would otherwise have to re-derive by hand. Filtered by path
+# so a copy elsewhere still flags.
+tests/contracts/test_dashboard_roster_identity.py:

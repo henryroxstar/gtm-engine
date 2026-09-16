@@ -1058,7 +1058,7 @@ def test_title_override_replaces_the_spine_for_a_different_film(tmp_path):
         fps=6,
         duration_s=1.0,
         out_dir=b,
-        title={"line_one": "Bao Daily", "line_two": "Free on the App Store"},
+        title={"line_one": "Tidewater", "line_two": "Free on the App Store"},
     )
     assert sorted(a.glob("*.png"))[-1].read_bytes() != sorted(b.glob("*.png"))[-1].read_bytes()
 
@@ -1077,7 +1077,7 @@ def test_the_override_is_what_makes_this_card_reachable_at_9_16(tmp_path):
         fps=6,
         duration_s=1.0,
         out_dir=tmp_path / "own",
-        title={"line_one": "Bao Daily", "line_two": ""},
+        title={"line_one": "Tidewater", "line_two": ""},
     )
 
 
@@ -1090,7 +1090,7 @@ def test_an_empty_line_two_is_a_name_only_card_not_a_refusal(tmp_path):
         fps=6,
         duration_s=1.0,
         out_dir=tmp_path / "ok",
-        title={"line_one": "Bao Daily", "line_two": ""},
+        title={"line_one": "Tidewater", "line_two": ""},
     )
     with pytest.raises(su.SceneError, match="empty string"):
         su.render_title_card_frames(
@@ -1123,7 +1123,7 @@ def test_the_disclosure_stays_inside_the_frame_on_every_ratio(tmp_path, ratio):
             duration_s=2.0,
             out_dir=outs[name],
             spec=su._TITLE_CLOSE,
-            title={"line_one": "Bao Daily", "line_two": ""},
+            title={"line_one": "Tidewater", "line_two": ""},
         )
     a = Image.open(sorted(outs["with"].glob("*.png"))[-1]).convert("RGB")
     b = Image.open(sorted(outs["without"].glob("*.png"))[-1]).convert("RGB")

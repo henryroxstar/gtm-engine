@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from fractions import Fraction
 from pathlib import Path
@@ -440,6 +441,7 @@ def script_check(profile: str, item_id: str, content_root: Path | None = None) -
     # missing, claims_verified absent, claims_verified malformed) must keep firing first, so a new
     # warning can never mask an existing block.
     _message_share_check(item, front, text, script_path.name, warnings, checks)
+    _caption_functions_check(script_path, text, blocking, warnings, checks)
 
     proceed = not blocking
     return {
@@ -449,3 +451,69 @@ def script_check(profile: str, item_id: str, content_root: Path | None = None) -
         "warnings": warnings,
         "checks": checks,
     }
+
+
+def _caption_functions_check(
+    script_path: Path,
+    text: str,
+    blocking: list[str],
+    warnings: list[str],
+    checks: dict[str, bool | None],
+) -> None:
+    """Refuse a caption-budget function column that disagrees with sibling .shots.json."""
+    shots_path = script_path.with_suffix(".shots.json")
+    if not shots_path.is_file():
+        checks["caption_functions_consistent"] = None
+        return
+    try:
+        data = json.loads(shots_path.read_text(encoding="utf-8"))
+    except Exception:
+        checks["caption_functions_consistent"] = None
+        return
+    shot_fns = {
+        s["n"]: s["caption_function"].strip().lower()
+        for s in data.get("shots", [])
+        if isinstance(s, dict) and "n" in s and s.get("caption_function")
+    }
+    sec = re.search(r"^##+\s+Caption budget\s*$\n(.*?)(?=^##+\s|\Z)", text, re.M | re.S)
+    if not shot_fns or not sec:
+        checks["caption_functions_consistent"] = None
+        return
+    rows = [ln.strip() for ln in sec.group(1).splitlines() if ln.strip().startswith("|")]
+    if not rows:
+        checks["caption_functions_consistent"] = None
+        return
+    header = [
+        c.lower().replace("*", "").strip()
+        for c in [c.strip() for c in rows[0].strip("|").split("|")]
+    ]
+    fn_idx = next(
+        (
+            i
+            for i, c in enumerate(header)
+            if c in ("function", "caption function", "caption_function")
+        ),
+        None,
+    )
+    beat_idx = next((i for i, c in enumerate(header) if c in ("beat", "shot", "n", "#")), 0)
+    if fn_idx is None:
+        checks["caption_functions_consistent"] = None
+        return
+    mismatches: list[str] = []
+    for line in rows[1:]:
+        cols = [c.strip() for c in line.strip("|").split("|")]
+        if len(cols) <= max(fn_idx, beat_idx) or set("".join(cols)) <= set("-: "):
+            continue
+        bm = re.search(r"\d+", cols[beat_idx])
+        if not bm:
+            continue
+        beat = int(bm.group())
+        table_fn = cols[fn_idx].replace("*", "").strip().lower()
+        if table_fn and table_fn not in ("—", "-", "none") and shot_fns.get(beat) != table_fn:
+            mismatches.append(f"beat {beat} (budget={table_fn!r}, shots={shot_fns.get(beat)!r})")
+    checks["caption_functions_consistent"] = not mismatches
+    if mismatches:
+        blocking.append(
+            f"{script_path.name}: caption budget function column disagrees with "
+            f"{shots_path.name}: {'; '.join(mismatches)}"
+        )

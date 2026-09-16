@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+# Per-developer local automation preferences (vault path, custom PATH, etc.)
+# Copy .runner_prefs.example → .runner_prefs to customise.
+.runner_prefs
+# Local-dev env with deliberately public values (see its header) — committed on purpose.
+!deploy/.env.dev.example
 *.pem
 *-credentials.json
 google-oauth*.json
@@ -10,6 +15,11 @@ google-oauth*.json
 # host-specific compose overrides — carry real infra details (networks, DSNs)
 # the committed base file omits. Start from docker-compose.override.yml.example.
 docker-compose.override.yml
+
+# Customer tenant profiles — local to your installation
+profiles/*
+!profiles/_template/
+!profiles/.keep
 
 # Runtime state (lives on the VPS, not in git) — spec §10, §14
 # Includes per-account deliverables under content/<profile>/accounts/<slug>/ (see CLAUDE.md).

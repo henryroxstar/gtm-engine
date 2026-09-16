@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from .. import frame_sequence
 from ..video_lint import SAFE_AREAS
-from . import fit
+from . import build_record, fit
 from .base import SceneError
 from .fit import fit_tolerance
 from .registry import _SCENE_EXTRAS, _SCENES
@@ -100,6 +102,7 @@ def _simple_extras(args: argparse.Namespace, allowed: frozenset[str]) -> dict[st
     extra: dict[str, object] = {}
     if "image" in allowed:
         extra["image"] = args.image
+    if "crop_frac" in allowed:
         if args.crop_frac is not None:
             try:
                 parts = tuple(float(p) for p in args.crop_frac.split(","))
@@ -116,12 +119,16 @@ def _simple_extras(args: argparse.Namespace, allowed: frozenset[str]) -> dict[st
             extra["logo_variant"] = args.logo_variant
     if "stills" in allowed:
         extra["stills"] = args.still
-        if args.speak_from_s is not None:
-            extra["speak_from_s"] = args.speak_from_s
+    if "speak_from_s" in allowed and args.speak_from_s is not None:
+        extra["speak_from_s"] = args.speak_from_s
+    if "actions" in allowed:
+        extra["actions"] = args.actions
     if "title" in allowed and args.title:
         extra["title"] = _parse_kv(args.title, flag="--title", allow_empty=True)
     if "message" in allowed and args.message:
         extra["message"] = _parse_kv(args.message, flag="--message")
+    if "bubble" in allowed and args.bubble:
+        extra["bubble"] = _parse_kv(args.bubble, flag="--bubble")
     if "labels" in allowed and args.label:
         extra["labels"] = _parse_kv(args.label, flag="--label")
     return extra
@@ -135,7 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
     complexity ceiling fires on the flag list rather than on any real branching.
     """
     parser = argparse.ArgumentParser(prog="gtm_core.screen_ui")
-    parser.add_argument("scene", choices=[*sorted(_SCENES), "audit-fit"])
+    parser.add_argument("scene", choices=[*sorted(_SCENES), "audit-fit", "fit-layout"])
     parser.add_argument("--kit-json", type=Path, required=True, help="resolved brand kit JSON")
     parser.add_argument("--ratio", required=True, choices=sorted(SAFE_AREAS))
     parser.add_argument("--fps", type=int, default=24)
@@ -149,7 +156,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--image",
         type=Path,
         default=None,
-        help="source image for the still-push scene (the asset being reused)",
+        help="source image for still-push (the asset being reused); phone-walkthrough's first screen",
     )
     parser.add_argument(
         "--crop-frac",
@@ -207,7 +214,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "caller-row only, repeatable and ORDER-SIGNIFICANT: the four callers' stills in row "
             "order. The row order is a fact of the composition, so it is stated by the caller "
-            "rather than inferred from a filename."
+            "rather than inferred from a filename. phone-walkthrough: the further screens a "
+            "`swap` action slides to, numbered 1.. in order (--image is screen 0)."
+        ),
+    )
+    parser.add_argument(
+        "--actions",
+        type=Path,
+        default=None,
+        help=(
+            "phone-walkthrough (enter|exit|scroll|zoom|highlight|tap|swap) and hero-reveal "
+            "(enter|exit|highlight) only: the timed action list, a JSON object "
+            '{"actions": [{"type": ..., "start_s", "end_s", ...}], "layout": {...}}. Rects and '
+            "points are in screenshot pixels for phone-walkthrough, source-image pixels for "
+            "hero-reveal. Validated before any frame is drawn; see "
+            "gtm_core/screen_ui/scenes/phone_actions.py and .../hero_reveal.py."
         ),
     )
     parser.add_argument(
@@ -248,6 +269,18 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--bubble",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help=(
+            "chat-bubble only, repeatable: kind= (outgoing|incoming|chip), text=, side= "
+            "(left|right), y_frac=, w_frac=, arrive_s=. The words are film content, so the "
+            "caller states them; unset keys derive from the kind. Never a real person, company, "
+            "handle, address or number."
+        ),
+    )
+    parser.add_argument(
         "--speak-from-s",
         type=float,
         default=None,
@@ -262,7 +295,105 @@ def _build_parser() -> argparse.ArgumentParser:
         "than the kit's. Real sans faces vary by ~20%% in advance width, so 1.15 is a defensible "
         "floor and anything under it is holding by luck",
     )
+    parser.add_argument(
+        "--for-scene",
+        choices=("hero-reveal", "phone-walkthrough"),
+        default=None,
+        help="fit-layout only: which scene's geometry to measure against the caption band.",
+    )
+    parser.add_argument(
+        "--caption-lines",
+        type=int,
+        choices=(1, 2),
+        default=2,
+        help="fit-layout only: worst-case caption line count when no real text is known.",
+    )
+    parser.add_argument(
+        "--margin-px",
+        type=int,
+        default=40,
+        help="fit-layout only: clearance required on every side of the measured box.",
+    )
     return parser
+
+
+def render_scene(
+    scene: str,
+    *,
+    kit: dict,
+    ratio: str,
+    fps: int,
+    duration_s: float,
+    out_dir: Path,
+    extras: dict[str, object],
+    font_role: str = "caption",
+    repo_root: Path | None = None,
+    timing_source: str | None = None,
+) -> dict:
+    """Render one scene into ``out_dir`` and write its build record. No argv/stdout/exit side
+    effects (``main`` prints this function's result) so the rebuild driver (`glittery-sleeping-yao`
+    change #6) can call it directly per shot, instead of re-invoking ``main([...])``.
+
+    Refuses (dir untouched) before drawing a frame when ``out_dir`` holds a record for a
+    DIFFERENT scene. PNGs with no record (predates this record) only warn on stderr and render
+    over. Any existing record is deleted before rendering, so a crash mid-render never leaves an
+    old fingerprint describing half-replaced frames.
+    """
+    out_dir = Path(out_dir)
+    scene_fn = _SCENES[scene]
+    existing = build_record.read(out_dir)
+    if existing is not None and existing.get("scene") != scene:
+        raise SceneError(
+            f"{out_dir} already holds a {build_record.RECORD_NAME} for scene "
+            f"{existing.get('scene')!r} — render {scene!r} into a fresh --out-dir"
+        )
+    if existing is None and out_dir.is_dir() and any(out_dir.glob("*.png")):
+        print(
+            f"WARN: {out_dir} has PNGs but no {build_record.RECORD_NAME} — rendering untracked",
+            file=sys.stderr,
+        )
+    build_record.delete(out_dir)
+    count = scene_fn(
+        kit=kit,
+        ratio=ratio,
+        fps=fps,
+        duration_s=duration_s,
+        out_dir=out_dir,
+        font_role=font_role,
+        repo_root=repo_root,
+        **extras,
+    )
+
+    seqs = frame_sequence.sequences(out_dir)
+    prefix = next((p for p, numbers in seqs.items() if len(numbers) == count), None)
+    frame_pattern = (
+        frame_sequence.pattern(prefix, frame_sequence.digit_width(out_dir, prefix))
+        if prefix is not None
+        else None
+    )
+    record = build_record.build_record(
+        scene=scene,
+        ratio=ratio,
+        fps=fps,
+        duration_s=duration_s,
+        extras=extras,
+        kit=kit,
+        font_role=font_role,
+        repo_root=repo_root,
+        frames=count,
+        frame_pattern=frame_pattern,
+    )
+    build_record.write(out_dir, record)
+
+    return {
+        "scene": scene,
+        "frames": count,
+        "out_dir": str(out_dir),
+        "fps": fps,
+        "duration_s": duration_s,
+        # Records which timing source was used — "measured" and "assumed" must not look the same.
+        **({"timing_source": timing_source} if timing_source is not None else {}),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -297,13 +428,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1 if thin else 0
 
+    if args.scene == "fit-layout":
+        from . import fit_layout
+
+        doc, code = fit_layout.run_cli(args, kit)
+        print(json.dumps(doc, indent=2))
+        return code
+
     missing = [
         f"--{n.replace('_', '-')}" for n in ("duration_s", "out_dir") if getattr(args, n) is None
     ]
     if missing:
         print(json.dumps({"scene": args.scene, "error": f"{' and '.join(missing)} required"}))
         return 2
-    scene_fn = _SCENES[args.scene]
     # Which extra kwargs each scene accepts, DECLARED. The old `if args.scene == "still-push"`
     # gave one flag the property that a typo in --image stayed harmless on every other scene;
     # stating the map keeps that property for every flag added since, instead of re-deriving it
@@ -360,40 +497,25 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             timing_source = f"words-json:{args.words_json}"
     try:
-        count = scene_fn(
+        result = render_scene(
+            args.scene,
             kit=kit,
             ratio=args.ratio,
             fps=args.fps,
             duration_s=args.duration_s,
             out_dir=args.out_dir,
+            extras=extra,
             font_role=args.font_role,
             repo_root=args.repo_root,
-            **extra,
+            timing_source=(
+                timing_source
+                if args.scene in _SCENE_EXTRAS and "timing" in _SCENE_EXTRAS[args.scene]
+                else None
+            ),
         )
     except SceneError as exc:
         print(json.dumps({"scene": args.scene, "error": str(exc)}))
         return 2
 
-    print(
-        json.dumps(
-            {
-                "scene": args.scene,
-                "frames": count,
-                "out_dir": str(args.out_dir),
-                "fps": args.fps,
-                "duration_s": args.duration_s,
-                # MANDATORY, and the reason this is not a silent fallback. A hard break would
-                # strand every existing render on a vendor artifact this module cannot produce;
-                # a silent fallback is what the old literals' comment already warned about.
-                # Recording which timing was used turns the question into a fact a report or a
-                # pack can gate on — the same rule `audio_bed` applies to deliberate silence.
-                **(
-                    {"timing_source": timing_source}
-                    if args.scene in _SCENE_EXTRAS and "timing" in _SCENE_EXTRAS[args.scene]
-                    else {}
-                ),
-            },
-            indent=2,
-        )
-    )
+    print(json.dumps(result, indent=2))
     return 0

@@ -371,3 +371,32 @@ def test_a_segment_with_no_text_is_refused(tmp_path):
                 }
             ],
         )
+
+
+# ── the per-shot sidecar — how the geometry survives the stitch ──────────────────────────
+
+
+def test_each_burned_shot_writes_a_timed_caption_sidecar_beside_it(tmp_path):
+    """Burning per shot keeps a caption inside its shot; it also used to be where the geometry
+    STOPPED. A stitched, pre-burned master then finished with `captions: null`, and the contrast
+    tier — which runs only when a manifest supplies geometry — never ran on a film whose type was
+    near-black on a dark picture. The sidecar is what `stitch` carries forward."""
+    _make_shot(tmp_path / "shots" / "s1.mp4", duration=2.0, w=1080, h=1920)
+    result = _burn(
+        tmp_path,
+        [{"id": "s1", "file": "shots/s1.mp4", "spoken": "one two three four five six seven"}],
+        ratio="9:16",
+    )
+    (burned,) = result.burned
+    sidecar = Path(burned.sidecar_path)
+    assert sidecar == Path(burned.out_path).with_name("s1-captioned.captions.json")
+    data = json.loads(sidecar.read_text())
+    assert data["frame"] == [1080, 1920]
+    assert data["shot_id"] == "s1"
+    assert data["text"] == "one two three four five six seven"
+    assert len(data["screens"]) == burned.screens == 2
+    for screen in data["screens"]:
+        assert 0.0 <= screen["start_s"] < screen["end_s"] <= burned.duration_s + 1e-6
+        assert set(screen["box"]) == {"x", "y", "w", "h"}
+        assert screen["glyph_rgb"] is not None
+    assert [s["box"] for s in data["screens"]] == list(burned.boxes)

@@ -1169,3 +1169,73 @@ def test_defect_report_cli_refuses_an_output_path_outside_the_content_root(
     inside = tmp_path / "content" / "acme" / "prospects" / "evals" / "defect-report-2026-09-03.md"
     assert main(["defect-report", "--records", str(recs), "--out", str(inside)]) == 0
     assert "## sweep-x" in inside.read_text(encoding="utf-8")
+
+
+def test_require_qa_is_keyed_on_the_spec_AND_the_csv(tmp_path):
+    """A merge-render PASS is a claim about (spec x csv), so the gate must key on both.
+
+    Both directions were live on 2026-09-10, from one pair of records sharing a spec hash:
+
+    * a superseded FAIL against an old list blocked staging of the corrected list that
+      passed, because the scan returned on the first spec-matching record it found;
+    * far worse, without the csv a PASS earned against list A satisfied a staging of list B —
+      the rows being exactly what a merge-render run checks.
+    """
+    import hashlib
+
+    from gtm_core.adjudication import main, require_qa
+
+    spec = tmp_path / "spec-a-2026-09-09.md"
+    spec.write_text("body\n", encoding="utf-8")
+    old_csv = tmp_path / "list-2026-09-09-send.csv"
+    old_csv.write_text("email\na@one.example\nb@two.example\n", encoding="utf-8")
+    new_csv = tmp_path / "list-2026-09-10-send.csv"
+    new_csv.write_text("email\na@one.example\n", encoding="utf-8")
+    qa = tmp_path / "qa"
+    qa.mkdir()
+
+    def sha(p):
+        return hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+
+    def rec(name, csv, verdict, errors):
+        (qa / name).write_text(
+            json.dumps(
+                {
+                    "spec": str(spec),
+                    "spec_sha256": sha(spec),
+                    "csv": str(csv),
+                    "csv_sha256": sha(csv),
+                    "verdict": verdict,
+                    "errors": errors,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    # Sorted order puts the superseded FAIL first — the shape that caused the false block.
+    rec("seq-20260909.json", old_csv, "FAIL", 1)
+    rec("seq-20260910.json", new_csv, "PASS", 0)
+
+    ok, why = require_qa(spec, qa, new_csv)
+    assert ok is True, f"the corrected list has its own PASS but was refused: {why}"
+    assert (
+        main(["require-qa", "--spec", str(spec), "--qa-dir", str(qa), "--csv", str(new_csv)]) == 0
+    )
+
+    # The old list still reports its own failure — the fix must not launder it.
+    ok, why = require_qa(spec, qa, old_csv)
+    assert ok is False and "not a PASS" in why
+
+    # THE FAIL-OPEN: a PASS for new_csv must not clear a staging of some third list.
+    other = tmp_path / "list-other-send.csv"
+    other.write_text("email\nz@three.example\n", encoding="utf-8")
+    ok, why = require_qa(spec, qa, other)
+    assert ok is False and "OTHER bytes" in why, (
+        "a QA record earned against a different list satisfied this one — that is the "
+        "fail-open the --csv key exists to close."
+    )
+
+    # Spec-only stays answerable, but must NAME the list it actually verified so a caller
+    # cannot read it as a check of theirs.
+    ok, why = require_qa(spec, qa)
+    assert ok is True and "did not verify your list" in why

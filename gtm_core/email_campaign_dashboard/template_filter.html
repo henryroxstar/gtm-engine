@@ -1,0 +1,22 @@
+<!--
+  The page's client-side filter. Two placeholder tokens below are substituted by
+  gtm_core.email_campaign_dashboard.filters.script_block, via plain str.replace() — which
+  rewrites EVERY occurrence of a token, not only the one meant to be filled in. So this
+  paragraph names each token with a single leading/trailing underscore rather than the two
+  the real token uses, and never spells either token whole: doing so would let this very
+  sentence get overwritten by the substitution it is describing, duplicating the payload
+  and the filter script into what is supposed to be a comment.
+
+    _ROWS_JSON_  the per-row payload (facet keys, booleans, an opaque company index — no
+                 company, person, address or URL: see that module's docstring)
+    _FILTER_JS_  the verbatim contents of filter.js, which is also what
+                 tests/js/filter.test.js loads
+
+  The JS is inlined rather than linked because this page is one self-contained file an
+  operator opens from disk with no server. It is kept in filter.js rather than written here
+  so the contract test exercises the shipped bytes instead of a copy.
+-->
+<script>
+var GTM_ROWS = __ROWS_JSON__;
+__FILTER_JS__
+</script>

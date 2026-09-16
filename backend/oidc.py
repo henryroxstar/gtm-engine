@@ -17,7 +17,9 @@ The five normative verification rules (Track A PRD §A3) live here:
   2. Keys resolve only by ``kid`` against the configured JWKS URL (https, validated
      at boot); fetches go only to boot-validated URLs, never anything token-derived.
   3. ``iss``/``aud`` must match the config exactly; ``exp``/``nbf`` enforced with
-     ≤ 60 s skew.
+     ≤ 60 s skew. A caller that needs a FRESH token (the account step-up, with
+     ``STEP_UP_MAX_AGE_S``) passes ``max_age_s``, which also requires an integer ``iat``
+     that old at most; the exchange does not, so any unexpired token still exchanges.
   4. The identity key is (issuer, subject) — never subject alone.
   5. JWKS responses are cached with a bounded TTL; rotation recovers via re-fetch
      on unknown ``kid`` (rate-limited) without a restart.
@@ -37,13 +39,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import jwt
+from fastapi import HTTPException, status
 
 # Only asymmetric JWS algorithms may appear in an issuer's ``algs`` (rule 1).
 _ALLOWED_ALGS = frozenset(
     {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"}
 )
 
-CLOCK_SKEW_S = 60  # rule 3: exp/nbf leeway
+CLOCK_SKEW_S = 60  # rule 3: exp/nbf leeway (and the iat leeway under max_age_s)
+STEP_UP_MAX_AGE_S = 300  # a step-up token must have been issued (iat) within the last 5 min
+INVALID_TOKEN_DETAIL = "Invalid federated token"  # nosec B105 — an error message, not a credential
 MAX_TOKEN_BYTES = 8192  # oversized-token guard, checked before any parsing
 JWKS_TTL_S = 300.0  # rule 5: bounded cache TTL
 JWKS_REFETCH_MIN_INTERVAL_S = 30.0  # rule 5: rate limit on unknown-kid re-fetch
@@ -254,18 +259,34 @@ def _claim_path(claims: dict, path: str) -> Any:
     return cur
 
 
+def _require_fresh_iat(claims: dict, max_age_s: int) -> None:
+    """Freshness for a step-up: ``iat`` must be an integer no older than ``max_age_s`` and
+    not in the future, each with the rule-3 ``CLOCK_SKEW_S`` leeway. A token without ``iat``
+    proves nothing about WHEN the user authenticated, so it is refused, never assumed fresh."""
+    iat = claims.get("iat")
+    if isinstance(iat, bool) or not isinstance(iat, int):
+        raise ExchangeError("iat_missing_or_not_integer")
+    age = int(time.time()) - iat
+    if age > max_age_s + CLOCK_SKEW_S:
+        raise ExchangeError(f"token_too_old: {age}s")
+    if age < -CLOCK_SKEW_S:
+        raise ExchangeError("iat_in_future")
+
+
 async def verify_external_token(
     token: str,
     *,
     issuers: dict[str, IssuerConfig],
     transport: Transport | None = None,
+    max_age_s: int | None = None,
 ) -> tuple[IssuerConfig, str, dict]:
     """Apply the five normative rules; return (issuer_cfg, subject, claims).
 
     Every rejection raises :class:`ExchangeError` with an internal reason. The
     unverified ``iss`` read below only SELECTS the issuer config — the verified
     decode still enforces ``issuer=`` cryptographically, so a lying ``iss`` fails
-    signature/issuer validation.
+    signature/issuer validation. ``max_age_s`` additionally requires a fresh ``iat``
+    (:func:`_require_fresh_iat`); omitted, verification is exactly the five rules.
     """
     if len(token.encode()) > MAX_TOKEN_BYTES:
         raise ExchangeError("token_too_large")
@@ -304,14 +325,45 @@ async def verify_external_token(
             leeway=CLOCK_SKEW_S,  # rule 3
             options={"require": ["exp", "iss", "aud"]},
         )
-    except jwt.InvalidTokenError as exc:
+    # TypeError too: PyJWT's iat check does int(payload["iat"]) and catches only ValueError,
+    # so a correctly signed token carrying `"iat": null` would otherwise escape as a 500.
+    except (jwt.InvalidTokenError, TypeError) as exc:
         raise ExchangeError(f"verification_failed: {exc}") from exc
+    if max_age_s is not None:
+        _require_fresh_iat(claims, max_age_s)
 
     subject = _claim_path(claims, cfg.subject_claim)
     if not subject or not isinstance(subject, str):
         raise ExchangeError("missing_subject")
 
     return cfg, subject, claims
+
+
+async def require_federated_identity(
+    token: str | None, *, max_age_s: int | None = None
+) -> tuple[IssuerConfig, str, dict]:
+    """The route-facing check both federated entry points share — POST /v1/auth/exchange
+    and the password-less DELETE /v1/account step-up. Returns (issuer_cfg, subject, claims)
+    or raises the HTTP error those routes return: 503 ``federation_not_configured`` when no
+    issuer is trusted, else the one generic 401 for every credential failure, so a probe
+    can't map which rule tripped."""
+    issuers = get_issuers()
+    if not issuers:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, {"code": "federation_not_configured"}
+        )
+    if not token:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "federated_token_invalid", "message": INVALID_TOKEN_DETAIL},
+        )
+    try:
+        return await verify_external_token(token, issuers=issuers, max_age_s=max_age_s)
+    except ExchangeError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "federated_token_invalid", "message": INVALID_TOKEN_DETAIL},
+        ) from exc
 
 
 def synthetic_email(issuer: str, subject: str) -> str:

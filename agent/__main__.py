@@ -150,6 +150,26 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the repo root (defaults to the parent of the agent/ package).",
     )
+    parser.add_argument(
+        "--gate-decision",
+        choices=["approve", "reject"],
+        default=None,
+        help=(
+            "Resolve a paused --pack run's gate (the VPS/CLI twin of the backend's "
+            "POST /gate — there is no other way to approve a pack gate outside the "
+            "backend HTTP API). Requires --pack/--variant/--run-id."
+        ),
+    )
+    parser.add_argument(
+        "--edited-content-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "With --gate-decision approve: replace the drafted content with this file's "
+            "bytes before promoting/dispatching (approve-with-edits)."
+        ),
+    )
     return parser
 
 
@@ -322,11 +342,190 @@ async def _run_pack(
     if status == GATE:
         gated = [s["name"] for s in manifest["stages"] if s.get("status") == GATE]
         print(f"[pack] run_id={run_id} paused at gate: {', '.join(gated)}", flush=True)
+        # A11: unlike the news pipeline (_run_pipeline's push_gate1, tied to the
+        # cockpit's conversational plan-approval flow), a --pack run is a one-shot
+        # subprocess with no session for an operator to approve inside — and Phase A
+        # now makes every pack-declared gate=true node pause, not only plan-shaped
+        # ones. Without this notification (and --gate-decision to resolve it), an
+        # unattended cron run (systemd/gtm-*.timer) would pause silently forever.
+        try:
+            from agent.gate_notify import push_pack_gate
+
+            await push_pack_gate(
+                cfg, cfg.profiles_root, profile, run_id, gated, pack=pack, variant=variant
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Pack gate Telegram push failed", exc_info=True)
         return 0
     if status == FAILED:
         print(f"[pack] run_id={run_id} FAILED — check logs", file=sys.stderr)
         return 1
     print(f"[pack] run_id={run_id} complete: {status}", flush=True)
+    return 0
+
+
+async def _dispatch_gate_successors(
+    cfg, runner, engine_graph, manifest, gated_node_id, enroll_draft, draft_path
+):
+    """Dispatch any dispatch-only DIRECT successor of the just-approved node.
+
+    A node declaring ``external_effect`` short-circuits to ``SKIPPED`` the instant the
+    runner reaches it, so it can never itself become ``AWAITING_APPROVAL`` — the
+    approved node's own content is exactly what such a successor needs, so this is the
+    only correct point to dispatch it. Mutates ``manifest`` in place (flips a dispatched
+    successor to ``"ok"``, appending a stage entry if it has none yet).
+
+    Returns an error string when the caller should fail/abort, else ``None``.
+    """
+    from . import gate_actions
+    from .email_dispatch import dispatch_approved_enrollment
+
+    successors = [n for n in engine_graph.nodes if gated_node_id in n.depends_on]
+    for succ in successors:
+        if succ.external_effect == "email_enroll":
+            if enroll_draft is None:
+                return f"{succ.id!r} needs an approved enrollment draft, found none"
+            outcome = await dispatch_approved_enrollment(cfg, runner.ledgers, draft=enroll_draft)
+            print(f"[pack-gate] {succ.id!r}: {outcome.operator_line()}", flush=True)
+            if not outcome.ok:
+                return f"{succ.id!r} dispatch failed: {outcome.detail or outcome.status}"
+            gate_actions.clear_enroll_draft(draft_path)
+        elif succ.external_effect == "publish":
+            # Out of scope for this CLI verb: the VPS's publish gate is resolved via the
+            # Telegram cockpit's conversational flow (cockpit/gates.py), not the
+            # pack-graph path. Flag rather than silently skip a real publish dispatch.
+            return (
+                f"{succ.id!r} declares external_effect=publish — dispatch it via the "
+                "Telegram cockpit, not this CLI verb"
+            )
+        if succ.external_effect is not None:
+            entry = next((s for s in manifest["stages"] if s.get("name") == succ.id), None)
+            if entry is None:
+                manifest["stages"].append({"name": succ.id, "status": "ok"})
+            else:
+                entry["status"] = "ok"
+    return None
+
+
+async def _pack_gate_decision(
+    cfg: Config,
+    profile: str,
+    pack: str,
+    variant: str,
+    run_id: str,
+    decision: str,
+    *,
+    edited_content: str | None = None,
+) -> int:
+    """Resolve a paused ``--pack`` run's gate from the CLI.
+
+    The VPS/CLI twin of the backend's ``POST /v1/runs/{id}/gate``: there is no HTTP API
+    on this path, so this is the only way an operator can approve or reject a pack gate
+    that paused via ``_run_pack`` (notified by :func:`agent.gate_notify.push_pack_gate`).
+
+    Loads the manifest ``_run_pack`` already wrote, promotes/discards whichever draft
+    kind the paused node produced (a plan draft, this run's enroll draft, or neither — see
+    ``agent.gate_actions.gate_draft``), and — critically — dispatches any
+    dispatch-only DIRECT successor of the approved node immediately (A10/A11's Gate 2):
+    a node declaring ``external_effect`` short-circuits to ``SKIPPED`` the instant the
+    runner reaches it (``agent/pipeline_executor.py``), so it can never itself become
+    ``AWAITING_APPROVAL`` — the approved node's own content is exactly what that
+    successor needs, so this is the only point where dispatch can correctly happen.
+    """
+    from gtm_core.packs.loader import PackValidationError
+
+    from . import gate_actions
+    from .packs import load_engine_graph, make_executor_from_pack
+    from .pipeline import AWAITING_APPROVAL, FAILED, PipelineRunner, terminal_status
+
+    graph_path = cfg.repo_root / "packs" / pack / "graphs" / f"{variant}.toml"
+    if not graph_path.is_file():
+        print(f"[pack-gate] no such variant: {graph_path}", file=sys.stderr)
+        return 1
+    try:
+        pack_graph, engine_graph = load_engine_graph(graph_path)
+    except PackValidationError as exc:
+        print(f"[pack-gate] {graph_path.name} failed validation: {exc}", file=sys.stderr)
+        return 1
+
+    manifest_path = cfg.content_root / profile / "runs" / f"{run_id}.json"
+    if not manifest_path.is_file():
+        print(f"[pack-gate] no manifest at {manifest_path} — nothing to decide", file=sys.stderr)
+        return 1
+    with manifest_path.open() as f:
+        manifest = json.load(f)
+
+    gated = next((s for s in manifest["stages"] if s.get("status") == AWAITING_APPROVAL), None)
+    if gated is None:
+        print(f"[pack-gate] run {run_id!r} is not currently paused at a gate", file=sys.stderr)
+        return 1
+    gated_node_id = gated.get("name", "")
+
+    enroll = any(
+        n.external_effect == "email_enroll"
+        for n in engine_graph.nodes
+        if gated_node_id in n.depends_on
+    )
+    found = gate_actions.gate_draft(cfg, profile, run_id=run_id, enroll=enroll)
+    draft_path, draft_kind = found if found is not None else (None, None)
+
+    if decision == "reject":
+        if draft_kind == "plan":
+            gate_actions.discard_plan_draft(cfg, profile)
+        elif draft_kind == "enroll":
+            gate_actions.discard_enroll_draft(cfg, profile, path=draft_path)
+        print(
+            f"[pack-gate] run {run_id!r} node {gated_node_id!r} REJECTED — draft "
+            "discarded, run not resumed",
+            flush=True,
+        )
+        return 0
+
+    enroll_draft, promote_error = gate_actions.promote_gate_draft(
+        cfg, profile, draft_kind, edited_content, draft_path=draft_path
+    )
+    if promote_error is not None:
+        print(f"[pack-gate] promotion failed: {promote_error}", file=sys.stderr)
+        return 1
+
+    runner = PipelineRunner(cfg, profile, graph=engine_graph)
+
+    # Dispatch any dispatch-only DIRECT successor of the just-approved node NOW — see
+    # the docstring above for why this is the only correct point to do it. Also flips
+    # a dispatched successor to "ok" in `manifest` in place.
+    gated["status"] = "ok"
+    dispatch_error = await _dispatch_gate_successors(
+        cfg, runner, engine_graph, manifest, gated_node_id, enroll_draft, draft_path
+    )
+    if dispatch_error is not None:
+        print(f"[pack-gate] {dispatch_error}", file=sys.stderr)
+        return 1
+    runner.ledgers.write_run_manifest(manifest)
+
+    executor = make_executor_from_pack(cfg, profile, pack_graph)
+    manifest = await runner.run(run_id, trigger="cli", executor=executor, manifest=manifest)
+    status = terminal_status(manifest)
+
+    if status == AWAITING_APPROVAL:
+        gated_again = [
+            s["name"] for s in manifest["stages"] if s.get("status") == AWAITING_APPROVAL
+        ]
+        print(
+            f"[pack-gate] run {run_id!r} paused again at gate: {', '.join(gated_again)}", flush=True
+        )
+        try:
+            from .gate_notify import push_pack_gate
+
+            await push_pack_gate(
+                cfg, cfg.profiles_root, profile, run_id, gated_again, pack=pack, variant=variant
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Pack gate Telegram push failed", exc_info=True)
+        return 0
+    if status == FAILED:
+        print(f"[pack-gate] run {run_id!r} FAILED — check logs", file=sys.stderr)
+        return 1
+    print(f"[pack-gate] run {run_id!r} complete: {status}", flush=True)
     return 0
 
 
@@ -356,6 +555,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[agent] {exc}", file=sys.stderr)
         return 1
 
+    if args.gate_decision:
+        if not (args.pack and args.variant and args.run_id):
+            parser.error("--gate-decision requires --pack, --variant, and --run-id")
+        edited_content = (
+            args.edited_content_file.read_text(encoding="utf-8")
+            if args.edited_content_file is not None
+            else None
+        )
+        return asyncio.run(
+            _pack_gate_decision(
+                cfg,
+                profile,
+                args.pack,
+                args.variant,
+                args.run_id,
+                args.gate_decision,
+                edited_content=edited_content,
+            )
+        )
+
     if args.pack or args.variant:
         if not (args.pack and args.variant):
             parser.error("--pack and --variant must be given together")
@@ -371,6 +590,9 @@ def main(argv: list[str] | None = None) -> int:
                 run_id=args.run_id,
             )
         )
+
+    if args.edited_content_file:
+        parser.error("--edited-content-file only applies to --gate-decision approve")
 
     if args.from_node:
         parser.error("--from-node only applies to a pack run (--pack/--variant)")

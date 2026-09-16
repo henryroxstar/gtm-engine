@@ -1,12 +1,60 @@
 """Run-row I/O shared by both executors: run_nodes / run_blocks upserts in the wire
-vocabulary, the ``file`` content block, and the pack path's single failure exit."""
+vocabulary, the ``file`` content block, and the pack path's single failure exit with its
+closed set of failure codes."""
 
 from __future__ import annotations
 
 import json
+from typing import Literal, NamedTuple, get_args
 
 from ...database import workspace_scope
 from .events import publish_run_event
+from .state import _TERMINAL_STATUSES
+
+#: Why a run ended ``failed``, for a client to branch on (M-07). ``error`` stays the prose to
+#: show or log. Grow it additively: a client treats an unknown code as a generic failure.
+RunErrorCode = Literal[
+    "cost_cap_reached",
+    "gate_timeout",
+    "run_interrupted",
+    "retries_exhausted",
+    "fake_runs_disabled",
+    "worker_unavailable",
+    "publish_not_configured",
+    "email_not_configured",
+    "publish_draft_missing",
+    "disclosure_required",
+    "draft_integrity_failed",
+    "draft_invalid",
+    "dispatch_failed",
+    "node_failed",
+    "internal_error",
+]
+RUN_ERROR_CODES: frozenset[str] = frozenset(get_args(RunErrorCode))
+
+
+class RunFailure(NamedTuple):
+    """A failure produced away from its ``_fail_run`` call, carrying its code from the source."""
+
+    code: RunErrorCode
+    error: str
+
+
+#: The §R2 refusal every executor reports as ``cost_cap_reached``.
+_CAP_REACHED = "monthly cost cap reached"
+
+#: RL-03: `_fail_run`'s own terminal-row guard — same shape as `.lifecycle._NOT_TERMINAL_SQL`
+#: (and `.decisions.cancel`'s), derived from `_TERMINAL_STATUSES` so a fifth terminal status
+#: needs one edit, not six.
+_NOT_TERMINAL_SQL = (
+    "status NOT IN (" + ", ".join(f"'{s}'" for s in sorted(_TERMINAL_STATUSES)) + ")"
+)
+
+#: A refused publish dispatch's own status (``agent.publish_dispatch.DispatchOutcome``).
+_PUBLISH_REFUSAL_CODES: dict[str, RunErrorCode] = {
+    "hash_mismatch": "draft_integrity_failed",
+    "disclosure_missing": "disclosure_required",
+}
 
 # Manifest stage status → wire node state (run-event.schema.json node.state enum).
 # A gate-paused node reads 'running' on the wire — the awaiting_approval event
@@ -84,15 +132,69 @@ def _file_block(artifact_id: str, art) -> dict:
     }
 
 
-async def _fail_run(pool, workspace_id: str, run_id: str, error: str) -> None:
-    """Persist a failed terminal state + emit `done` — the pack path's one failure exit."""
+def enroll_refusal(outcome) -> RunFailure | None:
+    """Why an approved enrollment dispatch fails the run, or None. ``outcome`` is
+    ``dispatch_backend_email_enroll``'s return: None when the workspace has no Saleshandy key
+    (or the dispatch swallowed an internal exception) — nothing was enrolled. A dry run is not
+    a failure."""
+    if outcome is None:
+        return RunFailure(
+            "email_not_configured",
+            "no Saleshandy API key configured for this workspace — not enrolled",
+        )
+    if outcome.status != "dry_run" and not outcome.ok:
+        return RunFailure("dispatch_failed", outcome.operator_line())
+    return None
+
+
+def publish_refusal(outcome) -> RunFailure | None:
+    """Why an approved publish dispatch fails the run, or None. ``outcome`` is
+    ``dispatch_backend_publish``'s return."""
+    if outcome is None:
+        # No enabled destination for this workspace (or dispatch_backend_publish swallowed an
+        # internal exception) — nothing was sent. Without this the gated node still flipped to
+        # "complete", marking the run as if the post went out even though dispatch never happened.
+        return RunFailure(
+            "publish_not_configured",
+            "no publish destination configured for this workspace — not published",
+        )
+    # Any non-success outcome fails the run, EXCEPT: dry_run (a structurally intentional no-op —
+    # see agent/publish_dispatch.py) and a "duplicate" publish (the A5 gate-decision-replay path
+    # re-dispatching bytes already sent before a restart — idempotency, not failure). Every other
+    # status — hash_mismatch, disclosure_missing, and every LinkedInPublisher failure mode
+    # collapsed under "publish_failed" (disabled/schedule_disabled/misconfigured/invalid/
+    # rate_limited/error) — must not silently read as a successful publish.
+    already_published = outcome.result is not None and outcome.result.status == "duplicate"
+    if outcome.status != "dry_run" and not outcome.ok and not already_published:
+        code = _PUBLISH_REFUSAL_CODES.get(outcome.status, "dispatch_failed")
+        return RunFailure(code, outcome.operator_line())
+    return None
+
+
+async def _fail_run(
+    pool, workspace_id: str, run_id: str, error: str, *, error_code: RunErrorCode
+) -> None:
+    """Persist a failed terminal state + emit `done` — the pack path's one failure exit.
+
+    RL-03: guarded against a terminal row — a stray failure racing a cancel (or any
+    other terminal write from another worker) must not overwrite it. The `done` frame
+    is emitted only when the write actually matched."""
+    if error_code not in RUN_ERROR_CODES:
+        raise ValueError(f"unknown run error_code {error_code!r}")
     async with workspace_scope(pool, workspace_id) as conn:
-        await conn.execute(
-            "UPDATE runs SET status = 'failed', error = $2, completed_at = now() "
-            "WHERE id = $1::uuid",
+        updated = await conn.fetchrow(
+            f"UPDATE runs SET status = 'failed', error = $2, error_code = $3, completed_at = now(), "  # nosec B608 — status list is a module constant, never external input
+            f"pending_gate = NULL, pending_content = NULL "
+            f"WHERE id = $1::uuid AND {_NOT_TERMINAL_SQL} RETURNING id",
             run_id,
             error,
+            error_code,
         )
+    if updated is None:
+        return
     publish_run_event(
-        workspace_id, run_id, "done", {"run_id": run_id, "status": "failed", "error": error}
+        workspace_id,
+        run_id,
+        "done",
+        {"run_id": run_id, "status": "failed", "error": error, "error_code": error_code},
     )

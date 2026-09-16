@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import captions, render_engines, shots_lint
+from . import captions, render_engines, shots_lint, video_lint
 from .brandkit import load_brand_kit, lookup
 from .paths import resolve_profiles_root
 
@@ -48,6 +48,7 @@ __all__ = [
     "look_proposals",
     "preflight",
     "resolve_look",
+    "route_intent",
 ]
 
 #: Image suffixes worth surfacing as candidate ``screen``/``broll`` shots.
@@ -430,6 +431,7 @@ class Constraints:
     imagery_style: str = ""
     imagery_negative: str = ""
     captions_preset: str | None = None
+    caption_mode: str = "narrative"
     disclosure_line: str = ""
     voice_bans_path: str | None = None
     existing_assets: tuple[str, ...] = ()
@@ -483,6 +485,9 @@ class Constraints:
     #: this only reports it, and nothing downstream is blocked by either state.
     story_capture: StoryCapture | None = None
 
+    #: Whether ffmpeg is present on PATH, required for local audio muxing, stitching, and caption burn.
+    ffmpeg_available: bool = False
+
 
 @dataclass(frozen=True)
 class Preflight:
@@ -506,6 +511,17 @@ class Preflight:
             if lane.ready and not lane.needs_footage:
                 return lane.variant
         return None
+
+    def route(self, prompt_or_path: str, **kwargs: Any) -> Any:
+        """Classify operator intent into Door 1 ("I have footage") or Door 2 ("Create from idea")."""
+        from .two_door import classify_input
+
+        return classify_input(prompt_or_path, self, **kwargs)
+
+
+def route_intent(prompt_or_path: str, pf: Preflight, **kwargs: Any) -> Any:
+    """Classify operator input into Door 1 or Door 2 under the active preflight."""
+    return pf.route(prompt_or_path, **kwargs)
 
 
 def _present(kit: dict[str, Any], dotted: str) -> bool:
@@ -661,6 +677,7 @@ def preflight(
     profiles_root: Path | None = None,
     repo_root: Path | None = None,
     item: dict | None = None,
+    lane: str | None = None,
 ) -> Preflight:
     """Blocks A and B of the video brief, resolved from disk. Spends nothing, writes nothing.
 
@@ -701,6 +718,8 @@ def preflight(
         for v in LANE_REQUIREMENTS
     )
 
+    caption_mode = _derive_caption_mode(vo_available, lane=lane, lanes=lanes)
+
     constraints = Constraints(
         palette=_get("palette", {}) or {},
         typography=_get("typography", {}) or {},
@@ -711,6 +730,7 @@ def preflight(
         captions_preset=(str(_get("captions.preset")) or None)
         if _present(kit, "captions.preset")
         else None,
+        caption_mode=caption_mode,
         disclosure_line=str(_get("disclosure.line") or ""),
         voice_bans_path=str(bans.relative_to(root.parent)) if bans.is_file() else None,
         existing_assets=_existing_assets(root, profile),
@@ -721,8 +741,47 @@ def preflight(
         captions_placement=captions.resolve_placement(kit),
         upper_placement_presets=tuple(sorted(captions._UPPER_PLACEMENT_PRESETS)),
         story_capture=story_capture(item),
+        ffmpeg_available=video_lint.ffmpeg_available(),
     )
     return Preflight(profile=profile, product=product, lanes=lanes, constraints=constraints)
+
+
+def _derive_caption_mode(
+    vo_available: bool,
+    lane: str | None = None,
+    lanes: tuple[LaneStatus, ...] = (),
+) -> str:
+    """Derive constraints.caption_mode: 'subtitles', 'narrative', or 'mixed'.
+
+    - 'subtitles' when lane voices script (vo_available and lane is a voiced lane like presenter-video)
+    - 'narrative' when captions-only (short-form-video with no VO, or lane has no voice)
+    - 'mixed' when both occur across ready lanes or lane uses both
+    """
+    if lane:
+        lane_clean = lane.strip().lower()
+        if lane_clean in ("presenter-video", "heygen_avatar"):
+            return "subtitles" if vo_available else "narrative"
+        if lane_clean == "short-form-video":
+            return "mixed" if vo_available else "narrative"
+        if lane_clean == "live-action-video":
+            return "subtitles"
+        return "narrative"
+
+    if not vo_available:
+        return "narrative"
+
+    has_voiced = any(
+        ls.ready and ls.variant in ("presenter-video", "live-action-video") for ls in lanes
+    )
+    has_unvoiced = any(
+        ls.ready and ls.variant in ("short-form-video", "repurpose-clips", "demo-clips")
+        for ls in lanes
+    )
+    if has_voiced and has_unvoiced:
+        return "mixed"
+    if has_voiced:
+        return "subtitles"
+    return "narrative"
 
 
 def _render_cost(lane: LaneStatus) -> str:
@@ -800,6 +859,7 @@ def _render_text(pf: Preflight) -> str:
     lines.append(f"  imagery.style     {c.imagery_style or '(unset)'}")
     lines.append(f"  imagery.negative  {c.imagery_negative or '(unset)'}")
     lines.append(f"  captions.preset   {c.captions_preset or '(unset — declare one in the brief)'}")
+    lines.append(f"  caption mode      {c.caption_mode}")
     lines.append(f"  captions placement {c.captions_placement} (resolved by gtm_core.captions)")
     lines.append(f"  disclosure.line   {c.disclosure_line or '(unset — fails closed downstream)'}")
     lines.append(f"  voice bans        {c.voice_bans_path or '(none)'}")
@@ -819,6 +879,12 @@ def _render_text(pf: Preflight) -> str:
         f"{c.reap_requests_per_minute} req/min, footage kept {c.reap_project_retention_days} days "
         f"(plan read {REAP_PLAN_VERIFIED_ON} — re-read live before a large job)"
     )
+    ffmpeg_status = (
+        "installed"
+        if c.ffmpeg_available
+        else "NOT FOUND — run `brew install ffmpeg` for local stitching & captions"
+    )
+    lines.append(f"  ffmpeg            {ffmpeg_status}")
     if c.existing_assets:
         lines.append(f"  existing assets   {len(c.existing_assets)} reusable (reuse > generate):")
         for path in c.existing_assets[:8]:
@@ -860,6 +926,7 @@ def _as_dict(pf: Preflight) -> dict[str, Any]:
             "imagery_style": pf.constraints.imagery_style,
             "imagery_negative": pf.constraints.imagery_negative,
             "captions_preset": pf.constraints.captions_preset,
+            "caption_mode": pf.constraints.caption_mode,
             "disclosure_line": pf.constraints.disclosure_line,
             "voice_bans_path": pf.constraints.voice_bans_path,
             "shot_rules": [dict(r) for r in pf.constraints.shot_rules],
@@ -883,6 +950,7 @@ def _as_dict(pf: Preflight) -> dict[str, Any]:
             "presenter_share_ceiling": pf.constraints.presenter_share_ceiling,
             "required_shot_role": pf.constraints.required_shot_role,
             "existing_assets": list(pf.constraints.existing_assets),
+            "ffmpeg_available": pf.constraints.ffmpeg_available,
             # Hand-enumerated like every sibling above: a Constraints field added without a line
             # here is silently absent from --json, which is the one consumer the router reads.
             "story_capture": (
@@ -917,10 +985,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profiles-root", default=None, type=Path)
     parser.add_argument("--json", action="store_true", help="emit JSON instead of text")
     parser.add_argument(
+        "--lane",
+        default=None,
+        help="specific lane variant to check caption mode for",
+    )
+    parser.add_argument(
         "--item-json",
         default=None,
         type=Path,
         help="path to one ContentItem as JSON; only brief.protagonist is read from it",
+    )
+    parser.add_argument(
+        "--route",
+        default=None,
+        help="classify operator prompt or input path through the Two-Door router",
     )
     args = parser.parse_args(argv)
 
@@ -937,10 +1015,30 @@ def main(argv: list[str] | None = None) -> int:
                     f"(read a {type(loaded).__name__})"
                 )
             item = loaded
-        pf = preflight(args.profile, args.product, profiles_root=args.profiles_root, item=item)
+        pf = preflight(
+            args.profile,
+            args.product,
+            profiles_root=args.profiles_root,
+            item=item,
+            lane=args.lane,
+        )
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": str(exc)}, indent=2))
         return 1
+
+    if args.route:
+        decision = pf.route(args.route)
+        if args.json:
+            from dataclasses import asdict
+
+            print(json.dumps(asdict(decision), indent=2))
+        else:
+            print(f"Door {decision.door}: {decision.door_name}")
+            print(f"Target Lane: {decision.recommended_lane}")
+            print(f"Reason: {decision.reason}")
+            if decision.requires_clarification:
+                print(f"Clarification Needed: {decision.clarification_question}")
+        return 0
 
     print(json.dumps(_as_dict(pf), indent=2) if args.json else _render_text(pf))
     return 0 if pf.ready_lanes else 2

@@ -13,6 +13,7 @@ Locks two things a docs-only build missed and a live API test caught:
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
 from agent.mcp.saleshandy import server
 
@@ -63,6 +64,33 @@ def test_no_send_activate_or_delete_tool_is_exposed():
         "clear_dnc_list",
     ):
         assert not hasattr(server, name), f"forbidden DNC write tool exposed: {name}"
+
+
+def test_pre_enrollment_reads_are_python_only_not_mcp_tools():
+    """The read-back agent.email_dispatch runs before enrolling (client issue #244) is not
+    a tool surface: the brain already has list_sequences, and needs nothing new."""
+    tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    for name in (
+        "_list_sequences_page_request",
+        "_get_step_variants_request",
+        "_list_fields_request",
+    ):
+        assert callable(getattr(server, name))
+        assert name not in tools and name.lstrip("_") not in tools
+
+
+def test_step_variants_path_cannot_be_steered_by_an_id():
+    """Ids come from a model-written draft; one containing a separator must stay a single
+    path segment instead of reaching another endpoint."""
+    seen = []
+
+    async def _fake_call(method, path, **kwargs):
+        seen.append(path)
+        return "[]"
+
+    with patch.object(server, "_call", _fake_call):
+        asyncio.run(server._get_step_variants_request("k", "seq/../dnc", "st?x=1"))
+    assert seen == ["/sequences/seq%2F..%2Fdnc/steps/st%3Fx%3D1"]
 
 
 def test_dnc_read_tools_are_exposed():

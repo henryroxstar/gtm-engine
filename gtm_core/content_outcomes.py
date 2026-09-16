@@ -275,8 +275,49 @@ def item_tags(plans: list[dict]) -> dict[str, list[str]]:
             protagonist = brief.get("protagonist")
             if isinstance(protagonist, str) and protagonist.strip():
                 tags.append("story_format:true")
+        tags.extend(_caption_tags(item, brief if isinstance(brief, dict) else None))
         out[item_id] = tags
     return out
+
+
+def _caption_tags(item: dict, brief: dict | None) -> list[str]:
+    """caption_mode, caption_voice, describe_share tags (K8)."""
+    tags: list[str] = []
+    caption_mode = None
+    caption_voice = None
+    if brief:
+        cv = brief.get("caption_voice")
+        if isinstance(cv, dict):
+            cv_val = cv.get("value")
+            if isinstance(cv_val, dict):
+                mode_c = cv_val.get("mode")
+                if isinstance(mode_c, str) and mode_c.strip():
+                    caption_mode = mode_c.strip()
+                voice_c = cv_val.get("voice")
+                if isinstance(voice_c, str) and voice_c.strip():
+                    caption_voice = voice_c.strip()
+    if (
+        caption_mode is None
+        and isinstance(item.get("caption_mode"), str)
+        and item["caption_mode"].strip()
+    ):
+        caption_mode = item["caption_mode"].strip()
+    if (
+        caption_voice is None
+        and isinstance(item.get("caption_voice"), str)
+        and item["caption_voice"].strip()
+    ):
+        caption_voice = item["caption_voice"].strip()
+
+    if caption_mode:
+        tags.append(f"caption_mode:{caption_mode}")
+    if caption_voice:
+        tags.append(f"caption_voice:{caption_voice}")
+    if isinstance(item.get("describe_share"), (int, float)) and not isinstance(
+        item.get("describe_share"), bool
+    ):
+        tags.append(f"describe_share:{float(item['describe_share'])}")
+    return tags
 
 
 def read_plans(content_root: Path, profile: str) -> list[dict]:

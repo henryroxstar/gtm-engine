@@ -1,0 +1,47 @@
+# profiles/_template/video-presets.toml — canonical video brief presets
+# Tenant profiles can override or extend these in profiles/<profile>/video-presets.toml.
+
+[presets.product-walkthrough]
+name = "Product Walkthrough"
+description = "Feature demo, procedural walkthrough, or engineering workflow"
+cover = "product_frame"
+outlier_structure = "linear_reveal"
+slot_schema = ["hook_pain", "ui_action", "technical_proof", "payoff_cta"]
+cheapest_medium = "video_required"
+capture_mode = "rendered"
+invariant = "dark_ide_ui"
+broll_list = ["screen_recording", "terminal_diff", "architecture_block"]
+sampling_curve = "1,1,1,1"
+visual_hook = "terminal_error_cursor"
+caption_voice = "instructional_second_person"
+max_spend_credits = 60
+
+[presets.story-anecdote]
+name = "Story / Anecdote"
+description = "Personal builder reflection, customer breakthrough, or failure lesson"
+cover = "character_closeup"
+outlier_structure = "nine_beat_story_graph"
+slot_schema = ["status_quo", "inciting_incident", "low_point", "breakthrough", "resolution"]
+cheapest_medium = "video_required"
+capture_mode = "live_action"
+invariant = "handheld_natural_light"
+broll_list = ["protagonist_action", "conflict_evidence", "payoff_face"]
+sampling_curve = "3,2,1,1,1"
+visual_hook = "flash_forward_emotional_peak"
+caption_voice = "first_person_reflective"
+max_spend_credits = 40
+
+[presets.explainer-breakdown]
+name = "Explainer / Breakdown"
+description = "Deconstruct a complex system, debunk an industry myth, or unpack a framework"
+cover = "bold_thesis_statement"
+outlier_structure = "thesis_antithesis_synthesis"
+slot_schema = ["contrarian_hook", "evidence_stack", "framework_reveal", "reframe_takeaway"]
+cheapest_medium = "video_required"
+capture_mode = "rendered"
+invariant = "editorial_typography_motion"
+broll_list = ["diagram_animation", "document_highlight", "abstract_concept"]
+sampling_curve = "2,1,1,1"
+visual_hook = "statement_typography_crash"
+caption_voice = "authoritative_narrator"
+max_spend_credits = 50

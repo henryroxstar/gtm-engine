@@ -30,6 +30,7 @@ VERBS: dict[str, str] = {
     "backlog": "gtm_core.prospects_backlog",
     "dashboard": "gtm_core.email_campaign_dashboard",
     "paths": "gtm_core.prospect_paths",
+    "status": "gtm_core.prospect_status_cli",
     # Gate it
     "preflight": "gtm_core.preflight",
     "funnel": "gtm_core.funnel",
@@ -55,6 +56,7 @@ _SUMMARY: dict[str, str] = {
     "backlog": "report accounts sitting unworked",
     "dashboard": "rebuild the operator status page",
     "paths": "print the canonical locations of this profile's pipeline state",
+    "status": "Where does the current list stand, in plain language.",
     "preflight": "check budget and connectors before a run spends anything",
     "funnel": "size the run against the delivery target",
     "list-fit": "is this list worth working? role fit, signal grade, source hit rate",

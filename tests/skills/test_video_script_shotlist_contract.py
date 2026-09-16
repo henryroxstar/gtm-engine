@@ -10,8 +10,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 SKILL_DIR = REPO / "plugin" / "skills" / "video-script"
+
+if not (SKILL_DIR / "body_template.md").exists():
+    # video-script is `oss = "private"` (gtm_core/gating.toml) — the OSS carve stubs its
+    # body_template.md out, so this drift guard has nothing to check in that distribution.
+    pytest.skip(
+        "video-script body_template.md not present (paid-tier stub)", allow_module_level=True
+    )
 
 
 def _text(path: Path) -> str:

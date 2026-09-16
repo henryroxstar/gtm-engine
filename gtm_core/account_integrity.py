@@ -69,6 +69,12 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .enrollment_gate import (
+    _refuse_ambiguous_lane,
+    _refuse_lane_state_mismatch,
+    check_account_status,
+    check_enrollment_lanes,
+)
 from .finding_budget import WARN_BUDGET, budget_verdict, render_budget
 from .lane_verdicts import LANE_VERDICTS as _LANE_VERDICTS
 from .merge_hygiene import check_row
@@ -91,6 +97,7 @@ __all__ = [
     "DIRECT_TIER",
     "AccountAudit",
     "VerdictFilterStats",
+    "_refuse_ambiguous_lane",
     "dossier_depth",
     "domain_issue",
     "stale_artifact_string",
@@ -519,6 +526,7 @@ _ROW_LEVEL_RULES = frozenset(
         "relation-regulator",
         "relation-partner",
         "relation-adjacent",
+        "signal-clause-underivable",
         "signal-source-missing",
         "signal-source-malformed",
         "signal-source-is-search",
@@ -615,10 +623,18 @@ LANE_VERDICTS = _LANE_VERDICTS
 _JUDGE_MAY_REMOVE_LANES = frozenset({"", "signal", "personalised"})
 #: Findings a GENERIC-lane row carries as ONE aggregate warning per class instead of a
 #: per-row ERROR. A generic body references no research, so "no verdict / no relation /
-#: no dossier" say what the row lacks for a PERSONALISED send, not that this send is
-#: unsafe. Every other class — competitor, academic domain, stale artifact, why-now
-#: shape, freshness — stays ERROR in every lane.
+#: no dossier" and research-record findings (signal-*, agent-kind-*) say what the row lacks
+#: for a PERSONALISED send, not that this send is unsafe. Every other class — competitor,
+#: academic domain, stale artifact — stays ERROR in every lane.
 GENERIC_LANE_ADVISORY = frozenset({"no-dossier", "verdict-missing", "relation-unresolved"})
+
+
+def _is_generic_advisory(rule: str) -> bool:
+    return (
+        rule in GENERIC_LANE_ADVISORY
+        or rule.startswith("signal-")
+        or rule.startswith("agent-kind-")
+    )
 
 
 def filter_by_verdict(
@@ -656,8 +672,8 @@ def filter_by_verdict(
 
 
 def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
-    """Generic lane only: each :data:`GENERIC_LANE_ADVISORY` class becomes ONE aggregate
-    warning. Per row they would saturate the WARN budget on exactly the lists the lane
+    """Generic lane only: each advisory class becomes ONE aggregate warning.
+    Per row they would saturate the WARN budget on exactly the lists the lane
     exists for (300+ un-researched rows) — the same reason ``leadership-freshness``
     aggregates below. Every other lane is returned untouched.
     """
@@ -667,7 +683,7 @@ def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
     demoted: dict[str, int] = {}
     for line in a.errors:
         rule = line.split(":", 1)[0].strip()
-        if rule in GENERIC_LANE_ADVISORY:
+        if _is_generic_advisory(rule):
             demoted[rule] = demoted.get(rule, 0) + 1
         else:
             keep.append(line)
@@ -955,15 +971,31 @@ def main(argv: list[str] | None = None) -> int:
         reader = csv.DictReader(fh)
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
-    if lane and "lane" in fieldnames:
-        foreign = sorted({(r.get("lane") or "").strip().lower() for r in rows} - {lane, ""})
-        if foreign:
-            print(
-                f"REFUSED: --lane {lane!r} but the CSV's own lane column carries {foreign} — "
-                f"a list routed into one lane must not be enrolled into another",
-                file=sys.stderr,
-            )
+    if args.require_verdict:
+        want = args.require_verdict.strip().lower()
+        refusal, lane = check_enrollment_lanes(rows, args.profile, lane, fieldnames, want=want)
+        if refusal:
+            print(refusal, file=sys.stderr)
             return 2
+        refusal = check_account_status(rows, args.profile)
+        if refusal:
+            print(refusal, file=sys.stderr)
+            return 2
+    else:
+        if lane and "lane" in fieldnames:
+            foreign = sorted({(r.get("lane") or "").strip().lower() for r in rows} - {lane, ""})
+            if foreign:
+                print(
+                    f"REFUSED: --lane {lane!r} but the CSV's own lane column carries {foreign} — "
+                    f"a list routed into one lane must not be enrolled into another",
+                    file=sys.stderr,
+                )
+                return 2
+        if "lane" in fieldnames:
+            refusal = _refuse_lane_state_mismatch(rows, args.profile)
+            if refusal:
+                print(refusal, file=sys.stderr)
+                return 2
     if not args.include_suppressed:
         before = len(rows)
         index = load_suppression_index(suppression_ledger(args.profile))

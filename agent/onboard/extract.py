@@ -7,6 +7,8 @@ if TYPE_CHECKING:  # annotations only — no runtime import
 
 import json
 
+from .errors import OnboardingExtractError, OnboardingInputError
+
 # ── extract ───────────────────────────────────────────────────────────────────
 
 _REQUIRED_DRAFT_FIELDS = frozenset(
@@ -54,12 +56,12 @@ async def extract(raw_text: str, cfg: Config) -> dict:
     )
 
     # §R2 cost cap check before paid brain call
-    from gtm_core.ingest import _onboarding_month_spend
+    from gtm_core.ingest import OnboardingCapReachedError, _onboarding_month_spend
 
     if cfg.onboarding_cap_usd is not None:
         spent = _onboarding_month_spend(cfg)
         if spent >= cfg.onboarding_cap_usd:
-            raise RuntimeError(
+            raise OnboardingCapReachedError(
                 f"Onboarding cost cap exceeded before extract: ${spent:.4f} >= "
                 f"${cfg.onboarding_cap_usd:.4f}"
             )
@@ -125,32 +127,32 @@ def _parse_and_validate_draft(raw_json: str) -> dict:
     try:
         draft = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Brain returned invalid JSON: {exc}") from exc
+        raise OnboardingExtractError(f"Brain returned invalid JSON: {exc}") from exc
 
     if not isinstance(draft, dict):
-        raise ValueError(f"Expected a JSON object, got {type(draft).__name__}")
+        raise OnboardingExtractError(f"Expected a JSON object, got {type(draft).__name__}")
 
     # Required top-level fields
     missing = _REQUIRED_DRAFT_FIELDS - set(draft.keys())
     if missing:
-        raise ValueError(f"ProfileDraft missing required fields: {sorted(missing)}")
+        raise OnboardingExtractError(f"ProfileDraft missing required fields: {sorted(missing)}")
 
     # confidence enum
     if draft.get("confidence") not in _VALID_CONFIDENCE:
-        raise ValueError(
+        raise OnboardingExtractError(
             f"confidence must be one of {sorted(_VALID_CONFIDENCE)}, got {draft.get('confidence')!r}"
         )
 
     # products non-empty
     products = draft.get("products", [])
     if not products:
-        raise ValueError("products must contain at least 1 item")
+        raise OnboardingExtractError("products must contain at least 1 item")
 
     # capability validation
     for product in products:
         for cap in product.get("capabilities", []):
             if cap and cap not in KNOWN_CAPABILITIES:
-                raise ValueError(
+                raise OnboardingExtractError(
                     f"Unknown capability {cap!r} in product {product.get('name')!r}. "
                     f"Known: {sorted(KNOWN_CAPABILITIES)}"
                 )
@@ -168,18 +170,18 @@ async def extract_product(product_slug: str, extra_source: str, draft: dict, cfg
     Returns:
         The updated draft dict.
     """
-    from gtm_core.ingest import _onboarding_month_spend
+    from gtm_core.ingest import OnboardingCapReachedError, _onboarding_month_spend
 
     products = draft.get("products", [])
     existing = next((p for p in products if p.get("slug") == product_slug), None)
     if existing is None:
-        raise ValueError(f"Product {product_slug!r} not found in draft")
+        raise OnboardingInputError(f"Product {product_slug!r} not found in draft")
 
     # §R2 cost cap check before paid brain call
     if cfg.onboarding_cap_usd is not None:
         spent = _onboarding_month_spend(cfg)
         if spent >= cfg.onboarding_cap_usd:
-            raise RuntimeError(
+            raise OnboardingCapReachedError(
                 f"Onboarding cost cap exceeded before product re-extract: ${spent:.4f} >= "
                 f"${cfg.onboarding_cap_usd:.4f}"
             )
@@ -202,10 +204,12 @@ async def extract_product(product_slug: str, extra_source: str, draft: dict, cfg
     try:
         updated = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Brain returned invalid JSON for product re-extract: {exc}") from exc
+        raise OnboardingExtractError(
+            f"Brain returned invalid JSON for product re-extract: {exc}"
+        ) from exc
 
     if updated.get("slug") != product_slug:
-        raise ValueError(
+        raise OnboardingExtractError(
             f"Brain returned product with slug {updated.get('slug')!r}, "
             f"expected {product_slug!r}. Rejecting to prevent silent corruption."
         )
@@ -214,7 +218,7 @@ async def extract_product(product_slug: str, extra_source: str, draft: dict, cfg
 
     for cap in updated.get("capabilities", []):
         if cap and cap not in KNOWN_CAPABILITIES:
-            raise ValueError(f"Unknown capability {cap!r} in re-extracted product")
+            raise OnboardingExtractError(f"Unknown capability {cap!r} in re-extracted product")
 
     for i, p in enumerate(products):
         if p.get("slug") == product_slug:

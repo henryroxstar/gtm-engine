@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import json
 
 import pytest
 
 from gtm_core import prospects_state as ps
+from gtm_core.prospects_consolidate.paths import ready_to_load_path
 
 
 def _write_latest(root, profile, items):
@@ -16,6 +18,47 @@ def _write_latest(root, profile, items):
         json.dumps({"kind": "prospects", "profile": profile, "items": items}), encoding="utf-8"
     )
     return p
+
+
+_POOL_COLUMNS = ("email", "company", "company_domain", "account_id")
+
+
+def _write_ready_to_load(root, profile, rows):
+    """A trimmed ``ready-to-load.csv`` — only the columns :func:`mark_replied` joins on."""
+    p = ready_to_load_path(profile, content_root=root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_POOL_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({c: row.get(c, "") for c in _POOL_COLUMNS})
+    return p
+
+
+def _write_master_list(root, profile, rows):
+    from gtm_core.prospects_consolidate.paths import _pool_dir
+
+    p = _pool_dir(profile, content_root=root) / "master-list.csv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_POOL_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({c: row.get(c, "") for c in _POOL_COLUMNS})
+    return p
+
+
+def _write_cells_toml(root, profile, sequences):
+    from gtm_core.prospects_consolidate.paths import _sequences_dir
+
+    seq_dir = _sequences_dir(profile, content_root=root)
+    seq_dir.mkdir(parents=True, exist_ok=True)
+    cells = []
+    for s in sequences:
+        cells.append(
+            f'[[sequence]]\nid = "{s["id"]}"\ncsv = "{s["csv"]}"\nspec = "{s.get("spec", "spec.md")}"\n'
+        )
+    (seq_dir / "cells.toml").write_text("\n".join(cells), encoding="utf-8")
 
 
 def test_merge_adds_new_and_keeps_existing(tmp_path):
@@ -377,3 +420,433 @@ def test_set_status_refreshes_generated_at(tmp_path):
     ps.set_status("acme", {"d:alpha.example": "disqualified"}, content_root=tmp_path)
     data = ps.load_latest("acme", content_root=tmp_path)
     assert data["generated_at"] != "2020-01-01T00:00:00+00:00", "the file's timestamp lies"
+
+
+# --- PS6: LEDGER_STATUSES validation + disqualified-only provenance fields --- #
+
+
+def test_set_status_rejects_a_status_outside_the_ledger_vocabulary(tmp_path):
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    with pytest.raises(ValueError):
+        ps.set_status("acme", {"d:alpha.example": "qualified"}, content_root=tmp_path)
+    # Refused before any write — the file must be untouched.
+    assert ps.load_latest("acme", content_root=tmp_path)["items"][0]["status"] == "new"
+
+
+def test_disqualified_fields_are_only_stamped_for_the_disqualified_status(tmp_path):
+    """A `replied` write must not carry `disqualified_reason`/`disqualified_by` — that
+    would misleadingly imply the account was disqualified when it was not."""
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    ps.set_status(
+        "acme",
+        {"d:alpha.example": "replied"},
+        reason="some-reason",
+        source="some-source",
+        content_root=tmp_path,
+    )
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+    assert "disqualified_reason" not in item
+    assert "disqualified_by" not in item
+
+
+def test_disqualified_fields_still_stamped_for_disqualified(tmp_path):
+    """Regression guard: existing eval_writeback/lanes.decisions callers must still work."""
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    ps.set_status(
+        "acme",
+        {"d:alpha.example": "disqualified"},
+        reason="eval-disqualified",
+        source="eval-2026-09-10",
+        content_root=tmp_path,
+    )
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["disqualified_reason"] == "eval-disqualified"
+    assert item["disqualified_by"] == "eval-2026-09-10"
+
+
+# --- PS6: mark_replied — join a reply's email to its account, write `replied` ----- #
+
+
+def test_mark_replied_matches_by_domain_and_writes_replied(tmp_path):
+    _write_latest(
+        tmp_path, "acme", [{"domain": "alpha.example", "company": "Alpha", "status": "new"}]
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+    summary = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    assert summary["matched"] == ["dana@alpha.example"]
+    assert summary["changed"] == 1
+    assert summary["unmatched"] == []
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+
+
+def test_mark_replied_matches_by_company_when_no_domain(tmp_path):
+    _write_latest(tmp_path, "acme", [{"company": "Beta Co", "status": "new"}])
+    _write_ready_to_load(tmp_path, "acme", [{"email": "sam@beta.example", "company": "Beta Co"}])
+    summary = ps.mark_replied("acme", ["sam@beta.example"], source="test", content_root=tmp_path)
+    assert summary["matched"] == ["sam@beta.example"]
+    assert ps.load_latest("acme", content_root=tmp_path)["items"][0]["status"] == "replied"
+
+
+def test_mark_replied_matches_by_stamped_account_id(tmp_path):
+    """A row that only carries the stamped account_id (no domain/company overlap with the
+    ledger row's own casing/spacing) must still resolve — the same fallback
+    `_account_key_of` relies on elsewhere."""
+    _write_latest(
+        tmp_path, "acme", [{"account_id": "a-deadbeef01", "company": "", "status": "new"}]
+    )
+    _write_ready_to_load(
+        tmp_path, "acme", [{"email": "rep@gamma.example", "account_id": "a-deadbeef01"}]
+    )
+    summary = ps.mark_replied("acme", ["rep@gamma.example"], source="test", content_root=tmp_path)
+    assert summary["matched"] == ["rep@gamma.example"]
+    assert ps.load_latest("acme", content_root=tmp_path)["items"][0]["status"] == "replied"
+
+
+def test_mark_replied_never_overwrites_a_retired_status(tmp_path):
+    """A positive reply must not un-disqualify (or otherwise revive) an account already
+    retired — disqualified, do-not-contact, or closed-lost."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "alpha.example", "company": "Alpha", "status": "disqualified"}],
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+    summary = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    assert summary["retired_skipped"] == ["dana@alpha.example"]
+    assert summary["matched"] == []
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "disqualified", "a reply must never revive a retired account"
+
+
+@pytest.mark.parametrize("retired_status", ["disqualified", "do-not-contact", "closed-lost"])
+def test_mark_replied_skips_every_retired_status(tmp_path, retired_status):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "alpha.example", "company": "Alpha", "status": retired_status}],
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+    summary = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    assert summary["retired_skipped"] == ["dana@alpha.example"]
+    assert ps.load_latest("acme", content_root=tmp_path)["items"][0]["status"] == retired_status
+
+
+def test_mark_replied_reports_an_unmatched_email_without_erroring(tmp_path):
+    _write_latest(
+        tmp_path, "acme", [{"domain": "alpha.example", "company": "Alpha", "status": "new"}]
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+    # "ghost@nowhere.example" is not in the pool CSV at all.
+    summary = ps.mark_replied(
+        "acme",
+        ["dana@alpha.example", "ghost@nowhere.example"],
+        source="test",
+        content_root=tmp_path,
+    )
+    assert summary["matched"] == ["dana@alpha.example"]
+    assert summary["unmatched"] == ["ghost@nowhere.example"]
+
+
+def test_mark_replied_truly_unmatched_when_resolved_key_is_absent_from_the_ledger(tmp_path):
+    """A CSV row can resolve to an identity key that no `latest.json` item carries at
+    all — e.g. the account was dropped from the ledger, or the pool is stale. This is
+    the `set_status`-level `unmatched` (a key `by_key` never saw), distinct from an
+    email absent from the CSV entirely (already covered above): here the join
+    succeeds, but there is nothing on the other end of it. No ledger write should
+    happen for it."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "alpha.example", "company": "Alpha", "status": "new"}],
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "rep@zeta.example", "company": "Zeta", "company_domain": "zeta.example"}],
+    )
+    summary = ps.mark_replied("acme", ["rep@zeta.example"], source="test", content_root=tmp_path)
+    assert summary["matched"] == []
+    assert summary["retired_skipped"] == []
+    assert summary["unmatched"] == ["rep@zeta.example"]
+    assert summary["changed"] == 0
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "new", "no ledger write should happen for an unmatched key"
+
+
+def test_mark_replied_no_ready_to_load_csv_reports_unmatched_not_an_error(tmp_path):
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    # No ready-to-load.csv written at all for this profile.
+    summary = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    assert summary["unmatched"] == ["dana@alpha.example"]
+    assert summary["matched"] == []
+
+
+def test_mark_replied_empty_email_list_is_a_no_op(tmp_path):
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    summary = ps.mark_replied("acme", [], source="test", content_root=tmp_path)
+    assert summary == {
+        "profile": "acme",
+        "matched": [],
+        "retired_skipped": [],
+        "unmatched": [],
+        "changed": 0,
+    }
+
+
+def test_mark_replied_is_idempotent(tmp_path):
+    """Marking the same email replied twice must not error or double-count a change."""
+    _write_latest(
+        tmp_path, "acme", [{"domain": "alpha.example", "company": "Alpha", "status": "new"}]
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+    first = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    second = ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+    assert first["changed"] == 1
+    assert second["changed"] == 0
+    assert second["matched"] == ["dana@alpha.example"], "already-replied still counts as matched"
+
+
+# --- PS6: end-to-end — a recorded reply is recognized as "engaged" downstream ----- #
+
+
+def test_a_marked_reply_is_recognized_as_engaged_by_the_hold_trigger(tmp_path):
+    """PS6 end-to-end (§R18): proves that marking a reply in latest.json causes
+    the engaged-account hold trigger to hold the account on the next routing run.
+    Includes negative control: before mark_replied, engaged_account is None.
+    """
+    from gtm_core.lanes.context import DEFAULT_ENGAGED_STATUSES, load_context
+    from gtm_core.lanes.triggers import engaged_account
+
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "alpha.example", "company": "Alpha", "status": "new"}],
+    )
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [{"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}],
+    )
+
+    row = {"email": "dana@alpha.example", "company": "Alpha", "company_domain": "alpha.example"}
+
+    # Negative control: before mark_replied, status is "new" and trigger does not hold
+    ctx_before = load_context("acme", content_root=tmp_path)
+    assert engaged_account(row, ctx_before, None) is None
+
+    ps.mark_replied("acme", ["dana@alpha.example"], source="test", content_root=tmp_path)
+
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+    assert item["status"] in DEFAULT_ENGAGED_STATUSES
+
+    # Positive control: after mark_replied, trigger actually fires and returns "engaged-account"
+    ctx_after = load_context("acme", content_root=tmp_path)
+    hit = engaged_account(row, ctx_after, None)
+    assert hit is not None
+    assert hit[0] == "engaged-account"
+    assert "status=replied" in hit[1]
+
+
+# --- PS-R C2: mark_replied robust resolution, key precedence, and history logging --- #
+
+
+def test_c2_mark_replied_resolves_through_master_list(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "beta.example", "company": "Beta Corp", "status": "new"}],
+    )
+    # ready-to-load does not have beta.example, but master-list does
+    _write_ready_to_load(tmp_path, "acme", [])
+    _write_master_list(
+        tmp_path,
+        "acme",
+        [
+            {
+                "email": "contacted@beta.example",
+                "company": "Beta Corp",
+                "company_domain": "beta.example",
+            }
+        ],
+    )
+    summary = ps.mark_replied(
+        "acme", ["contacted@beta.example"], source="test", content_root=tmp_path
+    )
+    assert summary["matched"] == ["contacted@beta.example"]
+    assert summary["changed"] == 1
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+
+
+def test_c2_mark_replied_resolves_through_cells_toml_registered_csv(tmp_path):
+    from gtm_core.prospects_consolidate.paths import _sequences_dir
+
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"domain": "gamma.example", "company": "Gamma Corp", "status": "new"}],
+    )
+    _write_ready_to_load(tmp_path, "acme", [])
+    _write_master_list(tmp_path, "acme", [])
+
+    seq_dir = _sequences_dir("acme", content_root=tmp_path)
+    seq_dir.mkdir(parents=True, exist_ok=True)
+    enrolled_csv = seq_dir / "ready-to-load-personalised-2026-09-01.csv"
+    with enrolled_csv.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_POOL_COLUMNS)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "email": "enrolled@gamma.example",
+                "company": "Gamma Corp",
+                "company_domain": "gamma.example",
+            }
+        )
+
+    _write_cells_toml(
+        tmp_path,
+        "acme",
+        [{"id": "SEQ-001", "csv": "ready-to-load-personalised-2026-09-01.csv", "spec": "spec.md"}],
+    )
+
+    summary = ps.mark_replied(
+        "acme", ["enrolled@gamma.example"], source="test", content_root=tmp_path
+    )
+    assert summary["matched"] == ["enrolled@gamma.example"]
+    assert summary["changed"] == 1
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+
+
+def test_c2_mark_replied_resolves_through_ledger_contact_email(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {
+                "domain": "delta.example",
+                "company": "Delta Corp",
+                "contact_email": "lead@delta.example",
+                "status": "new",
+            }
+        ],
+    )
+    _write_ready_to_load(tmp_path, "acme", [])
+    _write_master_list(tmp_path, "acme", [])
+
+    summary = ps.mark_replied("acme", ["lead@delta.example"], source="test", content_root=tmp_path)
+    assert summary["matched"] == ["lead@delta.example"]
+    assert summary["changed"] == 1
+    item = ps.load_latest("acme", content_root=tmp_path)["items"][0]
+    assert item["status"] == "replied"
+
+
+def test_c2_mark_replied_tries_every_identity_key_a_first(tmp_path):
+    """When a row has account_id and company_domain that point to different records,
+    a: must take precedence over d:."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {
+                "account_id": "a-acc1",
+                "domain": "domain1.example",
+                "company": "Company One",
+                "status": "new",
+            },
+            {
+                "account_id": "a-acc2",
+                "domain": "domain2.example",
+                "company": "Company Two",
+                "status": "new",
+            },
+        ],
+    )
+    # Row has account_id from acc1, but domain from acc2
+    _write_ready_to_load(
+        tmp_path,
+        "acme",
+        [
+            {
+                "email": "user@domain2.example",
+                "account_id": "a-acc1",
+                "company_domain": "domain2.example",
+            }
+        ],
+    )
+
+    summary = ps.mark_replied(
+        "acme", ["user@domain2.example"], source="test", content_root=tmp_path
+    )
+    assert summary["matched"] == ["user@domain2.example"]
+    items = ps.load_latest("acme", content_root=tmp_path)["items"]
+    acc1 = next(it for it in items if it.get("account_id") == "a-acc1")
+    acc2 = next(it for it in items if it.get("account_id") == "a-acc2")
+    assert acc1["status"] == "replied", "account_id (a:) key must take precedence"
+    assert acc2["status"] == "new"
+
+
+def test_c2_mark_replied_writes_unmatched_and_failed_to_history(tmp_path, monkeypatch):
+    _write_latest(tmp_path, "acme", [{"domain": "alpha.example", "status": "new"}])
+    _write_ready_to_load(tmp_path, "acme", [])
+
+    summary = ps.mark_replied(
+        "acme", ["unknown@nowhere.example"], source="test_sweep", content_root=tmp_path
+    )
+    assert summary["unmatched"] == ["unknown@nowhere.example"]
+
+    history_file = tmp_path / "acme" / "history.jsonl"
+    assert history_file.is_file(), "history.jsonl must be created"
+    lines = [
+        json.loads(line)
+        for line in history_file.read_text(encoding="utf-8").strip().splitlines()
+        if line.strip()
+    ]
+    unmatched_events = [ev for ev in lines if ev.get("event") == "reply_mark_unmatched"]
+    assert len(unmatched_events) == 1
+    assert unmatched_events[0]["who"] == "unknown@nowhere.example"
+    assert unmatched_events[0]["source"] == "test_sweep"
+
+    # Test failed mark logged to history
+    def boom(*a, **kw):
+        raise RuntimeError("simulated disk error")
+
+    monkeypatch.setattr(ps, "set_status", boom)
+    _write_ready_to_load(
+        tmp_path, "acme", [{"email": "dana@alpha.example", "company_domain": "alpha.example"}]
+    )
+    with pytest.raises(RuntimeError):
+        ps.mark_replied("acme", ["dana@alpha.example"], source="test_sweep", content_root=tmp_path)
+
+    lines = [
+        json.loads(line)
+        for line in history_file.read_text(encoding="utf-8").strip().splitlines()
+        if line.strip()
+    ]
+    failed_events = [ev for ev in lines if ev.get("event") == "reply_mark_failed"]
+    assert len(failed_events) == 1
+    assert failed_events[0]["who"] == "dana@alpha.example"
+    assert "simulated disk error" in failed_events[0]["error"]

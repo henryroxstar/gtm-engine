@@ -89,9 +89,12 @@ def test_no_body_hardcodes_a_provider_credit_balance() -> None:
 
 def test_video_router_body_and_manifest_describe_the_same_lanes() -> None:
     """The exact drift the 08-28 PRD found: manifest said four lanes, the body had five."""
-    body = (REPO / "plugin" / "skills" / "video-router" / "body_template.md").read_text(
-        encoding="utf-8"
-    )
+    body_file = REPO / "plugin" / "skills" / "video-router" / "body_template.md"
+    if not body_file.is_file():
+        import pytest
+
+        pytest.skip("video-router/body_template.md not present (paid-tier stub)")
+    body = body_file.read_text(encoding="utf-8")
     manifest = (REPO / "gtm_core" / "skills" / "video_router.py").read_text(encoding="utf-8")
     # The ROUTABLE lanes, from the module that owns the lane matrix — not every graph file in the
     # pack. `cross-modal-campaign` is a CALLER of this skill, not a lane it offers, and counting

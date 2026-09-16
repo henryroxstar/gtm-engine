@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from .config import FUNNEL_GLOSS, SEAT_COVERAGE
+from .filters import sub_counts
 from .format import (
     _barlist,
     _e,
     _pct,
     _pool_scope_note,
+    _row_status,
     _seat_label,
     _stat,
     roster_gap,
@@ -47,6 +49,20 @@ def _next_step(j: dict | None) -> str:
     )
 
 
+#: Why a block does not follow the filter. Server-rendered and ``hidden``; the page's JS
+#: only unhides it. Kept beside the blocks they describe rather than in the template,
+#: because §R14's prose lint reads ``*.py`` and nothing else.
+_STALE_SEAT = (
+    '<p class="why" hidden>Not filtered — this measures the merge LANES against their own '
+    "specs, so its denominator is the recipients those lanes render, not the accounts "
+    "selected above.</p>"
+)
+_STALE_JUDGE = (
+    '<p class="why" hidden>Not filtered — the judge scored a queue of drafted emails, so '
+    "these are rows in that queue rather than accounts in this roster.</p>"
+)
+
+
 def _seat_fit_note(m: dict) -> str:
     """Whether the merge lanes reach the seat their own spec declares.
 
@@ -62,14 +78,16 @@ def _seat_fit_note(m: dict) -> str:
     off = f.get("elsewhere", 0) + f.get("unresolved", 0)
     if not off:
         return (
-            f'<p class="note">All {total} merge-lane recipients hold the seat their spec '
-            "declares.</p>"
+            '<div data-stale-when-filtered><p class="note">All '
+            f"{total} merge-lane recipients hold the seat their spec declares.</p>"
+            f"{_STALE_SEAT}</div>"
         )
     eg = ", ".join(
         f"{'an' if x[:1].upper() in 'AEIOU' else 'a'} {_e(x)}"
         for x in (f.get("off_seat_titles") or [])[:3]
     )
     return (
+        "<div data-stale-when-filtered>"
         f'<p class="note"><strong>{off} of the {total} merge-lane recipients do not hold the '
         f"seat their own spec declares</strong> — {f.get('unresolved', 0)} whose title the hook "
         f"matrix has no row for at all ({eg}, plus {f.get('no_title', 0)} role inboxes with no "
@@ -86,6 +104,7 @@ def _seat_fit_note(m: dict) -> str:
         '<p class="note">The empty why-now column on these rows is <em>correct</em>, by '
         "contrast — a generic lane makes no per-row research claim, and filling it would mean "
         "inventing the signals these rows were put in the lane for lacking.</p>"
+        f"{_STALE_SEAT}</div>"
     )
 
 
@@ -106,17 +125,21 @@ def _roster_who(m: dict) -> str:
         f'<span class="pill good">{yes}</span>' if ok else f'<span class="pill warn">{no}</span>'
     )
     body = "".join(
-        f"<tr><td><strong>{_e(x['company'])}</strong></td>"
-        f"<td class='muted'>{_e(x['seat'] or '—')}</td>"
+        # Same canonical roster index the worklist stamps — see `_row_html` there. This
+        # table sorts by tier and that one regroups into buckets, so a display-position
+        # index would make one filter selection hide two different sets of accounts.
+        f'<tr data-row="{x["i"]}"><td><strong>{_e(x["company"])}</strong></td>'
+        f"<td>{_row_status(m, x['email'])}</td>"
+        f"<td class='muted tech'>{_e(x['seat'] or '—')}</td>"
         f"<td>{_e(x['tier'] or '—')}</td>"
         f"<td>{pill(bool(x['email']), 'verified', 'no address')}</td>"
-        f"<td>{pill(x['named'], 'named seat', 'role inbox')}</td>"
+        f"<td class='tech'>{pill(x['named'], 'named seat', 'role inbox')}</td>"
         + (
             f"<td class='muted'>{_e(_trim(x['why_now'], 150))}</td>"
             if x.get("why_now")
             else "<td class='muted'>—</td>"
         )
-        + f"<td class='muted'>{_e(x['verdict'] or '—')}"
+        + f"<td class='muted tech'>{_e(x['verdict'] or '—')}"
         + (
             f"<div class='muted' style='opacity:.75;margin-top:3px'>{_e(_trim(x['verdict_reason']))}</div>"
             if x.get("verdict_reason")
@@ -159,6 +182,7 @@ def _roster_who(m: dict) -> str:
             for a, n in sorted(by_action.items(), key=lambda kv: -kv[1])
         )
         judge_split = (
+            "<div data-stale-when-filtered>"
             f'<p class="note"><strong>Where the {len(judged)} judged rows go:</strong> {parts}. '
             "Those are two different queues, not two shades of the same one — a re-target is a "
             "prospecting run to find a seat that owns the problem, a re-argue is a rewrite of "
@@ -173,14 +197,16 @@ def _roster_who(m: dict) -> str:
                 else ""
             )
             + "</p>"
+            + _STALE_JUDGE
+            + "</div>"
         )
     srcs = ", ".join(f"<code>{_e(s)}</code>" for s in r.get("sources", []))
     return f"""
       <div class="stats">
-        {_stat(r["accounts"], f"accounts in {scope_label(m)}", "every one, not a sample", src="roster:accounts")}
-        {_stat(r["contact_verified"], "have a verified address", f"{r['accounts'] - r['contact_verified']} do not")}
-        {_stat(r["named_seat"], "resolve to a named seat", f"{r['contact_verified'] - r['named_seat']} are role inboxes")}
-        {_stat(r["signal"], "carry a dated why-now", f"{r['signal_sourced']} cite a source")}
+        {_stat(r["accounts"], f"accounts in {scope_label(m)}", "every one, not a sample", src="rows:all")}
+        {_stat(r["contact_verified"], "have a verified address", src="rows:co_has_email", sub_html=sub_counts(r["rows"], [("co_no_email", " do not")]))}
+        {_stat(r["named_seat"], "resolve to a named seat", src="rows:co_named", sub_html=sub_counts(r["rows"], [("co_role_inbox", " are role inboxes")]))}
+        {_stat(r["signal"], "carry a dated why-now", src="rows:co_signal", sub_html=sub_counts(r["rows"], [("co_signal_sourced", " cite a source")]))}
       </div>
 
       <div class="card">
@@ -195,8 +221,9 @@ def _roster_who(m: dict) -> str:
         RANKING, not a gate — no verdict here stops a send, and the deterministic
         <code>account_integrity</code> check is what does.{judge_src}</p>
         {judge_split}
-        <table><thead><tr><th>Company</th><th>Seat</th><th>Tier</th><th>Address</th>
-        <th>Seat kind</th><th>Why-now (the signal)</th><th>Research verdict</th>
+        <table><thead><tr><th>Company</th><th>Status</th><th class="tech">Seat</th><th>Tier</th>
+        <th>Address</th><th class="tech">Seat kind</th><th>Why-now (the signal)</th>
+        <th class="tech">Research verdict</th>
         <th>What happens next</th></tr></thead><tbody>{body}</tbody></table>
         {lane_finding}
         <p class="note">Counted from {_e(scope_label(m))}'s own run exports ({srcs}), folded by
@@ -210,10 +237,16 @@ def _who_view(m: dict) -> str:
     # Same guard as the status tiles, same reason: a roster only some of the in-scope
     # campaigns contributed to must not render under "every one, not a sample". Falling
     # through to the pool-wide branch is right — it is at least LABELLED as profile-wide.
-    if not roster_gap(m):
-        roster = _roster_who(m)
-        if roster:
-            return roster
+    # A SCOPED page replaces the pool panel outright: a number that is not about this
+    # campaign does not belong on this campaign's page. That reasoning INVERTS on the
+    # profile rollup, where the shared pool is the subject — so there the roster is an
+    # extra block, appended below. Returning early on the rollup deletes the funnel, the
+    # market gate, supply, intent and topic surge and leaves a 26-row table in their place;
+    # `test_dashboard_roster_identity.py::test_the_profile_rollup_keeps_the_pool_panel`
+    # is the guard, and it convicts if this branch is removed.
+    roster = _roster_who(m) if not roster_gap(m) else ""
+    if roster and m.get("campaign_scope"):
+        return roster
     scope_note = _pool_scope_note(m, "The prospect pool")
     f = m["status"]["funnel"]
     sup = m["supply"]
@@ -312,9 +345,13 @@ def _who_view(m: dict) -> str:
         <table><tbody>{gloss_rows}</tbody></table>
       </div>
 
-      <div class="card">
+      <div class="card" data-no-filter data-stale-when-filtered>
         <h2>Where they are</h2>
         {_barlist([(c["name"], c["n"]) for c in sup["countries"]], sup["total"])}
+        <p class="why" hidden>Not filtered — this counts the shared prospect pool, a
+        different and much larger set than the campaign roster the filter selects from.
+        Filtering the roster cannot move it, and rescaling it to the selection would answer
+        a question nobody asked.</p>
         <p class="note">Three markets. The campaign is overwhelmingly a US motion — the two
         smaller markets are too small to read a result from on their own.</p>
       </div>
@@ -338,7 +375,8 @@ def _who_view(m: dict) -> str:
         <p class="note">{sup["unplaced_distinct"]} distinct titles in total.</p>
       </div>
 
-      {_intent_block(m)}"""
+      {_intent_block(m)}
+      {roster}"""
 
 
 def _intent_block(m: dict) -> str:
@@ -357,7 +395,9 @@ def _intent_block(m: dict) -> str:
         + (
             f"<td class='num-cell'>{f['n']:,}</td><td><span class='pill good'>present</span></td>"
             if f["present"]
-            else "<td class='num-cell muted'>0</td>"
+            # f['n'] is `feeds.get(k, 0)` upstream (gtm_core/cells.py intent_profile) — it IS 0
+            # here by construction whenever `present` is False, so this derives rather than types.
+            else f"<td class='num-cell muted'>{f['n']:,}</td>"
             "<td><span class='pill warn'>not on this list</span></td>"
         )
         + "</tr>"
@@ -401,7 +441,7 @@ def _intent_block(m: dict) -> str:
         <p class="note">The full roster of signals this pipeline can source, and which of them
         reached this list. Showing the absent ones matters: otherwise there is no way to tell
         "we have no hiring signal here" from "hiring signal is not a thing we collect".</p>
-        <table><thead><tr><th>Signal</th><th>What it means</th><th>People</th><th></th></tr>
+        <table><thead><tr><th>Buying signal</th><th>What it means</th><th>People</th><th></th></tr>
         </thead><tbody>{feed_rows}</tbody></table>
         <p class="note"><strong>Only one feed is actually present.</strong> Everything we know
         about intent on this list is topic surge — a third party observing that people at the
@@ -421,7 +461,7 @@ def _intent_block(m: dict) -> str:
         <tbody>{topic_rows or "<tr><td colspan=3 class='muted'>none recorded</td></tr>"}</tbody>
         </table>
         <h3>How each one qualified</h3>
-        <table><thead><tr><th>Route</th><th>People</th><th>Share</th></tr></thead>
+        <table><thead><tr><th>Qualification path</th><th>People</th><th>Share</th></tr></thead>
         <tbody>{path_rows}</tbody></table>
         <p class="note">Worth reading closely: the dominant route is a <em>relaxed</em> one. Very
         few cleared the full qualification gate, which means most of this list is here on topic

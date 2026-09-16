@@ -117,9 +117,11 @@ from .errors import FfmpegUnavailable, LintError, PlanError, PolishError, SfxErr
 from .execute import (  # noqa: F401
     FinishResult,
     _build_filtergraph,
+    _carried_suppressions,
     _existing_plan_id,
     _identity_used_from_render,
     _write_manifest,
+    _write_spec_sidecar,
     execute,
 )
 from .ffmpeg import (  # noqa: F401

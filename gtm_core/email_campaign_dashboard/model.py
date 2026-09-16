@@ -10,15 +10,108 @@ from ..campaigns_dashboard import build_campaigns
 from ..cells import build_cells, intent_profile, supply_profile
 from ..outcomes import read_outcomes
 from ..paths import resolve_content_root
+from ..prospect_paths import evals_dir
+from ..prospect_status import STATUSES, UnmappedStatus, needs_address, status_of
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
+from ..prospects_state import load_latest
 from .format import _rate_of
 from .sources import (  # noqa: F401  (re-exported: model is the package's assembly point)
     packs_model,
     roster_model,
+    roster_sources,
     samples_model,
     seat_fit,
 )
+
+#: The five statuses `status_of` derives from a routed row's (lane, reason). `needs_address`
+#: is the sixth `STATUSES` id but comes from `latest.json`, not from a routed row — see
+#: `prospect_status_model`, which gives it its own key rather than folding it into this tuple.
+_LANE_STATUSES: tuple[str, ...] = tuple(s for s in STATUSES if s != "needs_address")
+
+
+def _read_lane_state(profile: str, content_root: Path | None) -> list[dict]:
+    """The router's last routing per email — `lanes route`'s own `lanes-state.jsonl`.
+
+    Read directly rather than through `gtm_core.lanes.decisions.read_state`: that helper
+    lives in the `lanes` package, whose `__init__` pulls in the router, the hold-decisions
+    ledger and the hold sheet — dragging that in here to read one JSONL is the opposite of
+    what this leaf-ish read needs. `evals_dir` is the same path resolver
+    `prospect_status_cli` and `account_integrity` already use for this file — reused rather
+    than re-spelled.
+
+    A missing file returns no rows rather than raising: the page already has a "no data
+    yet" contract for this (`views_status`'s status tiles), and a profile that has never
+    run `lanes route` is not a broken page, it is a page with nothing routed yet. A
+    malformed line is skipped for the same reason `prospect_status_cli` skips one: this is
+    a best-effort read of a router-owned side file, not the record of truth a gate enforces.
+    """
+    path = evals_dir(profile, content_root) / "lanes-state.jsonl"
+    if not path.is_file():
+        return []
+    out: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            val = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(val, dict):
+            out.append(val)
+    return out
+
+
+def prospect_status_model(profile: str, content_root: Path | None = None) -> dict:
+    """PS14's population: the six-way operator status, derived the one place it is derived
+    (`gtm_core.prospect_status`) — never re-implemented here, so the page and `prospects
+    status` cannot disagree about what one of these words means.
+
+    A `(lane, reason)` pair `status_of` has never seen is a real gap in the mapping (see
+    that module's docstring), and `prospects status` answers for nothing else on a run, so
+    it can afford to raise loudly on one. A dashboard render answers for the WHOLE page —
+    one such row must not blank every tile beside it, so it is counted separately
+    (`unmapped`) rather than raising. Both surfaces read the same file through the same
+    function; only the failure mode differs, and this is where that divergence is decided
+    and recorded.
+
+    `needs_address` is a different, larger population (the account ledger, not the current
+    routed list) and is never summed into `total` — see `gtm_core.prospect_status.
+    needs_address`'s own docstring.
+    """
+    records = _read_lane_state(profile, content_root)
+    counts: dict[str, int] = dict.fromkeys(_LANE_STATUSES, 0)
+    by_email: dict[str, str] = {}
+    unmapped = 0
+    for rec in records:
+        reason = rec.get("reason") or rec.get("trigger") or ""
+        email = (rec.get("email") or "").strip().lower()
+        try:
+            status = status_of(rec.get("lane") or "", reason)
+        except UnmappedStatus:
+            unmapped += 1
+            if email:
+                by_email[email] = "unmapped"
+            continue
+        counts[status] += 1
+        if email:
+            by_email[email] = status
+    items = load_latest(profile, content_root).get("items", [])
+    return {
+        # Whether `lanes route` has ever produced output for this profile — the tiles
+        # render "—" rather than a misleading zero when this is False.
+        "available": bool(records),
+        "counts": counts,
+        "total": sum(counts.values()),
+        "unmapped": unmapped,
+        "needs_address": sum(1 for item in items if needs_address(item)),
+        # `email -> status`, for the worklist and who-tab tables' Status column. A miss is
+        # ordinary (a roster row and a router row are different populations) and is handled
+        # by the reader, not by this dict.
+        "by_email": by_email,
+    }
+
 
 # --- model ----------------------------------------------------------------------
 
@@ -263,11 +356,7 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
             undeclared=sum(1 for r in rows if not r["capability"]),
             other_campaigns=len(pm.get("packs", [])) - len(rows),
         )
-    m["roster"] = roster_model(
-        m["profile"],
-        [g for c in wanted for g in (c.get("roster_globs") or [])],
-        m.get("_content_root"),
-    )
+    m["roster"] = roster_model(m["profile"], roster_sources(wanted), m.get("_content_root"))
     samples: dict = {"packs": [], "touches": [], "rendered": []}
     for s in slugs:
         one = samples_model(m["profile"], s, m.get("_content_root"))
@@ -336,6 +425,12 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         "status": status,
         "campaigns": campaigns,
+        # The rollup gets a roster too, built from every campaign that declares one. Before
+        # 2026-09-10 only `scope_to_campaign` set this, so the profile page's worklist read
+        # "this scope has no campaign roster" — true, and fixable. Campaigns declaring no
+        # `roster_globs` are dropped by `roster_sources` and NAMED by `format.roster_partial`,
+        # never silently folded in.
+        "roster": roster_model(profile, roster_sources(campaigns.get("campaigns")), content_root),
         "cells": cellmodel,
         "supply": supply,
         "intent": intent,
@@ -349,4 +444,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         "_content_root": content_root,
         "runs": prospecting_runs(profile, content_root),
         "reconciliation": reconcile_snapshot(campaigns, status),
+        # Profile-wide, like `market`/`supply`/`intent` above — the router's last route
+        # is not scoped to one campaign, so `scope_to_campaign` leaves this key untouched.
+        "prospect_status": prospect_status_model(profile, content_root),
     }

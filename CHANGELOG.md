@@ -16,6 +16,143 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A private (hosted-only) skill's stub could silently drop a citation to a doc that still
+  ships publicly, so a self-hoster reading the stub lost a pointer to reference material
+  that was actually in the tree. Stub generation now carries forward any `docs/*.md`
+  citation that also ships in the distribution.
+- Example data in the test suite and in one `schemas/shots.schema.json` field description
+  referred to a specific internal product and file by name. Both now describe the shape
+  (a 30-second launch film, a short app title) instead, so the examples read as examples.
+
+## [0.17.0] - 2026-09-16
+
+This release is mostly about the backend API becoming something a client can actually build
+against: a typed error contract with machine-readable codes on every failure, full run
+lifecycle control (cancel, idempotent submit, durable gates, a synchronous over-budget
+refusal), and encrypted per-workspace credential storage. Alongside it, email enrollment
+gains a *structural* second approval gate — the same shape the publish gate has always had —
+the video lane is reorganised around a plan/preview/footage lifecycle, and the skill set now
+runs under coding agents other than Claude Code.
+
+### Added
+- **A unified, typed error envelope across every API endpoint.** Errors are now
+  `{"error": {"code", "message", "details"}}`, with the old `detail` field kept alongside it
+  as an alias while clients migrate. Every `401`, `402`, `409` and `429` carries a distinct
+  machine code; a `401` also carries a bearer challenge, and a `429` answers with
+  `Retry-After` (exposed through CORS, so a browser client can actually read it). Status
+  codes were reclassified at the same time: `422` is reserved for typed user input, `502`
+  covers model and crawl faults, `503` an onboarding misconfiguration, and anything
+  unclassified returns the 500 envelope rather than a stack-shaped `detail` string. A
+  contract test censuses every `401/402/409/429` for a literal code, so a new one cannot
+  ship uncoded.
+- **`error_code` on a failed run**, carried by the run-event stream, the poll response and a
+  late-joining stream alike. Branch on the code, display the message. It is deliberately
+  open-world — a client must treat an unknown code as a generic failure — and the current
+  set names the fifteen reasons a run can fail, from `cost_cap_reached` and `gate_timeout`
+  to `disclosure_required` and `draft_integrity_failed`.
+- **Run cancellation** — `POST /v1/runs/{id}/cancel`. It writes a terminal `canceled` status,
+  stops further dispatch in pack, prompt and fake modes alike, closes any open gate, and
+  clears the pending gate and pending content with it. `canceled` (a user asked to stop) is
+  now distinct from `rejected` (an operator declined at a gate); cancellation previously
+  reported the latter.
+- **Idempotent run creation.** An optional `client_request_id` on `POST /v1/runs` makes a
+  retry safe — a resubmitted request returns the original run instead of starting a second
+  one.
+- **An over-budget run is refused synchronously with `402` before admission**, instead of
+  being accepted and then failing somewhere downstream.
+- **Richer run listing and polling**: a bounded `limit`, a status filter, the run's recipe
+  and timestamps, the waiting gate surfaced per row, and a top-level `pending_gate` on the
+  run response.
+- **Gate kinds are named, not inferred.** A gate event now declares whether it is `plan`,
+  `publish`, `email_enroll` or `review`, with `node_id` naming the graph step that is
+  waiting. A `review` gate is a pause with no draft of its own.
+- **Per-workspace credential storage with envelope encryption** (`GET`/`PUT`/`DELETE
+  /v1/integrations/{provider}`). Each credential is sealed with AES-256-GCM under its own
+  data key, which is itself wrapped by a key encryption key supplied from the environment
+  (`VAULT_KEK`) and never stored beside the data. Stored credentials are injected into
+  workspace-scoped configuration for runs, onboarding and sessions, and updating one evicts
+  warm agent sessions — so a rotated key takes effect immediately instead of living on in a
+  cached session.
+- **A structural second gate on email enrollment.** Enrolling leads pushes contact data to a
+  third-party sequencer, so it is now its own approval gate rather than a conversational
+  convention: the enrollment tools are denied to the agent outright on every connector, and
+  a Python-only dispatcher opens a narrow window to call them **only** after an operator has
+  approved the exact draft. The gated node drafts the enrollment plan and stops. This
+  mirrors the publish gate exactly — a declared gate pauses the graph structurally, whether
+  or not the skill running it emits a gate marker.
+- **The skills run under coding agents other than Claude Code.** An `AGENTS.md` and an
+  `.agents/` configuration set ship in the distribution, along with a tool-translation
+  directive that maps this codebase's instructions onto another agent's native file-I/O,
+  command-execution and skill-activation tools.
+- **A dedicated `market-intelligence` pack**, graduated out of the engagement pack with its
+  own inputs.
+- **A `commercial-proposal` skill**, and a prospecting status vocabulary that is legible
+  end to end — dashboard filters, a roster view, and a signal gate over voice-of-customer
+  input.
+- **ffmpeg is detected and reported up front** — by the bootstrap script at install time and
+  by video preflight before a run — instead of surfacing as a failure deep inside a render.
+- **An optional `google_drive_folder` key in the profile template**, for pointing a workspace
+  at a shared team folder alongside its local state tree. It ships commented out with a
+  placeholder — a real link belongs in your own profile, never in the template.
+- **A deterministic fake-run mode for client development.** Runs can be driven without a
+  model behind them, with failure injection and a configurable step delay, and their gate
+  kinds are derived from the same rule the real pack path uses, so a client exercised
+  against the fake stack sees the real frame order.
+
+### Changed
+- **The video lane is reorganised around a lifecycle** rather than a pile of
+  similarly-named skills: a two-door router, a presets file, and a preview card, plus three
+  new skills that name the stages explicitly (`video-plan`, `video-preview`,
+  `video-footage`). The shot schema and a machine-readable pre-production brief schema grew
+  to match.
+- **Every skill's frontmatter description was rightsized** to a short "what it produces and
+  when to trigger it" line, with the operational detail moved into the skill body — so
+  routing reads cheaply and the procedure is still there when the skill is actually loaded.
+  The skill index now lists **63 skills** (was 59).
+- **CI is split by branch**: the fast tier runs on every push, and the long-running suites
+  are reserved for the default branch.
+- Tier floors moved for the video, outcomes-loop and market-intelligence skills (all now
+  `pro_plus`), and for `demo-capture`.
+
+### Removed
+- **Nine skills' implementations are no longer included in this distribution**, having moved
+  behind the hosted product: `video-script`, `video-finish`, `video-score`, `video-router`,
+  `creator-brief`, `market-harvest`, `market-intelligence`, `outcomes-sync` and
+  `content-outcomes-sync`. Three skills new in this release — `video-plan`, `video-preview`
+  and `video-footage` — ship the same way from the start. As with every withheld skill,
+  each one's declared interface still ships: frontmatter, tier, and the pack nodes that
+  invoke it, so the skill index, the pack loader and the graph shapes all stay internally
+  consistent. The graphs that depend on them ship too — the DAG is the part you can rewire
+  to your own tooling.
+
+### Fixed
+- **A reclaimed gate's approval is bound to the bytes it holds**, so an approval can never
+  be applied to content other than the draft the operator actually read.
+- **Enrollment uses the approved draft, not the newest one** — a draft regenerated after
+  approval no longer overtakes the approved copy on its way out.
+- **A sequence gate names real people rather than opaque lead IDs**, so the operator can see
+  who is about to be contacted.
+- A race between a gate reopening and the run resuming, and a resume that could time out
+  waiting on a gate that had already been answered.
+- A run parked at a gate no longer burns its retry budget every time a worker lease is
+  reclaimed — waiting for a human is not a failed attempt.
+- Every lifecycle write is now guarded against a row that has already reached a terminal
+  state, so a late event cannot revive a finished run.
+- A gate "edit" decision submitted with no edited content is rejected with a `422` instead
+  of being accepted as an empty edit.
+- Region names are rejected in an email campaign's target markets, where only countries are
+  meaningful.
+- A disabled facet control on the campaign dashboard silently reported no value instead of
+  the value it was displaying.
+- The preview-card and video-preset command-line parsing now matches what the skill
+  templates actually invoke.
+- Database seeding crashed with an encoding error on Windows consoles using the legacy
+  code page.
+- A revenue-share check was applied to keys that were never fractions.
+- A corrected API base URL for the social-listening connector, and the signed-URL upload
+  helper now covers the presenter-render provider's asset uploads as well.
+
 ## [0.16.0] - 2026-09-09
 
 This release ships the video-craft corpus integration — reference-image conditioning, a

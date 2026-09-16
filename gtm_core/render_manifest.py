@@ -202,6 +202,23 @@ class FinishManifest:
     audio_context: dict | None = None
     #: The voice-over line the captions were cut from, for V8's caption/voice divergence check.
     spoken_text: str = ""
+    #: The captions were burned per shot BEFORE the stitch and ``captions`` above was ingested
+    #: from the merged ``<source stem>.captions.json`` beside the finish source — not rendered by
+    #: the finish run itself. Recorded because the two look identical in ``captions`` and are
+    #: not: a pre-burned payload's timings were offset across a concat, and a reader who wants
+    #: to re-render has no captions stage to re-run.
+    captions_preburned: bool = False
+    #: Timed non-caption overlays (``{"kind", "text", "start_s", "end_s", "box", ...}``) ingested
+    #: from a sibling ``<source stem>.overlays.json``, boxes scaled to the finished frame. None
+    #: when the source carried none.
+    overlays: list | None = None
+    #: The non-cut joins the stitch applied to the source, ingested from a sibling
+    #: ``<source stem>.transitions.json``: ``[{"join": k, "kind": "dissolve"|"fade",
+    #: "duration_s": s, "into": <segment>}]``, join k being the cut into segment k+1. None when
+    #: every join was a hard cut. Recorded because a shot list DECLARES the cut into each shot
+    #: (``production.transition_in``) and nothing else in the finished file can say whether that
+    #: declaration was honoured — ``gtm_core.shots_coverage``'s finish stage reads it back.
+    transitions: list | None = None
 
     def to_json(self) -> dict:
         d = asdict(self)
@@ -352,7 +369,11 @@ def _validate_engine(render_engine: str, lip_sync_source: str | None) -> None:
 
 
 def _validate_caption_route(
-    caption_route: str, suppression: str, *, preset_resolved: bool | None
+    caption_route: str,
+    suppression: str,
+    *,
+    preset_resolved: bool | None,
+    declared_route: str = "",
 ) -> None:
     """A resolving caption preset may not be bypassed silently.
 
@@ -360,6 +381,11 @@ def _validate_caption_route(
     ``True``/``False`` when it was actually looked up, ``None`` when this writer had no brand kit
     in hand — the same three-state convention ``shots_lint``'s ``voice_grade`` uses, and for the
     same reason: a manifest written by a caller that never had the fact should not fail on it.
+
+    ``declared_route`` is the tenant's ``captions.route`` as the caller read it. A kit that
+    declares ``route = "local"`` beside its preset has CHOSEN the local burn — the preset is then
+    a style/placement hint, and the local route is the sanctioned one, not a bypass — so no
+    suppression is owed. Only an undeclared or reap-declared route makes the preset the route.
 
     The rule this encodes is the one the ``video-finish`` body already stated in prose and that
     was skipped anyway: with a preset resolving, the Reap route is the default, and taking the
@@ -386,7 +412,8 @@ def _validate_caption_route(
             f"({suppression!r}), but a suppression only means something when the configured "
             "route was NOT taken. Clear it, or the record claims a decision nobody made."
         )
-    if caption_route == "local" and preset_resolved and not suppression.strip():
+    preset_is_the_route = bool(preset_resolved) and declared_route != "local"
+    if caption_route == "local" and preset_is_the_route and not suppression.strip():
         raise ManifestError(
             "caption_route='local' while the tenant's captions.preset resolves — this is the "
             "bypass that shipped 24 caption screens over the speaker's face on 2026-08-18 while "
@@ -489,17 +516,20 @@ def write_finish_manifest(
     out_dir: Path,
     repo_root: Path | None = None,
     preset_resolved: bool | None = None,
+    declared_route: str = "",
 ) -> Path:
     """Validate and write finish-<ratio>.json. When ``executed`` is False (ffmpeg absent), the
     asset_path is NOT required to exist — that is the documented degraded-but-honest path.
 
     ``preset_resolved`` is whether the tenant's ``captions.preset`` resolved, as read by the
-    caller; ``None`` means the caller never looked it up. See :func:`_validate_caption_route`.
+    caller; ``None`` means the caller never looked it up. ``declared_route`` is the kit's
+    ``captions.route`` as the caller read it. See :func:`_validate_caption_route`.
     """
     _validate_caption_route(
         manifest.caption_route,
         manifest.caption_route_suppression,
         preset_resolved=preset_resolved,
+        declared_route=declared_route,
     )
     root = repo_root if repo_root is not None else Path.cwd()
     if manifest.executed:

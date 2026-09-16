@@ -197,10 +197,31 @@ def spec_sha16(spec: Path) -> str:
     return hashlib.sha256(Path(spec).read_bytes()).hexdigest()[:16]
 
 
-def require_qa(spec: Path, qa_dir: Path) -> tuple[bool, str]:
-    """``(ok, why)`` — a merge-render QA record for the spec's CURRENT bytes with a PASS."""
+def require_qa(spec: Path, qa_dir: Path, csv: Path | None = None) -> tuple[bool, str]:
+    """``(ok, why)`` — a merge-render QA PASS for the spec's CURRENT bytes, and for ``csv``.
+
+    **The unit of a merge-render run is (spec x csv), and so is the unit here.** The linter
+    renders every touch against every row, so a PASS is a statement about one spec paired
+    with one list; matching on the spec alone accepts a record earned against a different
+    list entirely. Pass ``csv`` and the record must match both hashes.
+
+    Both directions of that were live on 2026-09-10, from one pair of records sharing a
+    ``spec_sha256``:
+
+    * **Fail-closed, wrongly.** ``sorted()`` returns the 09-09 record first, so a superseded
+      FAIL against the old list blocked staging of the corrected one that passed. The scan
+      now reads EVERY matching record instead of returning on the first.
+    * **Fail-open, dangerously.** Without ``csv`` a PASS earned against list A satisfies a
+      staging of list B — which is the whole failure this gate exists to prevent, since the
+      rows are exactly what a merge-render run is checking.
+
+    With no ``csv`` the old spec-only question is still answerable, but the answer NAMES the
+    list the passing record used, so a caller cannot mistake it for a check of their own.
+    """
     want = spec_sha16(spec)
+    want_csv = spec_sha16(csv) if csv else None
     stale = 0
+    matched: list[tuple[Path, dict]] = []
     for path in sorted(Path(qa_dir).glob("*.json")):
         try:
             rec = json.loads(path.read_text(encoding="utf-8"))
@@ -210,8 +231,18 @@ def require_qa(spec: Path, qa_dir: Path) -> tuple[bool, str]:
             if Path(str(rec.get("spec", ""))).name == Path(spec).name:
                 stale += 1
             continue
+        if want_csv is not None and rec.get("csv_sha256") != want_csv:
+            stale += 1
+            continue
+        matched.append((path, rec))
+    for path, rec in matched:
         if str(rec.get("verdict", "")).upper() == "PASS" and not rec.get("errors"):
+            if want_csv is None:
+                used = Path(str(rec.get("csv", "?"))).name
+                return True, f"{path} (linted against {used} — this check did not verify your list)"
             return True, str(path)
+    if matched:
+        path, rec = matched[0]
         return (
             False,
             f"{path.name} matches the spec's bytes but is not a PASS (errors={rec.get('errors')})",
@@ -219,7 +250,8 @@ def require_qa(spec: Path, qa_dir: Path) -> tuple[bool, str]:
     if stale:
         return (
             False,
-            f"{stale} QA record(s) name this spec but were linted against OTHER bytes — re-run the merge-render gate",
+            f"{stale} QA record(s) name this spec but were linted against OTHER bytes — "
+            "re-run the merge-render gate",
         )
     return (
         False,

@@ -30,139 +30,6 @@ _PACK_DATE_RE = re.compile(r"(\d{8}|\d{4}-\d{2}-\d{2})")
 CAPABILITY_SINCE = "20260904"
 
 
-#: How a judge verdict ranks against another for the SAME recipient. A recipient scored on
-#: two lanes gets the worst of the two, never the friendliest. One address per campaign
-#: typically has two rows — a role-inbox merge row and a 1:1 pack written to the same inbox —
-#: and reporting the kinder of the pair would tell a reader a row is workable while a sibling
-#: row says it is held.
-_JUDGE_RANK = {"send": 0, "re-angle": 1, "drop": 2}
-
-#: What each queue destination means to the person reading the page, in plain English. The
-#: destination is the FOLLOW-UP, and it is the half a bare verdict word leaves out: eleven of
-#: this campaign's twenty-four rejections are not asking for better copy at all.
-_DESTINATION_GLOSS = {
-    "prospect:re-target": (
-        "find a different seat",
-        "the argument is fine, the recipient does not own the problem — this goes back to "
-        "prospecting for a person who does, not back to the writer",
-    ),
-    "spec:re-argue": (
-        "rewrite the argument",
-        "the seat is right and the copy is what the judge rejected — this goes back to the "
-        "spec or the pack",
-    ),
-}
-
-
-def _normalise_defect(raw: str) -> str:
-    """One id per finding, via the adjudication package's own normaliser."""
-    try:
-        from ..adjudication.defects import normalize_defect_class
-    except ImportError:  # pragma: no cover - the package is in-repo
-        return raw.strip().lower().replace("_", "-")
-    return normalize_defect_class(raw) or raw.strip()
-
-
-def judge_queue(profile: str, content_root: Path | None = None) -> dict[str, dict]:
-    """The email judge's verdict and FOLLOW-UP per recipient, from the retarget queue.
-
-    A verdict word on its own is half a finding. ``re-angle`` printed beside an account tells
-    a reader something was wrong and nothing about what happens next — and on this campaign
-    the two answers are as far apart as they get: 11 of 24 rejections say *the copy is fine,
-    the person is wrong* and route to prospecting, while 13 say *the person is fine, the copy
-    is wrong* and route to the spec. Those are different teams, different weeks and different
-    money, and the page rendered them as the same word.
-
-    Read from the newest ``evals/retarget-queue-*.jsonl`` on disk. Rows are keyed by address
-    and the worst verdict wins (:data:`_JUDGE_RANK`) — see the two-rows-one-address case in
-    its docstring. This is a RANKING, never a gate: the deterministic ``account_integrity``
-    check is what refuses a row, and nothing here changes what may be sent.
-    """
-    import json as _json
-
-    base = _prospects_dir(profile, content_root) / "evals"
-    files = sorted(base.glob("retarget-queue-*.jsonl"))
-    if not files:
-        return {}
-    out: dict[str, dict] = {}
-    tally: dict[str, int] = {}
-    for line in files[-1].read_text(encoding="utf-8", errors="replace").splitlines():
-        if not line.strip():
-            continue
-        try:
-            r = _json.loads(line)
-        except ValueError:
-            continue
-        key = (r.get("email") or "").strip().lower()
-        if not key:
-            continue
-        # Counted per ROW, before the per-address fold below. The two denominators differ by
-        # one on this campaign (24 rows, 23 addresses) and a page that quotes one under the
-        # other's label is the restated-number failure this tally exists to remove.
-        tally["rows"] = tally.get("rows", 0) + 1
-        tally["backend"] = (r.get("backend") or "").strip() or tally.get("backend", "")
-        tally["batch"] = max(int(tally.get("batch") or 0), int(r.get("judge_batch") or 0))
-        if (r.get("copy_revised") or "").strip():
-            tally["revised"] = tally.get("revised", 0) + 1
-        tally[f"verdict:{(r.get('verdict') or '—').strip()}"] = (
-            tally.get(f"verdict:{(r.get('verdict') or '—').strip()}", 0) + 1
-        )
-        dest = (r.get("destination") or "—").strip()
-        cls = (r.get("defect_class") or "").strip()
-        if cls and dest:
-            # Per (destination, class), so the page can NAME the classes behind each queue
-            # instead of carrying a hand-typed list of them. The list it used to carry was
-            # written against one judge run and was wrong by the next: a re-scored batch
-            # returns a different vocabulary for the same findings, and a stale parenthetical
-            # reads exactly like a current one.
-            # Normalised, so the judge's kebab and snake spellings of one finding
-            # (`fact-earns-its-place` / `fact_earns_its_place`) count as one class rather than
-            # rendering as two entries of the same thing.
-            key = f"class:{dest}|{_normalise_defect(cls)}"
-            tally[key] = tally.get(key, 0) + 1
-        if dest == "spec:re-argue":
-            # Of the rows routed back to the writer, how many are a defect the operator has
-            # ALREADY ruled on rather than an open rewrite. Two classes qualify and both are
-            # argued elsewhere on this page: `no-signal-evidence` / `fact-not-earned` fire on
-            # a generic lane because it carries no per-row signal by design, and an
-            # unclassified rejection of a 1:1 pack is the category-claim conflict the operator
-            # settled in favour of the category claim. Counting them keeps a reader from
-            # reading "13 to rewrite" as 13 pieces of writing that are waiting to be done.
-            bucket = (
-                "settled"
-                if cls in {"no-signal-evidence", "fact-not-earned", "(unclassified)"}
-                else "open"
-            )
-            tally[f"reargue:{bucket}"] = tally.get(f"reargue:{bucket}", 0) + 1
-        tally[f"dest:{(r.get('destination') or '—').strip()}"] = (
-            tally.get(f"dest:{(r.get('destination') or '—').strip()}", 0) + 1
-        )
-        prev = out.get(key)
-        if prev and _JUDGE_RANK.get(prev["verdict"], 0) >= _JUDGE_RANK.get(r.get("verdict"), 0):
-            prev["also"] = True
-            continue
-        act, why = _DESTINATION_GLOSS.get(r.get("destination") or "", ("", ""))
-        out[key] = {
-            "verdict": (r.get("verdict") or "").strip(),
-            "destination": (r.get("destination") or "").strip(),
-            "action": act,
-            "action_why": why,
-            "defect": (r.get("defect_class") or "").strip(),
-            "note": (r.get("note") or "").strip(),
-            "calibrated": bool(r.get("judge_calibrated")),
-            "filed": (r.get("filed") or "").strip(),
-            # When this row's COPY was last revised, if it has been. A verdict describes the
-            # bytes it read, so a page that cannot say whether those bytes have since changed
-            # reports a stale opinion as a current one.
-            "revised": (r.get("copy_revised") or "").strip(),
-            "attempt": r.get("attempt") or 1,
-            "source": files[-1].name,
-            "also": bool(prev),
-        }
-    out["__tally__"] = tally  # type: ignore[assignment]
-    return out
-
-
 def seat_fit(m: dict, profile: str = "", content_root: Path | None = None) -> dict:
     """Do the merge lanes' recipients hold the seat their own spec declares?
 
@@ -221,102 +88,6 @@ def seat_fit(m: dict, profile: str = "", content_root: Path | None = None) -> di
         "unresolved": len(unresolved),
         "no_title": sum(1 for _a, t in unresolved if not t),
         "off_seat_titles": sorted({t for _a, t in unresolved if t})[:6],
-    }
-
-
-def roster_model(profile: str, globs, content_root: Path | None = None) -> dict:
-    """The campaign's OWN account roster, from the run exports its manifest declares.
-
-    Everything else on this page counts the shared prospect pool, which is the right
-    denominator for "who could we email next" and the wrong one for "how is this campaign
-    doing". A campaign whose whole roster is 26 accounts rendered "731 people we will
-    actually email of 859 loaded" — true of the profile, false of the campaign.
-
-    One account may appear in several exports (a discovery pass, then an enrichment pass), so
-    rows are folded by company and the RICHEST row wins: an address beats none, then a
-    why-now, then a verdict. Taking the first or last row instead would silently report the
-    pre-enrichment snapshot — on 2026-09-04 the run's first export held 18 rows with 2
-    addresses, while the four together hold 26 accounts with 23.
-    """
-    import csv as _csv
-
-    base = _prospects_dir(profile, content_root)
-    best: dict[str, tuple[tuple, dict]] = {}
-    files: list[str] = []
-    for pattern in globs or []:
-        for path in sorted(base.glob(pattern)):
-            files.append(path.name)
-            try:
-                with path.open(newline="", encoding="utf-8") as fh:
-                    for r in _csv.DictReader(fh):
-                        company = (r.get("Company Name") or "").strip()
-                        if not company:
-                            continue
-                        rank = (
-                            bool((r.get("Email") or "").strip()),
-                            bool((r.get("GTM_Why_Now") or "").strip()),
-                            bool((r.get("GTM_Verdict") or "").strip()),
-                        )
-                        if company not in best or rank > best[company][0]:
-                            best[company] = (rank, r)
-            except OSError:
-                continue
-    rows = [v[1] for v in best.values()]
-    judged = judge_queue(profile, content_root)
-    judge_tally = judged.pop("__tally__", {})
-
-    def _n(key: str) -> int:
-        return sum(1 for r in rows if (r.get(key) or "").strip())
-
-    def _count(key: str) -> list[tuple[str, int]]:
-        out: dict[str, int] = {}
-        for r in rows:
-            out[(r.get(key) or "").strip() or "—"] = (
-                out.get((r.get(key) or "").strip() or "—", 0) + 1
-            )
-        return sorted(out.items(), key=lambda kv: -kv[1])
-
-    return {
-        "sources": files,
-        "accounts": len(rows),
-        "contact_verified": _n("Email"),
-        "named_seat": _n("First Name"),
-        "signal": _n("GTM_Why_Now"),
-        "signal_sourced": _n("GTM_Signal_Source_URL"),
-        "tiers": _count("GTM_Tier"),
-        "verdicts": _count("GTM_Verdict"),
-        "companies": sorted(best),
-        "judge_source": next(iter(judged.values()), {}).get("source", ""),
-        "judge_tally": judge_tally,
-        "judge_actions": sorted(
-            {(j["action"], j["action_why"]) for j in judged.values() if j["action"]}
-        ),
-        "rows": sorted(
-            (
-                {
-                    "company": (r.get("Company Name") or "").strip(),
-                    "seat": (r.get("Job Title") or "").strip(),
-                    "email": (r.get("Email") or "").strip(),
-                    "named": bool((r.get("First Name") or "").strip()),
-                    "tier": (r.get("GTM_Tier") or "").strip(),
-                    "verdict": (r.get("GTM_Verdict") or "").strip(),
-                    "score": (r.get("GTM_Score") or "").strip(),
-                    "signal": bool((r.get("GTM_Why_Now") or "").strip()),
-                    # A verdict word with no reason is an assertion the reader cannot check.
-                    # "drop" on its own reads as our opinion; "Gate B - body-shop SI" is a
-                    # finding they can disagree with.
-                    "verdict_reason": (r.get("GTM_Verdict_Reason") or "").strip(),
-                    "why_now": (r.get("GTM_Why_Now") or "").strip(),
-                    # The email judge's read of the DRAFTED copy for this address, and what
-                    # it routes to. A different question from GTM_Verdict, which is the
-                    # researcher's call on the ACCOUNT before any copy existed — the two are
-                    # kept side by side rather than merged, because they disagree usefully.
-                    "judge": judged.get((r.get("Email") or "").strip().lower()),
-                }
-                for r in rows
-            ),
-            key=lambda x: (x["tier"] != "A", x["company"].lower()),
-        ),
     }
 
 
@@ -480,3 +251,11 @@ def packs_model(profile: str, content_root: Path | None = None) -> dict:
         "legacy": len(rows) - len(current),
         "since": CAPABILITY_SINCE,
     }
+
+
+# `roster_model` and `judge_queue` moved to `.roster` on 2026-09-10 (§R10 headroom for the
+# filter-bar work). Re-exported here because `model.py` and four tests import them from this
+# module — the move is meant to be invisible to every caller.
+from .roster import judge_queue as judge_queue  # noqa: E402,F401
+from .roster import roster_model as roster_model  # noqa: E402,F401
+from .roster import roster_sources as roster_sources  # noqa: E402,F401

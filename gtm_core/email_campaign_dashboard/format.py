@@ -2,11 +2,35 @@ from __future__ import annotations
 
 import html
 
+from ..prospect_status import LABELS
+from . import filters
+
 # --- render helpers -------------------------------------------------------------
 
 
 def _e(x) -> str:
     return html.escape(str(x))
+
+
+def _row_status(m: dict, email: str) -> str:
+    """The Status column cell for one roster row, joined to the router's last route
+    (``model.prospect_status_model``, via ``m["prospect_status"]["by_email"]``) by address.
+
+    Shared by the worklist and the who-tab table so the two cannot derive this word two
+    different ways. A roster row and a router row are different populations — one a CSV
+    export, the other ``lanes route``'s own output — so a miss here is ordinary, not a
+    defect: the address may not have reached the router yet, or the router has never run
+    on this profile at all. Both read as a plain sentence rather than a blank cell.
+    """
+    ps = m.get("prospect_status") or {}
+    if not ps.get("available"):
+        return '<span class="muted">—</span>'
+    status = (ps.get("by_email") or {}).get((email or "").strip().lower())
+    if not status:
+        return '<span class="muted">not yet routed</span>'
+    if status == "unmapped":
+        return '<span class="pill warn">status unmapped</span>'
+    return _e(LABELS[status])
 
 
 def _rate_of(targets: dict) -> float:
@@ -62,20 +86,50 @@ def _tiles_recorded() -> list[dict]:
     return list(_TILES)
 
 
-def _stat(value, label: str, sub: str = "", *, raw: dict | None = None, src=None) -> str:
+def _stat(
+    value,
+    label: str,
+    sub: str = "",
+    *,
+    raw: dict | None = None,
+    src=None,
+    sub_html: str = "",
+) -> str:
     """One headline tile. ``raw``/``src`` declare its components and their provenance.
 
     ``value`` is often pre-formatted ("0 of 998", "90/day"), so the components are passed
     separately in ``raw`` rather than parsed back out of the string. ``src`` is a token
-    per component — ``sum:``, ``count:``, ``agree:``, ``pooled:``, ``weighted:``,
-    ``refuse`` — resolved independently by the contract test.
+    per component — ``sum:``, ``count:``, ``agree:``, ``pooled:``, ``rows:`` — resolved
+    independently by the contract test.
+
+    ``src`` also decides whether the client-side filter may touch this tile
+    (:func:`gtm_core.email_campaign_dashboard.filters.reactive`), which is why there is no
+    ``filterable=`` argument: a tile cannot opt into being recomputed without declaring a
+    derivation something re-executes. A tile that does not react carries the reason, server-
+    rendered and ``hidden`` — the filter's only job is to unhide it, so no sentence on this
+    page lives in JavaScript where §R14's prose lint cannot see it.
+
+    ``sub_html`` is pre-escaped markup and the ONLY way to get a live count into a sub-line;
+    build it with ``filters.sub_counts`` and nothing else. ``sub`` stays escaped.
     """
     _TILES.append({"label": label, "value": value, "raw": raw or {"value": value}, "src": src})
+    idx = len(_TILES) - 1
+    pred = filters.predicate_of(src)
     v = f"{value:,}" if isinstance(value, int) else _e(value)
-    sub_html = f'<div class="stat-sub">{_e(sub)}</div>' if sub else ""
+    if pred:
+        v = f'<span data-count-pred="{_e(pred)}">{v}</span>'
+    body = sub_html or (_e(sub) if sub else "")
+    sub_block = f'<div class="stat-sub">{body}</div>' if body else ""
+    why = (
+        ""
+        if pred
+        else f'<div class="stat-why" hidden>Not filtered — this figure '
+        f"{_e(filters.grey_reason(src))}.</div>"
+    )
     return (
-        f'<div class="stat"><div class="stat-value">{v}</div>'
-        f'<div class="stat-label">{_e(label)}</div>{sub_html}</div>'
+        f'<div class="stat" data-tile="t{idx}" data-filter="{"on" if pred else "off"}">'
+        f'<div class="stat-value">{v}</div>'
+        f'<div class="stat-label">{_e(label)}</div>{sub_block}{why}</div>'
     )
 
 
@@ -163,8 +217,19 @@ def roster_gap(m: dict) -> str | None:
 
     Both the status tiles and the who-tab table go through here: two copies of this guard
     would be two chances to fix one and forget the other, which is the shape of every bug
-    this page has had.
+    this page has had. (The worklist deliberately does NOT — see :func:`roster_partial`.)
+
+    **The profile rollup is exempt, and the distinction is principled rather than
+    convenient.** A scoped page's whole promise is "this page is about exactly these
+    campaigns", so a roster covering N-1 of them is a set the page claims and is not — and
+    there is a right answer to point at, which the message below gives. The rollup makes no
+    such promise: its label is "the whole profile", it already renders partial-coverage
+    blocks that say so (``_pool_scope_note``, ``Scope.excluded``), and the advice "render a
+    campaign on its own" is meaningless there. So the rollup renders what exists and NAMES
+    what is missing, via :func:`roster_partial`.
     """
+    if not m.get("campaign_scope"):
+        return None
     camps = m["campaigns"]["campaigns"]
     silent = [c.get("slug", "?") for c in camps if not c.get("roster_globs")]
     if not silent or len(camps) < 2:
@@ -174,6 +239,36 @@ def roster_gap(m: dict) -> str | None:
         f"live ({', '.join(silent)} {'does' if len(silent) == 1 else 'do'} not). A roster "
         "covering some of them is not this scope's roster. Render a campaign on its own "
         "(--scope campaign) for its accounts."
+    )
+
+
+def roster_coverage(m: dict) -> dict:
+    """Which in-scope campaigns the roster covers, and which are silent. One derivation.
+
+    ``roster_gap`` and every partial-coverage sentence read this, so "does this campaign
+    declare a roster" is answered in one place rather than re-derived per caller.
+    """
+    camps = m["campaigns"]["campaigns"]
+    covered = [c.get("slug", "?") for c in camps if c.get("roster_globs")]
+    silent = [c.get("slug", "?") for c in camps if not c.get("roster_globs")]
+    return {"covered": covered, "silent": silent, "total": len(camps)}
+
+
+def roster_partial(m: dict) -> str:
+    """The sentence naming the campaigns this roster does not cover, or "" when it covers all.
+
+    The rollup's honest alternative to :func:`roster_gap`'s refusal: show the accounts that
+    exist and say whose are missing, rather than showing nothing or — worse — showing them
+    under a label that claims completeness.
+    """
+    cov = roster_coverage(m)
+    if not cov["silent"] or not cov["covered"]:
+        return ""
+    silent = ", ".join(cov["silent"])
+    return (
+        f"Covers {len(cov['covered'])} of {cov['total']} campaigns. "
+        f"{silent} {'declares' if len(cov['silent']) == 1 else 'declare'} no roster, so "
+        f"{'its' if len(cov['silent']) == 1 else 'their'} accounts are not counted here."
     )
 
 

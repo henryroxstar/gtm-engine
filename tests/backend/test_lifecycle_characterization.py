@@ -393,7 +393,10 @@ def test_c_row4_prompt_mode_scopes_skills_by_entitlement_not_pack_reachability(w
 def test_c_row6_the_gate_content_of_record_is_the_draft_in_pack_and_the_stream_in_prompt(ws_env):
     """Row 6. Pack mode promotes a draft FILE, so the bytes the operator approves are that
     file's; prompt mode has only text, so they are the accumulated stream. Both are the
-    exact bytes `pending_content` records and `_content_sha` binds the approval to (H9)."""
+    exact bytes `pending_content` records and `_content_sha` binds the approval to (H9) —
+    captured at the moment the gate opens, since RL-09 clears `pending_content` on the
+    terminal write once the operator decides, so the row itself no longer holds it once
+    the run has settled."""
     draft = _provision_gated(ws_env)
     ws = ws_env.ws_id
 
@@ -406,17 +409,24 @@ def test_c_row6_the_gate_content_of_record_is_the_draft_in_pack_and_the_stream_i
     prompt_db = LifecycleDb(prompt_run_id, ws)
     chunks = ["first half ", "second half ⟦GATE:plan⟧"]
 
-    async def _go(db, run_id, coro_factory):
+    async def _go(db, run_id, coro_factory) -> str:
         with lifecycle_harness(db, gated_executor()) as hz:
             task = _tracked(hz, ws, run_id, coro_factory(hz))
-            await _until(lambda: run_id in state._gate_events, what="the gate")
+            await _until(
+                lambda: run_id in state._gate_events and db.row["status"] == "awaiting_approval",
+                what="the gate",
+            )
+            content_of_record = _pending_content(db)
             async with state._state_lock:
                 state._gate_decisions[run_id] = {"decision": "reject", "edited_content": None}
                 state._gate_events[run_id].set()
             await _settle(task)
+            return content_of_record
 
-    asyncio.run(_go(pack_db, pack_run_id, lambda hz: _pack_run(hz, ws_env, pack_run_id)))
-    asyncio.run(
+    pack_content = asyncio.run(
+        _go(pack_db, pack_run_id, lambda hz: _pack_run(hz, ws_env, pack_run_id))
+    )
+    prompt_content = asyncio.run(
         _go(
             prompt_db,
             prompt_run_id,
@@ -424,8 +434,8 @@ def test_c_row6_the_gate_content_of_record_is_the_draft_in_pack_and_the_stream_i
         )
     )
 
-    assert _pending_content(pack_db) == draft
-    assert _pending_content(prompt_db) == "".join(chunks)
+    assert pack_content == draft
+    assert prompt_content == "".join(chunks)
 
 
 def test_c_row15_prompt_mode_never_dispatches_a_publish(ws_env):
@@ -462,13 +472,20 @@ def test_drift_prompt_mode_failures_now_stamp_completed_at(ws_env):
     ws, run_id = ws_env.ws_id, str(uuid.uuid4())
     db = LifecycleDb(run_id, ws)
     statements: list[str] = []
-    real_execute = db.execute
+    real_execute, real_fetchrow = db.execute, db.fetchrow
 
     async def _recording_execute(sql, *args):
         statements.append(sql)
         return await real_execute(sql, *args)
 
+    async def _recording_fetchrow(sql, *args):
+        # RL-03: _fail_run now reads its guarded write's match back via `fetchrow(...
+        # RETURNING id)` instead of a bare `execute` — record both.
+        statements.append(sql)
+        return await real_fetchrow(sql, *args)
+
     db.execute = _recording_execute
+    db.fetchrow = _recording_fetchrow
 
     async def _go():
         with lifecycle_harness(db, budget=(False,)) as hz:  # over cap → refused at admission

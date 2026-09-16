@@ -69,6 +69,18 @@ def make_executor_from_pack(
     # A10: which nodes declare an irreversible external effect. execute_stage
     # short-circuits those by DECLARATION rather than by the node's name.
     external_effects = {n.id: n.external_effect for n in pack.nodes if n.external_effect}
+    # A11: which nodes are pack-declared human gates. execute_stage pauses those by
+    # DECLARATION too — a gate=true node pauses whether or not its skill emits a
+    # ⟦GATE:…⟧ sentinel. See execute_stage's docstring for why this matters.
+    gates = {n.id: n.gate for n in pack.nodes if n.gate}
+    # Gated nodes whose approval dispatches a direct `email_enroll` successor: their draft is
+    # named after the run, so execute_stage tells them the run id (client issue #245).
+    run_id_stages = frozenset(
+        n.id
+        for n in pack.nodes
+        if n.gate
+        and any(m.external_effect == "email_enroll" and n.id in m.depends_on for m in pack.nodes)
+    )
 
     async def _executor(stage_name: str, manifest: dict) -> StageOutcome:
         return await execute_stage(
@@ -81,6 +93,8 @@ def make_executor_from_pack(
             usage_sink=usage_sink,
             allowed_skills=allowed_skills,
             external_effects=external_effects,
+            gates=gates,
+            run_id_stages=run_id_stages,
             language=language,
         )
 

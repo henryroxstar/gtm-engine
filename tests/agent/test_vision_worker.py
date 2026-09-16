@@ -22,6 +22,17 @@ from agent.mcp.vision import server  # noqa: E402
 REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture(autouse=True)
+def _content_root(tmp_path, monkeypatch):
+    """`_load_image` confines its path to the resolved content root (2026-09-16) — it ships
+    the bytes to a third party, so an unconfined path was an arbitrary-file exfiltration
+    primitive. These tests are about media type, size and missing-file handling, not about
+    containment, so point the content root at `tmp_path` and let them assert what they meant.
+    Containment itself is covered by tests/agent/test_vision_path_confinement.py.
+    """
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+
+
 # ── _load_image guards ────────────────────────────────────────────────────────
 
 

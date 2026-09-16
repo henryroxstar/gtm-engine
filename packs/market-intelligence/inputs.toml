@@ -1,0 +1,23 @@
+# packs/market-intelligence/inputs.toml — information requirements (§5's two-class inputs).
+#
+# Topics are the union of what THIS pack's node skills read, per docs/knowledge-usage.md.
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "company"
+required = false
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "market-scan-config"
+required = false
+freshness = "evergreen"

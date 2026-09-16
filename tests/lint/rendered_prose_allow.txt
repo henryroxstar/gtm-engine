@@ -7,4 +7,5 @@
 # NOT the place for "I'll derive it later" — that is the state the gate was written to end.
 
 gtm_core/email_campaign_dashboard/views_learn.py:209  # 2026-09-06 A closed fact about a PRIOR campaign ("the last attempt sent 24 emails, got one reply, and it was an unsubscribe"), used to say why this run changed its aim. It describes a run that has finished, so it cannot go stale the way a live count can — the same reason docstrings are exempt. Renders only on the profile-wide page.
-gtm_core/email_campaign_dashboard/views_who.py:360  # 2026-09-06 The `0` in the not-present branch of a two-branch cell: `f['n']` when the field is present, `0` when it is absent. Absent means zero rows by definition, so the literal restates the branch it is already inside rather than a figure read from elsewhere.
+# views_who.py:398's entry was removed 2026-09-11: the branch now renders `f['n']:,` in both
+# arms instead of a typed `0` literal, so the exemption no longer describes a real finding.

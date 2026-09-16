@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import pytest
 from outreach_pack_linter import (
+    _CEO_TITLE_CUES,
     _NON_BUYER_CUES,
     _PERSONA_RULES,
     _PERSONA_TO_SEAT,
@@ -153,3 +154,67 @@ def test_the_non_buyer_list_stays_small_and_unambiguous():
         "the non-buyer list is growing — each entry silently disqualifies every account "
         "whose only contact holds that title"
     )
+
+
+# ------------------------------------------------------------------ the compound title
+
+
+#: (title, persona). Every row is a real shape from the 1,145-title `content/` corpus. The
+#: first two are the bug; the rest are what the fix must NOT break — each one is a case some
+#: earlier decision in this module exists to get right.
+_COMPOUND_TITLES = (
+    # The bug: `ceo` is evaluated last, so a lower functional cue in a trailing segment won
+    # the whole title and the exec was seated as an engineer.
+    ("Founder, chief executive officer, head of ai innovations", "ceo"),
+    ("Chief Operating Officer / Chief Compliance Officer", "ceo"),
+    ("Chief Operating Officer and Chief AI Officer", "ceo"),
+    ("Chief Technology and Strategy Officer, Chief Operating Officer", "ceo"),
+    # Seated by its own parenthetical before the fix.
+    ("Chief Executive Officer (former CTO, promoted 2026-05-20)", "ceo"),
+    # OWNERSHIP is not a seat. 33 pooled rows are this shape and their `cto` seat is right:
+    # "founder" says who owns the company, not which copy they are owed.
+    ("Co-Founder & CTO", "cto"),
+    ("Co-founder / CTO", "cto"),
+    ("Founder, CTO", "cto"),
+    ("Co-Founder & Chief Product Officer", "cpo"),
+    # RANK is not a seat either — a functional chief can also hold the band.
+    ("Group CISO Managing Director", "ciso"),
+    ("Senior Managing Director, Chief Information Officer", "cloud-architect"),
+    # The ordering rules the file already documents, unchanged by the fix.
+    ("Senior Vice President, Chief Technology Officer", "cto"),
+    ("Executive Vice President, Engineering", None),
+    ("Data / Compliance Leader", "data-compliance"),
+    ("CRO / Compliance", "compliance"),
+    ("Director of Information Security", "ciso"),
+    ("Director of Talent Acquisition", None),
+    ("Chief Information Security Officer", "ciso"),
+    ("Chief Executive Officer", "ceo"),
+    ("Managing director", "ceo"),
+)
+
+
+@pytest.mark.parametrize("title,persona", _COMPOUND_TITLES)
+def test_a_compound_title_resolves_to_its_senior_functional_seat(title, persona):
+    """An exec who also holds a functional title is an exec.
+
+    `_PERSONA_RULES` puts `ceo` LAST so "SVP, Chief Technology Officer" is a CTO — correct,
+    and load-bearing. But last also meant a trailing `head of ai` beat a leading `chief
+    executive officer`, so the exec spec was convicted by `seat-stakes-missing` on its two
+    best rows and the tempting fix was to DROP them from the list. Founders and CEOs at
+    smaller companies very often carry compound titles: this demotes exactly the buyers
+    worth reaching, and it reads as a copy defect.
+    """
+    assert persona_of(title) == persona
+
+
+def test_only_the_exec_TITLE_cues_are_promoted_not_rank_or_ownership():
+    """The fix is a claim about which cues name the JOB. Promoting "managing director" or
+    "president" would trade one mis-seat for a wider one, and promoting "founder" would
+    move 33 technical co-founders out of the seat whose copy they should get."""
+    assert set(_CEO_TITLE_CUES).isdisjoint(
+        {"founder", "co-founder", "cofounder", "owner", "managing director", "president"}
+    )
+    # Every promoted cue must still be a cue the `ceo` persona itself claims, or the two
+    # lists have drifted and a title can resolve to `ceo` that `_PERSONA_RULES` disowns.
+    ceo_cues = next(cues for persona, cues in _PERSONA_RULES if persona == "ceo")
+    assert set(_CEO_TITLE_CUES) <= set(ceo_cues)

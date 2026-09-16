@@ -32,6 +32,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 
 class StoryboardError(ValueError):
@@ -203,6 +204,19 @@ def unaccepted_spoilers(entries: list[dict]) -> list[dict]:
     return out
 
 
+def _validate_anchor_job_ids(entries: list) -> None:
+    """Identity anchors must lock to a provider image_job_id, not a floating local path (Q6)."""
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("identity_anchor"):
+            job_id = str(entry.get("image_job_id") or "").strip()
+            if not job_id:
+                shot_n = entry.get("n", "?")
+                raise StoryboardError(
+                    f"entry for shot {shot_n} has an identity_anchor but no image_job_id. "
+                    "Start frames must be locked to a provider job_id to prevent asset drift."
+                )
+
+
 def approve(
     path: Path,
     *,
@@ -249,8 +263,11 @@ def approve(
             f"storyboard {path} has no entries — there are no frames to have approved"
         )
 
+    _validate_anchor_job_ids(entries)
+
     if allow_anchors < 1:
         raise StoryboardError(f"--allow-anchors must be >= 1, got {allow_anchors}")
+
     # Walks lineage, so it refuses a dangling or circular `derived_from` before anything else
     # reads the anchor count off a chain that cannot be verified.
     depths = edit_depths(entries)
@@ -347,13 +364,80 @@ def status(path: Path) -> dict:
         "max_edit_depth": max(depths.values(), default=0),
         "path": str(path),
         "approved": bool(data.get("approved")),
+        "status": "approved" if data.get("approved") else "draft",
         "approved_by": data.get("approved_by"),
         "approved_at": data.get("approved_at"),
-        "entries": len(data.get("entries") or []),
+        "entries": len(entries),
         "identity_anchors": len(groups),
         "anchor_exception_reason": data.get("anchor_exception_reason"),
-        "unaccepted_spoilers": len(unaccepted_spoilers(data.get("entries") or [])),
+        "unaccepted_spoilers": len(unaccepted_spoilers(entries)),
     }
+
+
+def persist_identity_anchors(
+    content_root: Path,
+    profile: str,
+    storyboard_data: dict,
+) -> dict[str, dict[str, str]]:
+    """Persist mapping of element_id -> provider_job_id -> approved_frame (Q6 / 10x PRD §2.2b).
+
+    Locks approved identity anchors to the provider job ID under content/<profile>/identity_anchors.json.
+    """
+    from .paths import _safe_segment
+
+    _safe_segment(profile, "profile")
+    anchors_file = content_root / profile / "identity_anchors.json"
+    existing: dict[str, Any] = {}
+    if anchors_file.is_file():
+        try:
+            existing = json.loads(anchors_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+
+    entries = storyboard_data.get("entries", [])
+    approved_at = storyboard_data.get("approved_at", "")
+    updated = False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        anchor = entry.get("identity_anchor")
+        if isinstance(anchor, dict) and anchor.get("id"):
+            el_id = str(anchor["id"])
+            job_id = str(entry.get("image_job_id") or "")
+            path = str(entry.get("image_path") or "")
+            if el_id and job_id:
+                existing[el_id] = {
+                    "provider_job_id": job_id,
+                    "approved_frame": path,
+                    "approved_at": approved_at,
+                }
+                updated = True
+
+    if updated:
+        anchors_file.parent.mkdir(parents=True, exist_ok=True)
+        anchors_file.write_text(
+            json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    return existing
+
+
+def get_persisted_identity_anchor(
+    content_root: Path,
+    profile: str,
+    element_id: str,
+) -> dict[str, str] | None:
+    """Read a persisted identity anchor mapping for element_id."""
+    from .paths import _safe_segment
+
+    _safe_segment(profile, "profile")
+    anchors_file = content_root / profile / "identity_anchors.json"
+    if not anchors_file.is_file():
+        return None
+    try:
+        data = json.loads(anchors_file.read_text(encoding="utf-8"))
+        return data.get(element_id)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:

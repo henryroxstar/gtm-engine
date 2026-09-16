@@ -29,6 +29,7 @@ prose; and anything about whether the model's own inputs are current, which is
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -69,7 +70,48 @@ def _num(v) -> float:
         return 0.0
 
 
-def resolve_src(m: dict, token: str):  # noqa: PLR0911 — one return per provenance op, by design
+def _resolve_rows(m: dict, arg: str) -> int:
+    """Distinct ACCOUNTS satisfying one filter predicate.
+
+    Split out of :func:`resolve_src` only to keep that function under the complexity
+    cap. It stays in this module and stays independent of the renderer, which is the
+    whole point of the duplication this file's docstring declares.
+    """
+    # DISTINCT ACCOUNTS satisfying a predicate, re-derived from each row's SEMANTIC
+    # fields — `email`, `named`, `signal`, `signal_source_url`. Deliberately NOT read
+    # off the `co_*` booleans the page ships in its filter payload: those are the thing
+    # under test, and comparing them to themselves would make this assertion "the number
+    # equals the number". This duplication is the one the module docstring above already
+    # declares deliberate; it is what makes the check independent, not an oversight.
+    #
+    # Set membership, not subtraction. `co_role_inbox` is `has_email - named`, so it
+    # cannot go negative the way `contact_verified - named_seat` can once one account
+    # resolves a name without an inbox.
+    rows = (m.get("roster") or {}).get("rows") or []
+    every = {r["company"] for r in rows}
+
+    def _co(field: str) -> set[str]:
+        return {r["company"] for r in rows if r.get(field)}
+
+    has_email, named = _co("email"), _co("named")
+    by_pred = {
+        "all": every,
+        "co_has_email": has_email,
+        "co_no_email": every - has_email,
+        "co_named": named,
+        "co_role_inbox": has_email - named,
+        "co_signal": _co("signal"),
+        "co_signal_sourced": _co("signal_source_url"),
+    }
+    assert arg in by_pred, (
+        f"unknown filter predicate {arg!r}. A tile may only declare a predicate this "
+        "resolver re-derives independently; adding one to filters.PREDICATES without "
+        "adding it here leaves the tile's count unchecked."
+    )
+    return len(by_pred[arg])
+
+
+def resolve_src(m: dict, token: str):  # noqa: C901, PLR0911 — one return per provenance op, by design
     """Recompute one provenance claim. Unknown ops are an error, never a pass."""
     op, _, arg = token.partition(":")
     if op == "sum":
@@ -113,12 +155,21 @@ def resolve_src(m: dict, token: str):  # noqa: PLR0911 — one return per proven
         return next(iter(vals)) if len(vals) == 1 else None
     if op == "roster":
         return (m.get("roster") or {}).get(arg)
+    if op == "rows":
+        return _resolve_rows(m, arg)
     if op == "pooled":
         num, _, den = arg.partition("/")
         return {"replied": resolve_src(m, f"sum:{num}"), "sent": resolve_src(m, f"sum:{den}")}
+    if op == "status":
+        ps = m.get("prospect_status") or {}
+        if arg == "needs_address":
+            return ps.get("needs_address", 0)
+        if not ps.get("available"):
+            return "—"
+        return (ps.get("counts") or {}).get(arg, 0)
     raise AssertionError(
         f"unknown provenance op {token!r}. Add it to resolve_src, or use one of "
-        "sum / sum-complete / count / agree / roster / pooled — never leave a tile "
+        "sum / sum-complete / count / agree / roster / pooled / rows / status — never leave a tile "
         "declaring an op nothing checks."
     )
 
@@ -202,18 +253,59 @@ def test_every_tile_equals_its_declared_derivation(tmp_path, campaign):
     check_tiles(m, tiles)
 
 
+#: Everything between a ``<script>`` open and its close, non-greedy so two blocks are two
+#: matches rather than one span swallowing the document between them.
+_SCRIPT = re.compile(r"<script\b[^>]*>.*?</script>", re.DOTALL | re.IGNORECASE)
+
+
+def _visible(html: str) -> str:
+    """The page a READER sees — every ``<script>`` block removed.
+
+    Assertion 2 is a document-wide substring check, which is only meaningful while the
+    document contains nothing but rendered text. The moment the page carries a JSON
+    payload, ``"26" in html`` is satisfied by ``{"base": 26}`` no matter what the tile
+    rendered, and the assertion silently stops discriminating (§R18) — it would pass on a
+    tile printing 260, or 0, or nothing at all.
+
+    So the payload is stripped BEFORE the check, and
+    :func:`test_the_script_strip_actually_removes_something` is the positive control: a
+    renamed or removed payload block must fail loudly rather than quietly restoring the
+    fail-open shape this function exists to close.
+    """
+    return _SCRIPT.sub("", html)
+
+
 def test_every_component_reaches_the_html_formatted_as_stat_formats_it(tmp_path):
     """ASSERTION 2 — closes "the raw said 8, the f-string printed 80"."""
     _seed(tmp_path)
     _m, html, tiles = _render(tmp_path, "mine-20260904")
+    visible = _visible(html)
     for t in tiles:
         for key, val in t["raw"].items():
             if not isinstance(val, int):
                 continue
-            assert f"{val:,}" in html, (
+            assert f"{val:,}" in visible, (
                 f"tile {t['label']!r} recorded {key}={val} but that number is nowhere in "
                 "the page. The recorded component and the rendered string have diverged."
             )
+
+
+def test_the_script_strip_actually_removes_something(tmp_path):
+    """POSITIVE CONTROL for :func:`_visible` — a strip that strips nothing is not a strip.
+
+    Without this, deleting or renaming the page's ``<script>`` block leaves ``_visible`` an
+    identity function and reverts assertion 2 to the document-wide check it used to be.
+    Nothing would fail; the test would simply stop being able to catch anything.
+    """
+    _seed(tmp_path)
+    _m, html, _tiles = _render(tmp_path, "mine-20260904")
+    visible = _visible(html)
+    assert len(visible) < len(html), (
+        "stripping <script> removed nothing, so assertion 2 is once again matching numbers "
+        "anywhere in the document — including inside a JSON payload. Either the page lost "
+        "its script block, or the block is spelled in a way _SCRIPT does not match."
+    )
+    assert "<script" not in visible.lower(), "a script block survived the strip"
 
 
 def test_no_tile_escapes_the_recorder(tmp_path):

@@ -75,4 +75,4 @@ def _release_run_slot(workspace_id: str, run_id: str) -> None:
             _workspace_runs.pop(workspace_id, None)
 
 
-_TERMINAL_STATUSES = frozenset({"ok", "failed", "rejected"})
+_TERMINAL_STATUSES = frozenset({"ok", "failed", "rejected", "canceled"})

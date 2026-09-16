@@ -1,12 +1,10 @@
 ---
 name: gtm-planning
 description: >-
-  Build or refresh the quarterly GTM plan for the colleague's market. This skill should be
-  used when the user says "build my quarterly plan", "refresh my GTM plan", "what's my focus
-  this quarter", "plan my quarter", "update the GTM plan", "quarterly planning", "write the
-  plan for Q[N]", "what should I prioritise this quarter", or "help me plan my GTM motion".
-  Reads PROFILE for market, ICP weighting, and targets. Produces a structured, written plan
-  the colleague can share with their manager or regional team.
+  Build or refresh a quarterly GTM plan with target segments, ICP weighting, and motion
+  milestones for the active market. Trigger when the user says "build my quarterly plan",
+  "refresh my GTM plan", "what's my focus this quarter", "plan my quarter", "write the plan
+  for Q[N]", or "help me plan my GTM motion".
 metadata:
   version: "0.4.0"
   phase: "4"

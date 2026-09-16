@@ -84,6 +84,8 @@ def test_no_suggested_replacement_would_itself_fail_the_linter():
 
 def test_the_skill_tells_the_run_to_lint_the_html():
     """THE regression guard. Nothing else makes this gate execute."""
+    if not BODY.is_file():
+        pytest.skip("market-intelligence is withheld from this build (OSS carve)")
     body = BODY.read_text(encoding="utf-8")
     assert "gtm_core.brief_lint" in body, (
         "body_template.md no longer tells the run to lint the HTML companion. The artifact "
@@ -94,6 +96,8 @@ def test_the_skill_tells_the_run_to_lint_the_html():
 
 def test_the_skill_states_the_surface_split():
     """A gate whose rule is not written down gets argued with instead of followed."""
+    if not BODY.is_file():
+        pytest.skip("market-intelligence is withheld from this build (OSS carve)")
     body = BODY.read_text(encoding="utf-8")
     lowered = body.lower()
     assert "reader surface" in lowered

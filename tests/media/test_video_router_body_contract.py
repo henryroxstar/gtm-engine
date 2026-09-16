@@ -23,8 +23,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 BODY = REPO / "plugin" / "skills" / "video-router" / "body_template.md"
+
+if not BODY.is_file():
+    pytest.skip(
+        "video-router body_template.md not present in this distribution (paid-tier stub)",
+        allow_module_level=True,
+    )
 
 
 def _body() -> str:

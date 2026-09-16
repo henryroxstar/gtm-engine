@@ -59,3 +59,30 @@ def apply_suppressions(
         else:
             kept.append(f)
     return kept, counts
+
+
+def stale_suppressions(
+    suppressions: list[Suppression], counts: dict[str, int], *, asset: str
+) -> list[Suppression]:
+    """Suppressions for ``asset`` whose tier RAN this pass and matched ZERO findings — a
+    suppression nobody needs any more, and reporting it lets an operator delete it before it
+    silently hides the next real regression of that tier.
+
+    ``counts`` is not ``apply_suppressions``'s per-tier SUPPRESSED-count (that dict only ever
+    carries a key for a tier that matched at least once, so a tier matching zero would be
+    indistinguishable from one never even evaluated). It is the caller's per-tier RAW
+    finding-count for every tier that actually ran this pass — key PRESENCE (even at value 0)
+    means "ran"; a tier absent from ``counts`` is never a stale candidate, however long its
+    suppression has sat unused. That is the line between "matched nothing this time" and "this
+    rule simply did not run" — V11 with no caption manifest, or any tier ``--fast`` skips — and
+    collapsing it would report a rule as safe to delete when it was never checked at all.
+
+    Pure — no I/O, no CLI concerns; the caller decides what "ran" means. ``asset.strip()``
+    mirrors :func:`_validate_suppressions`'s own normalization of the field, so this never
+    disagrees with what a suppression's ``asset`` was validated to mean.
+    """
+    return [
+        s
+        for s in suppressions
+        if s.asset.strip() == asset.strip() and s.tier in counts and counts[s.tier] == 0
+    ]

@@ -1,0 +1,17 @@
+usage: python -m gtm_core.video_finish overlay-scene [-h] --in SRC
+                                                     --frames-glob FRAMES_GLOB
+                                                     --fps FPS --out OUT
+                                                     [--content-root CONTENT_ROOT]
+                                                     [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --in SRC
+  --frames-glob FRAMES_GLOB
+                        ffmpeg-style pattern, e.g. 'out/chat-bubble-%04d.png'
+                        — written WITH alpha, or it composites as an opaque
+                        rectangle over the picture
+  --fps FPS
+  --out OUT
+  --content-root CONTENT_ROOT
+  --json

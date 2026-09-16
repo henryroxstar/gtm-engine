@@ -63,9 +63,14 @@ def _stamp_lanes(rows: list[dict], profile: str, content_root: Path | None) -> i
     COLUMN (`account_integrity --lane` refuses a list whose column disagrees), so
     without this join the routing decision is invisible exactly where it is enforced.
 
-    Rows the router never saw keep whatever they had; a row it did see is restamped
-    every sweep, because the pooled CSVs are rebuilt and the router is the only thing
-    that may author a lane.
+    A row the router never saw — never routed at all, or since dropped from the state file
+    because a later route no longer includes its email — gets a BLANK ``lane``/``lane_reason``
+    rather than keeping whatever it last had: a stale stamp reads as "still routed this way",
+    which is worse than an admittedly-unrouted row (fixed 2026-09-10, PS2 — the enrollment
+    gate's own rule against a field asserting emptiness applies just as much to a field
+    asserting a lane that is no longer true). A row the router DID see is restamped every
+    sweep, because the pooled CSVs are rebuilt and the router is the only thing that may
+    author a lane.
     """
     from ..lanes.decisions import state_path
 
@@ -89,10 +94,33 @@ def _stamp_lanes(rows: list[dict], profile: str, content_root: Path | None) -> i
     for row in rows:
         rec = by_email.get((row.get("email") or "").strip().lower())
         if not rec:
+            row["lane"] = ""
+            row["lane_reason"] = ""
             continue
         row["lane"] = rec.get("lane") or ""
-        row["lane_reason"] = rec.get("trigger") or ""
+        row["lane_reason"] = rec.get("reason") or rec.get("trigger") or ""
         stamped += 1
+    return stamped
+
+
+def restamp_ready_to_load(profile: str, content_root: Path | None = None) -> int:
+    """Re-stamp ``lane``/``lane_reason`` on ``ready-to-load.csv`` from whatever
+    ``lanes-state.jsonl`` says right now, without waiting for the next full ``consolidate``
+    sweep (PS2). ``lanes route`` calls this immediately after writing the state file, so the
+    ONE file a human loads from never carries a stale lane between sweeps — on live data this
+    file was seen 5 days stale, because routing and consolidation ran on independent
+    schedules and only consolidation used to call ``_stamp_lanes``.
+
+    Returns the number of rows ``_stamp_lanes`` found a matching state record for. A missing
+    or empty ``ready-to-load.csv`` is a no-op (0), never an error — a profile that has not
+    consolidated yet has nothing to restamp.
+    """
+    path = ready_to_load_path(profile, content_root)
+    rows = _load_master(path)
+    if not rows:
+        return 0
+    stamped = _stamp_lanes(rows, profile, content_root)
+    _atomic_write_csv(path, rows)
     return stamped
 
 

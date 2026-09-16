@@ -42,7 +42,7 @@
     "shot[2] duration_s=20 exceeds every confirmed provider ceiling (15s \u2014 provider-duration-ceilings.md); the provider will clamp it and desync this file's stated timing",
     "shot[2] camera 'swoosh' matches no known move or framing term \u2014 prefer the controlled vocabulary (video-render/references/prompt-recipes.md)",
     "shot[2] motion_prompt 'waves' is 1 words \u2014 too thin to direct a render; name the subject's action, and what changes over the shot",
-    "shot[2] duration_s=20 runs 18.58s past its spoken line (5 words \u2248 1.42s at 3.51 words/sec, the fast end of the measured band) \u2014 the model stretches mouth motion across the silence and the tail gets cut; trim the shot toward the line's real length",
+    "shot[2] duration_s=20 runs 18.25s past its spoken line (5 words \u2248 1.75s at 2.85 words/sec, the fast end of the measured band) \u2014 the model stretches mouth motion across the silence and the tail gets cut; trim the shot toward the line's real length",
     "shot[3] duration_s=2 is below 4s, the minimum seedance_2_0 accepts \u2014 the provider will clamp it up and the shot will run longer than this file claims",
     "shot[4] duration_s=4.5 is fractional \u2014 every current audio-capable video model takes an INTEGER duration and clamps anything else, desyncing this file's stated timing from what actually renders",
     "no shot has role=screen \u2014 nothing in this asset shows the thing being talked about. For a product or incident story, a real screen capture is the highest-value shot in the piece and the cheapest to produce",

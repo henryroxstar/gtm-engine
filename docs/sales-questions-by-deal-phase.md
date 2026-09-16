@@ -183,6 +183,26 @@ CEB/Gartner, ~6,000 reps, 90 companies; ~40% of stars are Challengers].
 
 ---
 
+## Cross-phase technique — anchor before you escalate
+
+**Not a graded finding — a sequencing discipline for whoever is building Phase 2/4 questions,**
+whether live on a call or in writing before one (a dossier, a call-prep brief). It's the mechanism
+that keeps a question bank from producing four ways of asking about the same general topic instead
+of one line of escalating pressure on one real problem:
+
+- **State the anchor before building on it.** Before writing a Problem, Implication, or Need-payoff
+  question, name the **single sharpest constraint or friction point** found so far, and say **why it
+  beat the alternatives**. Do this explicitly — out loud on a call, in writing in a brief.
+- **Every question in the chain traces back to the anchor**, not the general topic. If a question
+  would read the same regardless of what the anchor was, it isn't earning its place.
+- **Fail closed.** If nothing anchor-worthy has surfaced yet, say so and ask for more detail before
+  escalating — a confident Implication question built on a vague Problem answer is worse than no
+  Implication question, because it invents stakes the research never established.
+- Applies identically whether the "situation answers" come from the live buyer (Phase 2, in the
+  room) or from research done ahead of the call — the anchor step doesn't change with the source.
+
+---
+
 ## Phase 5 — Objection handling (goal: resolve objections without pushing)
 
 **What the data says.** Gong analyzed **67,149** sales calls at objection moments. The top finding is

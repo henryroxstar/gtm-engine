@@ -1,12 +1,10 @@
 ---
 name: draft-outreach
 description: >-
-  Draft outreach for the active company's flagship product — LinkedIn DMs, cold emails, and
-  follow-ups — in the colleague's voice, built from a real "why now" signal, the hook matrix,
-  and the matched case study. This skill should be used when the user says "draft outreach to
+  Draft personalized cold emails, LinkedIn DMs, and follow-ups in the company voice using
+  signals, hook matrices, and case studies. Trigger when the user says "draft outreach to
   [person/company]", "write a cold email to [prospect]", "write a LinkedIn DM to [name]",
-  "reach out to [name] at [company]", or "refine this outreach". Reads brand, signature,
-  voice, and language from the active profile. Produces drafts only — never sends.
+  "reach out to [name] at [company]", or "refine this outreach".
 metadata:
   version: "0.6.0"
   phase: "1"

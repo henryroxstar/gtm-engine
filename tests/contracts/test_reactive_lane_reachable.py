@@ -102,7 +102,6 @@ def test_the_engagement_pack_gates_exactly_the_nodes_that_produce_outbound_draft
         "social-reply",
         "forum-reply",
         "community-watch",
-        "market-watch",
         "call-prep",
     }, f"engagement pack variants changed: {sorted(graphs)}"
 
@@ -110,12 +109,20 @@ def test_the_engagement_pack_gates_exactly_the_nodes_that_produce_outbound_draft
         nodes = graphs[variant].nodes
         assert any(n.gate for n in nodes), f"{variant} produces outbound copy with no gate"
 
-    for variant in ("community-watch", "market-watch", "call-prep"):
+    for variant in ("community-watch", "call-prep"):
         for n in graphs[variant].nodes:
             assert n.external_effect is None, (
                 f"{variant}.{n.id} declares an external effect; this pack writes internal "
                 "documents only"
             )
+
+
+def test_market_intelligence_pack_writes_internal_documents_only():
+    mw_path = REPO / "packs" / "market-intelligence" / "graphs" / "market-watch.toml"
+    assert mw_path.is_file(), "market-intelligence pack missing market-watch variant"
+    graph = load_pack_graph(mw_path)
+    for n in graph.nodes:
+        assert n.external_effect is None, f"market-watch.{n.id} declares an external effect"
 
 
 def test_pii_bearing_engagement_nodes_stay_on_claude():

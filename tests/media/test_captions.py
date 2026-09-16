@@ -450,3 +450,119 @@ def test_balanced_wrap_never_adds_a_line():
         assert len(cap._wrap_balanced(text, font, 860, draw)) == len(
             cap._wrap_greedy(text, font, 860, draw)
         ), text
+
+
+# ── glyph colour is derived from MEASURED luminance, never from what a palette key is named ──
+#
+# The shipped defect (2026-09-11): a captions-only film whose type was near-black on a dark
+# picture. The tenant's company kit is a DARK-THEME kit — `canvas` is near-black, `primary` is
+# near-white, and there is no `ink` key — and the resolver read `canvas` as the light glyph and
+# `ink` (absent, so the near-black fallback) as the dark one, so BOTH branches of the backdrop
+# decision returned near-black type. A cream kit with a dark `ink` only ever worked by luck.
+
+
+def _dark_theme_kit():
+    kit = _kit()
+    kit["palette"] = {"canvas": "#0E0E0E", "primary": "#E8E8E8", "accent": "#5AC8FA"}
+    return kit
+
+
+def _cream_kit():
+    kit = _kit()
+    kit["palette"] = {"canvas": "#EDE8DC", "ink": "#1E1C16"}
+    return kit
+
+
+def _lum(rgba):
+    return cap._relative_luminance(rgba[:3])
+
+
+def test_a_dark_theme_kit_gets_light_glyphs_and_a_dark_stroke_on_a_dark_backdrop():
+    glyph, stroke = cap._resolve_glyph_rgba(_dark_theme_kit(), 0.05)
+    assert _lum(glyph) >= 0.60, glyph
+    assert _lum(stroke) <= 0.20, stroke
+
+
+def test_a_dark_theme_kit_gets_dark_glyphs_and_a_light_stroke_on_a_light_backdrop():
+    glyph, stroke = cap._resolve_glyph_rgba(_dark_theme_kit(), 0.9)
+    assert _lum(glyph) <= 0.20, glyph
+    assert _lum(stroke) >= 0.60, stroke
+
+
+def test_a_cream_kit_uses_cream_on_a_dark_backdrop_and_ink_on_a_light_one():
+    glyph, stroke = cap._resolve_glyph_rgba(_cream_kit(), 0.05)
+    assert (glyph[:3], stroke[:3]) == ((0xED, 0xE8, 0xDC), (0x1E, 0x1C, 0x16))
+    glyph, stroke = cap._resolve_glyph_rgba(_cream_kit(), 0.9)
+    assert (glyph[:3], stroke[:3]) == ((0x1E, 0x1C, 0x16), (0xED, 0xE8, 0xDC))
+
+
+def test_explicit_caption_glyph_keys_win_over_the_derived_pair():
+    kit = _dark_theme_kit()
+    kit["captions"] = {"glyph_light": "#FFF8E7", "glyph_dark": "#101010"}
+    glyph, stroke = cap._resolve_glyph_rgba(kit, 0.05)
+    assert (glyph[:3], stroke[:3]) == ((0xFF, 0xF8, 0xE7), (0x10, 0x10, 0x10))
+    glyph, stroke = cap._resolve_glyph_rgba(kit, 0.9)
+    assert (glyph[:3], stroke[:3]) == ((0x10, 0x10, 0x10), (0xFF, 0xF8, 0xE7))
+
+
+def test_a_palette_with_no_pole_in_either_direction_falls_back_to_white_and_near_black():
+    """Mid-tones are not glyph colours: neither pole is 4.5:1 from the middle."""
+    kit = _kit()
+    # Relative luminance 0.26-0.35: the sRGB curve makes "#777777" read as 0.18, a real pole.
+    kit["palette"] = {"canvas": "#9A9A9A", "ink": "#8C8C8C", "primary": "#A0A0A0"}
+    glyph, stroke = cap._resolve_glyph_rgba(kit, 0.05)
+    assert (glyph, stroke) == (cap._FALLBACK_LIGHT_GLYPH, cap._FALLBACK_DARK_GLYPH)
+
+
+def test_an_unmeasured_backdrop_still_gets_a_light_glyph_over_a_dark_stroke():
+    glyph, stroke = cap._resolve_glyph_rgba(_dark_theme_kit(), None)
+    assert _lum(glyph) >= 0.60 and _lum(stroke) <= 0.20
+
+
+def test_rendered_captions_from_a_dark_theme_kit_clear_aa_on_a_dark_picture(tmp_path):
+    """Pixel-level negative control — the check that would have caught the shipped defect.
+
+    Renders a real screen with the dark-theme kit against a measured-dark backdrop, composites
+    it over a synthetic near-black frame, crops the recorded box and measures the type's WCAG
+    contrast there, with the glyph colour the renderer itself recorded. Against the pre-fix
+    resolver this measured ~1.0:1 (near-black on near-black); AA wants 4.5:1.
+    """
+    import io
+
+    from PIL import Image
+
+    kit = _dark_theme_kit()
+    screens = cap.split_screens("the whole argument", total_s=2.0)
+    rendered = cap.render(
+        screens, ratio="9:16", kit=kit, out_dir=tmp_path, repo_root=REPO_ROOT, backdrop_luma=0.05
+    )
+    assert rendered
+    for r in rendered:
+        assert r.glyph_rgb is not None
+        frame = Image.new("RGBA", (1080, 1920), (18, 18, 18, 255))
+        frame.alpha_composite(Image.open(r.png_path).convert("RGBA"))
+        box = r.box
+        crop = frame.crop((box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"]))
+        buf = io.BytesIO()
+        crop.convert("RGB").save(buf, format="PNG")
+        measured = cap.contrast_against_backdrop(buf.getvalue(), glyph_rgb=r.glyph_rgb)
+        assert measured is not None
+        assert measured["ratio"] >= 4.5, measured
+
+
+def test_the_sidecar_records_the_glyph_colour_the_type_was_drawn_in(tmp_path):
+    """`measure_caption_contrast` can only judge the type it is told about. A sidecar that
+    carries geometry but not colour leaves the contrast tier measuring an assumed-white glyph —
+    which reads near-black-on-dark as a pass."""
+    screens = cap.split_screens("caption text", total_s=2.0)
+    rendered = cap.render(
+        screens,
+        ratio="9:16",
+        kit=_dark_theme_kit(),
+        out_dir=tmp_path,
+        repo_root=REPO_ROOT,
+        backdrop_luma=0.05,
+    )
+    payload = cap.sidecar_payload(rendered, ratio="9:16")
+    assert payload["screens"][0]["glyph_rgb"] == list(rendered[0].glyph_rgb)
+    assert cap._relative_luminance(tuple(payload["screens"][0]["glyph_rgb"])) >= 0.60

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import pathlib
 import types
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -395,3 +397,133 @@ def test_judge_rates_come_from_the_registry_not_a_hardcoded_number():
     """A rate hardcoded next to a registry-resolved model id drifts on the next swap."""
     src = JUDGE_SCORING.read_text(encoding="utf-8")
     assert "resolve_rates(" in src and 'resolve_model("judge")' in src
+
+
+# ── the two cost stores: the cap must read both ───────────────────────────────
+# Postgres holds only the backend's own brain/pack spend; every MCP worker meters to the
+# workspace's costs.jsonl instead (stdio subprocess, no pool, no workspace id). A cap that
+# read one store under-counted the other to zero.
+
+
+def _ws_jsonl(tmp_path, monkeypatch, workspace_id: str, profile: str, rows: list[dict]) -> None:
+    """Write cost rows into <workspaces>/<ws>/content/<profile>/costs.jsonl."""
+    monkeypatch.setenv("GTM_WORKSPACES_ROOT", str(tmp_path / "workspaces"))
+    costs = tmp_path / "workspaces" / workspace_id / "content" / profile / "costs.jsonl"
+    costs.parent.mkdir(parents=True, exist_ok=True)
+    with costs.open("a", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+
+
+def _this_month() -> str:
+    return datetime.now(UTC).strftime("%Y-%m")
+
+
+@_run
+async def test_acheck_budget_counts_worker_jsonl_spend(tmp_path, monkeypatch):
+    """The regression: worker spend was invisible to the backend cap.
+
+    Postgres reports 3.0 against a cap of 10.0 — under cap on its own. The workspace's
+    MCP workers have already burned 8.0 into costs.jsonl. Total is 11.0, so the call must
+    be refused. Before the roll-up landed this returned True, which is the whole defect:
+    on the multi-tenant backend the cap is a billing boundary, not an estimate.
+    """
+    _ws_jsonl(
+        tmp_path,
+        monkeypatch,
+        "ws-1",
+        "acme",
+        [{"ts": f"{_this_month()}-05T00:00:00Z", "cost_usd": 8.0, "tool": "vision-worker"}],
+    )
+    pool = _FakePool(_FakeConn(fetchrow_result={"cap": 10.0, "spent": 3.0}))
+    assert await acheck_budget(pool, "ws-1", table="cost_records") is False
+
+
+@_run
+async def test_acheck_budget_still_allows_when_both_stores_are_under_cap(tmp_path, monkeypatch):
+    """Positive control (§R12): the roll-up must not deny everything.
+
+    Same shape as the test above, only cheaper — 3.0 in Postgres plus 2.0 in JSONL is
+    5.0 against a cap of 10.0. A guard that only ever refuses discriminates nothing.
+    """
+    _ws_jsonl(
+        tmp_path,
+        monkeypatch,
+        "ws-2",
+        "acme",
+        [{"ts": f"{_this_month()}-05T00:00:00Z", "cost_usd": 2.0, "tool": "vision-worker"}],
+    )
+    pool = _FakePool(_FakeConn(fetchrow_result={"cap": 10.0, "spent": 3.0}))
+    assert await acheck_budget(pool, "ws-2", table="cost_records") is True
+
+
+@_run
+async def test_acheck_budget_sums_every_profile_under_the_workspace(tmp_path, monkeypatch):
+    """A workspace can hold several profiles; the cap is per workspace, not per profile."""
+    month = _this_month()
+    _ws_jsonl(
+        tmp_path, monkeypatch, "ws-3", "acme", [{"ts": f"{month}-05T00:00:00Z", "cost_usd": 4.0}]
+    )
+    _ws_jsonl(
+        tmp_path, monkeypatch, "ws-3", "globex", [{"ts": f"{month}-06T00:00:00Z", "cost_usd": 4.0}]
+    )
+    pool = _FakePool(_FakeConn(fetchrow_result={"cap": 10.0, "spent": 3.0}))
+    # 3 + 4 + 4 = 11 > 10
+    assert await acheck_budget(pool, "ws-3", table="cost_records") is False
+
+
+@_run
+async def test_acheck_budget_ignores_a_previous_months_jsonl(tmp_path, monkeypatch):
+    """The cap is monthly. Last month's worker spend must not bleed into this month."""
+    _ws_jsonl(
+        tmp_path,
+        monkeypatch,
+        "ws-4",
+        "acme",
+        [{"ts": "2019-01-05T00:00:00Z", "cost_usd": 999.0}],
+    )
+    pool = _FakePool(_FakeConn(fetchrow_result={"cap": 10.0, "spent": 3.0}))
+    assert await acheck_budget(pool, "ws-4", table="cost_records") is True
+
+
+@_run
+async def test_acheck_budget_survives_a_corrupt_jsonl_line(tmp_path, monkeypatch):
+    """One bad append must not make the budget unreadable — an unreadable budget on the
+    VPS/MCP path fails OPEN, so a corrupt line would silently lift the cap."""
+    monkeypatch.setenv("GTM_WORKSPACES_ROOT", str(tmp_path / "workspaces"))
+    costs = tmp_path / "workspaces" / "ws-5" / "content" / "acme" / "costs.jsonl"
+    costs.parent.mkdir(parents=True, exist_ok=True)
+    costs.write_text(
+        "{not json at all\n"
+        + json.dumps({"ts": f"{_this_month()}-05T00:00:00Z", "cost_usd": 8.0})
+        + "\n",
+        encoding="utf-8",
+    )
+    pool = _FakePool(_FakeConn(fetchrow_result={"cap": 10.0, "spent": 3.0}))
+    # The good line still counts: 3 + 8 = 11 > 10.
+    assert await acheck_budget(pool, "ws-5", table="cost_records") is False
+
+
+def test_the_two_cost_stores_are_disjoint():
+    """The load-bearing assumption behind summing both stores.
+
+    ``acheck_budget`` adds the JSONL roll-up to the Postgres total. That is only correct
+    while no writer records the same call in BOTH — otherwise every such call is counted
+    twice and the cap closes early. Pin it structurally: the backend's meters go through
+    PgSink and never touch Ledgers.append_cost, and the MCP workers do the reverse.
+    """
+    backend_session = pathlib.Path("backend/session.py").read_text(encoding="utf-8")
+    assert "PgSink" in backend_session, "backend/session.py no longer meters via PgSink"
+    assert "append_cost" not in backend_session, (
+        "backend/session.py now writes the JSONL ledger too — acheck_budget would "
+        "double-count every backend call. Either stop dual-writing or drop the roll-up."
+    )
+
+    for worker in ("vision", "judge", "worker", "tts"):
+        matches = list(pathlib.Path("agent/mcp").glob(f"{worker}/*.py"))
+        assert matches, f"no source found for the {worker} MCP worker"
+        text = "\n".join(m.read_text(encoding="utf-8") for m in matches)
+        assert "PgSink" not in text, (
+            f"the {worker} MCP worker now writes Postgres directly — acheck_budget's "
+            f"roll-up would double-count it (and the worker would need DB credentials)."
+        )

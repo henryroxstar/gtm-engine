@@ -17,5 +17,7 @@ SKILL = GTMSkill(
     version="0.6.0",
     phase="4C",
     license="MIT",
-    description='Automate the weekly carousel pipeline from market-scan signals to publish-ready package. This skill should be used when the user says "auto-carousel", "run my carousel workflow", "weekly carousel", "carousel from market scan", "carousel from this week\'s scan", "generate this week\'s carousel", "automate my carousel", "what should I carousel this week", "build a carousel from the scan", or "turn this week\'s signal into a carousel". Reads the latest market-signals file, scores signals for carousel potential, picks the strongest arc shape and theme, chains through carousel-pdf to render the deck, then optionally chains to carousel-visuals for cover art and motion teaser — all in one guided run.',
+    description=(
+        'Automate weekly carousel production from market scan signals to finished on-brand slide decks and visuals. Trigger when the user says "auto-carousel", "weekly carousel", "carousel from market scan", "what should I carousel this week", or "build a carousel from the scan".'
+    ),
 )

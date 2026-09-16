@@ -719,3 +719,117 @@ def test_normalize_unifies_audio_layout_so_the_concat_keeps_every_segments_sound
     # stripping the -ar/-ac pair back out of the normalize encode: these same two clips joined to
     # video 2.00s against audio 1.88s, with ffmpeg logging non-monotonic audio DTS at the join. A
     # looser bound passes on a 2s fixture while that same per-join loss costs a 208s master 6.1s.
+
+
+# --- sidecar merge: per-shot caption geometry carried onto the master's timeline -----------
+
+import importlib  # noqa: E402
+
+# The package re-exports the stitch FUNCTION under the submodule's name; go to the module.
+stitch_mod = importlib.import_module("gtm_core.video_finish.stitch")
+
+
+def _box(y: int = 1500) -> dict:
+    return {"x": 100, "y": y, "w": 880, "h": 120}
+
+
+def _write_sidecar(seg: Path, *, kind: str = "captions", frame=(1080, 1080), entries=None) -> Path:
+    list_key = stitch_mod.SIDECAR_KINDS[kind]
+    payload = {"frame": list(frame), "shot_id": seg.stem, list_key: entries or []}
+    path = stitch_mod.sidecar_path(seg, kind)
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def _stitch(tmp_path: Path, clips: list[Path], **kw) -> Path:
+    return vf.stitch(
+        [vf.ShotSegment(path=str(c), reframed=False) for c in clips],
+        ratio="1:1",
+        out_path=tmp_path / "master.mp4",
+        workdir=tmp_path / "w",
+        **kw,
+    )
+
+
+def test_stitch_merges_per_segment_caption_sidecars_with_cumulative_offsets(tmp_path):
+    a = _make_clip(tmp_path / "a.mp4", w=1080, h=1080, duration=2.0)
+    b = _make_clip(tmp_path / "b.mp4", w=1080, h=1080, duration=1.0)
+    _write_sidecar(
+        a,
+        entries=[
+            {"index": 0, "text": "one", "start_s": 0.0, "end_s": 1.0, "box": _box()},
+            {"index": 1, "text": "two", "start_s": 1.0, "end_s": 2.0, "box": _box()},
+        ],
+    )
+    _write_sidecar(
+        b, entries=[{"index": 0, "text": "three", "start_s": 0.0, "end_s": 1.0, "box": _box()}]
+    )
+    out = _stitch(tmp_path, [a, b])
+    merged_path = tmp_path / "master.captions.json"
+    assert stitch_mod.stitched_sidecars(out) == {"captions": str(merged_path)}
+    merged = json.loads(merged_path.read_text())
+    dur_a = vf._probe_duration(a)
+    assert merged["frame"] == [1080, 1080]
+    assert [s["index"] for s in merged["screens"]] == [0, 1, 2]
+    assert [s["shot_id"] for s in merged["screens"]] == ["a", "a", "b"]
+    assert merged["screens"][0]["start_s"] == 0.0
+    assert merged["screens"][2]["start_s"] == pytest.approx(dur_a, abs=0.005)
+    assert merged["screens"][2]["end_s"] == pytest.approx(dur_a + 1.0, abs=0.005)
+    assert merged["screens"][2]["box"] == _box()  # geometry is carried, never re-derived
+    assert [seg["offset_s"] for seg in merged["segments"]] == [0.0, pytest.approx(dur_a, abs=0.005)]
+
+
+def test_stitch_crossfade_offsets_subtract_the_overlap(tmp_path):
+    a = _make_clip(tmp_path / "a.mp4", w=1080, h=1080, duration=2.0)
+    b = _make_clip(tmp_path / "b.mp4", w=1080, h=1080, duration=2.0)
+    _write_sidecar(a, entries=[{"start_s": 0.0, "end_s": 2.0, "box": _box()}])
+    _write_sidecar(b, entries=[{"start_s": 0.5, "end_s": 1.5, "box": _box()}])
+    _stitch(tmp_path, [a, b], crossfade_s=0.4)
+    merged = json.loads((tmp_path / "master.captions.json").read_text())
+    dur_a = vf._probe_duration(a)
+    assert merged["screens"][1]["start_s"] == pytest.approx(dur_a - 0.4 + 0.5, abs=0.005)
+
+
+def test_stitch_refuses_sidecars_whose_frames_disagree(tmp_path):
+    a = _make_clip(tmp_path / "a.mp4", w=1080, h=1080)
+    b = _make_clip(tmp_path / "b.mp4", w=1080, h=1080)
+    _write_sidecar(a, frame=(1080, 1080), entries=[{"start_s": 0.0, "end_s": 1.0, "box": _box()}])
+    _write_sidecar(b, frame=(1080, 1920), entries=[{"start_s": 0.0, "end_s": 1.0, "box": _box()}])
+    with pytest.raises(ValueError, match="disagree on frame"):
+        _stitch(tmp_path, [a, b])
+    assert not (tmp_path / "master.mp4").exists(), "refused before the encode, not after"
+
+
+def test_stitch_without_segment_sidecars_writes_no_merged_sidecar_and_clears_a_stale_one(tmp_path):
+    a = _make_clip(tmp_path / "a.mp4", w=1080, h=1080)
+    stale = tmp_path / "master.captions.json"
+    stale.write_text(json.dumps({"frame": [1080, 1080], "screens": []}))
+    out = _stitch(tmp_path, [a])
+    assert out.is_file()
+    assert stitch_mod.stitched_sidecars(out) == {}
+    assert not stale.exists(), "a merged sidecar from an earlier stitch must not outlive it"
+
+
+def test_an_overlays_sidecar_merges_by_the_same_generic_rule(tmp_path):
+    """The overlay track's sidecar has a different list key and entry shape; only the timed
+    fields move. `anchor` and `kind` ride through untouched."""
+    a = _make_clip(tmp_path / "a.mp4", w=1080, h=1080, duration=1.0)
+    b = _make_clip(tmp_path / "b.mp4", w=1080, h=1080, duration=1.0)
+    entry = {
+        "kind": "lower-third",
+        "text": "acme",
+        "start_s": 0.2,
+        "end_s": 0.8,
+        "box": _box(),
+        "anchor": {"corner": "bottom-left"},
+    }
+    _write_sidecar(a, kind="overlays", entries=[entry])
+    _write_sidecar(b, kind="overlays", entries=[entry])
+    out = _stitch(tmp_path, [a, b])
+    assert set(stitch_mod.stitched_sidecars(out)) == {"overlays"}
+    merged = json.loads((tmp_path / "master.overlays.json").read_text())
+    dur_a = vf._probe_duration(a)
+    second = merged["overlays"][1]
+    assert second["start_s"] == pytest.approx(dur_a + 0.2, abs=0.005)
+    assert second["anchor"] == {"corner": "bottom-left"} and second["kind"] == "lower-third"
+    assert not (tmp_path / "master.captions.json").exists()

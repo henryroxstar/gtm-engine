@@ -27,6 +27,7 @@ from ..pack_catalog import (
     resolve_variant,
     variant_readiness,
 )
+from ..types import UuidStr
 
 router = APIRouter(prefix="/packs", tags=["packs"])
 
@@ -61,7 +62,7 @@ async def list_packs(
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
     profile_name: str | None = None,
-    agent_id: str | None = None,
+    agent_id: UuidStr | None = None,
 ) -> list[dict]:
     """Enumerate every variant this workspace's profile can run, as PackDescriptors.
 
@@ -134,7 +135,10 @@ async def variant_readiness_detail(
     """
     profile = await _profile_for(ws, request, profile_name)
     if profile is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No profile for this workspace")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "profile_not_found", "message": "No profile for this workspace"},
+        )
     repo_root = request.app.state.cfg.repo_root
     profiles_root = workspace_profiles_root(ws.workspace_id, repo_root)
 

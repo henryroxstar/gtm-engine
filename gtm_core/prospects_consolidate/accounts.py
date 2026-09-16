@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..prospects_state import ACCOUNT_ID_FIELD, _identity_key, _identity_keys, load_latest
+from ..prospects_state import (
+    ACCOUNT_ID_FIELD,
+    RETIRED_STATUSES,
+    _identity_key,
+    _identity_keys,
+    load_latest,
+)
 from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
 
 
@@ -174,7 +180,7 @@ def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[s
     Absent or unreadable is an empty set, never an exception: a profile with no
     latest.json is a first run, and the ledger + DNC gates still apply.
     """
-    retired = {"disqualified", "do-not-contact", "closed-lost"}
+    retired = RETIRED_STATUSES
     try:
         data = load_latest(profile, content_root)
     except (OSError, ValueError):

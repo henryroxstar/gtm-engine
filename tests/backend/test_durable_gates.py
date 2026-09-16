@@ -15,6 +15,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,12 +49,81 @@ class GateDb:
     def __init__(self) -> None:
         self.gates: dict[tuple[str, str, str], dict] = {}
         self.run_status: list[str] = []
+        self.status: str = "pending"  # current runs.status — RL-03's guard needs it
         self.runs: list[dict] = []
+        # RL-12: overridable so a test can manufacture a controllable "now" — both for a
+        # fresh open (opened_at == db_now, the common case) and for a resume onto a gate
+        # opened at a known point in the past (Gap 2's "remaining time only" proof).
+        self.now_fn = lambda: datetime.now(UTC)
 
     async def execute(self, sql: str, *args):
-        if "INSERT INTO run_gates" in sql:
-            run_id, gate, node_id, ws, sha = args
-            self.gates[(run_id, gate, node_id)] = {
+        match = re.search(r"UPDATE runs\s+SET status = '(\w+)'", sql)
+        if match:
+            self.run_status.append(match.group(1))
+            self.status = match.group(1)
+        return
+
+    async def fetchrow(self, sql: str, *args):
+        if "INSERT INTO run_gates" in sql and "RETURNING" in sql:  # _open_gate_row
+            return self._open_gate_upsert(args)
+        if sql.lstrip().startswith("UPDATE runs") and "RETURNING id" in sql:
+            return self._runs_update(sql, args)
+        if "UPDATE run_gates SET state" in sql:  # _record_gate_decision
+            return self._record_decision(args)
+        if "UPDATE run_gates SET applied_at" in sql:  # _claim_gate_decision
+            return self._claim_decision(sql, args)
+        return self._resume_probe(sql, args)
+
+    def _runs_update(self, sql: str, args: tuple) -> dict | None:
+        # RL-03: start_run/resume_run/reject_run/complete_run/hold_gate/_fail_run all
+        # guard their UPDATE with `status NOT IN (...)`, so a real terminal row (e.g.
+        # `canceled`) refuses the write — model that here rather than always
+        # "succeeding" regardless of the WHERE clause, or a test that seeds a
+        # terminal status would pass for the wrong reason.
+        if self.status in runs_router._TERMINAL_STATUSES:
+            return None
+        match = re.search(r"UPDATE runs\s+SET status = '(\w+)'", sql)
+        if match:
+            self.run_status.append(match.group(1))
+            self.status = match.group(1)
+        return {"id": args[0]}
+
+    def _record_decision(self, args: tuple) -> dict | None:
+        run_id, _ws, state, edited = args
+        for key, row in self.gates.items():
+            if key[0] == run_id and row["state"] == "open":
+                row.update(state=state, edited_content=edited, decided_at="now")
+                return {"gate": key[1], "node_id": key[2]}
+        return None
+
+    def _claim_decision(self, sql: str, args: tuple) -> dict | None:
+        run_id, _ws, gate, node_id = args[:4]
+        row = self.gates.get((run_id, gate, node_id))
+        if row is None or row["state"] == "open" or row["applied_at"] is not None:
+            return None
+        # Model the SQL as written: whether the claim binds to the held bytes, and
+        # whether a reject is exempt from that binding.
+        bound = "content_sha = $5" in sql and row["content_sha"] != args[4]
+        reject_exempt = "state = 'rejected' OR" in sql and row["state"] == "rejected"
+        if bound and not reject_exempt:
+            return None
+        row["applied_at"] = "now"
+        return {"state": row["state"], "edited_content": row["edited_content"]}
+
+    def _open_gate_upsert(self, args: tuple) -> dict | None:
+        """RL-12 (Gap 1): the atomic ``INSERT ... ON CONFLICT DO UPDATE ... WHERE``
+        _open_gate_row now issues in a single statement — modelled here as ONE dict
+        mutation with no separate pre-check read, so nothing can interleave between "decide"
+        and "write" (that atomicity itself is proven against real Postgres, not this fake —
+        see test_rls_live.py). The WHERE's claimability half mirrors _claim_gate_decision's
+        own predicate exactly: a row that is now decided-but-unapplied must be left alone
+        for that function to claim, never reset out from under it."""
+        run_id, gate, node_id, ws, sha = args
+        key = (run_id, gate, node_id)
+        row = self.gates.get(key)
+        now = self.now_fn()
+        if row is None:
+            self.gates[key] = {
                 "run_id": run_id,
                 "gate": gate,
                 "node_id": node_id,
@@ -61,30 +131,45 @@ class GateDb:
                 "content_sha": sha,
                 "state": "open",
                 "edited_content": None,
+                "opened_at": now,
                 "decided_at": None,
                 "applied_at": None,
             }
-            return
-        match = re.search(r"UPDATE runs\s+SET status = '(\w+)'", sql)
-        if match:
-            self.run_status.append(match.group(1))
-        return
+            return {"opened_at": now, "db_now": now}
+        claimable = (
+            row["state"] != "open"
+            and row["applied_at"] is None
+            and (row["state"] == "rejected" or row["content_sha"] == sha)
+        )
+        no_op_open = row["state"] == "open" and row["content_sha"] == sha
+        if claimable or no_op_open:
+            return None  # the WHERE clause is false — nothing written, row left as-is
+        row.update(
+            state="open",
+            content_sha=sha,
+            opened_at=now,
+            decided_at=None,
+            applied_at=None,
+            edited_content=None,
+        )
+        return {"opened_at": now, "db_now": now}
 
-    async def fetchrow(self, sql: str, *args):
-        if "UPDATE run_gates SET state" in sql:  # _record_gate_decision
-            run_id, _ws, state, edited = args
-            for key, row in self.gates.items():
-                if key[0] == run_id and row["state"] == "open":
-                    row.update(state=state, edited_content=edited, decided_at="now")
-                    return {"gate": key[1], "node_id": key[2]}
-            return None
-        if "UPDATE run_gates SET applied_at" in sql:  # _claim_gate_decision
-            run_id, _ws, gate, node_id = args
+    def _resume_probe(self, sql: str, args: tuple) -> dict | None:
+        """RL-13/ST-06 test-double support, kept out of ``fetchrow`` (its own function so
+        adding these does not trip PLR0911 there): answers ``decisions.run_status``'s
+        plain status read and ``_open_gate_row``'s RL-12 companion read, or None for
+        anything else."""
+        if sql.lstrip().startswith("SELECT status FROM runs"):  # decisions.run_status
+            return {"status": self.status}
+        if sql.lstrip().startswith("SELECT opened_at, now() AS db_now FROM run_gates"):
+            # _open_gate_row's companion read: the WHERE-guarded UPSERT left the row
+            # untouched (no-op or now-claimable) — report its REAL open time, not a fresh
+            # one, so a resume's remaining-time computation sees the original open time.
+            run_id, gate, node_id = args
             row = self.gates.get((run_id, gate, node_id))
-            if row is None or row["state"] == "open" or row["applied_at"] is not None:
+            if row is None:
                 return None
-            row["applied_at"] = "now"
-            return {"state": row["state"], "edited_content": row["edited_content"]}
+            return {"opened_at": row.get("opened_at", self.now_fn()), "db_now": self.now_fn()}
         return None
 
     async def fetch(self, sql: str, *args):
@@ -193,10 +278,10 @@ def test_decision_recorded_durably_then_claimed_once(ws_env):
         second = await runs_router._record_gate_decision(db, WS_ID, run_id, "approve", None)
         with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope):
             first_claim = await runs_router._claim_gate_decision(
-                MagicMock(), WS_ID, run_id, "plan", "plan"
+                MagicMock(), WS_ID, run_id, "plan", "plan", "abc"
             )
             second_claim = await runs_router._claim_gate_decision(
-                MagicMock(), WS_ID, run_id, "plan", "plan"
+                MagicMock(), WS_ID, run_id, "plan", "plan", "abc"
             )
         return recorded, second, first_claim, second_claim
 
@@ -214,13 +299,14 @@ def test_decision_posted_while_runner_is_down_is_applied_on_resume(ws_env):
     run_id = str(uuid.uuid4())
     db = GateDb()
     _scope.db = db
-    # A decided row left behind by the operator while the process was restarting.
+    # A decided row left behind by the operator while the process was restarting, made
+    # over the same bytes the resumed run holds (a mismatch is the reclaim case below).
     db.gates[(run_id, "plan", "plan")] = {
         "run_id": run_id,
         "gate": "plan",
         "node_id": "plan",
         "workspace_id": ws_env.ws_id,
-        "content_sha": "abc",
+        "content_sha": runs_router._content_sha("[]"),
         "state": "approved",
         "edited_content": None,
         "decided_at": "then",
@@ -232,6 +318,125 @@ def test_decision_posted_while_runner_is_down_is_applied_on_resume(ws_env):
     assert db.gates[(run_id, "plan", "plan")]["applied_at"] is not None
     assert db.run_status[-1] == "ok", "the resumed run must complete, not hang"
     assert run_id not in runs_router._gate_events, "no new wait should have been opened"
+
+
+_DRAFT_A = "[]"  # what _provision_gated writes: the bytes the first worker's gate showed
+
+
+async def _await_waiter(run_id: str, ticks: int = 800) -> bool:
+    for _ in range(ticks):
+        if run_id in runs_router._gate_events:
+            return True
+        await asyncio.sleep(0.005)
+    return False
+
+
+async def _decide_a_then_lose_the_worker(ws_env, db, run_id: str, decision: str) -> None:
+    """Worker 1 pauses at the plan gate over _DRAFT_A and dies mid-wait; the operator's
+    decision on _DRAFT_A is then recorded durably with no worker holding the run."""
+    first = asyncio.create_task(
+        _run_pack(ws_env, db, run_id, fake_executor([], awaiting_on="plan"))
+    )
+    assert await _await_waiter(run_id), "worker 1 never reached the gate"
+    assert db.gates[(run_id, "plan", "plan")]["content_sha"] == runs_router._content_sha(_DRAFT_A)
+    first.cancel()
+    try:
+        await first
+    except asyncio.CancelledError:
+        pass
+    assert await runs_router._record_gate_decision(db, ws_env.ws_id, run_id, decision, None)
+
+
+def test_a_decision_for_old_bytes_is_not_applied_when_reclaim_rewrites_the_draft(ws_env):
+    """H9 on reclaim. The reclaimed run re-runs the still-paused node, whose turn writes NEW
+    draft bytes; an approval recorded for the OLD bytes must not be applied to bytes the
+    operator never saw (for prospecting, that is enrolling an unapproved list). The stale
+    approval is discarded and the gate stays open over the new bytes for a fresh decision."""
+    _provision_gated(ws_env)
+    run_id = str(uuid.uuid4())
+    db = GateDb()
+    rel = "plans/.pending/2026-32.draft.json"
+    draft = ws_env.content_root / PROFILE / rel
+    draft_b = '[{"topic": "rewritten by the reclaimed turn"}]'
+
+    async def _go():
+        await _decide_a_then_lose_the_worker(ws_env, db, run_id, "approve")
+        reclaim = fake_executor(
+            [], awaiting_on="plan", files_by_stage={"plan": [(rel, draft_b.encode())]}
+        )
+        task = asyncio.create_task(_run_pack(ws_env, db, run_id, reclaim))
+        reached_gate = await _await_waiter(run_id)
+        row = dict(db.gates[(run_id, "plan", "plan")])
+        status_at_gate = db.run_status[-1]
+        draft_at_gate = draft.read_text() if draft.exists() else None
+        if not task.done():
+            async with runs_router._state_lock:
+                runs_router._gate_decisions[run_id] = {"decision": "reject", "edited_content": None}
+                runs_router._gate_events[run_id].set()
+        await asyncio.wait_for(task, timeout=10)
+        return reached_gate, row, status_at_gate, draft_at_gate
+
+    reached_gate, row, status_at_gate, draft_at_gate = asyncio.run(_go())
+    assert reached_gate, "the stale approval was applied — the reclaimed run never re-held its gate"
+    assert row["state"] == "open" and row["applied_at"] is None, row
+    assert row["content_sha"] == runs_router._content_sha(draft_b), "gate must bind the new bytes"
+    assert status_at_gate == "awaiting_approval"
+    assert draft_at_gate == draft_b, "the unapproved draft must not have been promoted"
+
+
+def test_a_decision_for_the_same_bytes_still_applies_on_reclaim(ws_env):
+    """The positive control: a reclaimed turn that writes the SAME bytes the operator
+    approved resumes on the recorded decision, with no new wait and no re-notify."""
+    _provision_gated(ws_env)
+    run_id = str(uuid.uuid4())
+    db = GateDb()
+    rel = "plans/.pending/2026-32.draft.json"
+
+    async def _go():
+        await _decide_a_then_lose_the_worker(ws_env, db, run_id, "approve")
+        reclaim = fake_executor(
+            [], awaiting_on="plan", files_by_stage={"plan": [(rel, _DRAFT_A.encode())]}
+        )
+        await asyncio.wait_for(_run_pack(ws_env, db, run_id, reclaim), timeout=10)
+
+    asyncio.run(_go())
+    assert db.gates[(run_id, "plan", "plan")]["applied_at"] is not None
+    assert db.run_status[-1] == "ok", "a decision bound to the held bytes must still resume"
+    assert run_id not in runs_router._gate_events
+
+
+def test_a_reject_for_old_bytes_still_stands_when_reclaim_rewrites_the_draft(ws_env):
+    """Only consent is bound to bytes. A reject sends nothing, so there is nothing for the
+    H9 binding to protect: the operator ended the run, and a reclaim that writes new bytes
+    must not revive it and ask again. The run ends rejected and the new draft is discarded."""
+    _provision_gated(ws_env)
+    run_id = str(uuid.uuid4())
+    db = GateDb()
+    rel = "plans/.pending/2026-32.draft.json"
+    draft_b = '[{"topic": "rewritten by the reclaimed turn"}]'
+
+    async def _go():
+        await _decide_a_then_lose_the_worker(ws_env, db, run_id, "reject")
+        reclaim = fake_executor(
+            [], awaiting_on="plan", files_by_stage={"plan": [(rel, draft_b.encode())]}
+        )
+        task = asyncio.create_task(_run_pack(ws_env, db, run_id, reclaim))
+        done, _ = await asyncio.wait({task}, timeout=2)
+        if not done:  # the reject was discarded: unblock the re-opened gate, then fail below
+            async with runs_router._state_lock:
+                runs_router._gate_decisions[run_id] = {
+                    "decision": "approve",
+                    "edited_content": None,
+                }
+                runs_router._gate_events[run_id].set()
+            await asyncio.wait_for(task, timeout=10)
+        return bool(done)
+
+    finished_on_the_reject = asyncio.run(_go())
+    assert finished_on_the_reject, "the stale reject was discarded — the gate re-opened over B"
+    assert db.gates[(run_id, "plan", "plan")]["applied_at"] is not None
+    assert db.run_status[-1] == "rejected"
+    assert not (ws_env.content_root / PROFILE / rel).exists(), "the new draft must be discarded"
 
 
 def test_reopening_a_gate_clears_the_prior_decision(ws_env):
@@ -257,7 +462,7 @@ def test_reopening_a_gate_clears_the_prior_decision(ws_env):
         with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope):
             await runs_router._open_gate_row(MagicMock(), WS_ID, run_id, "plan", "plan", "new")
             return await runs_router._claim_gate_decision(
-                MagicMock(), WS_ID, run_id, "plan", "plan"
+                MagicMock(), WS_ID, run_id, "plan", "plan", "new"
             )
 
     claimed = asyncio.run(_go())
@@ -286,7 +491,7 @@ def test_malformed_gate_row_reads_as_no_decision(ws_env):
     async def _go():
         with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope):
             return await runs_router._claim_gate_decision(
-                MagicMock(), WS_ID, run_id, "plan", "plan"
+                MagicMock(), WS_ID, run_id, "plan", "plan", "abc"
             )
 
     assert asyncio.run(_go()) is None
@@ -330,8 +535,8 @@ def test_reconcile_resumes_pack_runs_and_fails_prompt_runs(ws_env):
 
     failed: list[tuple] = []
 
-    async def _record_fail(pool_, ws, rid, err):
-        failed.append((rid, err))
+    async def _record_fail(pool_, ws, rid, err, *, error_code):
+        failed.append((rid, err, error_code))
 
     async def _go():
         with (
@@ -350,7 +555,7 @@ def test_reconcile_resumes_pack_runs_and_fails_prompt_runs(ws_env):
     args, _kwargs = dispatched[0]
     assert args[3] == pack_run and args[5] == "marketing" and args[6] == "linkedin-post"
     assert args[7] == {"brand_name": "ExampleCo"}, "inputs must survive the round trip"
-    assert [rid for rid, _ in failed] == [prompt_run]
+    assert [(rid, code) for rid, _, code in failed] == [(prompt_run, "run_interrupted")]
     assert "restart" in failed[0][1]
 
 
@@ -467,8 +672,8 @@ def _queue_harness(db, dispatched: list, failed: list):
     async def _record_prompt(*args, **kwargs):
         dispatched.append(("prompt", args, kwargs))
 
-    async def _record_fail(_pool, _ws, run_id, error):
-        failed.append((run_id, error))
+    async def _record_fail(_pool, _ws, run_id, error, *, error_code):
+        failed.append((run_id, error, error_code))
 
     _scope.db = db
     with (
@@ -568,6 +773,7 @@ def test_a_stale_prompt_run_is_failed_not_reclaimed():
     asyncio.run(_go())
     assert dispatched == [], "an unresumable run must never be re-dispatched"
     assert len(failed) == 1 and "restart" in failed[0][1]
+    assert failed[0][2] == "run_interrupted"
 
 
 def test_a_first_dispatch_of_a_prompt_run_still_runs_it():
@@ -612,6 +818,7 @@ def test_a_run_that_keeps_crashing_its_worker_is_failed_not_retried_forever():
     asyncio.run(_go())
     assert dispatched == []
     assert len(failed) == 1 and "too many times" in failed[0][1]
+    assert failed[0][2] == "retries_exhausted"
 
 
 def test_the_payload_carries_what_the_prompt_regex_dropped():
@@ -679,7 +886,14 @@ def test_a_gate_wake_from_another_worker_resolves_the_run():
         with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope):
             waiter = asyncio.create_task(
                 runs_lifecycle._wait_for_decision(
-                    MagicMock(), WS_ID, run_id, event, gate="plan", node_id="plan", durable=True
+                    MagicMock(),
+                    WS_ID,
+                    run_id,
+                    event,
+                    gate="plan",
+                    node_id="plan",
+                    durable=True,
+                    content_sha="abc",
                 )
             )
             await asyncio.sleep(0)
@@ -706,7 +920,14 @@ def test_a_gate_resolves_on_the_poll_backstop_with_no_broker_at_all():
         ):
             return await asyncio.wait_for(
                 runs_lifecycle._wait_for_decision(
-                    MagicMock(), WS_ID, run_id, event, gate="plan", node_id="plan", durable=True
+                    MagicMock(),
+                    WS_ID,
+                    run_id,
+                    event,
+                    gate="plan",
+                    node_id="plan",
+                    durable=True,
+                    content_sha="abc",
                 ),
                 timeout=5,
             )
@@ -730,7 +951,14 @@ def test_a_wake_with_nothing_recorded_never_resolves_the_gate():
         ):
             waiter = asyncio.create_task(
                 runs_lifecycle._wait_for_decision(
-                    MagicMock(), WS_ID, run_id, event, gate="plan", node_id="plan", durable=True
+                    MagicMock(),
+                    WS_ID,
+                    run_id,
+                    event,
+                    gate="plan",
+                    node_id="plan",
+                    durable=True,
+                    content_sha="abc",
                 )
             )
             for _ in range(5):
@@ -778,3 +1006,145 @@ def test_the_gate_channel_carries_a_wake_and_never_the_decision():
     assert payload["run_id"] == run_id
     assert set(payload) == {"worker", "run_id"}, f"gate wake leaked fields: {sorted(payload)}"
     assert "the approved bytes" not in json.dumps(payload)
+
+
+# ── RL-12: the atomic open never clobbers a decision it just missed (Gap 1) ──────
+
+
+def test_a_decision_recorded_between_the_claim_and_the_open_is_never_clobbered(ws_env):
+    """RL-12 Gap 1. ``hold_gate``'s sequence is claim-then-open: ``_claim_gate_decision``
+    is tried first; only when NOTHING is claimable yet does ``_open_gate_row`` run. If a
+    decision commits in the gap between those two calls — the exact race a two-statement
+    SELECT-then-UPSERT cannot close — the atomic ``WHERE``-guarded UPSERT must see the row
+    as newly claimable and leave it alone, never reset it back to 'open' and destroy the
+    decision. The very next poll tick (patched fast here) must then claim it normally.
+
+    This fake cannot prove Postgres evaluates the WHERE clause against the row's
+    COMMITTED state rather than a value read earlier in a separate statement — that
+    atomicity is proven against a real engine in test_rls_live.py. What this proves is
+    the CALLER side: given that guarantee, ``hold_gate`` must actually apply the decision
+    it nearly reset, not merely "not crash"."""
+    db = GateDb()
+    _scope.db = db
+    run_id = str(uuid.uuid4())
+    draft = "the pending draft bytes"
+    sha = runs_router._content_sha(draft)
+    db.gates[(run_id, "plan", "plan")] = {
+        "run_id": run_id,
+        "gate": "plan",
+        "node_id": "plan",
+        "workspace_id": WS_ID,
+        "content_sha": sha,
+        "state": "open",
+        "edited_content": None,
+        "opened_at": datetime.now(UTC),
+        "decided_at": None,
+        "applied_at": None,
+    }
+
+    real_claim = runs_lifecycle._claim_gate_decision
+    calls = {"n": 0}
+
+    async def _racing_claim(pool, workspace_id, run_id_, gate, node_id, content_sha):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # hold_gate's FIRST claim attempt: nothing decided yet — but the operator's
+            # decision commits in this exact instant, before _open_gate_row's own atomic
+            # statement (called next, unpatched) gets to run.
+            row = db.gates[(run_id_, gate, node_id)]
+            row.update(state="approved", decided_at="now")
+            return None
+        return await real_claim(pool, workspace_id, run_id_, gate, node_id, content_sha)
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+            patch.object(runs_lifecycle, "_claim_gate_decision", _racing_claim),
+            patch.object(runs_lifecycle, "GATE_POLL_S", 0.01),
+        ):
+            return await asyncio.wait_for(
+                runs_lifecycle.hold_gate(
+                    MagicMock(),
+                    WS_ID,
+                    run_id,
+                    sentinel="⟦GATE:plan⟧",
+                    gate="plan",
+                    pending_content=draft,
+                    node_id="plan",
+                    durable=True,
+                ),
+                timeout=5,
+            )
+
+    decision = asyncio.run(_go())
+    assert decision == {"decision": "approve", "edited_content": None}, (
+        "the decision recorded in the race window must be APPLIED on the very next poll"
+    )
+    row = db.gates[(run_id, "plan", "plan")]
+    assert row["state"] == "approved" and row["applied_at"] is not None, (
+        "the atomic open must never have reset this row back to 'open'"
+    )
+
+
+# ── RL-12: a resume measures the timeout from the ACTUAL open time (Gap 2) ───────
+
+
+def test_resume_onto_a_gate_opened_long_ago_times_out_after_the_remaining_time_only(ws_env):
+    """RL-12 Gap 2. GATE_TIMEOUT_S bounds how long an operator decision may be
+    outstanding, measured from ``run_gates.opened_at`` (the row's ACTUAL open time) — not
+    from whenever this process happens to (re-)enter the wait. A boot reconcile or a lease
+    reclaim re-entering ``hold_gate`` for a gate that has been open for most of its window
+    must time out after the time actually REMAINING, never a fresh full GATE_TIMEOUT_S —
+    otherwise a run parked at a gate across enough reclaims would never time out at all.
+
+    ``GATE_TIMEOUT_S`` is patched to a small 2.0s stand-in for "a day"; the gate is
+    manufactured as already 1.9s (95%) through that window, so ~0.1s is left. A fresh gate
+    under the SAME patched timeout already takes the full duration in every other
+    GATE_TIMEOUT_S-patched test in this suite (e.g. test_an_undecided_gate_is_a_gate_timeout
+    in test_run_error_code.py) — the contrast this test adds is that a RESUME must not
+    reset that clock."""
+    db = GateDb()
+    _scope.db = db
+    run_id = str(uuid.uuid4())
+    fixed_now = datetime.now(UTC)
+    db.now_fn = lambda: fixed_now
+    draft = "the pending draft bytes"
+    sha = runs_router._content_sha(draft)
+    db.gates[(run_id, "plan", "plan")] = {
+        "run_id": run_id,
+        "gate": "plan",
+        "node_id": "plan",
+        "workspace_id": WS_ID,
+        "content_sha": sha,
+        "state": "open",
+        "edited_content": None,
+        "opened_at": fixed_now - timedelta(seconds=1.9),
+        "decided_at": None,
+        "applied_at": None,
+    }
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+            patch.object(runs_lifecycle, "GATE_TIMEOUT_S", 2.0),
+        ):
+            loop = asyncio.get_running_loop()
+            start = loop.time()
+            result = await asyncio.wait_for(
+                runs_lifecycle.hold_gate(
+                    MagicMock(),
+                    WS_ID,
+                    run_id,
+                    sentinel="⟦GATE:plan⟧",
+                    gate="plan",
+                    pending_content=draft,
+                    node_id="plan",
+                    durable=True,
+                ),
+                timeout=5,
+            )
+            return result, loop.time() - start
+
+    result, elapsed = asyncio.run(_go())
+    assert result == runs_lifecycle.TIMED_OUT
+    assert elapsed < 1.0, f"must time out near the ~0.1s REMAINING, not a fresh 2.0s: {elapsed}"

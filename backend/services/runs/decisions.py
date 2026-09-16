@@ -29,34 +29,55 @@ async def run_status(pool, workspace_id: str, run_id: str) -> str | None:
 async def cancel(pool, workspace_id: str, run_id: str) -> None:
     """Cancel a pending, running, or gate-paused run.
 
-    Marked cancelled BEFORE the gate event fires, so the background task sees the flag
-    whatever the scheduling order; any open gate is resolved as `reject` under the same
-    lock decide_gate uses, so exactly one decision is ever consumed. The row is written
-    here rather than left to the task: the task may never run, or may overwrite.
+    Marked cancelled BEFORE the DB write, so the background task sees the flag whatever
+    the scheduling order. The `runs` row write is the single source of truth for whether
+    this call does anything: only a run that is NOT already terminal is written, in the
+    SAME `workspace_scope` transaction that also closes any open durable gate row — so a
+    run parked at a gate never leaves an `open` `run_gates` row behind a `canceled` run
+    (RL-04), and a polling client sees `gate=None`/`pending_node_id=None` immediately.
+    The same write also clears the raw `pending_gate`/`pending_content` columns (RL-09's
+    pattern in `resume_run`/`reject_run`/`complete_run`/`_fail_run` — cancel's own write
+    was the one terminal path that had not picked it up, caught by the tests/live p2
+    acceptance suite): a cancelled run must not keep serving the pending draft bytes it
+    was cancelled out of.
+
+    A cancel is NOT a gate decision and is never represented as one: nothing is written
+    to `_gate_decisions`. The in-process waiter, if one exists, is only woken —
+    `_wait_for_decision` (lifecycle.py) re-reads the row on every wake and poll tick,
+    finds the row `canceled` (a `_TERMINAL_STATUSES` member) via `_run_went_terminal`,
+    and returns `CANCELLED` on its own. Injecting a `{"decision": "reject", ...}` here,
+    as before, made the executor ALSO call `reject_run` on top of it — a second `done`
+    frame for the same run (ST-15) — which is exactly what this avoids.
     """
-    gate_was_open = False
     async with _state_lock:
         _cancelled_runs.add(run_id)
         event = _gate_events.get(run_id)
-        if event is not None and run_id not in _gate_decisions:
-            _gate_decisions[run_id] = {"decision": "reject", "edited_content": None}
-            event.set()
-            gate_was_open = True
-    if gate_was_open:
-        publish_run_event(
-            workspace_id,
-            run_id,
-            "gate_resolved",
-            {"run_id": run_id, "decision": "reject", "ts": _utc_now()},
-        )
 
     async with workspace_scope(pool, workspace_id) as conn:
-        await conn.execute(
-            """UPDATE runs SET status = 'rejected', error = 'canceled by user'
-               WHERE id = $1::uuid AND workspace_id = $2::uuid""",
+        updated = await conn.fetchrow(
+            """UPDATE runs
+               SET status = 'canceled', error = 'canceled by user', completed_at = now(),
+                   pending_gate = NULL, pending_content = NULL
+               WHERE id = $1::uuid AND workspace_id = $2::uuid
+                 AND status NOT IN ('ok', 'failed', 'rejected', 'canceled')
+               RETURNING id""",
             run_id,
             workspace_id,
         )
+        if updated is None:
+            # Already terminal. The router's own check runs BEFORE calling cancel() and
+            # is the primary guard (409); this is a defensive backstop only — nothing
+            # left to close, wake, or announce.
+            return
+        await conn.execute(
+            """UPDATE run_gates SET state = 'rejected', decided_at = now(), applied_at = now()
+               WHERE run_id = $1::uuid AND workspace_id = $2::uuid AND state = 'open'""",
+            run_id,
+            workspace_id,
+        )
+
+    if event is not None:
+        event.set()
     # A5: the run may be held by ANOTHER worker, where there is no local waiter to
     # resolve — wake it so it sees the terminal row now rather than on its next poll.
     await publish_gate_wake(run_id)
@@ -65,19 +86,34 @@ async def cancel(pool, workspace_id: str, run_id: str) -> None:
         workspace_id,
         run_id,
         "done",
-        {"run_id": run_id, "status": "rejected", "error": "canceled by user"},
+        {"run_id": run_id, "status": "canceled", "error": "canceled by user"},
     )
 
 
 async def fetch_open_gate(pool, workspace_id: str, run_id: str):
-    """The run's status and the exact bytes currently pending at its gate."""
+    """The run's status, the exact bytes currently pending at its gate, and — for a pack
+    run — the open durable gate's kind (``gate_kind``; NULL for a prompt run)."""
     async with workspace_scope(pool, workspace_id) as conn:
         return await conn.fetchrow(
-            "SELECT status, pending_gate, pending_content FROM runs "
-            "WHERE id = $1::uuid AND workspace_id = $2::uuid",
+            "SELECT r.status, r.pending_gate, r.pending_content, "
+            "(SELECT g.gate FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open' "
+            " ORDER BY g.opened_at DESC LIMIT 1) AS gate_kind "
+            "FROM runs r WHERE r.id = $1::uuid AND r.workspace_id = $2::uuid",
             run_id,
             workspace_id,
         )
+
+
+def refuses_edit(row, decision: str, edited_content: str | None) -> bool:
+    """True when this decision carries edited bytes for a gate that has nothing to apply
+    them to. A ``review`` gate (e.g. marketing's case-study — any pack gate with no draft file of its
+    own) only shows a stub; there is no draft for edited bytes to replace, so an edit
+    there would be recorded and silently never honoured (client issue #241 Q6). Refusing is
+    the honest answer until such a gate has a promotable draft. Plan/enroll gates and
+    prompt runs (no durable gate row) are unaffected."""
+    if row.get("gate_kind") != "review":
+        return False
+    return decision == "edit" or edited_content is not None
 
 
 def content_matches(row, content_sha: str | None) -> bool:

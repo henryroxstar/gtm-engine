@@ -17,9 +17,14 @@ operator-supplied ``domains``.
 
 CLI::
 
-    python -m gtm_core.voc.registry --profile P show
+    python -m gtm_core.voc.registry --profile P show [--product SLUG]
     python -m gtm_core.voc.registry --profile P apply --proposals PATH --accept NAME [NAME ...]
-    python -m gtm_core.voc.registry --profile P budget
+    python -m gtm_core.voc.registry --profile P budget [--product SLUG]
+
+A row's optional ``product`` field scopes it to one of the profile's products
+(``profiles/<profile>/products/<slug>/``); absent means the row applies to every
+product. ``--product`` filters ``show``/``budget`` to that product's rows plus the
+unscoped ones.
 """
 
 from __future__ import annotations
@@ -44,18 +49,55 @@ def _today() -> str:
     return date.today().isoformat()
 
 
-def load(*, profile: str, profiles_root: Path) -> dict:
+def load(*, profile: str, profiles_root: Path, product: str | None = None) -> dict:
     """Load and validate ``profiles/<profile>/knowledge/competitors.toml``.
 
     Returns ``{"schema": 1, "reviewed": "YYYY-MM-DD", "competitor": [...]}``.
     A missing file is treated as an empty registry so skills degrade gracefully.
+
+    ``product``, when given, is validated as a safe path segment, must name a real
+    ``profiles/<profile>/products/<product>/`` directory (a typo'd slug must not
+    silently return "no rows" instead of an error), and filters the returned rows to
+    those whose ``product`` is absent (applies to every product) or equals it.
+    ``product=None`` skips that requested-product check and returns every row, but
+    every row's OWN ``product`` (if it has one) is still checked against the same
+    directory regardless of the ``product`` argument — an existing caller passing
+    none now also raises on a row naming an unknown product.
     """
+    if product is not None:
+        product = _safe_segment(product, "product")
+        product_dir = profiles_root / _safe_segment(profile, "profile") / "products" / product
+        if not product_dir.is_dir():
+            raise ValueError(f"unknown product '{product}': no such directory {product_dir}")
     path = profiles_root / _safe_segment(profile, "profile") / "knowledge" / "competitors.toml"
     if not path.is_file():
         return {"schema": SCHEMA_VERSION, "reviewed": _today(), "competitor": []}
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     validate(raw)
+    _check_row_products(raw, profiles_root=profiles_root, profile=profile)
+    if product is not None:
+        raw = dict(raw)
+        raw["competitor"] = [
+            row for row in raw["competitor"] if row.get("product") in (None, product)
+        ]
     return raw
+
+
+def _check_row_products(data: dict, *, profiles_root: Path, profile: str) -> None:
+    """Fail loudly if a row's ``product`` slug has no matching ``products/<slug>/``
+    directory — a typo'd slug would otherwise silently hide a rival from the product
+    it was meant to scope to. ``validate()`` already proved each ``product`` value is a
+    safe segment by the time this runs."""
+    base = profiles_root / _safe_segment(profile, "profile") / "products"
+    for row in data.get("competitor", []):
+        product = row.get("product")
+        if product is None:
+            continue
+        if not (base / product).is_dir():
+            raise ValueError(
+                f"competitor '{row.get('name')}' has unknown product '{product}': "
+                f"no such directory {base / product}"
+            )
 
 
 def validate(data: dict) -> None:
@@ -89,6 +131,11 @@ def validate(data: dict) -> None:
                 f"{prefix} '{name}' has unknown status '{status}'; "
                 f"expected one of {sorted(VALID_STATUSES)}"
             )
+        product = row.get("product")
+        if product is not None:
+            if not isinstance(product, str) or not product.strip():
+                raise ValueError(f"{prefix} '{name}' 'product' must be a non-empty string")
+            _safe_segment(product, "product")
         for key in ("aliases", "watch_urls", "domains"):
             value = row.get(key, [])
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
@@ -171,6 +218,7 @@ def apply(
         if candidate is None:
             raise ValueError(f"'{name}' not found in proposals {proposals_path}")
         validate({"schema": SCHEMA_VERSION, "competitor": [candidate]})
+        _check_row_products({"competitor": [candidate]}, profiles_root=profiles_root, profile=prof)
         if name in existing_names:
             continue  # idempotent: already tracked
 
@@ -187,6 +235,7 @@ def apply(
         row = {
             "name": candidate["name"],
             "tier": candidate["tier"],
+            **({"product": candidate["product"]} if candidate.get("product") else {}),
             "aliases": candidate.get("aliases", []),
             "watch_urls": candidate.get("watch_urls", []),
             "domains": domains,
@@ -221,6 +270,19 @@ def apply(
 
     registry_path.write_text(text + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
     return appended
+
+
+def _label_appended(names: list[str], proposals_path: Path) -> list[str]:
+    """Render each appended name with the product it was staged under, so the
+    operator's approval surface (§R5: they approve by name) also shows the product a
+    proposal rides in on, e.g. ``Clay [product-slug]`` / ``Apollo [all products]``."""
+    proposals = json.loads(proposals_path.read_text(encoding="utf-8"))
+    candidates = {c["name"]: c for c in proposals.get("candidates", [])}
+    labels = []
+    for name in names:
+        product = candidates.get(name, {}).get("product")
+        labels.append(f"{name} [{product}]" if product else f"{name} [all products]")
+    return labels
 
 
 def _update_reviewed_date(text: str, today: str) -> str:
@@ -287,8 +349,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root", type=Path, default=None)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("show", help="Print the validated registry as JSON.")
+    show_p = sub.add_parser("show", help="Print the validated registry as JSON.")
+    show_p.add_argument(
+        "--product", default=None, help="Filter to this product's rows plus unscoped ones."
+    )
     budget = sub.add_parser("budget", help="Print the Syften filter-budget report.")
+    budget.add_argument(
+        "--product", default=None, help="Filter to this product's rows plus unscoped ones."
+    )
     budget.add_argument("--syften-filters", type=Path, default=None)
     apply_p = sub.add_parser("apply", help="Approve proposed competitor additions.")
     apply_p.add_argument("--proposals", type=Path, required=True)
@@ -298,12 +366,12 @@ def main(argv: list[str] | None = None) -> int:
     cfg = PathConfig.from_env(repo_root=args.repo_root)
 
     if args.cmd == "show":
-        registry = load(profile=args.profile, profiles_root=cfg.profiles_root)
+        registry = load(profile=args.profile, profiles_root=cfg.profiles_root, product=args.product)
         print(json.dumps(registry, ensure_ascii=False, indent=2))
         return 0
 
     if args.cmd == "budget":
-        registry = load(profile=args.profile, profiles_root=cfg.profiles_root)
+        registry = load(profile=args.profile, profiles_root=cfg.profiles_root, product=args.product)
         filters_path = args.syften_filters
         if not filters_path:
             filters_path = (
@@ -332,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
             accept=args.accept,
         )
         if appended:
-            print(f"Appended {len(appended)} competitor(s): {', '.join(appended)}")
+            labels = _label_appended(appended, args.proposals)
+            print(f"Appended {len(appended)} competitor(s): {', '.join(labels)}")
         else:
             print("No new competitors appended (all already tracked).")
         return 0

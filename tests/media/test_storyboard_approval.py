@@ -58,6 +58,28 @@ def test_a_missing_storyboard_is_refused_not_created(tmp_path):
     assert not (tmp_path / "nope.json").exists()
 
 
+def test_approve_refuses_identity_anchor_without_job_id(tmp_path: Path):
+    """Q6: An identity-bearing frame without an image_job_id cannot be approved."""
+    p = tmp_path / "storyboard.json"
+    p.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "n": 1,
+                        "image_path": "frame.png",
+                        "identity_anchor": {"kind": "element", "id": "el-1"},
+                        # image_job_id missing
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(sb.StoryboardError, match="has an identity_anchor but no image_job_id"):
+        sb.approve(p, by="operator", at="2026-09-12T00:00:00Z")
+
+
 def test_an_unreadable_storyboard_is_refused(tmp_path):
     p = tmp_path / "storyboard.json"
     p.write_text("{not json")

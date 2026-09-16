@@ -60,6 +60,18 @@ class Probe:
             raise ProbeFailed(f"malformed ffprobe stream/format fields: {exc}") from exc
 
 
+def ffmpeg_available() -> bool:
+    """Whether ffmpeg is on PATH. A presence check only — this module never invokes ffmpeg
+    itself (that's video_finish's job) — but it lives here, not in a caller, so a status
+    report (gtm_core/video_preflight.py) doesn't need its own ``shutil.which("ffmpeg")``
+    call: tests/contracts/test_ffmpeg_module_boundary.py's AST scan treats any such call as
+    "this module is in the ffmpeg business," and a preflight report checking availability
+    is not that."""
+    import shutil
+
+    return shutil.which("ffmpeg") is not None
+
+
 def probe(path: Path) -> Probe:
     """The only ffprobe shell-out in this module. Raises ProbeUnavailable if ffprobe is not on
     PATH, ProbeFailed if the input cannot be probed (corrupt, zero-byte, not media, no video

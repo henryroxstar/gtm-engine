@@ -67,6 +67,9 @@ approval in Telegram. Nothing is finalized until the user approves — this skil
   cannot copy — and the STRUCTURE is lifted while the CONTENT never is. A structure you can only
   gesture at is a preference wearing a rubric's clothes; if it cannot be named in a sentence, it
   has not been extracted yet.
+- `docs/direct-response-patterns.md` — the 5 B2B Direct-Response Desire Frameworks and dual-action
+  platform bridge rules. Read whenever planning items with `goal: "conversion"` (lead magnets,
+  calculators, prompt packs, teardowns).
 
 If there are no radar clusters yet, tell the user to run `content-radar` first — **unless the node
 prompt for this run says the plan is sourced from something else** (e.g. the creator pack's restyle
@@ -112,9 +115,9 @@ Each idea is a `ContentItem` (schema: `schemas/content-item.schema.json`) — re
 - `status` — `planned`
 - `brief` — pre-generation steering (operator can edit at Gate 1):
   - `angle` — the specific take or argument (e.g. "why enterprises stall on AI agents — it's a trust gap, not a model problem"). When `audience-psychology.md` covers the target persona, pick an angle the persona *feels* (its emotional stakes / believed-but-never-said) **and** that passes the persona's **founder-fit** filter — never a **do-not-drive** angle, and honour any **partial** constraint.
-  - `hook_direction` — how to open (e.g. "stat-first → reframe as a solvable infra problem"); archetypes in `docs/hook-craft.md`
+  - `hook_direction` — how to open (e.g. "stat-first → reframe as a solvable infra problem"); archetypes in `docs/hook-craft.md`. On conversion items (`goal: "conversion"`), name the direct-response pattern from `docs/direct-response-patterns.md` (e.g. `dr-symptom-root-cause`, `dr-earned-authority`, `dr-gap-roadblock`, `dr-empirical-test`, `dr-industry-benchmark`).
   - `trigger_stack` — the 2–3 emotional triggers this item should stack (from `docs/virality-engineering.md`, e.g. "curiosity + productive discomfort"), so studio drafts for a felt experience, not just an informative one
-  - `key_points` — 3–5 bullets the asset must land
+  - `key_points` — 3–5 bullets the asset must land. On conversion items, explicitly name the giveaway or lead-magnet asset and its format (template, sheet, repo, PDF brief).
   - `tone` — voice note specific to this item (e.g. "strategic informality, peer not vendor")
   - `avoid` — phrases, claims, or framings to exclude
   - `audience` (optional) — who this piece is for: a segment name from
@@ -132,7 +135,8 @@ Each idea is a `ContentItem` (schema: `schemas/content-item.schema.json`) — re
     control and living its absence. The persona block is the protagonist template. `core_value` must
     be one the company can **honestly claim**; that judgement is the operator's edit at Gate 1.
     Fill all three or leave all three unset — a `protagonist` with no value behind it steers nothing,
-    and its presence is what marks the item as story-format for every stage downstream.
+    and its presence is what marks the item as story-format for every stage downstream. **Leave unset
+    on conversion items** (`goal: "conversion"`), which bypass the story graph and use the 4-shot DR sequence.
 - optional: `slot` (e.g. "Mon AM"), `locale` (default the profile `language`)
 - optional: `hook_id` — a stable id from **`hooks.toml`** (see Step 0). Set it when the item's
   angle matches a hook; leave it absent only when no hook fits. This is the attribution key used

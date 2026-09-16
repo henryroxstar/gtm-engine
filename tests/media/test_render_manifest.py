@@ -673,3 +673,101 @@ def test_validate_leaves_real_footage_exempt_from_the_cost_gate(tmp_path):
     off must not start demanding a ledger row for it."""
     path = _companion(tmp_path)
     rm.validate_render_file(path, synthetic=False, repo_root=tmp_path)
+
+
+# --- finish manifest: pre-burned captions and the kit-declared route ----------------------------
+
+
+def _finish(**kw) -> rm.FinishManifest:
+    base = {
+        "profile": "acme",
+        "slug": "s",
+        "ratio": "9x16",
+        "asset_path": "would-be-final.mp4",
+        "stages": ("normalize", "encode"),
+        "executed": False,
+        "caption_route": "local",
+    }
+    base.update(kw)
+    return rm.FinishManifest(**base)
+
+
+def test_a_finish_manifest_written_before_the_preburned_fields_existed_still_loads(tmp_path):
+    legacy = tmp_path / "finish-9x16.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "profile": "acme",
+                "slug": "s",
+                "ratio": "9x16",
+                "asset_path": "x.mp4",
+                "stages": ["normalize"],
+                "caption_route": "none",
+            }
+        )
+    )
+    fm = rm.load_finish(legacy)
+    assert fm.captions_preburned is False and fm.overlays is None
+
+
+def test_preburned_captions_and_overlays_round_trip_through_write_and_load(tmp_path):
+    captions = {"frame": [1080, 1920], "screens": [{"index": 0, "start_s": 0.0, "end_s": 1.0}]}
+    overlays = [
+        {"kind": "k", "start_s": 0.0, "end_s": 1.0, "box": {"x": 0, "y": 0, "w": 1, "h": 1}}
+    ]
+    out = rm.write_finish_manifest(
+        _finish(captions=captions, captions_preburned=True, overlays=overlays),
+        out_dir=tmp_path,
+        repo_root=tmp_path,
+    )
+    fm = rm.load_finish(out)
+    assert fm.captions_preburned is True
+    assert fm.captions == captions and fm.overlays == overlays
+
+
+def test_lint_suppressions_round_trip_through_write_and_load_as_a_tuple_of_dicts(tmp_path):
+    """#1: video_finish.execute carries suppressions forward as plain dicts (never a Suppression
+    dataclass — that type lives in gtm_core.video_lint, and render_manifest must not depend on
+    it); this pins that load_finish hands them back exactly as written, as a tuple of dicts."""
+    suppressions = (
+        {"tier": "V1", "asset": "cut-9x16-final.mp4", "reason": "resolution is intentionally low"},
+        {"tier": "V10", "asset": "cut-9x16-final.mp4", "reason": "silence is a deliberate beat"},
+    )
+    out = rm.write_finish_manifest(
+        _finish(lint_suppressions=suppressions), out_dir=tmp_path, repo_root=tmp_path
+    )
+    fm = rm.load_finish(out)
+    assert fm.lint_suppressions == suppressions
+    assert isinstance(fm.lint_suppressions, tuple)
+    assert all(isinstance(s, dict) for s in fm.lint_suppressions)
+
+
+def test_lint_suppressions_default_to_an_empty_tuple_when_omitted(tmp_path):
+    out = rm.write_finish_manifest(_finish(), out_dir=tmp_path, repo_root=tmp_path)
+    fm = rm.load_finish(out)
+    assert fm.lint_suppressions == ()
+
+
+def test_a_kit_declared_local_route_needs_no_suppression_beside_a_resolving_preset(tmp_path):
+    """Mirror of plan()'s rule at the manifest gate: the two must agree, or a plan that was
+    accepted fails at write time with an asset already encoded."""
+    with pytest.raises(rm.ManifestError, match="caption_route_suppression"):
+        rm.write_finish_manifest(
+            _finish(), out_dir=tmp_path, repo_root=tmp_path, preset_resolved=True
+        )
+    out = rm.write_finish_manifest(
+        _finish(),
+        out_dir=tmp_path,
+        repo_root=tmp_path,
+        preset_resolved=True,
+        declared_route="local",
+    )
+    assert out.is_file()
+    with pytest.raises(rm.ManifestError, match="caption_route_suppression"):
+        rm.write_finish_manifest(
+            _finish(),
+            out_dir=tmp_path,
+            repo_root=tmp_path,
+            preset_resolved=True,
+            declared_route="reap",
+        )

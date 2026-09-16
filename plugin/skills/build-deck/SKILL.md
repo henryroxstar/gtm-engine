@@ -3,11 +3,8 @@ name: build-deck
 description: >-
   Build an on-brand sales deck, one-pager, POC proposal, or partner brief for the active
   company. Trigger when the user says "build a deck for [company]", "make slides for
-  [persona]", "create a presentation about [topic]", "put together a deck for [meeting]",
-  "build a one-pager for [use case]", "write up a POC proposal for [company]", "make a partner
-  brief for [company]", or any similar request for a presentation-format deliverable.
-  Automatically detects the primary persona and selects the matching template. Confirms
-  outline before generating. Supports Mode A (pptx) and Mode B (Slidev / on-brand).
+  [persona]", "create a presentation about [topic]", "put together a deck for [meeting]", or
+  "build a one-pager for [use case]".
 metadata:
   version: "0.13.0"
   phase: "4"

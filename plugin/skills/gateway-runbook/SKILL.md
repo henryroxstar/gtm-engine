@@ -1,17 +1,11 @@
 ---
 name: gateway-runbook
 description: >-
-  Produce a parameterized, step-by-step gateway setup runbook tailored to a specific account,
-  use case, and stack — grounded in the active product's verified reference pack (its real
-  setup concepts, dashboard click-paths, and syntax). Trigger when the user says "write the
-  gateway setup runbook for [company]", "gateway setup steps for [use case]", "implementation
-  runbook for [company]", "how do we set up the gateway for [pattern]", "give [company] the
-  setup guide", or "deployment runbook for [company]". Can produce either a dashboard
-  click-through guide (default) or a headless / config-paste appendix (ready-to-paste config
-  payloads + the product's management-API path) when asked for "API setup" or "headless
-  setup". Consumes a `solution-design` dossier when present (chosen pattern + component
-  inventory). Includes validation tests, troubleshooting, and a go-live checklist. Read-only
-  authoring — it documents the steps, it does not provision anything itself.
+  Generate a step-by-step gateway setup runbook tailored to a specific account, pattern, and
+  engineering stack with validation checklists. Trigger when the user says "write the gateway
+  setup runbook for [company]", "gateway setup steps for [use case]", "implementation runbook
+  for [company]", "how do we set up the gateway for [pattern]", or "deployment runbook for
+  [company]".
 metadata:
   version: "0.3.1"
   phase: "5"

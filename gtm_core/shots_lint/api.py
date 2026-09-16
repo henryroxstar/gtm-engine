@@ -11,6 +11,7 @@ from .camera import (
     _lint_negation,
     _lint_reference_edit_depth,
 )
+from .caption import DESCRIBE_SHARE_MAX_PCT, _lint_caption
 from .capture import (
     CAPTURE_FIELDS,
     _lint_capture_fields_mode,
@@ -45,6 +46,7 @@ from .narration import (
     _lint_narration_lane_exclusive,
     _lint_narration_timeline,
 )
+from .overlay import OVERLAY_TEXT_MAX_CHARS, _lint_overlay
 from .timing import (
     _CAPTURE_MODES,
     _DEFAULT_CAPTURE_MODE,
@@ -57,6 +59,7 @@ from .timing import (
     _lint_spoken_has_a_voice,
     _lint_vo_duration_parity,
 )
+from .transition import TRANSITION_MAX_S, _lint_transition
 
 
 def lint_shotlist(
@@ -200,6 +203,8 @@ def lint_shotlist(
         _lint_reference_edit_depth(shot, prefix, warnings, depth_by_path=depth_by_path)
         _lint_presenter_engine(shot, prefix, errors, disclosed=disclosed, live_action=live_action)
         _lint_audio_bed(shot, prefix, errors)
+        _lint_overlay(shot, prefix, errors, warnings)
+        _lint_transition(shot, prefix, errors, first=i == 1)
         # Both voice rules govern a SYNTHESISED voice: one refuses an instant clone, the other
         # refuses a spoken line nothing will say. On this lane the operator is the voice — there
         # is no clone to grade and no TTS to be missing — so applying them would refuse every
@@ -218,6 +223,7 @@ def lint_shotlist(
                 _lint_negation(value, f"{prefix}.{field_name}", errors)
 
     _lint_shot_mix(shots, errors, warnings, live_action=live_action)
+    _lint_caption(shots, errors, warnings)
     _lint_some_shot_is_locked_off(shots, warnings, live_action=live_action)
     _lint_identity_bindings(doc, errors, warnings)
     _lint_look_ratio(doc, errors, warnings)
@@ -280,6 +286,9 @@ def _active_constants() -> dict[str, object]:
         "keyframe_motion_max_words": KEYFRAME_MOTION_MAX_WORDS,
         "expression_max_regions": _EXPRESSION_MAX_REGIONS,
         "capture_fields": list(CAPTURE_FIELDS),
+        "overlay_text_max_chars": OVERLAY_TEXT_MAX_CHARS,
+        "transition_max_s": TRANSITION_MAX_S,
+        "describe_share_max_pct": DESCRIBE_SHARE_MAX_PCT,
     }
 
 

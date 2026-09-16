@@ -1,4 +1,5 @@
-"""Onboarding endpoints — POST /ingest, /product, GET /diff, POST /promote, DELETE /cancel.
+"""Onboarding endpoints — POST /onboard, POST /{draft_id}/product/{slug}/extract,
+GET /{draft_id}/diff, POST /{draft_id}/promote, DELETE /{draft_id}.
 
 All endpoints require JWT auth (require_auth). Staging directories are keyed on
 draft_id (UUID). Slug is derived from the brain's ProfileDraft — never from a
@@ -7,6 +8,9 @@ user-controlled path component.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -21,6 +25,14 @@ from backend.schemas import (
     OnboardProductExtractRequest,
     OnboardPromoteRequest,
 )
+from backend.types import UuidStr
+from gtm_core.ingest import (
+    OnboardingCapReachedError,
+    UrlIngestFailedError,
+    UrlIngestUnavailableError,
+)
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/onboard", tags=["onboard"])
 
@@ -29,14 +41,77 @@ router = APIRouter(prefix="/onboard", tags=["onboard"])
 _drafts: dict[str, dict] = {}
 
 
-def _get_cfg(request: Request, ws: WorkspaceCtx):
+async def _get_cfg(request: Request, ws: WorkspaceCtx):
     """Config scoped to the caller's workspace tree (P3 filesystem isolation), so
     staged drafts + promoted profiles land under ``data/workspaces/<ws>/`` — never
     the shared (single-tenant) ``profiles/`` tree."""
+    from backend.services.integrations import get_workspace_credentials
     from backend.session import _workspace_scoped_config
 
     base = request.app.state.cfg
-    return _workspace_scoped_config(base, ws.workspace_id, base.repo_root)
+    creds = await get_workspace_credentials(request.app.state.pool, str(ws.workspace_id))
+    return _workspace_scoped_config(base, str(ws.workspace_id), base.repo_root, credentials=creds)
+
+
+@contextmanager
+def _onboarding_errors() -> Iterator[None]:
+    """Map the onboarding producers' typed failures onto the envelope.
+
+    Only an ``OnboardingInputError`` is the caller's to fix (422, its message shown). A
+    service condition is a 503 and an unusable model or crawl response a 502, each with a
+    fixed message: their detail names env vars, spend, or model output, so it is logged only.
+    Any other exception is not relabelled and reaches the 500 envelope.
+
+    Each raise is a direct ``HTTPException(...)`` call, not routed through a shared helper —
+    the error-code census (``tests/contracts/test_error_code_census.py``) statically resolves
+    a literal status/detail at the call site itself, and cannot see through a wrapper whose
+    status/code are its own parameters.
+    """
+    from agent.onboard import OnboardingExtractError, OnboardingInputError
+
+    try:
+        yield
+    except OnboardingInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "onboarding_input_invalid", "message": str(exc)},
+        ) from exc
+    except UrlIngestUnavailableError as exc:
+        log.warning("onboarding URL ingest is not configured: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "url_ingest_unavailable",
+                "message": "Importing from a URL is unavailable right now. Paste the text instead.",
+            },
+        ) from exc
+    except OnboardingCapReachedError as exc:
+        log.warning("onboarding spend cap reached: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "onboarding_cap_reached",
+                "message": "Onboarding is unavailable right now. Try again later.",
+            },
+        ) from exc
+    except UrlIngestFailedError as exc:
+        log.warning("onboarding URL ingest got an unusable response: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "url_ingest_failed",
+                "message": "The page could not be imported right now. Try again later.",
+            },
+        ) from exc
+    except OnboardingExtractError as exc:
+        log.warning("onboarding extraction produced an unusable draft: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "onboarding_extract_failed",
+                "message": "The company details could not be extracted right now. Try again later.",
+            },
+        ) from exc
 
 
 def _get_owned_draft(draft_id: str, ws: WorkspaceCtx) -> dict:
@@ -67,36 +142,22 @@ async def ingest_endpoint(
     """
     import asyncio
 
-    from agent.onboard import extract, render, slugify, stage
+    from agent.onboard import OnboardingExtractError, extract, render, slugify, stage
     from agent.onboard import ingest as do_ingest
 
-    cfg = _get_cfg(request, ws)
+    cfg = await _get_cfg(request, ws)
 
-    try:
+    with _onboarding_errors():
         raw_text = await asyncio.to_thread(do_ingest, body.source, body.source_type, cfg)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
-    try:
         draft = await extract(raw_text, cfg)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
-    slug = slugify(draft["company"]["name"])
-
-    try:
+        try:
+            slug = slugify(draft["company"]["name"])
+        except ValueError as exc:
+            raise OnboardingExtractError(f"extracted company name yields no slug: {exc}") from exc
         files = render(draft)
         draft_id, staged_root = await asyncio.to_thread(
             stage, slug, files, cfg, draft["company"]["name"]
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
     _drafts[draft_id] = {
         "slug": slug,
@@ -120,7 +181,7 @@ async def ingest_endpoint(
 )
 @limiter.limit("10/minute")
 async def re_extract_product_endpoint(
-    draft_id: str,
+    draft_id: UuidStr,
     product_slug: str,
     body: OnboardProductExtractRequest,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
@@ -134,21 +195,11 @@ async def re_extract_product_endpoint(
 
     entry = _get_owned_draft(draft_id, ws)
 
-    cfg = _get_cfg(request, ws)
+    cfg = await _get_cfg(request, ws)
 
-    try:
+    with _onboarding_errors():
         extra_text = await asyncio.to_thread(do_ingest, body.source, body.source_type, cfg)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
-    try:
         updated_draft = await extract_product(product_slug, extra_text, entry["draft"], cfg)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
     slug = entry["slug"]
     cancel(entry["staged_root"])
@@ -177,7 +228,7 @@ async def re_extract_product_endpoint(
 
 @router.get("/{draft_id}/diff", response_model=OnboardDiffResponse)
 async def get_diff_endpoint(
-    draft_id: str,
+    draft_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> OnboardDiffResponse:
@@ -188,7 +239,7 @@ async def get_diff_endpoint(
 
     entry = _get_owned_draft(draft_id, ws)
 
-    cfg = _get_cfg(request, ws)
+    cfg = await _get_cfg(request, ws)
     raw_diffs = await asyncio.to_thread(diff, entry["slug"], entry["staged_root"], cfg)
 
     return OnboardDiffResponse(
@@ -200,7 +251,7 @@ async def get_diff_endpoint(
 
 @router.post("/{draft_id}/promote", status_code=status.HTTP_200_OK)
 async def promote_endpoint(
-    draft_id: str,
+    draft_id: UuidStr,
     body: OnboardPromoteRequest,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
@@ -208,7 +259,7 @@ async def promote_endpoint(
     """Promote the staged profile bundle to profiles/<slug>/."""
     import asyncio
 
-    from agent.onboard import promote
+    from agent.onboard import DraftNotStagedError, ProfileAlreadyExistsError, promote
 
     entry = _get_owned_draft(draft_id, ws)
 
@@ -225,13 +276,28 @@ async def promote_endpoint(
             ),
         )
 
-    cfg = _get_cfg(request, ws)
+    cfg = await _get_cfg(request, ws)
     try:
         live_dir = await asyncio.to_thread(
             promote, slug, draft_id, entry["staged_root"], draft, cfg
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ProfileAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "profile_already_exists",
+                "message": "A profile with this name already exists in this workspace.",
+                "slug": slug,
+            },
+        ) from exc
+    except DraftNotStagedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "draft_not_staged",
+                "message": "This draft is no longer staged. Start onboarding again.",
+            },
+        ) from exc
 
     _drafts.pop(draft_id, None)
 
@@ -240,7 +306,7 @@ async def promote_endpoint(
 
 @router.delete("/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_endpoint(
-    draft_id: str,
+    draft_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
 ) -> None:
     """Cancel and clean up a staged onboarding draft."""

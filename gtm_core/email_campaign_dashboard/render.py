@@ -6,6 +6,7 @@ from pathlib import Path
 from ..page_inputs import Report, verify_inventory, write_inventory
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from .config import PAGE_NAME, TABS, dashboard_path, input_globs, page_title
+from .filters import bar_html, script_block
 from .format import _e, _tiles_reset
 from .model import build_model, scope_to_campaign
 from .scope import Scope, resolve
@@ -127,11 +128,42 @@ td.gcell.empty {{ color:var(--line); }}
 .panel {{ display:none; }} .panel.on {{ display:block; }}
 details {{ margin-top:12px; }}
 summary {{ cursor:pointer; color:var(--muted); font-size:13px; }}
+/* The client-side filter. `[hidden]` is stated explicitly because a <tr> carries a
+   table display role that overrides the UA's hidden rule in some engines, and the row
+   filter hides table rows. */
+[hidden] {{ display:none !important; }}
+.filterbar {{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 16px;
+             padding:12px 14px; background:var(--panel); border:1px solid var(--line);
+             border-radius:12px; }}
+.flabel {{ font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+          color:var(--muted); }}
+.ffield {{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }}
+.ffield select {{ background:var(--bg); color:var(--ink); border:1px solid var(--line);
+                 border-radius:8px; padding:6px 10px; font-size:13px; }}
+/* A facet with one value states it rather than offering a choice: no border, no caret,
+   so it does not read as a control that is merely broken. */
+.ffield.fixed {{ color:var(--muted); }}
+.ffield.fixed strong {{ color:var(--ink); font-weight:600; }}
+#filter-clear {{ background:none; color:var(--accent); border:1px solid var(--line);
+                border-radius:999px; padding:6px 14px; font-size:12.5px; cursor:pointer; }}
+.stale {{ opacity:.45; }}
+.stat-why, .why {{ font-size:12px; color:var(--warn); margin-top:6px; line-height:1.45; }}
+/* PS14 — the technical-detail toggle. `.tech` marks a column that names the pipeline's
+   own machine vocabulary (a lane, a verdict word, a hold trigger) rather than the plain
+   sentence a reader acts on. Hidden by default; the checkbox below flips one body class,
+   never a per-column one, so no view module has to know the toggle exists. */
+.tech {{ display:none; }}
+body.technical-detail-on .tech {{ display:table-cell; }}
+.techtoggle {{ display:flex; align-items:center; gap:7px; font-size:12.5px;
+              color:var(--muted); margin:0 0 14px; cursor:pointer; }}
+.techtoggle input {{ cursor:pointer; }}
 </style></head>
 <body><div class="wrap">
   <h1>{title}</h1>
   <p class="muted" style="margin:0">refreshed {_e(m["generated_at"])}</p>
   <div class="tabs">{nav}</div>
+  <label class="techtoggle"><input type="checkbox" id="tech-toggle">Show the technical detail</label>
+  {bar_html(m)}
   {banners}
   {bodies}
 </div>
@@ -144,7 +176,16 @@ document.querySelectorAll('.tab').forEach(function (b) {{
     document.getElementById('p-' + b.dataset.t).classList.add('on');
   }});
 }});
+var techToggle = document.getElementById('tech-toggle');
+if (techToggle) {{
+  var syncTech = function () {{
+    document.body.classList.toggle('technical-detail-on', techToggle.checked);
+  }};
+  techToggle.addEventListener('change', syncTech);
+  syncTech();
+}}
 </script>
+{script_block(m)}
 </body></html>
 """
 

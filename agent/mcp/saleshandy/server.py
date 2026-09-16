@@ -1,29 +1,42 @@
 """The Saleshandy worker MCP server (FastMCP, stdio).
 
-A thin wrapper over the Saleshandy REST API for the ``email-sequence`` skill: it
-lets the brain **stage** a cold-email sequence — create the sequence, add steps and
-A/B variants, define a sending schedule, attach sending mailboxes, and enroll
-leads/prospects into a step — plus read back the account's mailboxes, sequences,
-per-sequence stats, and (read-only) the unified-inbox reply threads that feed the
-``inbound-triage`` skill.
+A thin wrapper over the Saleshandy REST API for the ``email-sequence`` skill: it lets
+the brain **stage** a cold-email sequence — create the sequence, add steps and A/B
+variants, define a sending schedule, and attach sending mailboxes — plus read back the
+account's mailboxes, sequences, per-sequence stats, and (read-only) the unified-inbox
+reply threads that feed the ``inbound-triage`` skill.
 
 CRITICAL SECURITY INVARIANT — this wrapper makes it **structurally impossible for the
-brain to cause Saleshandy to send email.** It is the email analogue of the publish
-gate: *build is a capability, send is not — and send is not even representable in this
-tool surface.* In Saleshandy, actual sending is triggered by **resuming/activating** a
-sequence; that capability simply does not exist here. There is deliberately NO tool
-that activates, resumes, starts, launches, pauses, or otherwise changes a sequence's
-status (no ``update_sequence_status``, no "resume", no "activate"), and NO
-delete/revoke/destructive tool. The inbox tools (``get_inbox_threads`` /
-``get_thread``) are **read-only** — there is deliberately NO reply/send tool: a reply
-is drafted into a ``⟦GATE:reply⟧`` artifact the operator approves, and the send is
-performed by gated Python (or the human in the Saleshandy UI), never by a tool the
-brain can call. The DNC tools (``list_dnc_lists`` / ``get_dnc_items``) are likewise
-**read-only**: suppression is a control the brain *reads and obeys*, never one it
-edits — there is deliberately NO ``add_dnc_items`` / remove / clear tool, so the brain
-cannot un-suppress a contact someone opted out. A sequence built through this wrapper
-is **inert**: it cannot send until a human deliberately resumes it in the Saleshandy
-UI. Staging is safe; sending is deliberately unrepresentable.
+brain to cause Saleshandy to send email OR to enroll a lead.** Sending is the email
+analogue of the publish gate: *build is a capability, send is not — and send is not
+even representable in this tool surface.* In Saleshandy, actual sending is triggered by
+**resuming/activating** a sequence; that capability simply does not exist here. There
+is deliberately NO tool that activates, resumes, starts, launches, pauses, or otherwise
+changes a sequence's status (no ``update_sequence_status``, no "resume", no
+"activate"), and NO delete/revoke/destructive tool.
+
+Enrollment (``add_leads_to_sequence`` / ``import_prospects_to_sequence``) — a PII
+egress into a real, if paused, sequence — is a SECOND gate (A11), structurally
+different from send: the two tools stay *registered* here (so this module still works
+standalone), but ``agent/permissions.py`` denies them to the brain outright on every
+connector, and the pack graph's `sequence` node is instructed to never call them. The
+only real path to an enrollment call is Python — ``agent.email_dispatch.
+dispatch_approved_enrollment``, which imports the request functions
+(``_add_leads_to_sequence_request`` / ``_import_prospects_to_sequence_request``)
+directly and calls them with an explicitly-resolved key, entirely outside the MCP/tool
+surface — invoked only after an operator approves the pack graph's `sequence` gate.
+
+The inbox tools (``get_inbox_threads`` / ``get_thread``) are **read-only** — there is
+deliberately NO reply/send tool: a reply is drafted into a ``⟦GATE:reply⟧`` artifact
+the operator approves, and the send is performed by gated Python (or the human in the
+Saleshandy UI), never by a tool the brain can call. The DNC tools (``list_dnc_lists`` /
+``get_dnc_items``) are likewise **read-only**: suppression is a control the brain
+*reads and obeys*, never one it edits — there is deliberately NO ``add_dnc_items`` /
+remove / clear tool, so the brain cannot un-suppress a contact someone opted out. A
+sequence built through this wrapper is **inert**: even once a human approves
+enrollment, it cannot send until a human deliberately resumes it in the Saleshandy UI.
+Staging is safe; enrollment needs an operator's gate approval; sending is deliberately
+unrepresentable.
 
 Boundary (§R6 — all external I/O via MCP): the brain passes parameters in and gets
 structured data back; it never sees ``SALESHANDY_API_KEY`` and never makes the HTTP
@@ -48,6 +61,7 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.parse import quote
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -132,14 +146,23 @@ async def _call(
     *,
     params: dict | None = None,
     json_body: dict | None = None,
+    api_key: str | None = None,
 ) -> str:
     """Make one Saleshandy REST call and return its JSON body as a string.
 
     Never raises: a missing key, HTTP error, or non-JSON body maps to a
     ``[saleshandy-error] …`` string. The API key is never echoed — errors carry only
     the HTTP status code or the exception type, never response bodies or headers.
+
+    ``api_key`` defaults to the process env (every ``@mcp.tool()`` wrapper in this file
+    resolves it that way — the brain never supplies it). Passing it explicitly is for
+    ``agent.email_dispatch``/``backend.email_dispatch`` only: the Python-only enrollment
+    dispatcher calls the request-building functions below directly, with the workspace's
+    (or the VPS's) already-resolved ``cfg.saleshandy_api_key`` — never through the MCP/brain
+    surface at all, so the enrollment tools stay reachable in Python after being denied to
+    the brain (``agent/permissions.py``).
     """
-    key = os.environ.get(_API_KEY_ENV)
+    key = api_key if api_key is not None else os.environ.get(_API_KEY_ENV)
     if not key:
         return NOT_CONFIGURED
     url = f"{SALESHANDY_BASE_URL}{path}"
@@ -674,8 +697,22 @@ async def add_email_accounts_to_sequence(sequence_id: str, email_account_ids: li
     )
 
 
-@mcp.tool()
-async def add_leads_to_sequence(
+# --- Enrollment request logic (shared by the MCP tool and the Python-only dispatcher) ----- #
+#
+# CRITICAL: these two request functions are the actual PII egress. As of the A11 gate fix,
+# the @mcp.tool() wrappers below are DENIED to the brain outright
+# (agent/permissions.py:_EXTERNAL_EFFECT_LEAVES) — they exist only so this module still works
+# as a standalone MCP server for other callers/tests, and because a brain call is refused by
+# the permission layer regardless of whether the tool is technically registered. The ONLY
+# caller that may actually reach a Saleshandy enrollment endpoint is
+# agent/email_dispatch.py's dispatch_approved_enrollment(), which imports
+# _add_leads_to_sequence_request/_import_prospects_to_sequence_request directly and supplies
+# an explicit api_key — never through the MCP/tool-call surface, so the brain never
+# initiates this call under any circumstance.
+
+
+async def _add_leads_to_sequence_request(
+    api_key: str,
     lead_ids: list[int],
     sequence_id: str,
     step_id: str,
@@ -685,11 +722,12 @@ async def add_leads_to_sequence(
     """Enroll Saleshandy Lead Finder leads into a sequence step (staging — does not send).
 
     Enrolling leads into a sequence does not itself send anything: the sequence must
-    still be resumed by a human before any email goes out. Use ``import_prospects_to_
-    sequence`` instead when you are enrolling raw email prospects (not Lead Finder
-    lead IDs).
+    still be resumed by a human before any email goes out. Use
+    ``_import_prospects_to_sequence_request`` instead when enrolling raw email
+    prospects (not Lead Finder lead IDs).
 
     Args:
+        api_key: Saleshandy API key, resolved by the caller (never read from env here).
         lead_ids: Saleshandy Lead Finder lead IDs (numeric). Max 10000 per call.
         sequence_id: The hashed destination sequence ID (from ``list_sequences``).
         step_id: The hashed step ID to enroll the leads into (from the sequence's
@@ -716,11 +754,13 @@ async def add_leads_to_sequence(
     # VERIFY: this Lead Finder path (POST /v1/leads/bulk-actions/add-to-sequence) comes
     # from the hosted connector's description; it is not in the public prospects REST
     # docs. Confirm the path + body live before relying on it.
-    return await _call("POST", "/leads/bulk-actions/add-to-sequence", json_body=body)
+    return await _call(
+        "POST", "/leads/bulk-actions/add-to-sequence", json_body=body, api_key=api_key
+    )
 
 
-@mcp.tool()
-async def import_prospects_to_sequence(
+async def _import_prospects_to_sequence_request(
+    api_key: str,
     prospect_list: list[dict],
     step_id: str = "",
     verify_prospects: bool = False,
@@ -728,13 +768,15 @@ async def import_prospects_to_sequence(
 ) -> str:
     """Import raw email prospects and enroll them at a sequence step (staging — no send).
 
-    The prospect-import counterpart to ``add_leads_to_sequence`` (which needs Lead
-    Finder lead IDs): use this to enroll prospects you already have as email records.
+    The prospect-import counterpart to ``_add_leads_to_sequence_request`` (which needs
+    Lead Finder lead IDs): use this to enroll prospects already held as email records.
     Importing does not send — the sequence stays gated on a human resume.
 
     Args:
-        prospect_list: Prospect objects (e.g. ``{"email": …, "firstName": …,
-            "lastName": …, "company": …}``), passed through verbatim.
+        api_key: Saleshandy API key, resolved by the caller (never read from env here).
+        prospect_list: Prospects in the documented import shape — each one a
+            ``{"fields": [{"id": <field id>, "value": …}, …]}`` — passed through verbatim.
+            ``agent.email_dispatch`` builds these from approved rows keyed by field label.
         step_id: Optional step to enroll the imported prospects into.
         verify_prospects: If true, run Saleshandy email verification on import.
         conflict_action: How to handle prospects that already exist (per the API's
@@ -749,6 +791,81 @@ async def import_prospects_to_sequence(
     body.update(_compact({"stepId": step_id, "conflictAction": conflict_action}))
     if verify_prospects:
         body["verifyProspects"] = True
-    # VERIFY: POST /v1/prospects/import — confirm stepId semantics (hashed ID vs numeric
-    # step position) and the exact prospect object schema live.
-    return await _call("POST", "/prospects/import", json_body=body)
+    # VERIFY: POST /v1/prospects/import — the `fields` prospect shape is from the public
+    # API reference (developer.saleshandy.com, read 2026-09-15); confirm it and stepId
+    # semantics (hashed ID vs numeric step position) live.
+    return await _call("POST", "/prospects/import", json_body=body, api_key=api_key)
+
+
+# --- Pre-enrollment read-back (Python-only, never MCP tools) --------------------- #
+# agent.email_dispatch reads the paused sequence back before enrolling anyone, so the
+# approved copy is the copy in Saleshandy (client issue #244). Paths and shapes are from the
+# public API reference, read 2026-09-15 — VERIFY each live before relying on it.
+
+
+async def _list_sequences_page_request(api_key: str, page: int, page_size: int) -> str:
+    """One page of ``GET /sequences``: ``{payload: [{id, title, steps: [{id, name}]}]}``."""
+    params = {"page": page, "pageSize": page_size}
+    return await _call("GET", "/sequences", params=params, api_key=api_key)
+
+
+async def _get_step_variants_request(api_key: str, sequence_id: str, step_id: str) -> str:
+    """``GET /sequences/{sequenceId}/steps/{stepId}``: the step's variants, documented as a
+    bare array of ``{id, payload: {subject, content, preheader, …}, status, type}``."""
+    path = f"/sequences/{quote(sequence_id, safe='')}/steps/{quote(step_id, safe='')}"
+    return await _call("GET", path, api_key=api_key)
+
+
+async def _list_fields_request(api_key: str) -> str:
+    """``GET /fields?systemFields=true``: every prospect field's ``id`` and ``label``,
+    system (First Name, Email…) and custom (e.g. Why Now)."""
+    return await _call("GET", "/fields", params={"systemFields": "true"}, api_key=api_key)
+
+
+@mcp.tool()
+async def add_leads_to_sequence(
+    lead_ids: list[int],
+    sequence_id: str,
+    step_id: str,
+    tag_ids: list[str] | None = None,
+    new_tags: list[str] | None = None,
+) -> str:
+    """Enroll Saleshandy Lead Finder leads into a sequence step.
+
+    DENIED to the brain by ``agent/permissions.py`` — calling this tool always fails
+    closed regardless of what it returns here. Kept registered so this module still
+    functions as a standalone MCP server for other callers/tests; the only real path to
+    an enrollment call is ``agent.email_dispatch.dispatch_approved_enrollment`` after an
+    operator approves the pack graph's `sequence` gate. See
+    ``_add_leads_to_sequence_request`` for the actual request logic.
+    """
+    key = os.environ.get(_API_KEY_ENV)
+    if not key:
+        return NOT_CONFIGURED
+    return await _add_leads_to_sequence_request(
+        key, lead_ids, sequence_id, step_id, tag_ids, new_tags
+    )
+
+
+@mcp.tool()
+async def import_prospects_to_sequence(
+    prospect_list: list[dict],
+    step_id: str = "",
+    verify_prospects: bool = False,
+    conflict_action: str = "",
+) -> str:
+    """Import raw email prospects and enroll them at a sequence step.
+
+    DENIED to the brain by ``agent/permissions.py`` — calling this tool always fails
+    closed regardless of what it returns here. Kept registered so this module still
+    functions as a standalone MCP server for other callers/tests; the only real path to
+    an enrollment call is ``agent.email_dispatch.dispatch_approved_enrollment`` after an
+    operator approves the pack graph's `sequence` gate. See
+    ``_import_prospects_to_sequence_request`` for the actual request logic.
+    """
+    key = os.environ.get(_API_KEY_ENV)
+    if not key:
+        return NOT_CONFIGURED
+    return await _import_prospects_to_sequence_request(
+        key, prospect_list, step_id, verify_prospects, conflict_action
+    )

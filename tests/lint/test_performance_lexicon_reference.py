@@ -24,6 +24,12 @@ REPO = Path(__file__).resolve().parents[2]
 REF = REPO / "plugin" / "skills" / "creator-brief" / "references" / "performance-lexicon.md"
 BODY = REPO / "plugin" / "skills" / "creator-brief" / "body_template.md"
 
+if not REF.is_file():
+    pytest.skip(
+        "creator-brief references not present in this distribution (paid-tier stub)",
+        allow_module_level=True,
+    )
+
 
 @pytest.fixture(scope="module")
 def text() -> str:

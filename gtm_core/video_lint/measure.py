@@ -137,6 +137,16 @@ def measure_audio(path: Path, *, duration_s: float | None = None) -> dict | None
     Only measurable facts come back. Whether a music bed exists, and whether it was ducked, are
     properties of the MIX that no analysis of the finished mono-sum can recover; those are
     declared by the producer in the finish sidecar and merged in by the caller."""
+    log = _audio_pass_log(path)
+    if log is None:
+        return None
+    return parse_audio_log(log, duration_s=duration_s)
+
+
+def _audio_pass_log(path: Path) -> str | None:
+    """Impure. Run the one silencedetect+ebur128 pass and return ffmpeg's diagnostic log, or
+    ``None`` when ffmpeg is missing or the pass could not run. Split from :func:`measure_audio`
+    so the parser is pure and can be tested on a captured log with no media on the machine."""
     import shutil
 
     ffmpeg_bin = shutil.which("ffmpeg")
@@ -164,10 +174,73 @@ def measure_audio(path: Path, *, duration_s: float | None = None) -> dict | None
         )
     except (OSError, subprocess.SubprocessError):
         return None
-
     # ffmpeg writes filter diagnostics to stderr.
-    log = (out.stderr or "") + (out.stdout or "")
+    return (out.stderr or "") + (out.stdout or "")
 
+
+#: One ebur128 progress line per 100ms: ``t: 1.2  TARGET:-23 LUFS  M: -13.9 S: -14.0  I: ...``
+#: with ``FTPK: <l> <r> dBFS`` appended when ``peak=true``. ``M`` is the 400ms momentary
+#: loudness; ``FTPK`` is that frame's true peak per channel.
+_EBUR128_FRAME_RE = re.compile(
+    r"^.*?\bt:\s*(?P<t>-?[0-9.]+)\s.*?\bM:\s*(?P<m>-?[0-9.]+|-?inf)\b"
+    r"(?:.*?\bFTPK:\s*(?P<ftpk>(?:-?[0-9.]+|-?inf)(?:\s+(?:-?[0-9.]+|-?inf))*)\s*dBFS)?",
+    re.MULTILINE,
+)
+
+
+def ebur128_frames(log: str) -> list[dict]:
+    """Pure. The per-frame series ebur128 prints while it runs — ``[{"t", "m", "ftpk"}, ...]``
+    with ``m`` the momentary loudness (LUFS) and ``ftpk`` the frame's true peak (dBFS, max over
+    channels). ``-inf`` becomes ``None``. This is the same pass the integrated figure comes from,
+    read at 100ms rather than once — which is what lets V10 tell a soundtrack that has EVENTS from
+    a floor that merely has level."""
+    frames: list[dict] = []
+    for m in _EBUR128_FRAME_RE.finditer(log):
+        mom = m.group("m")
+        ftpk_raw = m.group("ftpk")
+        peaks = [float(x) for x in (ftpk_raw or "").split() if "inf" not in x]
+        frames.append(
+            {
+                "t": float(m.group("t")),
+                "m": None if "inf" in mom else float(mom),
+                "ftpk": max(peaks) if peaks else None,
+            }
+        )
+    return frames
+
+
+def momentary_dynamics(frames: list[dict]) -> dict | None:
+    """Pure. How much the momentary loudness MOVES, from the 100ms series — the two numbers
+    V10's floor-only check reads.
+
+    ``loudness_abruptness_lu`` is the mean absolute SECOND difference of momentary loudness
+    (LU per frame², each frame saturated at
+    :data:`thresholds.AUDIO_FLOOR_ONLY_EVENT_SATURATION_LU`) and ``loudness_event_fraction`` is
+    the share of frames whose second difference exceeds
+    :data:`thresholds.AUDIO_FLOOR_ONLY_EVENT_STEP_LU`. Second, not first, difference on
+    purpose: a fade is a RAMP and scores ~0 here, while a word, a tick or a chime is a STEP and
+    scores high — so a floor that fades in and out still reads as a floor, and a soundtrack
+    reads as events. Frames before 0.4s are dropped (the 400ms window is not yet full and
+    reports -120) and the series is clipped at ebur128's -70 LUFS "nothing" floor. The
+    saturation is what keeps the MEAN honest: a hard gap into digital silence is a ~55 LU step,
+    and two such gaps in a 30s floor would otherwise lift the mean past any ceiling a real
+    soundtrack clears — an event is an event, not its magnitude. ``None`` when there are too
+    few frames to difference."""
+    ms = [max(f["m"] if f["m"] is not None else -70.0, -70.0) for f in frames if f["t"] >= 0.4]
+    if len(ms) < 3:
+        return None
+    cap = thresholds.AUDIO_FLOOR_ONLY_EVENT_SATURATION_LU
+    d2 = [min(abs(c - 2 * b + a), cap) for a, b, c in zip(ms, ms[1:], ms[2:], strict=False)]
+    step = thresholds.AUDIO_FLOOR_ONLY_EVENT_STEP_LU
+    return {
+        "loudness_abruptness_lu": round(sum(d2) / len(d2), 3),
+        "loudness_event_fraction": round(sum(1 for x in d2 if x > step) / len(d2), 4),
+        "momentary_frames": len(ms),
+    }
+
+
+def parse_audio_log(log: str, *, duration_s: float | None = None) -> dict:
+    """Pure. Everything :func:`measure_audio` derives from the pass's log."""
     runs: list[dict] = []
     pending_start: float | None = None
     for m in re.finditer(
@@ -196,6 +269,16 @@ def measure_audio(path: Path, *, duration_s: float | None = None) -> dict | None
 
     integrated = _last_float(log, r"^\s*I:\s*(-?[0-9.]+)\s*LUFS")
     true_peak = _last_float(log, r"^\s*Peak:\s*(-?[0-9.]+)\s*dBFS")
+    # Same ebur128 summary block. "LRA:" is anchored so the "LRA low:"/"LRA high:" lines that
+    # follow it cannot match. Both numbers feed V10's floor-only check: a soundtrack has EVENTS,
+    # and events show up as loudness that moves (LRA) and peaks that stand above the average
+    # (crest). A synthesized noise floor has neither, however loud it is normalised.
+    lra = _last_float(log, r"^\s*LRA:\s*(-?[0-9.]+)\s*LU\b")
+    crest = (
+        round(true_peak - integrated, 1)
+        if true_peak is not None and integrated is not None
+        else None
+    )
 
     silent_total = sum(r["duration"] for r in runs)
     fraction = (silent_total / duration_s) if duration_s else None
@@ -206,6 +289,9 @@ def measure_audio(path: Path, *, duration_s: float | None = None) -> dict | None
         "silent_fraction": (round(fraction, 4) if fraction is not None else None),
         "integrated_lufs": integrated,
         "true_peak_dbfs": true_peak,
+        "loudness_range_lu": lra,
+        "crest_db": crest,
+        **(momentary_dynamics(ebur128_frames(log)) or {}),
         # -70 LUFS is ffmpeg's "effectively nothing" floor for integrated loudness.
         "has_voice": integrated is not None and integrated > -70.0,
     }
@@ -281,7 +367,11 @@ def measure_caption_contrast(
             continue
         if proc.returncode != 0 or not proc.stdout:
             continue
-        measured = contrast_against_backdrop(proc.stdout)
+        # The screen's own glyph colour, never a white default: with dark type derived from a
+        # dark-canvas kit, measuring white-vs-backdrop reported near-black-on-dark as a pass.
+        glyph = screen.get("glyph_rgb")
+        kwargs = {"glyph_rgb": tuple(int(c) for c in glyph)} if glyph else {}
+        measured = contrast_against_backdrop(proc.stdout, **kwargs)
         if measured is not None:
             out.append({"index": screen.get("index"), "at_s": round(at, 3), **measured})
     return out or None

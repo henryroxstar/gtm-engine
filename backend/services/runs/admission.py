@@ -34,9 +34,12 @@ async def resolve_acting_agent(pool, workspace_id: str, body) -> tuple[dict | No
         agent_row = await fetch_agent(conn, workspace_id, body.agent_id)
     if agent_row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
+    # paused and archived both refuse new runs (agent.schema.json lifecycle), and each says
+    # which, so the app can offer "resume this agent" rather than "pick another".
+    if agent_row["status"] == "paused":
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_paused"})
     if agent_row["status"] != "active":
-        # paused and archived both refuse new runs (agent.schema.json lifecycle).
-        raise HTTPException(status.HTTP_409_CONFLICT, {"code": f"agent_{agent_row['status']}"})
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_archived"})
     if body.profile_name and body.profile_name != agent_row["profile_name"]:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -140,6 +143,19 @@ async def resolve_pack_for_run(
     return resolved
 
 
+async def find_existing_run_id(pool, workspace_id: str, client_request_id: str) -> str | None:
+    """RT-04: the run already created for this ``(workspace_id, client_request_id)`` pair,
+    or None. Used both as ``create_run``'s fast-path replay check (before any admission
+    check runs) and, inside :func:`insert_run_row`, as the race-loser's lookup after an
+    ``ON CONFLICT DO NOTHING`` finds nothing to insert."""
+    async with workspace_scope(pool, workspace_id) as conn:
+        return await conn.fetchval(
+            "SELECT id::text FROM runs WHERE workspace_id = $1::uuid AND client_request_id = $2",
+            workspace_id,
+            client_request_id,
+        )
+
+
 async def insert_run_row(
     pool,
     workspace_id: str,
@@ -148,8 +164,12 @@ async def insert_run_row(
     profile_name: str | None,
     agent_row: dict | None,
     body,
-) -> tuple[str | None, float | None, str | None]:
-    """Write the run's `queued` row and return ``(agent_id, agent_budget_usd, language)``.
+) -> tuple[str, bool, str | None, float | None, str | None]:
+    """Write the run's `queued` row. Returns ``(effective_run_id, existed, agent_id,
+    agent_budget_usd, language)`` — ``effective_run_id`` is ``run_id`` unless this call lost
+    an idempotency race (see below), in which case it is the WINNING row's id; ``existed``
+    is True exactly in that race-loser case, telling the caller to build its response from
+    the existing row rather than from this call's own (unused) resolution.
 
     A5: the row is written ``queued`` with a ``payload``, and a worker's claim loop picks
     it up — the handler no longer spawns the work itself. The concurrency cap is enforced
@@ -167,6 +187,19 @@ async def insert_run_row(
       is untouched; the profile tier needs no lookup here.
 
     Raising leaves no row behind: the cap check and the INSERT share one transaction.
+
+    **RT-04 idempotency (when ``body.client_request_id`` is set):** the INSERT below is an
+    ``ON CONFLICT (workspace_id, client_request_id) WHERE client_request_id IS NOT NULL DO
+    NOTHING`` — verified against the partial unique index (V025) directly, not assumed: the
+    WHERE clause must repeat the index's own predicate for Postgres to accept it as a
+    matching conflict target. This is race-safe, not merely a fast-path convenience:
+    ``_reserve_cap``'s ``pg_advisory_xact_lock`` (below) is held for this whole transaction
+    and keyed on ``workspace_id``, so two concurrent calls for the SAME workspace serialize —
+    the second's INSERT never runs until the first's transaction has committed (or rolled
+    back) and released the lock. By the time the second reaches its own INSERT, the first's
+    row (if it won) is already durably visible, so ``ON CONFLICT DO NOTHING`` sees a REAL,
+    committed conflict rather than racing an uncommitted one. When the INSERT returns no row,
+    a plain SELECT on the SAME connection/transaction reads the winner's id.
     """
     import json
 
@@ -206,12 +239,16 @@ async def insert_run_row(
         "language": language,
         "agent_budget_usd": agent_budget_usd,
     }
+    client_request_id = body.client_request_id
     async with workspace_scope(pool, workspace_id) as conn:
         await _reserve_cap(conn, workspace_id)
-        await conn.execute(
+        inserted_id = await conn.fetchval(
             """INSERT INTO runs(id, workspace_id, profile_name, prompt, dry_run, status,
-                                agent_id, payload)
-               VALUES($1::uuid, $2::uuid, $3, $4, $5, 'queued', $6::uuid, $7::jsonb)""",
+                                agent_id, payload, client_request_id)
+               VALUES($1::uuid, $2::uuid, $3, $4, $5, 'queued', $6::uuid, $7::jsonb, $8)
+               ON CONFLICT (workspace_id, client_request_id) WHERE client_request_id IS NOT NULL
+                 DO NOTHING
+               RETURNING id::text""",
             run_id,
             workspace_id,
             profile_name,
@@ -219,8 +256,27 @@ async def insert_run_row(
             body.dry_run,
             run_agent_id,
             json.dumps(payload),
+            client_request_id,
         )
-    return run_agent_id, agent_budget_usd, language
+        if inserted_id is not None:
+            return inserted_id, False, run_agent_id, agent_budget_usd, language
+        # A conflict only fires when client_request_id is non-NULL (the partial index's own
+        # predicate), and only means "this workspace already has a row for this id" — the
+        # advisory lock above guarantees it is durably committed by now (see docstring), so
+        # this SELECT cannot race an uncommitted insert.
+        existing_id = await conn.fetchval(
+            "SELECT id::text FROM runs WHERE workspace_id = $1::uuid AND client_request_id = $2",
+            workspace_id,
+            client_request_id,
+        )
+        if existing_id is None:
+            # Structurally unreachable given the lock ordering above; fail loudly rather than
+            # return a run_id nobody can look up if this invariant is ever violated.
+            raise RuntimeError(
+                f"client_request_id {client_request_id!r} conflicted but no row was found "
+                f"for workspace {workspace_id!r}"
+            )
+        return existing_id, True, run_agent_id, agent_budget_usd, language
 
 
 async def _reserve_cap(conn, workspace_id: str) -> None:
@@ -261,5 +317,10 @@ async def _reserve_cap(conn, workspace_id: str) -> None:
     if (in_flight or 0) >= _MAX_CONCURRENT_RUNS_PER_WORKSPACE:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Too many concurrent runs (max {_MAX_CONCURRENT_RUNS_PER_WORKSPACE})",
+            {
+                "code": "too_many_concurrent_runs",
+                "message": f"Too many concurrent runs (max {_MAX_CONCURRENT_RUNS_PER_WORKSPACE})",
+                "max": _MAX_CONCURRENT_RUNS_PER_WORKSPACE,
+                "in_flight": in_flight,
+            },
         )

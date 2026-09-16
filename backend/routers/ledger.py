@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
@@ -15,6 +15,7 @@ from ..schemas import (
     RunCostRollupResponse,
     UsageResponse,
 )
+from ..types import UuidStr
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
 
@@ -24,7 +25,7 @@ async def get_costs(
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
     month: str | None = None,  # YYYY-MM, defaults to current month
-    agent_id: str | None = None,  # A4: one agent's partition of the same ledger
+    agent_id: UuidStr | None = None,  # A4: one agent's partition of the same ledger
 ) -> CostSummaryResponse:
     """Return cost summary for the workspace, defaulting to the current month.
 
@@ -83,7 +84,7 @@ async def get_costs(
 
 @router.get("/rollup", response_model=RunCostRollupResponse)
 async def get_run_rollup(
-    run_id: str,
+    run_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> RunCostRollupResponse:
@@ -163,7 +164,7 @@ async def get_usage(
 async def get_history(
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1)] = 50,
 ) -> HistoryResponse:
     """Return recent run history entries for this workspace."""
     pool = request.app.state.pool

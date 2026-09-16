@@ -7,6 +7,9 @@ from .model import ERROR, SAFE_AREAS, WARN, Finding, face_band
 from .probe import Probe
 from .thresholds import (
     ASPECT_TOLERANCE,
+    AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU,
+    AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION,
+    AUDIO_FLOOR_ONLY_MIN_DURATION_S,
     MAX_DEAD_AIR_FRACTION,
     MAX_DEAD_AIR_RUN_S,
     MAX_WORDS_PER_SEC_ASSET,
@@ -35,6 +38,8 @@ def evaluate(
     motion_stats: list[dict] | None = None,
     identity_used: list[str] | None = None,
     caption_contrast: list[dict] | None = None,
+    caption_route: str | None = None,
+    captions_preburned: bool | None = None,
 ) -> list[Finding]:
     """Pure. Takes a Probe (real or fabricated) plus optional context; returns findings with no
     I/O. ``manifest`` is a captions.json-shaped dict: {"frame": [w, h], "screens": [{"box": {"x",
@@ -57,7 +62,10 @@ def evaluate(
     produces ({"silent_runs", "silent_fraction", "integrated_lufs", ...}) for V10 — the declared
     keys above and the measured keys share one dict because they answer one question between them.
     ``caption_contrast`` is [{"index": int, "ratio": float, "bg_luma": float}, ...] — one entry
-    per sampled caption screen — for V11."""
+    per sampled caption screen — for V11. ``caption_route`` / ``captions_preburned`` are the
+    finish manifest's top-level declarations of whether captions were burned at all; when they
+    say yes and ``manifest`` carries no screens, V11 refuses rather than skipping — an
+    unreadable gate is a missing gate."""
     if ratio not in SAFE_AREAS:
         raise ValueError(f"unknown ratio {ratio!r} — expected one of {sorted(SAFE_AREAS)}")
     area = SAFE_AREAS[ratio]
@@ -390,6 +398,9 @@ def evaluate(
                     "broken file. Lay room tone or a bed under the stretch",
                 )
             )
+        floor_only = _floor_only(audio_context, p.duration_s)
+        if floor_only is not None:
+            findings.append(floor_only)
 
     # V11 — burned-type contrast. Geometry (V3) says the caption is in a legal place; this says
     # it can actually be read once it is there.
@@ -415,5 +426,69 @@ def evaluate(
                     "footage never clears AA",
                 )
             )
+    geometry_missing = _caption_geometry_missing(manifest, caption_route, captions_preburned)
+    if geometry_missing is not None:
+        findings.append(geometry_missing)
 
     return findings
+
+
+def _floor_only(audio_context: dict, duration_s: float) -> Finding | None:
+    """V10 ``audio_floor_only`` — level with no events. Skipped (never "clean") when the
+    momentary series was not measured, when the asset is too short for a held bed to be a
+    defect, or when there is no level at all (the dead-air rules own that case)."""
+    abruptness = audio_context.get("loudness_abruptness_lu")
+    events = audio_context.get("loudness_event_fraction")
+    integrated = audio_context.get("integrated_lufs")
+    if abruptness is None or events is None or duration_s < AUDIO_FLOOR_ONLY_MIN_DURATION_S:
+        return None
+    if integrated is None or float(integrated) <= -70.0:
+        return None
+    if (
+        float(abruptness) >= AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU
+        or float(events) >= AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION
+    ):
+        return None
+    lra = audio_context.get("loudness_range_lu")
+    crest = audio_context.get("crest_db")
+    return Finding(
+        tier="V10",
+        rule="audio_floor_only",
+        severity=ERROR,
+        asset="",
+        excerpt=f"{duration_s:.1f}s of level with no events: momentary loudness moves "
+        f"{float(abruptness):.2f} LU/frame² (ceiling {AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU:g}) "
+        f"with {float(events):.1%} of frames stepping (ceiling "
+        f"{AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION:.0%}); integrated {float(integrated):.1f} LUFS"
+        + (f", LRA {float(lra):.1f} LU" if lra is not None else "")
+        + (f", crest {float(crest):.1f} dB" if crest is not None else ""),
+        fix="lay the designed cues/bed (see gtm_core.audio_plan) — a flat floor is not a "
+        "soundtrack. A deliberate drone score is the one legitimate shape here; suppress it "
+        "with a reason",
+    )
+
+
+def _caption_geometry_missing(
+    manifest: dict | None, caption_route: str | None, captions_preburned: bool | None
+) -> Finding | None:
+    """V11 ``caption_geometry_missing`` — the manifest says captions were burned but carries no
+    boxes, so V3 and V11 both went quiet on a caption nobody measured."""
+    burned = caption_route in {"local", "reap"} or bool(captions_preburned)
+    if not burned or (manifest is not None and manifest.get("screens")):
+        return None
+    how = (
+        f"caption_route={caption_route!r}"
+        if caption_route in {"local", "reap"}
+        else "captions_preburned=true"
+    )
+    return Finding(
+        tier="V11",
+        rule="caption_geometry_missing",
+        severity=ERROR,
+        asset="",
+        excerpt=f"manifest declares burned captions ({how}) but carries "
+        + ("no captions payload" if manifest is None else "a captions payload with no screens")
+        + " — V3 (placement) and V11 (contrast) measured nothing",
+        fix="carry the per-shot captions sidecar through stitch/run so the manifest holds the "
+        "burned boxes; bare geometry-less manifests silence V3/V11",
+    )

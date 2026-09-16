@@ -45,15 +45,22 @@ def cfg(tmp_path):
 def test_prospecting_pack_loads_and_shapes_correctly():
     """The prospecting pack runs end to end: discovery through a staged, PAUSED sequence.
 
-    TWO gates, and both are load-bearing. `outreach` is the human copy review; `sequence`
-    is the PII-egress confirmation before prospect rows reach a third-party processor.
-    The `quality` node (the judge) sits BETWEEN them precisely because it does not replace
-    either — it ranks, and the deterministic gate is what refuses a row.
+    ONE human pause (the pack gate rule — pause only where a decision guards spend or egress): `sequence` drafts
+    the sequence + the lead-enrollment plan and pauses for the PII-egress confirmation, where
+    the operator reviews the finished copy and the lead list together. `outreach` does NOT
+    pause — it guarded neither spend nor egress. `sequence-enroll` is the actual enrollment
+    call, dispatched by Python only (never the brain) after that gate is approved — the same
+    split as the publish gate. The `quality` node (the judge) ranks and never gates; the
+    deterministic check is what refuses a row.
     """
     pack = load_pack_graph(REPO / "packs" / "prospecting" / "graphs" / "prospect-outreach.toml")
-    assert pack.ids == ("prospect", "dossier", "outreach", "quality", "sequence")
-    assert pack.node("outreach").gate is True
+    assert pack.ids == ("prospect", "dossier", "outreach", "quality", "sequence", "sequence-enroll")
+    assert pack.node("outreach").gate is False  # one pause, at sequence
     assert pack.node("sequence").gate is True
+    assert pack.node("sequence").external_effect is None
+    assert pack.node("sequence-enroll").gate is True
+    assert pack.node("sequence-enroll").external_effect == "email_enroll"
+    assert pack.node("sequence-enroll").depends_on == ("sequence",)
     assert pack.node("prospect").gate is False
     assert pack.node("quality").gate is False  # the judge ranks; it never gates
 

@@ -39,6 +39,8 @@ def test_schema_file_is_valid_json():
 
 
 def test_video_script_worked_example_validates_against_the_schema():
+    if not SCRIPT_BODY.exists():
+        pytest.skip("video-script body_template.md not present (paid-tier stub)")
     body = SCRIPT_BODY.read_text(encoding="utf-8")
     example = _extract_json_fence(body, near="Step 1.5")
     assert is_valid(example, _schema()), "video-script's own worked shots.json example is invalid"
@@ -48,6 +50,8 @@ def test_worked_example_includes_a_presenter_and_a_non_presenter_shot():
     """The example must exercise BOTH branches role gates — a presenter shot (identity anchor +
     lip-sync applies) and a broll/screen shot (both skipped) — or the doc could silently drift to
     only ever showing the historical shape."""
+    if not SCRIPT_BODY.exists():
+        pytest.skip("video-script body_template.md not present (paid-tier stub)")
     body = SCRIPT_BODY.read_text(encoding="utf-8")
     example = _extract_json_fence(body, near="Step 1.5")
     roles = {s.get("role", "presenter") for s in example["shots"]}
@@ -192,6 +196,8 @@ def test_render_manifest_references_the_shots_schema():
 
 
 def test_script_body_references_the_shots_schema():
+    if not SCRIPT_BODY.exists():
+        pytest.skip("video-script body_template.md not present (paid-tier stub)")
     body = SCRIPT_BODY.read_text(encoding="utf-8")
     assert "shots.schema.json" in body
 

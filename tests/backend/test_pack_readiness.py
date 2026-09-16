@@ -170,9 +170,18 @@ def test_t3_stale_knowledge_degrades_but_run_proceeds(client, ws_env):
     conn = AsyncMock()
     # A5: admission counts in-flight runs in SQL (the cap is now global, not
     # per-process). A bare AsyncMock would return a Mock that compares truthy
-    # against the cap and turn every create into a 429.
+    # against the cap and turn every create into a 429. RT-04: the INSERT itself is
+    # now a `fetchval(...RETURNING id::text)` — model it as returning its own run_id
+    # (args[0]) rather than a truthy MagicMock, so `RunResponse.run_id` stays a real
+    # string.
     conn.fetchval = AsyncMock(
-        side_effect=lambda sql, *a: 0 if "count(*) FROM runs" in sql else MagicMock()
+        side_effect=lambda sql, *a: (
+            0
+            if "count(*) FROM runs" in sql
+            else a[0]
+            if sql.strip().startswith("INSERT INTO runs")
+            else MagicMock()
+        )
     )
 
     @contextlib.asynccontextmanager
@@ -181,11 +190,16 @@ def test_t3_stale_knowledge_degrades_but_run_proceeds(client, ws_env):
 
     with (
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+        # RL-08: create_run now checks admits() (acheck_budget) synchronously before
+        # insert_run_row — same as every other budget-touching admission test.
+        patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=True)),
         patch.object(runs_router, "_execute_pack_run", _skip_run),
     ):
         resp = client.post("/v1/runs", json=_run_body())
     assert resp.status_code == 202, "degraded must NOT refuse the run"
-    assert any("INSERT INTO runs" in c.args[0] for c in conn.execute.call_args_list)
+    assert any(
+        c.args[0].strip().startswith("INSERT INTO runs") for c in conn.fetchval.call_args_list
+    )
 
 
 # ── T4: fully provisioned → ready, empty items in listing ─────────────────────
@@ -275,9 +289,18 @@ def test_t9_ask_setting_missing_from_profile_never_blocks(client, ws_env):
     conn = AsyncMock()
     # A5: admission counts in-flight runs in SQL (the cap is now global, not
     # per-process). A bare AsyncMock would return a Mock that compares truthy
-    # against the cap and turn every create into a 429.
+    # against the cap and turn every create into a 429. RT-04: the INSERT itself is
+    # now a `fetchval(...RETURNING id::text)` — model it as returning its own run_id
+    # (args[0]) rather than a truthy MagicMock, so `RunResponse.run_id` stays a real
+    # string.
     conn.fetchval = AsyncMock(
-        side_effect=lambda sql, *a: 0 if "count(*) FROM runs" in sql else MagicMock()
+        side_effect=lambda sql, *a: (
+            0
+            if "count(*) FROM runs" in sql
+            else a[0]
+            if sql.strip().startswith("INSERT INTO runs")
+            else MagicMock()
+        )
     )
 
     @contextlib.asynccontextmanager
@@ -286,6 +309,9 @@ def test_t9_ask_setting_missing_from_profile_never_blocks(client, ws_env):
 
     with (
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+        # RL-08: create_run now checks admits() (acheck_budget) synchronously before
+        # insert_run_row — same as every other budget-touching admission test.
+        patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=True)),
         patch.object(runs_router, "_execute_pack_run", _skip_run),
     ):
         resp = client.post("/v1/runs", json=_run_body())  # brand_name provided in inputs

@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from backend.routers import runs as runs_router
+from backend.services import integrations as integrations_service
 from backend.services.runs import admission as runs_admission
 from backend.services.runs import budget as runs_budget
 from backend.services.runs import decisions as runs_decisions
@@ -132,6 +133,17 @@ class StateConn:
         return None
 
     async def fetchrow(self, sql: str, *args):
+        if sql.lstrip().startswith("UPDATE runs") and "RETURNING id" in sql:
+            # RL-03: start_run/resume_run/reject_run/complete_run/hold_gate/_fail_run now
+            # guard their UPDATE with `status NOT IN (...)` and read the match back via
+            # `RETURNING id` instead of a bare `execute`. This base fake carries no row
+            # state to guard against (nothing here seeds a terminal status before the
+            # write) — it tracks the status write exactly like `execute` already does
+            # for the unguarded writes, and reports every write as matched.
+            m = _RUNS_STATUS_RE.search(sql)
+            if m:
+                self.run_status.append(m.group(1))
+            return {"id": args[0]}
         return None
 
     async def fetch(self, sql: str, *args):
@@ -187,6 +199,9 @@ SCOPE_MODULES = (
     runs_queue,
     runs_reconcile,
     runs_stream,
+    # Every pack run loads BYOK credentials first; once a KEK is present the loader opens its
+    # own workspace_scope, which would otherwise run for real against the fake pool.
+    integrations_service,
 )
 BUDGET_MODULES = (runs_budget, runs_pack_executor)  # acheck_budget bindings
 PUSH_MODULES = (runs_lifecycle,)  # send_gate_push — one binding since the 1b spine

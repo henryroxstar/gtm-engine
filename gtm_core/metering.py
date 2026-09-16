@@ -418,6 +418,41 @@ def check_budget(
     return total < cap_usd
 
 
+def workspace_jsonl_month_total(workspace_id: str) -> float:
+    """Sum every profile's ``costs.jsonl`` under one workspace's content root.
+
+    Why this exists. The MCP workers (judge, vision, worker, gemini_image,
+    higgsfield_video, tts, rocketreach, apollo) are stdio SUBPROCESSES: they are handed
+    ``GTM_PROFILE`` and the workspace-scoped content root and nothing else — no pool, no
+    workspace id, no DB credentials. They meter through ``Ledgers.append_cost``, so their
+    spend lands in JSONL, while the backend's own brain/pack spend lands in Postgres
+    ``cost_records``. A cap that read only Postgres could not see a single worker call,
+    which on the multi-tenant backend is a billing boundary, not an accounting detail.
+
+    The two stores are DISJOINT — ``backend/session.py`` writes only ``PgSink``, the
+    workers write only JSONL — so the cap SUMS them. That disjointness is the load-bearing
+    assumption and is pinned by a test; if a writer ever starts doing both, this
+    double-counts.
+
+    The alternative, giving each worker a DB connection, would put tenant database
+    credentials in eight subprocesses. Reading their ledger here keeps the credential
+    blast radius where it is.
+
+    Best-effort: an unreadable tree returns 0.0 rather than raising. The caller's
+    ``fail_closed`` policy decides what an unconfirmable budget means.
+    """
+    try:
+        from gtm_core.ledgers import sum_month_costs
+        from gtm_core.paths import workspace_content_root
+
+        root = workspace_content_root(workspace_id)
+        if not root.is_dir():
+            return 0.0
+        return sum(sum_month_costs(p) for p in root.glob("*/costs.jsonl"))
+    except Exception:  # noqa: BLE001 — a roll-up failure must not break the cap read
+        return 0.0
+
+
 async def acheck_budget(
     pool: Any,
     workspace_id: str,
@@ -450,6 +485,11 @@ async def acheck_budget(
     if result is None:
         return not fail_closed  # no subscription row → allow unless fail-closed
     cap, spent = result
+    # Postgres holds only the backend's own brain/pack spend. Every MCP worker meters to
+    # the workspace's JSONL ledger instead, so the cap has to read both stores or it
+    # silently under-counts worker spend to zero. The two are disjoint — see
+    # workspace_jsonl_month_total.
+    spent += workspace_jsonl_month_total(workspace_id)
     if hard_ceiling_multiplier and spent >= cap * hard_ceiling_multiplier:
         return False
     return spent < cap

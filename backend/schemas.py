@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
+
+from .types import UuidStr
 
 # ── auth ──────────────────────────────────────────────────────────────────────
 
@@ -130,11 +132,18 @@ class RunRequest(BaseModel):
     pack: str | None = None
     variant: str | None = None
     inputs: dict[str, str] = Field(default_factory=dict)
-    agent_id: str | None = None
+    # Validated as a UUID at the boundary; carried downstream as its canonical string.
+    agent_id: UuidStr | None = None
     # A7: BCP-47 output language. Precedence request > agent > profile. Shape-
     # validated HERE so a malformed tag 422s at the boundary and never reaches
     # the session env (registry validity is not checked — shape + length only).
     language: str | None = Field(default=None, pattern=_BCP47_SHAPE, max_length=35)
+    # RT-04: an optional client-chosen idempotency key. A retry after a lost 202 (the
+    # realistic case on a mobile network) sends the SAME id — the server returns the
+    # ORIGINAL run instead of creating a duplicate that would burn a second concurrency
+    # slot and spend budget twice. Absent (the default) is byte-identical to pre-RT-04
+    # behaviour: every id-less request is its own run, as today.
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> RunRequest:
@@ -160,11 +169,31 @@ class RunResponse(BaseModel):
     profile_name: str
     # A4: attribution — the agent this run executes as (None on pre-A4 rows).
     agent_id: str | None = None
+    # The recipe this run dispatched — None for prompt-mode runs and pre-A1 rows,
+    # which carry no pack/variant. Sourced from the durable `payload` column (A5),
+    # so no new write path is needed.
+    pack: str | None = None
+    variant: str | None = None
+    # ISO-8601 UTC; when the row was enqueued. None only for rows predating the
+    # `created_at` column (pre-V005, none live).
+    created_at: str | None = None
     stages: list[dict] = []
+    # M-07: why a `failed` run failed, from a closed set (services/runs/persistence.py
+    # RunErrorCode) — branch on this, show `stages[0].error`. None unless failed, and on
+    # pre-V023 rows. A bare `str`: a code a client does not know is a generic failure.
+    error_code: str | None = None
+    pending_gate: str | None = None
     pending_content: str | None = None  # set when status == awaiting_approval
     # sha256 of pending_content — the client echoes it back as GateRequest.content_sha
     # so an approval is bound to the EXACT bytes shown (publish-gate integrity, H9).
     pending_content_sha: str | None = None
+    # The open gate's parsed kind (plan | publish | email_enroll | review) and the id of
+    # the paused pack node — the same vocabulary as the `awaiting_approval` stream event
+    # and the push payload, now also on the poll path (client issue #240). None once the
+    # gate is decided, on a prompt run (no graph node), or on a run that was never gated.
+    # `pending_gate` above stays the legacy sentinel — prefer these two instead.
+    gate: str | None = None
+    pending_node_id: str | None = None
     # Protocol-1 additive polling fields (pack-mode runs; None on prompt runs and
     # pre-A2 rows): same vocabulary as the SSE snapshot's nodes[]/content[].
     nodes: list[dict] | None = None
@@ -180,6 +209,12 @@ class GateRequest(BaseModel):
     # (H9). The client already holds pending_content — it rendered it — so it can
     # always compute this. (Was optional during rollout; now enforced.)
     content_sha: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _edit_requires_edited_content(self) -> GateRequest:
+        if self.decision == "edit" and self.edited_content is None:
+            raise ValueError("edited_content is required when decision is 'edit'")
+        return self
 
 
 # ── ledger ────────────────────────────────────────────────────────────────────
@@ -259,8 +294,14 @@ class PatchAccountRequest(BaseModel):
 
 
 class DeleteAccountRequest(BaseModel):
-    # Step-up re-auth for an irreversible, destructive action (account + ALL data).
-    current_password: str = Field(min_length=1)
+    """Step-up re-auth for an irreversible, destructive action (account + ALL data).
+
+    Both fields are optional here because which one is REQUIRED depends on the account
+    type, which is only known once the user row is loaded — the handler enforces it.
+    """
+
+    current_password: str | None = Field(None, min_length=1)  # password accounts
+    idp_token: str | None = None  # federated accounts: a fresh token from the IdP
 
 
 # ── cost cap ──────────────────────────────────────────────────────────────────
@@ -326,8 +367,15 @@ class UsageResponse(BaseModel):
 # ── errors ────────────────────────────────────────────────────────────────────
 
 
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    details: Any = None
+
+
 class ErrorResponse(BaseModel):
-    detail: str
+    error: ErrorDetail
+    detail: Any = None
 
 
 # ── Onboarding (profile-onboard-ingestion, PRD 2026-06-20) ───────────────────
@@ -349,7 +397,7 @@ class OnboardIngestRequest(BaseModel):
 
 
 class OnboardIngestResponse(BaseModel):
-    """POST /v1/onboard/ingest response."""
+    """POST /v1/onboard response."""
 
     draft_id: str
     slug: str

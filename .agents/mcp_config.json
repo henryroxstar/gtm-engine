@@ -1,0 +1,183 @@
+{
+  "mcpServers": {
+    "worker": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.worker",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}"
+      }
+    },
+    "vision": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.vision",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    },
+    "judge": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.judge",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    },
+    "gemini_image": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.gemini_image",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}"
+      }
+    },
+    "higgsfield_video": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.higgsfield_video",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "HIGGSFIELD_API_KEY": "${HIGGSFIELD_API_KEY}",
+        "HIGGSFIELD_API_SECRET": "${HIGGSFIELD_API_SECRET}"
+      }
+    },
+    "tts": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.tts",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "ELEVENLABS_API_KEY": "${ELEVENLABS_API_KEY}",
+        "ELEVENLABS_VOICE_ID": "${ELEVENLABS_VOICE_ID}"
+      }
+    },
+    "deck": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.deck",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "DECK_RENDERER_URL": "http://localhost:3000"
+      }
+    },
+    "firecrawl": {
+      "type": "stdio",
+      "command": "firecrawl-mcp",
+      "args": [],
+      "env": {
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+      }
+    },
+    "rocketreach": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.rocketreach",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "ROCKETREACH_API_KEY": "${ROCKETREACH_API_KEY}"
+      }
+    },
+    "apollo": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.apollo",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "APOLLO_API_KEY": "${APOLLO_API_KEY}"
+      }
+    },
+    "saleshandy": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.saleshandy",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "SALESHANDY_API_KEY": "${SALESHANDY_API_KEY}"
+      }
+    },
+    "syften": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent.mcp.syften",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "SYFTEN_API_KEY": "${SYFTEN_API_KEY}"
+      }
+    },
+    "buffer": {
+      "type": "http",
+      "url": "https://mcp.buffer.com/mcp"
+    }
+  }
+}

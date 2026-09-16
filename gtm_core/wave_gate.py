@@ -24,10 +24,14 @@ Two verbs, deliberately small:
     Exit 0 only if the newest wave has enough sends to read a rate, and print that
     rate. Exit 1 with a one-screen explanation otherwise.
 
-What this deliberately does NOT do: judge the rate. A gate that demanded, say, a 3%
-positive-reply rate before the next wave would block the pipeline on a number nobody
-has established a baseline for. The requirement is that the number **exists and was
-looked at**, which is the step that was missing.
+What this deliberately does NOT do: judge the positive reply rate. A gate that demanded,
+say, a 3% positive-reply rate before the next wave would block the pipeline on a number
+nobody has established a baseline for. The requirement is that the number **exists and
+was looked at**.
+
+What this DOES guard: domain safety via the opt-out rate. An opt-out rate >5.0% (on 30+ sends)
+or >3 raw opt-outs (on <30 sends) indicates severe negative sentiment or list decay that will
+burn sender reputation. It refuses wave N+1 unless explicitly acknowledged (--ack-high-optout).
 
 Stdlib-only, no I/O beyond JSONL append/read under the profile's own content root.
 """
@@ -46,6 +50,9 @@ __all__ = [
     "WaveReport",
     "RECORD_KIND",
     "MIN_SENDS",
+    "MAX_OPTOUT_RATE",
+    "MAX_OPTOUT_RAW_BELOW_SAMPLE",
+    "SAMPLE_SIZE_THRESHOLD",
     "read_reports",
     "append_report",
     "normalize_payload",
@@ -62,6 +69,14 @@ RECORD_KIND = "wave_report"
 #: positive reply at 5%, which is inside the band `docs/email-optimization.md` reports
 #: for signal-triggered outreach — so one reply either way should not look decisive.
 MIN_SENDS = 20
+
+#: Safety thresholds for opt-out rate.
+#: High opt-out rates burn domain reputation and deliverability permanently.
+#: A rate > 5.0% on 30+ sends (or > 3 raw opt-outs on < 30 sends) refuses the next wave
+#: unless acknowledged by the operator with --ack-high-optout.
+MAX_OPTOUT_RATE = 0.05
+MAX_OPTOUT_RAW_BELOW_SAMPLE = 3
+SAMPLE_SIZE_THRESHOLD = 30
 
 
 @dataclass(frozen=True)
@@ -172,9 +187,12 @@ def append_report(
 
 
 def check(
-    profile: str, content_root: Path | None = None, min_sends: int = MIN_SENDS
+    profile: str,
+    content_root: Path | None = None,
+    min_sends: int = MIN_SENDS,
+    ack_high_optout: bool = False,
 ) -> tuple[bool, str]:
-    """Is the previous wave measured? Returns ``(ok, message)``."""
+    """Is the previous wave measured, and is opt-out rate within safe limits? Returns ``(ok, message)``."""
     reports = read_reports(profile, content_root)
     if not reports:
         return False, (
@@ -191,6 +209,26 @@ def check(
             f"{min_sends} are needed before a reply rate means anything.\n"
             "  A single reply on a handful of sends is noise, not a reading."
         )
+
+    # Opt-out rate safety check
+    high_optout = (
+        latest.sends >= SAMPLE_SIZE_THRESHOLD and latest.opt_out_rate > MAX_OPTOUT_RATE
+    ) or (latest.sends < SAMPLE_SIZE_THRESHOLD and latest.opt_outs > MAX_OPTOUT_RAW_BELOW_SAMPLE)
+    if high_optout and not ack_high_optout:
+        threshold_desc = (
+            f">{MAX_OPTOUT_RATE:.1%} threshold"
+            if latest.sends >= SAMPLE_SIZE_THRESHOLD
+            else f">{MAX_OPTOUT_RAW_BELOW_SAMPLE} raw opt-outs ceiling"
+        )
+        return False, (
+            f"Wave {latest.wave!r} ({latest.date}) opt-out rate is too high: "
+            f"{latest.opt_outs}/{latest.sends} opt-outs ({latest.opt_out_rate:.1%}), "
+            f"exceeding the safety limit ({threshold_desc}).\n"
+            "  Sending into high opt-outs burns sender reputation and deliverability.\n"
+            "  Review messaging and targeting before staging another wave.\n"
+            "  To acknowledge this risk and override, run with --ack-high-optout."
+        )
+
     return True, (
         f"Wave {latest.wave!r} ({latest.date}): {latest.sends} sent, "
         f"{latest.positive_replies} positive ({latest.positive_reply_rate:.1%}), "
@@ -228,7 +266,11 @@ def _cli_ingest(args) -> int:
 
 
 def _cli_check(args) -> int:
-    ok, message = check(args.profile, min_sends=args.min_sends)
+    ok, message = check(
+        args.profile,
+        min_sends=args.min_sends,
+        ack_high_optout=args.ack_high_optout,
+    )
     print(("PASS — " if ok else "BLOCKED — ") + message)
     return 0 if ok else 1
 
@@ -250,6 +292,12 @@ def main(argv: list[str] | None = None) -> int:
     chk = sub.add_parser("check", help="exit non-zero unless the last wave has a readable rate")
     chk.add_argument("--profile", required=True)
     chk.add_argument("--min-sends", type=int, default=MIN_SENDS)
+    chk.add_argument(
+        "--ack-high-optout",
+        action="store_true",
+        default=False,
+        help="acknowledge high opt-out rate and override safety refusal",
+    )
     chk.set_defaults(func=_cli_check)
 
     args = p.parse_args(argv)

@@ -159,6 +159,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="0 (default) = hard cut via concat demuxer + stream copy; >0 re-encodes with xfade",
     )
+    stitch_p.add_argument(
+        "--transitions-from-shots",
+        dest="transitions_from_shots",
+        type=Path,
+        default=None,
+        help="a shot list whose per-shot production.transition_in says how each shot is cut into "
+        "(dissolve/fade/push, absent = hard cut); its shots must be the --segments, in order. Not "
+        "combinable with --crossfade-s, which dissolves every join alike",
+    )
     stitch_p.add_argument("--content-root", type=Path, default=None)
     stitch_p.add_argument("--json", action="store_true", dest="as_json")
 
@@ -198,6 +207,67 @@ def build_parser() -> argparse.ArgumentParser:
     burn_p.add_argument("--repo-root", type=Path, default=None)
     burn_p.add_argument("--content-root", type=Path, default=None)
     burn_p.add_argument("--json", action="store_true", dest="as_json")
+
+    ov_p = sub.add_parser(
+        "overlays",
+        help="draw each shot's production.overlay chat bubble beside the phone and composite "
+        "it into that shot's own file, BEFORE the stitch",
+    )
+    ov_p.add_argument(
+        "--shots",
+        type=Path,
+        required=True,
+        help="the shot list JSON; each shot's production.overlay is its bubble spec",
+    )
+    ov_p.add_argument("--ratio", required=True, choices=sorted(SAFE_AREAS))
+    ov_p.add_argument("--profile", required=True, help="active profile (brand-kit lookup)")
+    ov_p.add_argument("--product", default=None, help="active product slug (brand-kit lookup)")
+    ov_p.add_argument(
+        "--profiles-root",
+        type=Path,
+        default=None,
+        help="override profiles root for brand-kit lookup",
+    )
+    ov_p.add_argument(
+        "--shots-root",
+        type=Path,
+        default=None,
+        help="root each shot's 'file' is relative to (default: the shot list's own folder)",
+    )
+    ov_p.add_argument("--out-dir", dest="out_dir", type=Path, required=True)
+    ov_p.add_argument("--workdir", type=Path, default=None)
+    ov_p.add_argument(
+        "--shot-ids",
+        default=None,
+        help="comma-separated shot ids; omit for every shot carrying a production.overlay",
+    )
+    ov_p.add_argument(
+        "--fps",
+        type=int,
+        default=30,
+        help="frame rate the bubble sequence is drawn at (default 30); the overlay filter "
+        "matches it to the shot by timestamp, so it need not equal the shot's own",
+    )
+    ov_p.add_argument("--repo-root", type=Path, default=None)
+    ov_p.add_argument("--content-root", type=Path, default=None)
+    ov_p.add_argument("--json", action="store_true", dest="as_json")
+
+    ovs_p = sub.add_parser(
+        "overlay-scene",
+        help="composite an RGBA PNG sequence (a gtm_core.screen_ui overlay scene) over one "
+        "shot at 1:1, keeping the shot's own audio",
+    )
+    ovs_p.add_argument("--in", dest="src", type=Path, required=True)
+    ovs_p.add_argument(
+        "--frames-glob",
+        required=True,
+        help="ffmpeg-style pattern, e.g. 'out/chat-bubble-%%04d.png' — written WITH alpha, or "
+        "it composites as an opaque rectangle over the picture",
+    )
+    ovs_p.add_argument("--fps", type=int, required=True)
+    ovs_p.add_argument("--out", dest="out", type=Path, required=True)
+    ovs_p.add_argument("--content-root", type=Path, default=None)
+    ovs_p.add_argument("--json", action="store_true", dest="as_json")
 
     trans_p = sub.add_parser(
         "find-transient",
@@ -243,6 +313,16 @@ def build_parser() -> argparse.ArgumentParser:
     tone_p.add_argument("--amplitude", type=float, default=0.014)
     tone_p.add_argument("--content-root", type=Path, default=None)
     tone_p.add_argument("--json", action="store_true", dest="as_json")
+
+    polish_p = sub.add_parser(
+        "voice-polish",
+        help="clean up one narration take: highpass, de-mud, presence lift, de-ess, gentle "
+        "compression — lossless WAV, duration-preserving",
+    )
+    polish_p.add_argument("--in", dest="src", type=Path, required=True)
+    polish_p.add_argument("--out", dest="out", type=Path, required=True)
+    polish_p.add_argument("--content-root", type=Path, default=None)
+    polish_p.add_argument("--json", action="store_true", dest="as_json")
 
     narr_p = sub.add_parser(
         "narration-track",

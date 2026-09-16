@@ -54,9 +54,12 @@ SCENES = (
     "caller-row-clinic",
     "caller-row-hotel",
     "caller-row-telco",
+    "chat-bubble",
     "checkpoint-flow",
     "class-booking",
+    "hero-reveal",
     "message-card",
+    "phone-walkthrough",
     "record-agent-identity",
     "record-bank",
     "record-clean",
@@ -78,8 +81,11 @@ SCENES = (
 #: A refusal is as much a contract as a render — the 9:16 pass pins both.
 SCENES_RENDERING_AT_9X16 = frozenset(
     {
+        "chat-bubble",
         "class-booking",
+        "hero-reveal",
         "message-card",
+        "phone-walkthrough",
         "record-agent-identity",
         "record-bank",
         "record-clean",
@@ -141,6 +147,26 @@ DOCS: dict[str, dict] = {
     "json/cues-malformed.json": {"cues": [{"path": "src/click.wav"}]},
     "json/cues-past-end.json": {"cues": [{"path": "src/click.wav", "at_s": 9.0, "label": "late"}]},
     "json/timing.json": TIMING,
+    # A one-second walkthrough: the phone arrives, a card is ringed, the ring is tapped. Rects are
+    # in `src/screen.png`'s own pixels (240x520), the space an operator measures on a screenshot.
+    "json/walkthrough.json": {
+        "version": 1,
+        "actions": [
+            {"type": "enter", "start_s": 0.0, "end_s": 0.4, "from": "bottom"},
+            {"type": "highlight", "start_s": 0.4, "end_s": 1.0, "rect": [16, 40, 224, 130]},
+            {"type": "tap", "start_s": 0.5, "end_s": 0.9, "point": [48, 86]},
+        ],
+    },
+    "json/walkthrough-bad.json": {"actions": [{"type": "hover", "start_s": 0.0, "end_s": 0.5}]},
+    # hero-reveal's own one-second beat over the same still (0=0,0 corner it reads its canvas
+    # colour from): enter, ring a region, no exit — exercised at the matrix's standard 1.0s/fps 2.
+    "json/hero-reveal.json": {
+        "version": 1,
+        "actions": [
+            {"type": "enter", "start_s": 0.0, "end_s": 0.4, "from": "bottom"},
+            {"type": "highlight", "start_s": 0.4, "end_s": 1.0, "rect": [50, 50, 350, 350]},
+        ],
+    },
     "json/words-mismatch.json": {
         "words": [{"word": "one", "start_s": 0.0, "end_s": 0.4}],
         "audio_duration_s": 9.0,
@@ -258,6 +284,14 @@ def _images(root: Path) -> None:
     draw.rectangle((0, 0, 199, 199), fill=(200, 40, 40))
     draw.rectangle((200, 200, 399, 399), fill=(40, 200, 90))
     still.save(root / "src" / "still.png")
+    # A phone-shaped capture for `phone-walkthrough` (240 / 0.46 = 522, so it fills the screen).
+    screen = Image.new("RGB", (240, 520), (246, 246, 244))
+    sd = ImageDraw.Draw(screen)
+    for i in range(4):
+        sd.rounded_rectangle(
+            (16, 40 + i * 120, 224, 130 + i * 120), radius=10, fill=(200, 210, 214)
+        )
+    screen.save(root / "src" / "screen.png")
     logo = Image.new("RGBA", (240, 80), (0, 0, 0, 0))
     ImageDraw.Draw(logo).rectangle((8, 8, 231, 71), fill=(244, 244, 244, 255))
     logo.save(root / "src" / "logo.png")
@@ -824,6 +858,12 @@ def scene_argv(scene: str, ratio: str, out_dir: str) -> tuple[str, ...]:
     argv += ("--out-dir", out_dir, "--repo-root", ".")
     if scene == "still-push":
         argv += ("--image", "src/still.png")
+    if scene == "phone-walkthrough":
+        # The action list is as much a scene input as the screenshot: without one the scene
+        # refuses, so the matrix's happy path carries both.
+        argv += ("--image", "src/screen.png", "--actions", "json/walkthrough.json")
+    if scene == "hero-reveal":
+        argv += ("--image", "src/still.png", "--actions", "json/hero-reveal.json")
     if scene.startswith("caller-row-"):
         # Refuses with anything but exactly four stills, in row order — the fixture still stands
         # in for all four callers, which is enough to pin the composition, not the faces.
@@ -836,6 +876,7 @@ def screen_ui_matrix() -> tuple[Invocation, ...]:
     base = ("--kit-json", "kit.json", "--ratio", "16:9", "--repo-root", ".")
     cf = ("checkpoint-flow", *base, "--fps", "2", "--duration-s", "1.0", "--out-dir")
     sp = ("still-push", *base, "--fps", "2", "--duration-s", "1.0", "--out-dir")
+    pw = ("phone-walkthrough", *base, "--fps", "2", "--duration-s", "1.0", "--out-dir")
     scenes: list[Invocation] = []
     for scene in SCENES:
         name = f"su-{scene}-16x9"
@@ -947,6 +988,24 @@ def screen_ui_matrix() -> tuple[Invocation, ...]:
             exit_code=2,
         ),
         _su("su-still-push-no-image", *sp, _o("su-still-push-no-image"), exit_code=2),
+        _su(
+            "su-phone-walkthrough-no-actions",
+            *pw,
+            _o("su-pw-no-actions"),
+            "--image",
+            "src/screen.png",
+            exit_code=2,
+        ),
+        _su(
+            "su-phone-walkthrough-bad-action",
+            *pw,
+            _o("su-pw-bad-action"),
+            "--image",
+            "src/screen.png",
+            "--actions",
+            "json/walkthrough-bad.json",
+            exit_code=2,
+        ),
     )
 
 

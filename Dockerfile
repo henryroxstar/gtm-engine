@@ -42,6 +42,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_NO_SYNC=1 \
+    UV_NO_MANAGED_PYTHON=1 \
+    UV_PYTHON_DOWNLOADS=never \
     # Where the bind-mounted source / state trees land inside the container.
     # agent/config.py derives plugin_path/profiles_root/content_root from this.
     APP_HOME=/app \
@@ -109,6 +112,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /root/.npm
 
 WORKDIR ${APP_HOME}
+
+# Install uv for fast dependency management and hermetic skill execution
+RUN pip install --no-cache-dir uv==0.5.26
 
 # ----- Python project install ------------------------------------------------
 # Copy only what's needed to install the project, in cache-friendly order:

@@ -54,6 +54,8 @@ DECISIONS: tuple[str, ...] = (
     "sampling_curve",
     "visual_hook",
 )
+OPTIONAL_DECISIONS: tuple[str, ...] = ("caption_voice",)
+ALL_DECISIONS: tuple[str, ...] = DECISIONS + OPTIONAL_DECISIONS
 
 #: One line each, for the markdown twin a non-marketer reads on a phone.
 _DECISION_TITLES: dict[str, str] = {
@@ -66,6 +68,7 @@ _DECISION_TITLES: dict[str, str] = {
     "broll_list": "B-roll selection",
     "sampling_curve": "Sampling budget",
     "visual_hook": "The visual hook",
+    "caption_voice": "Caption voice",
 }
 
 _SOURCES = ("operator", "profile_default", "derived", "model")
@@ -119,7 +122,7 @@ def validate(doc: object) -> list[str]:
     decisions = doc.get("decisions")
     if not isinstance(decisions, dict):
         return errors
-    for name in DECISIONS:
+    for name in ALL_DECISIONS:
         entry = decisions.get(name)
         if entry is None:
             continue
@@ -146,9 +149,19 @@ def write(path: Path, doc: dict, *, content_root: Path | None = None) -> Path:
     try:
         resolved.relative_to(root)
     except ValueError:
-        raise BriefError(
-            f"refusing to write a brief outside the resolved content root: {resolved} (root: {root})"
-        ) from None
+        profile = doc.get("profile") if isinstance(doc, dict) else None
+        if profile:
+            profile_root = (root / _safe_segment(str(profile), "profile")).resolve()
+            try:
+                resolved.relative_to(profile_root)
+            except ValueError:
+                raise BriefError(
+                    f"refusing to write a brief outside the resolved content root: {resolved} (root: {root})"
+                ) from None
+        else:
+            raise BriefError(
+                f"refusing to write a brief outside the resolved content root: {resolved} (root: {root})"
+            ) from None
 
     errors = validate(doc)
     if errors:
@@ -166,36 +179,47 @@ def all_defaulted(doc: dict) -> bool:
     decisions = doc.get("decisions") or {}
     sources = {
         (decisions.get(name) or {}).get("source")
-        for name in DECISIONS
+        for name in ALL_DECISIONS
         if isinstance(decisions.get(name), dict)
     }
     return bool(sources) and sources <= {"profile_default", "derived", "model"}
 
 
 def _render_value(name: str, value: object) -> str:
-    if name == "cover" and isinstance(value, dict):
-        return f"{value.get('headline', '')} — {value.get('subject', '')}"
-    if name == "outlier_structure" and isinstance(value, dict):
-        return f"{value.get('name', '')} ({' → '.join(value.get('beats') or [])})"
-    if name == "cheapest_medium" and isinstance(value, dict):
-        return f"{value.get('chosen', '')} — {value.get('reason', '')}"
-    if name == "invariant" and isinstance(value, dict):
-        return f"{value.get('look', '')} @ {value.get('aspect_ratio', '')}"
-    if name == "sampling_curve" and isinstance(value, dict):
-        curve = ", ".join(f"shot {r.get('shot')}×{r.get('n')}" for r in value.get("per_shot") or [])
-        return f"{curve} — picked by {value.get('criterion', '')}"
-    if name == "visual_hook" and isinstance(value, dict):
-        # The expression rides along when there is one: it is the only face direction in the whole
-        # brief, and a twin that silently drops it is how "nobody chose a face" reads as a choice.
-        hook = f"{value.get('subject', '')}, {value.get('framing', '')}"
-        return f"{hook} — {value['expression']}" if value.get("expression") else hook
-    if isinstance(value, list):
-        return "; ".join(str(v) for v in value)
-    return str(value)
+    res: str | None = None
+    if isinstance(value, dict):
+        if name == "cover":
+            res = f"{value.get('headline', '')} — {value.get('subject', '')}"
+        elif name == "outlier_structure":
+            res = f"{value.get('name', '')} ({' → '.join(value.get('beats') or [])})"
+        elif name == "cheapest_medium":
+            res = f"{value.get('chosen', '')} — {value.get('reason', '')}"
+        elif name == "invariant":
+            res = f"{value.get('look', '')} @ {value.get('aspect_ratio', '')}"
+        elif name == "sampling_curve":
+            curve = ", ".join(
+                f"shot {r.get('shot')}×{r.get('n')}" for r in value.get("per_shot") or []
+            )
+            res = f"{curve} — picked by {value.get('criterion', '')}"
+        elif name == "visual_hook":
+            hook = f"{value.get('subject', '')}, {value.get('framing', '')}"
+            res = f"{hook} — {value['expression']}" if value.get("expression") else hook
+        elif name == "caption_voice":
+            res = f"{value.get('mode', '')} ({value.get('voice', '')})"
+            threads = [
+                f"{t.get('word', '')} ({t.get('setup')}→{t.get('callback')})"
+                for t in (value.get("thread") or [])
+                if isinstance(t, dict)
+            ]
+            if threads:
+                res += f" — threads: {', '.join(threads)}"
+    elif isinstance(value, list):
+        res = "; ".join(str(v) for v in value)
+    return res if res is not None else str(value)
 
 
 def markdown_twin(doc: dict) -> str:
-    """Nine lines, one per decision, each with its source — what a non-marketer reads on a phone.
+    """The lines of the twin, one per decision, each with its source — what a non-marketer reads on a phone.
 
     Derived from the JSON every time it is asked for. Editing the twin changes nothing any skill
     reads, which is the property that keeps one of them from becoming a second source of truth.
@@ -211,7 +235,7 @@ def markdown_twin(doc: dict) -> str:
         "<!-- GENERATED from brief.json by gtm_core.creator_brief — edits here change nothing. -->",
         "",
     ]
-    for name in DECISIONS:
+    for name in ALL_DECISIONS:
         entry = decisions.get(name)
         if not isinstance(entry, dict):
             continue
@@ -232,6 +256,64 @@ def write_twin(doc: dict, *, path: Path) -> Path:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(markdown_twin(doc), encoding="utf-8")
     return resolved
+
+
+def _check_caption_voice(
+    decisions: dict, shot_list: list[dict], shots: dict, problems: list[str]
+) -> None:
+    caption_entry = decisions.get("caption_voice")
+    if not isinstance(caption_entry, dict):
+        return
+    caption_val = caption_entry.get("value")
+    if not isinstance(caption_val, dict):
+        return
+    if caption_val.get("mode") == "narrative":
+        has_narrative = any(
+            isinstance(s, dict)
+            and str(s.get("caption_text_override", "") or "").strip()
+            and not str(s.get("spoken", "") or "").strip()
+            for s in shot_list
+        )
+        if shots.get("captions") is False or not has_narrative:
+            problems.append(
+                "the brief decided caption_voice.mode='narrative' but the shot list "
+                "has no narrative captions — narrative mode requires on-screen story captions"
+            )
+    n_shots = len(shot_list)
+    for t in caption_val.get("thread") or []:
+        if not isinstance(t, dict):
+            continue
+        s_n, cb_n = t.get("setup"), t.get("callback")
+        word = str(t.get("word") or "").strip().lower()
+        if not (
+            isinstance(s_n, int)
+            and 1 <= s_n <= n_shots
+            and isinstance(cb_n, int)
+            and 1 <= cb_n <= n_shots
+        ):
+            problems.append(
+                f"the brief's caption thread declares setup={s_n}, callback={cb_n} "
+                f"but shot list has {n_shots} shots"
+            )
+            continue
+        s_shot = shot_list[s_n - 1] if isinstance(shot_list[s_n - 1], dict) else {}
+        cb_shot = shot_list[cb_n - 1] if isinstance(shot_list[cb_n - 1], dict) else {}
+        s_cap = (
+            str(s_shot.get("caption_text_override") or s_shot.get("spoken") or "").strip().lower()
+        )
+        cb_cap = (
+            str(cb_shot.get("caption_text_override") or cb_shot.get("spoken") or "").strip().lower()
+        )
+        if word and word not in s_cap:
+            problems.append(
+                f"the brief's caption thread declares word {word!r} in setup shot {s_n}, "
+                f"but shot[{s_n}] caption ({s_cap!r}) does not contain it"
+            )
+        if word and word not in cb_cap:
+            problems.append(
+                f"the brief's caption thread declares word {word!r} in callback shot {cb_n}, "
+                f"but shot[{cb_n}] caption ({cb_cap!r}) does not contain it"
+            )
 
 
 def check_against_shotlist(brief: dict, shots: dict) -> list[str]:
@@ -320,6 +402,8 @@ def check_against_shotlist(brief: dict, shots: dict) -> list[str]:
                 "carries none — the hook renders with whatever face the identity anchor's source "
                 "photo happens to hold, which is not the one that was decided"
             )
+
+    _check_caption_voice(decisions, shot_list, shots, problems)
     return problems
 
 
@@ -395,6 +479,28 @@ def hollow_findings(doc: dict) -> list[dict]:
                 "'because it is a video' is the answer that makes the question pointless",
             }
         )
+
+    if "caption_voice" in decisions:
+        cv_entry = decisions.get("caption_voice")
+        if isinstance(cv_entry, dict):
+            cv = cv_entry.get("value") or {}
+            if isinstance(cv, dict):
+                voice = str(cv.get("voice") or "").strip()
+                mode = str(cv.get("mode") or "").strip()
+                if not voice:
+                    findings.append(
+                        {
+                            "axis": "caption_voice_is_declared",
+                            "fix": "name the narrative voice (e.g. 'close narrator', 'inner voice', 'second person')",
+                        }
+                    )
+                if mode not in ("subtitles", "narrative"):
+                    findings.append(
+                        {
+                            "axis": "caption_mode_is_valid",
+                            "fix": "caption mode must be 'subtitles' or 'narrative'",
+                        }
+                    )
     return findings
 
 

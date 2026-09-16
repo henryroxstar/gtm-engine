@@ -9,6 +9,10 @@
       "summary": "One camera move per shot, in vocabulary the models recognise."
     },
     {
+      "name": "_lint_caption",
+      "summary": "Check narrative caption functions, describe_share ceiling, and setup/callback threads."
+    },
+    {
       "name": "_lint_capture_fields_mode",
       "summary": "The capture fields are direction for a camera, so a rendered list may not carry them."
     },
@@ -69,6 +73,10 @@
       "summary": "Refuse a prompt that asks the video model to render text inside the frame."
     },
     {
+      "name": "_lint_overlay",
+      "summary": "Check a shot's ``production.overlay`` bubble spec, and warn if the screen also shows text."
+    },
+    {
       "name": "_lint_presenter_engine",
       "summary": "A shot of a real person SPEAKING must resolve an engine that can actually do that."
     },
@@ -95,6 +103,10 @@
     {
       "name": "_lint_synthetic_disclosure",
       "summary": "A declared disclosure must be the tenant's actual line, not a handle kind."
+    },
+    {
+      "name": "_lint_transition",
+      "summary": "Check a shot's ``production.transition_in`` join spec, and refuse one on the first shot."
     },
     {
       "name": "_lint_vo_duration_parity",
@@ -128,6 +140,9 @@
       "dead_zone",
       "coverage",
       "frame_margin"
-    ]
+    ],
+    "overlay_text_max_chars": 160,
+    "transition_max_s": 1.0,
+    "describe_share_max_pct": 50
   }
 }

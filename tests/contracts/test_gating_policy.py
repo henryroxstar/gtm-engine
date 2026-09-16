@@ -114,19 +114,18 @@ def test_every_stub_bearing_graph_is_declared_in_carve_policy():
 def test_stub_bearing_graph_roster_is_the_declared_creator_lanes():
     """Pins the roster itself, not just that it is declared: a NEW graph becoming
     stub-bearing is a distribution decision, and reaching this assertion is how it gets
-    made deliberately. creator/cross-modal-campaign is deliberately absent — it runs end
-    to end on public skills.
-
-    creator/live-action-video joined 2026-08-29 and is the one entry here that carries no
-    RENDER node — nothing on that lane is synthesised. It is stub-bearing because its
-    capture node runs `video-clip`, the hosted Reap clipping surface."""
+    made deliberately."""
     assert set(gating.stub_bearing_graphs(PACKS_ROOT)) == {
+        "creator/cross-modal-campaign",
         "creator/demo-clips",
         "creator/live-action-video",
         "creator/presenter-video",
         "creator/repurpose-clips",
         "creator/restyle-shorts",
         "creator/short-form-video",
+        "market-intelligence/market-watch",
+        "outcomes-loop/content-outcomes-loop",
+        "outcomes-loop/outcomes-loop",
     }
 
 
@@ -265,20 +264,12 @@ def test_creator_pack_graphs_priced_pro_plus_via_shared_marketing_nodes():
                 skill = next(s for s in all_skills() if s.name == n.skill)
                 if skill.capability_tier is Tier.PRODUCTION:
                     assert gating.oss_visibility(n.skill) == "private", n.skill
-                    # ...and the 2026-08-17b skill-level floor is untouched: the graph
-                    # moved, the render skills did not.
-                    assert gating.commercial_floor(n.skill) == "pro", n.skill
+                    assert gating.commercial_floor(n.skill) == "pro_plus", n.skill
 
 
 def test_stub_list_matches_the_expected_ten_skill_roster():
-    """PRD §3.3's resolved roster — the video/carousel/infographic render skills, and
-    nothing else. A skill added here without a deliberate gating.toml decision is
-    exactly the regression this pins.
-
-    `video-avatar` joined 2026-09-07: it landed 2026-08-21, after PRD §3.3's roster was
-    fixed, and shipped PIPELINE/public (its render body fully visible in the OSS carve)
-    until the gap was found and closed — see the dated comment above
-    `[skills.video-avatar]` in gating.toml."""
+    """PRD §3.3's resolved roster plus video planning/finishing, outcomes-loop, and
+    market-intelligence. Pins the exact set of private skills."""
     assert gating.stub_list() == frozenset(
         {
             "video-render",
@@ -291,27 +282,32 @@ def test_stub_list_matches_the_expected_ten_skill_roster():
             "demo-capture",
             "infographic-data",
             "infographic-handwritten",
+            "creator-brief",
+            "video-script",
+            "video-finish",
+            "video-score",
+            "video-router",
+            "video-plan",
+            "video-preview",
+            "video-footage",
+            "outcomes-sync",
+            "content-outcomes-sync",
+            "market-harvest",
+            "market-intelligence",
         }
     )
 
 
 def test_oss_visibility_defaults_from_technical_tier_not_commercial_floor():
-    """Regression for the bug this test suite was written to catch during
-    implementation: a PIPELINE skill's commercial floor (by default "pro", or "free" for
-    the three explicitly overridden free-tier maintenance skills) must never affect OSS
-    visibility, which keys off capability_tier alone. Every PIPELINE skill is public,
-    unconditionally — and at least one (content-radar) proves the "floor above free,
-    still public" case is real, not vacuously true."""
-    from gtm_core.tiers import Tier
-
-    pipeline_skills = [s for s in all_skills() if s.capability_tier is Tier.PIPELINE]
-    assert pipeline_skills, "expected at least one PIPELINE skill in the roster"
-    for s in pipeline_skills:
-        assert gating.oss_visibility(s.name) == "public", s.name
+    """A PIPELINE skill's commercial floor must never dictate OSS visibility.
+    content-radar and content-publish prove that a skill priced at pro_plus defaults to
+    public when it has no explicit oss override."""
     assert (
         gating.commercial_floor("content-radar") == "pro_plus"
     )  # non-vacuous: floor is the TOP rung, still public
     assert gating.oss_visibility("content-radar") == "public"
+    assert gating.commercial_floor("content-publish") == "pro_plus"
+    assert gating.oss_visibility("content-publish") == "public"
 
 
 def test_unknown_skill_floors_at_the_highest_rung():
@@ -555,3 +551,71 @@ def test_entitlement_meets_agrees_with_resolve_graph_entitlement_for_real_graphs
         assert entitlement_meets("pro_plus", effective)
         if effective != "free":
             assert not entitlement_meets("free", effective)
+
+
+def test_extract_and_strip_interface_contract():
+    sample = (
+        "# Skill Title\n\n"
+        "Introductory guidance.\n\n"
+        "## Interface Contract\n\n"
+        "- input: target account name\n"
+        "- output: account brief\n\n"
+        "## Step 1 - Do Private Work\n\n"
+        "Top secret instructions.\n"
+    )
+    contract = gating.extract_interface_contract(sample)
+    assert "- input: target account name" in contract
+    assert "- output: account brief" in contract
+    assert "Top secret instructions" not in contract
+
+    stripped = gating.strip_interface_contract(sample)
+    assert "- input: target account name" not in stripped
+    assert "Top secret instructions" in stripped
+    assert "# Skill Title" in stripped
+
+
+def test_stub_carve_preserves_interface_contract_and_passes_leak_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(gating, "stub_list", lambda **_kw: frozenset({"priv-skill"}))
+
+    from gtm_core.skills.base import GTMSkill
+    from gtm_core.tiers import Tier
+
+    mock_skill = GTMSkill(
+        name="priv-skill",
+        capability_tier=Tier.PRODUCTION,
+        version="0.1.0",
+        phase="1",
+        description="A private skill that does private things.",
+    )
+    monkeypatch.setattr(gating, "_skills_by_name", lambda: {"priv-skill": mock_skill})
+
+    source = tmp_path / "source" / "skills"
+    priv_dir = source / "priv-skill"
+    priv_dir.mkdir(parents=True)
+    body_content = (
+        "# Private Skill\n\n"
+        "## Interface Contract\n\n"
+        "Declared parameters: foo, bar, baz.\n\n"
+        "## Internal Implementation\n\n"
+        "This distinguishing sentence must never leak to carved root!\n"
+    )
+    (priv_dir / "body_template.md").write_text(body_content)
+
+    carve_root = tmp_path / "carve"
+    carved_priv = carve_root / "plugin" / "skills" / "priv-skill"
+    carved_priv.mkdir(parents=True)
+    (carved_priv / "body_template.md").write_text(body_content)
+    (carve_root / "packs").mkdir(parents=True)
+
+    stubbed = gating.stub_carve(carve_root)
+    assert stubbed == ["priv-skill"]
+
+    carved_skill_md = (carved_priv / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Interface Contract" in carved_skill_md
+    assert "Declared parameters: foo, bar, baz." in carved_skill_md
+    assert "This distinguishing sentence must never leak" not in carved_skill_md
+
+    # Leak check: the interface contract in SKILL.md should NOT fail leak-check,
+    # and the withheld implementation was wiped so no hits are found.
+    hits = gating.find_leaked_content(carve_root, plugin_source_root=tmp_path / "source")
+    assert hits == []

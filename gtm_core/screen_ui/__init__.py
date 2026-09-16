@@ -83,7 +83,7 @@ from .fit import (  # noqa: F401
     _fit_trial,
     fit_tolerance,
 )
-from .frames import _frame_count, _write_frames  # noqa: F401
+from .frames import _frame_count, _write_frame_stream, _write_frames  # noqa: F401
 from .palette import (  # noqa: F401
     _hex_to_rgb,
     _load_logo_asset,
@@ -140,6 +140,7 @@ from .scenes.message_card import (  # noqa: F401
     _MESSAGE_DEFAULTS,
     render_message_card_frames,
 )
+from .scenes.phone_walkthrough import render_phone_walkthrough_frames  # noqa: F401
 from .scenes.record_grid import _CALLS, render_record_grid_frames  # noqa: F401
 from .scenes.request_inspector import render_request_inspector_frames  # noqa: F401
 from .scenes.still_push import render_still_push_frames  # noqa: F401
@@ -162,6 +163,7 @@ __all__ = [
     "render_title_card_frames",
     "render_checkpoint_flow_frames",
     "render_still_push_frames",
+    "render_phone_walkthrough_frames",
     "render_class_booking_frames",
     "render_request_inspector_frames",
 ]

@@ -50,11 +50,53 @@ _MIN_SENTENCE_LEN_STDEV = 2.5
 _MIN_SENTENCES_FOR_REGISTER = 5
 
 _SPOKEN_RE = re.compile(r"\*\*\[SPOKEN\]\*\*\s*[\"“](.+?)[\"”]", re.DOTALL)
+_PRONOUN_LEAD_RE = re.compile(
+    r"^(?:(?:so|then|and|but)\s+)?(?:he|she|it|they|someone|this one|we|i)\b",
+    re.IGNORECASE,
+)
 
 
 def extract_spoken(text: str) -> list[str]:
     """Every ``[SPOKEN]`` line in a script, in order, quotes stripped."""
     return [re.sub(r"\s+", " ", m.group(1)).strip() for m in _SPOKEN_RE.finditer(text)]
+
+
+def extract_captions(text: str) -> list[str]:
+    """Every narrative caption in a script, in order, stripped of formatting and placeholders."""
+    captions: list[str] = []
+    for line in text.splitlines():
+        if "[CAPTION]" not in line:
+            continue
+        after = line.split("[CAPTION]", 1)[1].strip()
+        after = after.strip("`*: ")
+        q = re.match(r"^[\"“](.+?)[\"”]", after)
+        if q:
+            cand = q.group(1).strip()
+        else:
+            b = re.match(r"^\*\*(.+?)\*\*", after)
+            cand = b.group(1).strip() if b else after.strip()
+        cand = cand.strip('`*"“”')
+        if re.match(r"^(?:—|-|none|\(none|\*none)", cand.lower()):
+            continue
+        if cand:
+            captions.append(cand)
+    return captions
+
+
+def pronoun_lead_runs(lines: list[str]) -> list[list[str]]:
+    """Consecutive runs of 3+ captions opening on a pronoun subject."""
+    runs: list[list[str]] = []
+    current: list[str] = []
+    for line in lines:
+        if _PRONOUN_LEAD_RE.match(line.strip()):
+            current.append(line.strip())
+        else:
+            if len(current) >= 3:
+                runs.append(current)
+            current = []
+    if len(current) >= 3:
+        runs.append(current)
+    return runs
 
 
 def _sentences(lines: list[str]) -> list[str]:
@@ -143,8 +185,12 @@ def register_findings(spoken_lines: list[str]) -> tuple[list[str], dict[str, Any
 
 
 def register_check(profile: str, item_id: str, content_root: Path | None = None) -> dict[str, Any]:
-    """Advisory register report for a script's spoken lines. Never blocks — see
-    :func:`register_findings`. ``proceed`` is always True unless the script cannot be found."""
+    """Advisory register report for a script's spoken lines or narrative captions.
+
+    Never blocks — see :func:`register_findings`. ``proceed`` is always True unless the script
+    cannot be found. On captions-only scripts (no [SPOKEN] lines), evaluates narrative captions
+    and checks for runs of 3+ captions opening on a pronoun subject.
+    """
     content_root = content_root or resolve_content_root()
     script_path = _find_script(content_root, profile, item_id)
     if script_path is None:
@@ -155,19 +201,48 @@ def register_check(profile: str, item_id: str, content_root: Path | None = None)
             "checks": {},
         }
 
-    spoken = extract_spoken(_load_text(script_path) or "")
-    if not spoken:
+    text = _load_text(script_path) or ""
+    spoken = extract_spoken(text)
+    if spoken:
+        findings, stats = register_findings(spoken)
         return {
             "proceed": True,
             "blocking": [],
-            "warnings": [f"{script_path.name}: no [SPOKEN] lines found — nothing to read aloud"],
-            "checks": {"script": script_path.name, "spoken_lines": 0},
+            "warnings": findings,
+            "checks": {"script": script_path.name, "spoken_lines": len(spoken), **stats},
         }
 
-    findings, stats = register_findings(spoken)
+    captions = extract_captions(text)
+    if not captions:
+        return {
+            "proceed": True,
+            "blocking": [],
+            "warnings": [
+                f"{script_path.name}: no [SPOKEN] lines or captions found — nothing to read aloud"
+            ],
+            "checks": {"script": script_path.name, "spoken_lines": 0, "captions": 0},
+        }
+
+    findings, stats = register_findings(captions)
+    p_runs = pronoun_lead_runs(captions)
+    stats["pronoun_lead_runs"] = len(p_runs)
+    if p_runs:
+        for run in p_runs:
+            preview = " → ".join(f"{r!r}" for r in run[:3])
+            findings.append(
+                f"{len(run)} consecutive captions open on a pronoun subject: {preview}. "
+                "Narrative captions become repetitive when every beat starts with 'he', 'she', 'it', or 'someone' — "
+                "vary the opener or use an object/context subject."
+            )
+
     return {
         "proceed": True,
         "blocking": [],
         "warnings": findings,
-        "checks": {"script": script_path.name, "spoken_lines": len(spoken), **stats},
+        "checks": {
+            "script": script_path.name,
+            "spoken_lines": 0,
+            "captions": len(captions),
+            **stats,
+        },
     }

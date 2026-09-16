@@ -1,27 +1,10 @@
 ---
 name: product-partner-brief
 description: >-
-  For a **product company** — a peer vendor that ships software, not a reseller and not a
-  consultancy. Builds the partner-facing **collaboration brief** that a founder/CEO and a
-  CTO/CPO read together when evaluating a technical product partnership: the joint
-  opportunity, the seam between the two products, what each side brings, the competitive
-  landscape, a standards anchor, a staged commercial shape, and the risks — including our own.
-  Trigger when the user says "build a partnership brief for [company]", "where could we
-  collaborate with [company]", "draft a collaboration proposal for [company]", "how do we
-  partner with [company]", "integration proposal for [product]", or shares a peer vendor's
-  repos/docs and asks where the two products fit together. The core method is the **self-named
-  gap**: find the capability the partner's own type system, docs, non-goals, or roadmap
-  already names but cannot produce, and show that our product is the shape that fits the slot
-  — a gap they named is a roadmap conversation, a gap we assert is a pitch. Fails loudly when
-  only an asserted gap exists. Enforces a **public-source gate** (every claim about either
-  side resolves to a public URL — no internal paths, unreleased version numbers, or findings
-  from private source shared under NDA), credit-before-gap ordering, an explicit layer
-  boundary, two-sided value, no exclusivity by default, and disclosure of our own maturity
-  risk. Delivers Markdown plus a polished HTML companion with purpose-built CSS infographics
-  (positioning quadrant, capability ladder, framework coverage strip) — never raster
-  infographics. Consumes an `account-dossier` when present; hands off to `build-deck`.
-  Read-only and draft-only — never sends, posts, or commits to terms. Saves to
-  `content/<active>/accounts/<account-slug>/`.
+  Draft a strategic product integration and tech-partner co-selling brief outlining mutual
+  architecture and commercial value. Trigger when the user says "build product partner brief
+  for [partner]", "tech partner one-pager", "integration brief", or "co-sell guide for
+  [company]".
 metadata:
   version: "0.2.0"
   phase: "4"

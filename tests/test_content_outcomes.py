@@ -356,3 +356,48 @@ def test_the_tag_survives_the_round_trip_onto_a_row():
     assert rows, "no rows were produced"
     for row in rows:
         assert "story_format:true" in row["tags"], row["tags"]
+
+
+# ── caption craft on the sync path (K8, 2026-09-11) ───────────────────────────────────
+
+
+def test_item_tags_extracts_caption_craft_from_brief():
+    """K8. item_tags extracts caption_mode and caption_voice from brief.caption_voice."""
+    item = {
+        "id": "ci-01",
+        "brief": {
+            "caption_voice": {
+                "source": "model",
+                "value": {
+                    "mode": "narrative",
+                    "voice": "close narrator",
+                },
+            }
+        },
+    }
+    tags = item_tags([item])["ci-01"]
+    assert "caption_mode:narrative" in tags, tags
+    assert "caption_voice:close narrator" in tags, tags
+
+
+def test_item_tags_extracts_caption_craft_from_item_fields():
+    """K8. item_tags extracts caption_mode, caption_voice, describe_share from item fields."""
+    item = {
+        "id": "ci-02",
+        "caption_mode": "narrative",
+        "caption_voice": "second person",
+        "describe_share": 0.25,
+    }
+    tags = item_tags([item])["ci-02"]
+    assert "caption_mode:narrative" in tags, tags
+    assert "caption_voice:second person" in tags, tags
+    assert "describe_share:0.25" in tags, tags
+
+
+def test_item_tags_omits_caption_craft_when_absent():
+    """K8. Absent means unknown; no tags written when caption fields are missing."""
+    item = {"id": "ci-03", "format": "short"}
+    tags = item_tags([item])["ci-03"]
+    assert not any(
+        t.startswith(("caption_mode:", "caption_voice:", "describe_share:")) for t in tags
+    ), tags

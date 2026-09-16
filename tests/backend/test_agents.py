@@ -18,6 +18,7 @@ import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-key-32-bytes-long-xx")
@@ -27,8 +28,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from backend import agents as agents_mod  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
+from backend.errors import register_error_handlers  # noqa: E402
 from backend.routers import agents as agents_router  # noqa: E402
+from backend.routers import api_keys as api_keys_router  # noqa: E402
 from backend.routers import ledger as ledger_router  # noqa: E402
+from backend.routers import onboard as onboard_router  # noqa: E402
 from backend.routers import packs as packs_router  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
@@ -108,9 +112,47 @@ class AgentsDb:
             return sum(r["cost_usd"] for r in self.cost_rows if r.get("agent_id") == args[1])
         if "count(*) FROM runs" in sql:  # A5 admission cap, counted across workers
             return len([r for r in self.runs if str(r[1]) == str(args[0])])
+        if sql.strip().startswith("INSERT INTO runs") or (
+            "SELECT id::text FROM runs WHERE workspace_id" in sql and "client_request_id" in sql
+        ):
+            return self._runs_fetchval(sql, args)
         raise AssertionError(f"unexpected fetchval: {sql}")
 
+    def _find_run_by_client_request_id(self, ws, client_request_id):
+        return next(
+            (r for r in self.runs if str(r[1]) == str(ws) and r[7] == client_request_id),
+            None,
+        )
+
+    def _runs_fetchval(self, sql: str, args):
+        """RT-04: models the real ``INSERT ... ON CONFLICT (workspace_id,
+        client_request_id) WHERE client_request_id IS NOT NULL DO NOTHING RETURNING
+        id::text`` (a non-null id already used by another row in this workspace
+        conflicts — the caller falls back to the SELECT branch below; every NULL id
+        inserts freely, since NULL never conflicts with NULL) and its SELECT-by-id
+        fallback."""
+        if sql.strip().startswith("INSERT INTO runs"):
+            run_id, ws, *_rest, client_request_id = args
+            if client_request_id is not None and self._find_run_by_client_request_id(
+                ws, client_request_id
+            ):
+                return None
+            self.runs.append(args)
+            return run_id
+        ws, client_request_id = args
+        existing = self._find_run_by_client_request_id(ws, client_request_id)
+        return existing[0] if existing is not None else None
+
     async def fetchrow(self, sql: str, *args):
+        if "AS cap" in sql and "AS spent" in sql:
+            # RL-08: gtm_core.metering.PgSink.cap_and_spent — acheck_budget's own query
+            # shape, now also read synchronously at admission time (admits(), before
+            # insert_run_row). Same (cap, month-to-date spent) shape the ledger's usage
+            # summary reads too. Checked BEFORE the plainer monthly_cost_cap_usd branch
+            # below, since this query's text is also a superset match for it.
+            if self.cap is None:
+                return None
+            return {"cap": self.cap, "spent": sum(r["cost_usd"] for r in self.cost_rows)}
         if "monthly_cost_cap_usd" in sql and "subscriptions" in sql:
             return {"monthly_cost_cap_usd": self.cap} if self.cap is not None else None
         if sql.strip().startswith("INSERT INTO agents"):
@@ -562,6 +604,19 @@ def test_list_runs_agent_filter(ws_env, db):
             p.stop()
 
 
+def test_list_runs_limit_upper_bound_is_valid_not_off_by_one_rejected(ws_env, db):
+    """FL15/M-12: ``le=100`` makes the cap explicit in the schema — 100 itself must
+    still be accepted (only 101+ 422s), so the router isn't off-by-one on its own
+    documented bound."""
+    client, ps = _with_client(ws_env, db)
+    try:
+        resp = client.get("/v1/runs?limit=100")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+
+
 # ── ledger partition ──────────────────────────────────────────────────────────
 
 
@@ -611,3 +666,292 @@ def test_packs_listing_agent_view(ws_env, db):
     finally:
         for p in ps:
             p.stop()
+
+
+# ── malformed client ids (ER-02) ──────────────────────────────────────────────
+
+
+class _PgArgChecks:
+    """Wraps a fake connection with the argument checks asyncpg and Postgres make before
+    any row logic, so a malformed id surfaces as it would against the real engine: a
+    `$n::uuid` argument must parse as a UUID, and LIMIT must not be negative. A bound id
+    must also be a `str` — the in-process run state is keyed by the string run id."""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+        self.calls: list[tuple] = []
+
+    def _check(self, sql: str, args: tuple) -> None:
+        for n in re.findall(r"\$(\d+)::uuid", sql):
+            value = args[int(n) - 1]
+            if value is None:
+                continue
+            assert isinstance(value, str), f"${n}::uuid bound a {type(value).__name__}"
+            try:
+                uuid.UUID(value)
+            except ValueError:
+                raise asyncpg.exceptions.DataError(
+                    f"invalid input for query argument ${n}"
+                ) from None
+        # findall, not search: a query with more than one LIMIT clause (e.g. a UNIONed
+        # subquery) must not have a negative bind slip past an unchecked second one.
+        for n in re.findall(r"LIMIT \$(\d+)", sql):
+            if args[int(n) - 1] < 0:
+                raise asyncpg.exceptions.InvalidRowCountInLimitClauseError(
+                    "LIMIT must not be negative"
+                )
+        self.calls.append(args)
+
+    async def fetch(self, sql: str, *args):
+        self._check(sql, args)
+        return await self.inner.fetch(sql, *args)
+
+    async def fetchrow(self, sql: str, *args):
+        self._check(sql, args)
+        return await self.inner.fetchrow(sql, *args)
+
+    async def fetchval(self, sql: str, *args):
+        self._check(sql, args)
+        return await self.inner.fetchval(sql, *args)
+
+    async def execute(self, sql: str, *args):
+        self._check(sql, args)
+        return await self.inner.execute(sql, *args)
+
+
+def _enveloped_client(ws_env, conn):
+    """The shared harness with the production error handlers, observing 500s as
+    responses rather than re-raised exceptions."""
+    client, ps = _with_client(ws_env, conn)
+    client.app.include_router(api_keys_router.router, prefix="/v1")
+    client.app.include_router(onboard_router.router, prefix="/v1")
+    keys_scope = patch.object(api_keys_router, "workspace_scope", _scope)
+    keys_scope.start()
+    register_error_handlers(client.app)
+    return TestClient(client.app, raise_server_exceptions=False), (*ps, keys_scope)
+
+
+_BAD = "not-a-uuid"
+_OK = "00000000-0000-0000-0000-0000000000b1"
+_GATE = {"decision": "approve", "content_sha": "ab"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "param"),
+    [
+        ("get", f"/v1/runs/{_BAD}", None, "run_id"),
+        ("post", f"/v1/runs/{_BAD}/cancel", None, "run_id"),
+        ("post", f"/v1/runs/{_BAD}/gate", _GATE, "run_id"),
+        ("get", f"/v1/runs/{_BAD}/stream", None, "run_id"),
+        ("get", f"/v1/runs/{_BAD}/artifacts", None, "run_id"),
+        ("get", f"/v1/runs/{_BAD}/artifacts/{_OK}", None, "run_id"),
+        ("get", f"/v1/runs/{_OK}/artifacts/{_BAD}", None, "artifact_id"),
+        ("get", f"/v1/agents/{_BAD}", None, "agent_id"),
+        ("patch", f"/v1/agents/{_BAD}", {"name": "renamed"}, "agent_id"),
+        ("delete", f"/v1/agents/{_BAD}", None, "agent_id"),
+    ],
+)
+def test_malformed_path_id_is_a_422_validation_error(ws_env, db, method, path, body, param):
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.request(method, path, json=body)
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 422, resp.text
+    data = resp.json()
+    assert data["error"]["code"] == "validation_error"
+    assert [e["loc"] for e in data["error"]["details"]] == [["path", param]]
+    assert conn.calls == []
+
+
+def test_path_id_reaches_the_query_as_the_canonical_string(ws_env, db):
+    agent = db.add_agent(workspace_id=ws_env.ws_id, name="upper")
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(f"/v1/agents/{agent['agent_id'].upper()}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["agent_id"] == agent["agent_id"]
+    assert conn.calls == [(agent["agent_id"], ws_env.ws_id)]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "loc"),
+    [
+        ("get", f"/v1/runs?agent_id={_BAD}", None, ["query", "agent_id"]),
+        ("get", "/v1/runs?limit=-1", None, ["query", "limit"]),
+        ("get", "/v1/runs?limit=0", None, ["query", "limit"]),
+        # FL15/M-12: limit is now explicitly bounded (le=100) — 101 is refused at
+        # the schema boundary rather than silently truncated to 100.
+        ("get", "/v1/runs?limit=101", None, ["query", "limit"]),
+        ("get", f"/v1/packs?agent_id={_BAD}", None, ["query", "agent_id"]),
+        ("post", "/v1/runs", _run_json(agent_id=_BAD), ["body", "agent_id"]),
+        ("delete", f"/v1/api-keys/{_BAD}", None, ["path", "key_id"]),
+        ("get", f"/v1/onboard/{_BAD}/diff", None, ["path", "draft_id"]),
+        ("delete", f"/v1/onboard/{_BAD}", None, ["path", "draft_id"]),
+        (
+            "post",
+            f"/v1/onboard/{_BAD}/promote",
+            {"confirmed_company_name": "Example Co"},
+            ["path", "draft_id"],
+        ),
+        (
+            "post",
+            f"/v1/onboard/{_BAD}/product/widget/extract",
+            {"source_type": "text", "source": "We build widgets."},
+            ["path", "draft_id"],
+        ),
+    ],
+)
+def test_remaining_malformed_ids_are_a_422_validation_error(ws_env, db, method, path, body, loc):
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.request(method, path, json=body)
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 422, resp.text
+    data = resp.json()
+    assert data["error"]["code"] == "validation_error"
+    assert [e["loc"] for e in data["error"]["details"]] == [loc]
+    assert conn.calls == []
+
+
+def test_run_body_agent_id_reaches_admission_as_the_canonical_string(ws_env, db):
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    agent = db.add_agent(workspace_id=ws_env.ws_id, name="upper", packs=["marketing"])
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        with patch.object(runs_router, "_execute_pack_run", AsyncMock()):
+            resp = client.post("/v1/runs", json=_run_json(agent_id=agent["agent_id"].upper()))
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["agent_id"] == agent["agent_id"]
+    assert db.runs[-1][5] == agent["agent_id"]
+    assert "agent_id" not in json.loads(db.runs[-1][6])
+
+
+def test_run_list_agent_id_reaches_the_query_as_the_canonical_string(ws_env, db):
+    agent = str(uuid.uuid4())
+    db.runs = [("r1", ws_env.ws_id, PROFILE, "p", False, agent)]
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(f"/v1/runs?agent_id={agent.upper()}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+    assert [r["run_id"] for r in resp.json()] == ["r1"]
+
+
+def test_onboard_draft_id_is_looked_up_as_the_canonical_string(ws_env, db, monkeypatch):
+    monkeypatch.setitem(
+        onboard_router._drafts,
+        _OK,
+        {
+            "slug": "example-co",
+            "staged_root": ws_env.content_root / "no-such-staging",
+            "draft": {},
+            "workspace_id": ws_env.ws_id,
+        },
+    )
+    client, ps = _enveloped_client(ws_env, _PgArgChecks(db))
+    try:
+        resp = client.delete(f"/v1/onboard/{_OK.upper()}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 204, resp.text
+    assert _OK not in onboard_router._drafts
+
+
+# ── malformed ledger query params (EN-12) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("path", "param"),
+    [
+        ("/v1/ledger/costs?agent_id=not-a-uuid", "agent_id"),
+        ("/v1/ledger/history?limit=-1", "limit"),
+        ("/v1/ledger/history?limit=0", "limit"),
+        ("/v1/ledger/rollup?run_id=not-a-uuid", "run_id"),
+    ],
+)
+def test_malformed_ledger_query_is_a_422_validation_error(ws_env, db, path, param):
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(path)
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 422, resp.text
+    data = resp.json()
+    assert data["error"]["code"] == "validation_error"
+    assert [e["loc"] for e in data["error"]["details"]] == [["query", param]]
+    assert conn.calls == []
+
+
+def test_ledger_costs_agent_id_reaches_the_query_as_the_canonical_string(ws_env, db):
+    agent = str(uuid.uuid4())
+    db.cost_rows = [
+        {
+            "run_id": "r",
+            "stage": "s",
+            "model": "m",
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "recorded_at": "t",
+            "agent_id": agent,
+            "cost_usd": 1.5,
+        }
+    ]
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(f"/v1/ledger/costs?agent_id={agent.upper()}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total_usd"] == 1.5
+    assert conn.calls[0][2] == agent
+
+
+def test_ledger_rollup_run_id_reaches_the_query_as_the_canonical_string(ws_env, db):
+    run_id = str(uuid.uuid4())
+    conn = _PgArgChecks(db)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(f"/v1/ledger/rollup?run_id={run_id.upper()}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["run_id"] == run_id
+    assert conn.calls[-1] == (ws_env.ws_id, run_id)
+
+
+@pytest.mark.parametrize(("limit", "bound"), [(1, 1), (200, 200), (500, 200)])
+def test_ledger_history_limit_keeps_the_200_clamp(ws_env, limit, bound):
+    inner = AsyncMock()
+    inner.fetch.return_value = []
+    conn = _PgArgChecks(inner)
+    client, ps = _enveloped_client(ws_env, conn)
+    try:
+        resp = client.get(f"/v1/ledger/history?limit={limit}")
+    finally:
+        for p in ps:
+            p.stop()
+    assert resp.status_code == 200, resp.text
+    assert conn.calls == [(ws_env.ws_id, bound)]

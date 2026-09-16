@@ -17,9 +17,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 STUDIO_BODY = REPO / "plugin" / "skills" / "content-studio" / "body_template.md"
 OUTCOMES_SYNC_BODY = REPO / "plugin" / "skills" / "content-outcomes-sync" / "body_template.md"
+
+_outcomes_sync_stubbed = pytest.mark.skipif(
+    not OUTCOMES_SYNC_BODY.exists(),
+    reason="content-outcomes-sync body_template.md not present (paid-tier stub)",
+)
 
 
 def _text(path: Path) -> str:
@@ -44,6 +51,7 @@ def test_studio_body_names_the_catalog_fit_vocabulary():
     assert "guardrail" in body
 
 
+@_outcomes_sync_stubbed
 def test_outcomes_sync_body_reads_and_tags_pattern_id():
     body = _text(OUTCOMES_SYNC_BODY)
     assert "pattern_id" in body
@@ -51,6 +59,7 @@ def test_outcomes_sync_body_reads_and_tags_pattern_id():
     assert "pattern_performance.json" in body
 
 
+@_outcomes_sync_stubbed
 def test_outcomes_sync_body_sources_pattern_id_from_the_asset_json():
     """The tag must be read from where content-studio actually writes it, not invented."""
     body = _text(OUTCOMES_SYNC_BODY)

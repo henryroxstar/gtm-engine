@@ -6,6 +6,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..frame_sequence import validate_sequence
 from .constants import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -218,6 +219,7 @@ def frames_to_video(
     """
     if fps <= 0:
         raise ValueError(f"fps must be > 0, got {fps}")
+    validate_sequence(frames_glob)
     ffmpeg_bin = shutil.which("ffmpeg")
     if ffmpeg_bin is None:
         raise FfmpegUnavailable("ffmpeg is not on PATH")
@@ -260,6 +262,7 @@ def overlay_frames(
     """
     if fps <= 0:
         raise ValueError(f"fps must be > 0, got {fps}")
+    validate_sequence(frames_glob)
     ffmpeg_bin = shutil.which("ffmpeg")
     if ffmpeg_bin is None:
         raise FfmpegUnavailable("ffmpeg is not on PATH")

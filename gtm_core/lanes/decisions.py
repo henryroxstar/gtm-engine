@@ -95,7 +95,14 @@ def read_state(path: Path) -> dict[str, dict]:
 
 
 def write_state(result: RoutingResult, path: Path, stamp: str) -> None:
-    """Replace the state file wholesale — it describes the LAST run, not a history."""
+    """Replace the state file wholesale — it describes the LAST run, not a history.
+
+    ``reason`` (PS5) is additive: ``trigger`` keeps its existing meaning and its existing
+    blank-when-none-fired behaviour unchanged, since nothing reading this file today should
+    have to change to keep working. ``reason`` is always non-empty (``Routed.stable_reason``):
+    the trigger when one fired, a ``<choice>:<trigger>`` stamp for a decided row, else the
+    verdict-branch code that put the row in personalised/repair/generic.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         for r in result.routed:
@@ -105,6 +112,7 @@ def write_state(result: RoutingResult, path: Path, stamp: str) -> None:
                         "email": r.email,
                         "lane": r.lane,
                         "trigger": r.trigger,
+                        "reason": r.stable_reason,
                         "judge_verdict": r.judge_verdict,
                         "body_hash": r.body_hash,
                         "stamp": stamp,

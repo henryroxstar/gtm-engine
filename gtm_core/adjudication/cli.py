@@ -89,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     rqp.add_argument("--spec", required=True, type=Path)
     rqp.add_argument("--qa-dir", required=True, type=Path)
+    # The unit of a merge-render run is (spec x csv). Without this the gate answers a
+    # weaker question than the caller is asking — see require_qa's docstring.
+    rqp.add_argument("--csv", type=Path, help="the list to be staged; matched by hash too")
 
     qp = sub.add_parser(
         "repair-queue",
@@ -447,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "require-qa":
-        ok, why = require_qa(args.spec, args.qa_dir)
+        ok, why = require_qa(args.spec, args.qa_dir, args.csv)
         print(("ok: " if ok else "REFUSED: ") + why)
         return 0 if ok else 1
 

@@ -31,11 +31,14 @@ ROUTER = REPO / "plugin" / "skills" / "video-router" / "body_template.md"
 AVATAR = REPO / "plugin" / "skills" / "video-avatar" / "body_template.md"
 IDENTITY_KIT = REPO / "plugin" / "skills" / "identity-kit" / "body_template.md"
 
-# video-avatar is `oss = "private"` (gtm_core/gating.toml) — the OSS carve stubs its
-# body_template.md out, so only the four AVATAR-reading tests below (not router/identity-kit,
-# which stay public) have nothing to check in that distribution.
+# video-avatar and video-router are `oss = "private"` (gtm_core/gating.toml) — the OSS carve
+# stubs their body_template.md out, so tests reading their bodies have nothing to check in
+# that distribution.
 _avatar_stubbed = pytest.mark.skipif(
     not AVATAR.exists(), reason="video-avatar body_template.md not present (paid-tier stub)"
+)
+_router_stubbed = pytest.mark.skipif(
+    not ROUTER.exists(), reason="video-router body_template.md not present (paid-tier stub)"
 )
 
 
@@ -83,6 +86,7 @@ def test_writing_an_approved_look_round_trips_through_the_cli(tmp_path: Path):
 # --- (b) the router asks at routing time, every run -----------------------------------------------
 
 
+@_router_stubbed
 def test_the_router_asks_about_the_look_before_any_spend():
     body = _flat(ROUTER).lower()
     assert "heygen_look_landscape" in body and "heygen_look_portrait" in body, (
@@ -91,6 +95,7 @@ def test_the_router_asks_about_the_look_before_any_spend():
     )
 
 
+@_router_stubbed
 def test_the_router_does_not_present_a_stored_look_as_a_silent_default():
     """The ask survives even when both keys are set.
 
@@ -109,6 +114,7 @@ def test_the_router_does_not_present_a_stored_look_as_a_silent_default():
     assert "confirm" in body, "the body does not describe the set-keys case as a one-line confirm"
 
 
+@_router_stubbed
 def test_the_router_names_the_look_in_the_menu_before_spend():
     """Step 1 is the last point where a lane can be changed for free, so it is where the look has
     to be visible — naming it only inside `video-avatar` puts it after the routing decision."""
@@ -120,6 +126,7 @@ def test_the_router_names_the_look_in_the_menu_before_spend():
     )
 
 
+@_router_stubbed
 def test_the_router_does_not_fetch_previews_or_pre_select_a_look():
     """(c) — the pick is the operator's aesthetic call about their own face. A router that fetched
     previews and proposed a favourite would be making it for them, one step earlier."""
@@ -133,6 +140,7 @@ def test_the_router_does_not_fetch_previews_or_pre_select_a_look():
     )
 
 
+@_router_stubbed
 def test_the_missing_look_is_a_decision_not_a_gate_in_the_body_too():
     """The module property has a prose half: a lane is never blocked for lacking a stored look.
 

@@ -88,7 +88,12 @@ def test_the_harness_patches_every_binding_of_every_faked_collaborator():
     exact module to add or drop, rather than in forty scattered suites."""
     from tests.backend import _protocol1
 
-    mods = [importlib.import_module(n) for n in _submodules()] + [runs_router]
+    # + backend.services.integrations: not a runs module, but every pack run calls its
+    # get_workspace_credentials, which binds workspace_scope (the BYOK RLS fix).
+    mods = [importlib.import_module(n) for n in _submodules()] + [
+        runs_router,
+        importlib.import_module("backend.services.integrations"),
+    ]
     for attr, tuple_name in (
         ("workspace_scope", "SCOPE_MODULES"),
         ("acheck_budget", "BUDGET_MODULES"),

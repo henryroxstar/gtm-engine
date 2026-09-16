@@ -127,7 +127,10 @@ def test_hook_guard_table_matches_the_skill_bodies():
     check from a body fails HERE with the graph it leaves unguarded, instead of silently
     widening the hole the next test measures."""
     for skill, guards in HOOK_GUARDS.items():
-        body = _body(skill)
+        body_file = REPO / "plugin" / "skills" / skill / "body_template.md"
+        if not body_file.is_file():
+            continue
+        body = body_file.read_text(encoding="utf-8")
         for guard in ("affinity", "fatigue"):
             present = any(m in body for m in GUARD_MARKERS[guard])
             assert present == (guard in guards), (

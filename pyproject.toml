@@ -118,6 +118,10 @@ constraint-dependencies = ["click>=8.3.3"]
 [tool.setuptools.package-data]
 # The hold sheet template ships beside gtm_core.lanes.sheet (read at runtime, no server).
 "gtm_core.lanes" = ["*.html"]
+# Same shape: the dashboard's filter template is read at render time. A wheel built without
+# it imports fine and then raises FileNotFoundError on the first --scope all, which is the
+# failure mode the explicit `packages` list below already exists to prevent for modules.
+"gtm_core.email_campaign_dashboard" = ["*.html", "*.js"]
 
 [tool.setuptools]
 # Explicit package list — EVERY directory with an __init__.py under the five source
@@ -182,6 +186,18 @@ addopts = "-q"
 markers = [
     "private_tree: asserts over a census only the private tree has (tenant profiles, the un-carved oss-export.sh); auto-skipped inside a public OSS carve — see tests/conftest.py",
     "dbtest: live-Postgres tenant-isolation tests (FORCE RLS + gtm_api role); skipped unless GTM_TEST_PG_ADMIN_DSN is set — see tests/backend/conftest.py + the backend-db CI job",
+    "live_stack: HTTP acceptance test against a RUNNING backend stack; applied automatically to everything under tests/live except modules whose name ends in _unit, and skipped unless GTM_LIVE_BASE_URL is set — see tests/live/conftest.py",
+    "p0: tests/live phase-0 sanity suite — proves the scaffold itself works",
+    "p1: tests/live phase-1 suite",
+    "p2: tests/live phase-2 suite",
+    "p3: tests/live phase-3 suite",
+    "p4: tests/live phase-4 suite",
+    "p5: tests/live phase-5 suite",
+    "p6: tests/live phase-6 suite",
+    "real_executor: needs a real model executor and SPENDS MONEY; skipped unless GTM_LIVE_REAL_EXECUTOR=1 is set (never via -m) — see tests/live/conftest.py",
+    "local_fake: needs the local fake-run stack (a loopback GTM_LIVE_BASE_URL AND GTM_LIVE_FAKE_RUNS=1); skipped otherwise — see tests/live/conftest.py",
+    "recreate_cmd: needs an operator-supplied stack-recreate command; skipped unless GTM_LIVE_RECREATE_CMD is set to a shell command string — see tests/live/conftest.py",
+    "multi_worker: needs a stack started with more than one worker; skipped unless GTM_LIVE_WORKERS is set to an integer >= 2 — see tests/live/conftest.py",
 ]
 
 # ── Ruff (lint + format) ─────────────────────────────────────────────────────

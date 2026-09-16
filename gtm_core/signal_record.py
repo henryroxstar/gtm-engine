@@ -14,10 +14,8 @@ classes were undetectable *by construction* —
 * a number that drifted across three documents until it described a mechanism the
   original source never measured — each hop plausible, the endpoint false.
 
-No amount of copy review finds these reliably: a careful reader caught them in round
-three of a manual review that had already passed them twice. They are not judgement
-calls. They are **type errors**, and they only become type errors once the row carries
-the fields to check against.
+No amount of copy review finds these reliably. They are not judgement calls: they
+are **type errors** once the row carries the fields to check against.
 
 Six provenance fields plus a verdict:
 
@@ -40,13 +38,10 @@ Six provenance fields plus a verdict:
                         Without it, a research step asked for 442 emails produces 442.
 
 Fail-closed like every other gate here: ``unclear``, blank, unparseable, and stale all
-fail. A row whose provenance nobody recorded is not "probably fine" — it is a row whose
-claim about a real company nobody can check.
+fail. A row whose provenance nobody recorded is a row whose claim nobody can check.
 
 **Migration.** A list written before these columns existed produces ONE file-level
-finding, not one per row. A gate that answers "your list is from last week" with 496
-identical errors is the same unreadable-output failure ``finding_budget`` exists to
-stop, and this module is not going to commit it on its first day.
+finding, not one per row, avoiding unreadable output flooding.
 
 Stdlib-only, no I/O, tenant-agnostic.
 """
@@ -58,6 +53,7 @@ import re
 from dataclasses import dataclass
 
 from .merge_hygiene import SIGNAL_MAX_AGE_DAYS, Finding, clean_company
+from .merge_hygiene.signal_clean import signal_clause
 
 __all__ = [
     "AgentKind",
@@ -349,14 +345,14 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
     ``check_row``'s output and treat both as one stream — there is no second finding
     type to teach every downstream gate about.
 
-    A row with no ``signal_clause`` is a generic-arc row: it makes no dated claim, so
-    the provenance fields have nothing to be provenance *for*, and only the verdict is
-    required. Requiring a source for a claim nobody made is how a fail-closed gate
-    turns into noise.
+    A row with no clause and no why_now is a generic-arc row: it makes no dated claim, so
+    provenance fields have nothing to be provenance for, and only the verdict is required.
+    `signal_clause` is derived from `why_now` when the row carries no stored clause.
     """
     out: list[Finding] = []
     today = as_of or datetime.date.today()
-    clause = (row.get("signal_clause") or "").strip()
+    why_now = (row.get("why_now") or "").strip()
+    clause = (row.get("signal_clause") or signal_clause(why_now)).strip()
     company = (row.get("company") or "").strip()
 
     verdict = (row.get("verdict") or "").strip().lower()
@@ -425,8 +421,18 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
 
-    if not clause:
-        return out  # generic arc: no dated claim, nothing to source
+    if not clause and not why_now:
+        return out  # generic arc: no claim, nothing to source
+
+    if why_now and not clause:
+        out.append(
+            Finding(
+                "block",
+                "why_now",
+                "signal-clause-underivable",
+                f"why_now is populated ({why_now[:60]!r}) but cannot be reduced to a clean signal clause",
+            )
+        )
 
     url = (row.get("signal_source_url") or "").strip()
     if not url:
@@ -494,7 +500,7 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
     else:
-        ok, unsupported, unsourced = evidence_supports(clause, evidence)
+        ok, unsupported, unsourced = evidence_supports(clause or why_now, evidence)
         if unsourced:
             out.append(
                 Finding(
@@ -545,7 +551,7 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
 
     kind = (row.get("signal_agent_kind") or "").strip().lower()
-    uses_agent_word = bool(_AGENT_WORD_RE.search(clause))
+    uses_agent_word = bool(_AGENT_WORD_RE.search(clause or why_now))
     if not kind or kind == AgentKind.UNCLEAR:
         out.append(
             Finding(

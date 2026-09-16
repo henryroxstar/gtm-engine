@@ -178,6 +178,9 @@ def apply_records(
                 continue
             candidate[k] = (v or "").strip()
 
+        if mirror_to_why_now:
+            candidate["why_now"] = candidate.get("signal_clause") or ""
+
         findings = [f for f in check_record(candidate, as_of=as_of) if f.level == "block"]
         signal_value = (candidate.get(SIGNAL_COLUMN) or "").strip()
         if signal_value and matrix is not None and getattr(matrix, "ok", False):
@@ -204,9 +207,6 @@ def apply_records(
             # The row keeps its pre-record state. A refused record is not a partial write.
             res.rows.append(out)
             continue
-
-        if mirror_to_why_now:
-            candidate["why_now"] = candidate.get("signal_clause") or ""
 
         if not (candidate.get("signal_clause") or "").strip():
             res.cleared += 1

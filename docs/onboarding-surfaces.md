@@ -6,7 +6,7 @@ rationale for the underlying engine lives in an internal planning doc, not shipp
 
 ## One engine, thin adapters
 
-There is exactly one onboarding engine — [`agent/onboard.py`](../agent/onboard.py) — and one
+There is exactly one onboarding engine — [`agent/onboard/`](../agent/onboard/) — and one
 contract, [`schemas/profile-draft.schema.json`](../schemas/profile-draft.schema.json)
 (`ProfileDraft`). Every surface below calls the same `ingest → extract → render → stage → promote`
 functions and produces the same staged bundle under `profiles/.staging/<slug>/`. What differs
@@ -43,7 +43,7 @@ anything — same contract and output, different interaction richness.
 ## Cross-surface resume
 
 A resume point is just a staged-but-unpromoted draft with a timestamped
-`.onboard-meta.json` (see `agent/onboard.py:stage()`). **Resume only works within one
+`.onboard-meta.json` (see `agent/onboard/staging.py:stage()`). **Resume only works within one
 deployment**, because staging lives on a filesystem, not a shared service:
 
 - A draft staged via the VPS Telegram bot is resumable from the VPS Telegram bot (`python -m

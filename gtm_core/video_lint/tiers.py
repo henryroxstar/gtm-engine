@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from .model import ERROR, WARN, Tier
 from .thresholds import (
+    AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU,
+    AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION,
+    AUDIO_FLOOR_ONLY_MIN_DURATION_S,
     MAX_DEAD_AIR_FRACTION,
     MAX_DEAD_AIR_RUN_S,
     MAX_SECONDS_WITHOUT_CHANGE,
@@ -64,9 +67,21 @@ SHIPPED: tuple[Tier, ...] = (
     Tier(
         "V10",
         f"no dead air: silence <= {MAX_DEAD_AIR_FRACTION:.0%} of runtime and no single run "
-        f">= {MAX_DEAD_AIR_RUN_S:g}s (measured signal, not stream presence)",
+        f">= {MAX_DEAD_AIR_RUN_S:g}s (measured signal, not stream presence); and no "
+        "floor-only soundtrack — level whose momentary loudness never steps (abruptness < "
+        f"{AUDIO_FLOOR_ONLY_MAX_ABRUPTNESS_LU:g} LU and under "
+        f"{AUDIO_FLOOR_ONLY_MAX_EVENT_FRACTION:.0%} event frames) on an asset >= "
+        f"{AUDIO_FLOOR_ONLY_MIN_DURATION_S:g}s",
         ERROR,
         evidence=(
+            "2026-09-07 a 30.2s 9:16 film: 0% silence, -13.9 LUFS integrated, and a fully green "
+            "V10 — because its entire soundtrack was a synthesized pink-noise room-tone floor "
+            "laid so the dead-air rules would pass. None of the shot list's designed cues or "
+            "bed existed. Momentary-loudness abruptness measured 0.57 LU against 2.3 on two "
+            "voice-led films; event frames 3.1% against 36%. LRA and crest factor, the summary "
+            "numbers first proposed, did not separate them (4.7 LU / 13.7 dB vs 2.7-4.8 LU / "
+            "14.5-14.6 dB) because loudnorm flattens both — the rule reads the 100ms series "
+            "instead.",
             "2026-08-28 three-questions-p1-9x16-final.mp4: 39.6s of 100.7s (39%) below -50 dBFS, "
             "in runs of 10.4s / 25.1s / 4.1s. Ten of eighteen shots were concatenated with no "
             "audio stream at all, so the entire dramatised call and the whole social cut played "
@@ -79,9 +94,17 @@ SHIPPED: tuple[Tier, ...] = (
     Tier(
         "V11",
         f"burned caption type clears {MIN_CAPTION_CONTRAST_RATIO:g}:1 against the luminance "
-        "actually behind it (WCAG AA)",
+        "actually behind it (WCAG AA); and a manifest that declares burned captions "
+        "(caption_route local/reap, or captions_preburned) must carry their geometry, or the "
+        "asset is refused rather than passed unmeasured",
         ERROR,
         evidence=(
+            "2026-09-07 a 30.2s 9:16 film shipped with unreadable captions (~1.10:1, white over "
+            "a bright plate) past a clean lint: the captions had been burned per shot before "
+            "the stitch, nothing carried the per-shot sidecars forward, and the finish manifest "
+            "passed via --manifest read `captions: null` — so V3 and V11 both skipped, which "
+            "reads identical to both passing. An unreadable gate is a missing gate; a manifest "
+            "that says captions were burned and carries no boxes is now an ERROR, not a skip.",
             "2026-08-28 three-questions-p1-9x16-final.mp4: unplated white glyphs over the bright "
             "wooden-desk opening plate measured 3.67:1 at t=1.0s — the film's first frame, below "
             "AA. The same caption style cleared on every darker shot (6.3-8.1:1 over the "

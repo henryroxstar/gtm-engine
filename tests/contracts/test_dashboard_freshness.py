@@ -44,6 +44,11 @@ def _seed(tmp_path, profile="acme"):
         encoding="utf-8",
     )
     (pros / "sequences" / "cells.toml").write_text("# empty\n", encoding="utf-8")
+    (pros / "evals").mkdir(parents=True, exist_ok=True)
+    (pros / "evals" / "lanes-state.jsonl").write_text(
+        '{"email": "ada@analytical.example", "lane": "personalised", "reason": "personalised"}\n',
+        encoding="utf-8",
+    )
     camps = pros.parent / "plans" / "campaigns"
     camps.mkdir(parents=True, exist_ok=True)
     (camps / "mine-20260904.campaign.toml").write_text(
@@ -183,6 +188,8 @@ def test_the_declared_globs_cover_what_the_model_actually_reads(tmp_path):
         "plans/campaigns/mine-20260904.campaign.toml",
         "prospects/mine-20260904-hubspot.csv",
         "prospects/sequences/cells.toml",
+        # PS14 — the router's last route feeds the status tiles' `available`/`counts`.
+        "prospects/evals/lanes-state.jsonl",
     ]
     for rel in must_match:
         assert (root / rel).exists(), f"fixture does not create {rel}"

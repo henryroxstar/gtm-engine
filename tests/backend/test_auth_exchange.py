@@ -76,10 +76,14 @@ def _token(
     exp_delta: int = 3600,
     nbf_delta: int | None = None,
     drop_exp: bool = False,
+    iat_delta: int = 0,
+    drop_iat: bool = False,
     extra: dict | None = None,
 ) -> str:
     now = int(time.time())
-    claims: dict = {"iss": iss, "aud": aud, "sub": sub, "iat": now, **(extra or {})}
+    claims: dict = {"iss": iss, "aud": aud, "sub": sub, "iat": now + iat_delta, **(extra or {})}
+    if drop_iat:
+        del claims["iat"]
     if not drop_exp:
         claims["exp"] = now + exp_delta
     if nbf_delta is not None:
@@ -234,6 +238,18 @@ def test_boot_validation_rejects_bad_config():
     assert ISSUER_A in oidc.parse_trusted_issuers(json.dumps([ok]))
 
 
+def test_signed_token_with_null_iat_is_401_not_500(monkeypatch, rsa_keys):
+    """A correctly signed token carrying `"iat": null` makes PyJWT's iat check raise TypeError
+    (it catches only ValueError) — that must surface as the uniform 401, never a 500."""
+    server = JwksServer()
+    server.docs[f"{ISSUER_A}/jwks.json"] = {
+        "keys": [_jwk(rsa_keys["key"].public_key(), "kid-a1", "RS256")]
+    }
+    with exchange_client(monkeypatch, env=_default_config(), server=server) as client:
+        resp = _post(client, _token(rsa_keys["key"], extra={"iat": None}))
+    assert resp.status_code == 401
+
+
 def test_unconfigured_federation_503(monkeypatch):
     server = JwksServer()
     with exchange_client(monkeypatch, env="", server=server) as client:
@@ -351,6 +367,19 @@ def test_rule3_iss_aud_exact_and_60s_skew(monkeypatch, rsa_keys):
         assert _post(client, _token(k, drop_exp=True)).status_code == 401  # exp required
         # Within the 60s leeway: expired 30s ago still passes (skew tolerance).
         assert _post(client, _token(k, exp_delta=-30)).status_code == 200
+
+
+def test_exchange_does_not_require_a_fresh_iat(monkeypatch, rsa_keys):
+    """Freshness (`max_age_s`) is the account step-up's rule, not the exchange's: an unexpired
+    token issued an hour ago, or carrying no `iat` at all, still exchanges."""
+    server = JwksServer()
+    server.docs[f"{ISSUER_A}/jwks.json"] = {
+        "keys": [_jwk(rsa_keys["key"].public_key(), "kid-a1", "RS256")]
+    }
+    with exchange_client(monkeypatch, env=_default_config(), server=server) as client:
+        k = rsa_keys["key"]
+        assert _post(client, _token(k, iat_delta=-3600, exp_delta=600)).status_code == 200
+        assert _post(client, _token(k, drop_iat=True)).status_code == 200
 
 
 def test_forged_signature_rejected(monkeypatch, rsa_keys):
@@ -483,16 +512,19 @@ def test_error_detail_is_uniform(monkeypatch, rsa_keys):
         "keys": [_jwk(rsa_keys["key"].public_key(), "kid-a1", "RS256")]
     }
     with exchange_client(monkeypatch, env=_default_config(), server=server) as client:
-        details = {
-            _post(client, t).json()["detail"]
+        responses = [
+            _post(client, t)
             for t in (
                 _token(rsa_keys["key"], aud="wrong"),
                 _token(rsa_keys["key"], kid="kid-nope"),
                 _token(rsa_keys["other"], kid="kid-a1"),
                 "garbage",
             )
-        }
-    assert details == {"Invalid federated token"}
+        ]
+    assert {(r.json()["detail"]["code"], r.json()["detail"]["message"]) for r in responses} == {
+        ("federated_token_invalid", "Invalid federated token")
+    }
+    assert not any("WWW-Authenticate" in r.headers for r in responses)
 
 
 def test_exchange_rate_limited_like_login(monkeypatch, rsa_keys):
@@ -543,4 +575,4 @@ def test_login_null_password_hash_fails_closed(monkeypatch):
             json={"email": "someone@acme.example", "password": "hunter2-hunter2"},
         )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Invalid credentials"
+    assert resp.json()["detail"]["code"] == "invalid_credentials"

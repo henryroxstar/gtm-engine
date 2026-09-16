@@ -139,6 +139,55 @@ _ALIASES = {
 }
 
 
+def column_value(row: dict, field: str) -> str:
+    """The first non-empty header variant of ``field`` present in ``row``, or ``""``.
+
+    The one reader of :data:`_ALIASES`. It lived as a private ``_get`` in
+    :mod:`gtm_core.prospects_consolidate.confidence`, which meant every other module that
+    needed a header-agnostic read either imported a private symbol across subpackages or
+    hardcoded one spelling. ``email_campaign_dashboard.roster`` did the latter — it reads
+    ``GTM_Tier``/``GTM_Score``/``GTM_Why_Now`` directly, so an export written under an
+    earlier column prefix renders a whole campaign's roster as blank tier, blank score
+    and no signal,
+    **silently**, and the "carry a dated why-now" tile reports 0 for a campaign that has them.
+
+    Fail-quiet by design: a field with no alias returns ``""`` rather than raising, the same
+    contract the callers already depend on.
+    """
+    for key in _ALIASES.get(field, ()):
+        v = (row.get(key) or "").strip()
+        if v:
+            return v
+    return _renamed_prefix(row, _ALIASES.get(field, ()))
+
+
+def _renamed_prefix(row: dict, aliases: tuple[str, ...]) -> str:
+    """The same column under a DIFFERENT prefix — an export written before a prefix rename.
+
+    Matched by SHAPE rather than enumerated, and that is a tenant-boundary decision rather
+    than a convenience. A column prefix is one tenant's spelling of its own export history;
+    writing the old one into the engine as a literal puts tenant data into company-agnostic
+    code, which the release carve refuses outright — ``scripts/oss-export.sh`` sweeps for
+    exactly that shape and ``tests/lint/carve_surface_check.py`` fails CI on it. Enumerating
+    prefixes would also have to be redone at the next rename, in a file nobody would think
+    to look in.
+
+    So a header matches when its suffix matches a canonical alias's suffix:
+    ``<anything>_Why_Now`` reads as ``why_now``. Reached only after every explicit alias came
+    back empty, so a row spelling the column the current way never touches this path.
+    """
+    wanted = {a.split("_", 1)[1].lower() for a in aliases if "_" in a}
+    if not wanted:
+        return ""
+    for key, val in row.items():
+        k = str(key or "").strip()
+        if "_" in k and k.split("_", 1)[1].lower() in wanted:
+            v = str(val or "").strip()
+            if v:
+                return v
+    return ""
+
+
 #: Columns a source export cannot set, with the reason. Everything else in
 #: :data:`MASTER_COLS` is importable and appears in the generated CSV map.
 _ASSIGNED_COLUMNS = {

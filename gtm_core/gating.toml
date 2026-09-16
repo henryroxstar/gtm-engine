@@ -65,48 +65,61 @@ separate axes — see PRD §2.2.\
 # that is the whole point of keeping the two axes independent (PRD §2).
 
 [skills.video-render]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.video-restyle]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.video-clip]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.video-storyboard]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
-
-# video-avatar landed 2026-08-21, four days after the 2026-08-17b decision above enumerated "the
-# nine image/video-generation skills of the creator pack" — it was never added to that set, which
-# left it PIPELINE (default floor already "pro", so the price was accidentally right) and, more to
-# the point, PUBLIC in the OSS carve: the one skill among the presenter-video render lanes whose
-# body_template.md — the avatar-look selection procedure, the render/pacing steps, the
-# `create_speech` VO path — shipped in full while its four render-lane siblings on this page were
-# stubbed. (The manifest .py ships for every private skill by design and is not what changed
-# here; only the body's visibility did.) Closed
-# 2026-09-07: capability_tier is now PRODUCTION (it renders a synthetic human likeness on HeyGen —
-# the textbook case `tiers.py` describes as "heavy compute"), which also moves oss to private by
-# derivation (`[defaults].oss_private_tiers`). min_entitlement is restated here explicitly, exactly
-# as the four skills above do, so a later change to the PRODUCTION default (currently "pro_plus")
-# cannot silently reprice it out from under `creator/presenter-video` — that graph was already
-# priced "pro_plus" via its shared marketing nodes, so nothing a workspace pays changes today.
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.video-avatar]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above (retroactively closed 2026-09-07; video-avatar landed after that decision and was missed)."
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.creator-brief]
-min_entitlement = "pro"
-reason = """\
-creator-pack repricing, founder decision 2026-08-17b — priced with the video lane it plans \
-for (2026-09-06). Technically PIPELINE, whose default floor is already `pro`; stated \
-explicitly anyway so a later change to the tier defaults cannot silently reprice the one \
-skill that decides what a run is about to spend.
-"""
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "all video skills priced pro_plus and private, founder decision"
+
+[skills.video-script]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "all video skills priced pro_plus and private, founder decision"
+
+[skills.video-finish]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "all video skills priced pro_plus and private, founder decision"
+
+[skills.video-score]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "all video skills priced pro_plus and private, founder decision"
+
+[skills.video-plan]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "consolidated video planning skill priced pro_plus and private, founder decision"
+
+[skills.video-preview]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "consolidated video preview skill priced pro_plus and private, founder decision"
+
+[skills.video-footage]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "consolidated video footage skill priced pro_plus and private, founder decision"
+
+
 
 [skills.carousel-visuals]
 min_entitlement = "pro"
@@ -117,8 +130,8 @@ min_entitlement = "pro"
 reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
 
 [skills.demo-capture]
-min_entitlement = "pro"
-reason = "creator-pack repricing, founder decision 2026-08-17b — see the block comment above."
+min_entitlement = "pro_plus"
+reason = "all video skills priced pro_plus and private, founder decision"
 
 [skills.infographic-data]
 min_entitlement = "pro"
@@ -153,23 +166,31 @@ reason = "creator-pack repricing, founder decision 2026-08-17b — see the block
 min_entitlement = "free"
 reason = "prospecting is the free tier's one complete thing, founder decision 2026-08-25 — reverses 2026-08-17b; see the block comment above. The prospecting GRAPH stays pro via email-quality."
 
-# Founder decision (2026-08-17b): outcomes-loop AND knowledge-refresh are free — both
-# maintenance/analytics packs had been silently priced "pro" by the PIPELINE default
-# floor alone, with no actual pricing conversation behind it (CISO/CPO review,
-# 2026-08-17). Neither pack is referenced by any other pack graph, so this touches
-# nothing else.
-
+# outcomes-loop pack made pro_plus and private, founder decision
 [skills.content-outcomes-sync]
-min_entitlement = "free"
-reason = "outcomes-loop pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "closed-loop analytics withheld as hosted product"
 
 [skills.outcomes-sync]
-min_entitlement = "free"
-reason = "outcomes-loop pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "closed-loop analytics withheld as hosted product"
 
 [skills.knowledge-refresh]
 min_entitlement = "free"
 reason = "knowledge-refresh pack made free, founder decision 2026-08-17b — was accidentally pro-gated by the PIPELINE default floor, never an actual pricing decision."
+
+[skills.market-harvest]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "market intelligence harvesting withheld as hosted product"
+
+[skills.market-intelligence]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "market intelligence brief synthesis withheld as hosted product"
+
 
 # The six marketing skills — founder decision (2026-08-25): the marketing content
 # skills are themselves pro_plus, not merely wrapped in a pro_plus-priced graph. This
@@ -236,7 +257,8 @@ reason = "marketing skills priced pro_plus, founder decision 2026-08-25 — see 
 
 [skills.video-router]
 min_entitlement = "pro_plus"
-reason = "creator front door priced with the pack it opens, founder decision 2026-08-25 — see the block comment above; inert today (not a graph node), forward-looking consistency."
+oss = "private"
+reason = "creator front door priced with the pack it opens, founder decision — private hosted product."
 
 # ── graph overrides ────────────────────────────────────────────────────────────────
 # Overrides the derived commercial floor for a pack/variant glob (fnmatch'd against
@@ -264,29 +286,22 @@ reason = "creator front door priced with the pack it opens, founder decision 202
 # stub-bearing graph and on a STALE entry here that no longer carries one; it runs over
 # the finished carve in scripts/oss-export.sh §6 and over the live tree in
 # tests/contracts/test_gating_policy.py.
-#
-# The five below are the creator pack's render lanes. They ship deliberately: the graph
-# shape — radar -> plan -> script -> storyboard -> render -> finish -> publish — is the
-# part a self-hoster learns from and can rewire to their own renderer, and every one of
-# them resolves pro_plus commercially, so nothing here contradicts the paid boundary.
-# creator/cross-modal-campaign is absent on purpose: it runs end to end on public skills.
 
 [carve]
 stub_bearing_graphs = [
+  "creator/cross-modal-campaign",
   "creator/demo-clips",
   "creator/live-action-video",
   "creator/presenter-video",
   "creator/repurpose-clips",
   "creator/restyle-shorts",
   "creator/short-form-video",
+  "market-intelligence/market-watch",
+  "outcomes-loop/content-outcomes-loop",
+  "outcomes-loop/outcomes-loop",
 ]
 reason = """\
-creator render lanes ship their graph shape with a hosted-only render node — the DAG is \
-the reusable part, the renderer is the product. Declared 2026-08-28 when graph-check was \
-added; before that the five shipped silently. creator/live-action-video joined 2026-08-29 \
-for a DIFFERENT reason worth stating rather than folding into the sentence above: it has \
-NO render node at all — nothing on that lane is synthesised, which is its defining \
-property — and it is stub-bearing only because its capture node runs video-clip, the \
-hosted Reap clipping surface. Same conclusion, different cause: the write-then-shoot DAG \
-is the reusable part and the clipping service is the product.\
+creator render and video planning lanes, market-watch intelligence brief, and \
+outcomes-loop sync ship their graph shapes with hosted-only private nodes.\
 """
+

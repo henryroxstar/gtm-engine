@@ -48,6 +48,43 @@ def _current_year_month() -> str:
     return datetime.now(UTC).strftime("%Y-%m")
 
 
+def sum_month_costs(costs_path: Path, year_month: str | None = None) -> float:
+    """Sum ``cost_usd`` in one ``costs.jsonl`` over a ``YYYY-MM`` window.
+
+    Module-level on purpose. The multi-tenant cap in :mod:`gtm_core.metering` rolls up
+    every profile's ledger under a workspace, and it must use the SAME parser the
+    single-tenant cap uses — a second implementation would let the two totals drift
+    apart silently, which is the failure this whole ledger split already caused once.
+
+    Tolerant by design: an unparseable line, a missing ``ts``, or a non-numeric
+    ``cost_usd`` is skipped rather than raising, so one corrupt append can never make a
+    budget guard unreadable (and therefore fail-open).
+    """
+    window = year_month or _current_year_month()
+    if not costs_path.is_file():
+        return 0.0
+
+    total = 0.0
+    with costs_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = record.get("ts", "")
+            if not isinstance(ts, str) or not ts.startswith(window):
+                continue
+            cost = record.get("cost_usd")
+            try:
+                total += float(cost)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
 def _line_sha256(line: str) -> str:
     """SHA-256 hex digest of a single ledger line's raw bytes (trailing newline stripped)."""
     return hashlib.sha256(line.rstrip("\n").encode("utf-8")).hexdigest()
@@ -106,6 +143,16 @@ class Ledgers:
         self._costs_path: Path = self._base / "costs.jsonl"
         self._denials_path: Path = self._base / "denials.jsonl"
         self._runs_dir: Path = self._base / "runs"
+
+    @property
+    def profile(self) -> str:
+        """The tenant profile this ledger is bound to.
+
+        Public because the enrollment dispatcher needs it to resolve the lane state for a
+        PII egress, and reaching into ``_profile`` from another module would make that
+        control depend on a private attribute.
+        """
+        return self._profile
 
     def _ensure_base(self) -> None:
         self._base.mkdir(parents=True, exist_ok=True)
@@ -235,29 +282,7 @@ class Ledgers:
 
     def month_cost_total(self, year_month: str | None = None) -> float:
         """Sum ``cost_usd`` across all cost records in the given ``YYYY-MM`` window."""
-        window = year_month or _current_year_month()
-        if not self._costs_path.is_file():
-            return 0.0
-
-        total = 0.0
-        with self._costs_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ts = record.get("ts", "")
-                if not isinstance(ts, str) or not ts.startswith(window):
-                    continue
-                cost = record.get("cost_usd")
-                try:
-                    total += float(cost)
-                except (TypeError, ValueError):
-                    continue
-        return total
+        return sum_month_costs(self._costs_path, year_month)
 
     def over_monthly_cap(self, cap_usd: float) -> bool:
         """True when the current month's cost total has reached/exceeded ``cap_usd``."""

@@ -50,8 +50,9 @@ already knows who you are and you never paste your company into a prompt again.
 > [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) is the same setup written for someone who
 > sells rather than ships — install to first output, in plain English.
 
-**Then you run it one of two ways** — **Cowork mode** (the default: open this folder in the Claude
-desktop app and type prompts in chat, everything local) or an **advanced self-hosted agent**
+**Then you run it one of two ways** — **Cowork mode** (the default: open this folder in your AI
+workspace — Claude desktop, Google Antigravity, Cursor, or Codex — and type prompts in chat,
+everything local) or an **advanced self-hosted agent**
 (autonomous, 24/7, pausing only at the two human gates). [Two ways to run](#two-ways-to-run) has the
 full comparison. But first, the fun part:
 
@@ -154,6 +155,7 @@ every run gets.
 | **What do I need?** | A Claude subscription. That is the whole requirement — every external tool is optional and falls back to keyless web search |
 | **What will it cost me?** | Nothing beyond your Claude plan until *you* connect a metered data provider. You set a monthly and per-run cap during setup, and every paid call is checked against it **before** it runs |
 | **Can it email or post without me?** | No — and not as a setting you could flip. Sending and publishing are not in the agent's tool surface at all; a human approves the exact bytes. [Why it's built this way](#why-its-built-this-way) |
+| **Do I need Docker or background servers?** | No. If you're using Claude, Antigravity, Cursor, or Codex (Cowork mode), you need zero infrastructure — no Docker, no databases, no servers. Local services are only for developers building client apps against the REST API |
 | **Do I re-explain my company every time?** | No. You onboard once (`"set me up"`, pointed at your website) and every skill reads that profile from then on |
 | **What can it actually do?** | [What it does out of the box](#what-it-does-out-of-the-box) for the workflows, [`docs/SKILLS.md`](docs/SKILLS.md) for the generated, always-current list of every skill |
 | **Where does my data live?** | On your machine, in your profile. Runtime state is gitignored and never leaves except through a gate you approve |
@@ -161,7 +163,7 @@ every run gets.
 **Contents** — [See it work](#see-it-work) · [Two ways to run](#two-ways-to-run) ·
 [Getting started](#getting-started-cowork-mode) · [Tools & keys](#tools--keys) ·
 [What it does out of the box](#what-it-does-out-of-the-box) ·
-[GTM skill suite](#gtm-skill-suite-59-skills--all-profile-driven) ·
+[GTM skill suite](#gtm-skill-suite-63-skills--all-profile-driven) ·
 [Profiles](#profiles-multi-company) ·
 [Content craft](#content-craft--the-details-that-make-output-land) ·
 [How it works](#how-it-works) · [Repo layout](#repo-layout) ·
@@ -172,14 +174,14 @@ every run gets.
 ## Two ways to run
 
 **1 · Cowork mode (default — no infrastructure).**
-Download this repo and open the folder in the **Claude desktop app** (Claude Code / Cowork — this
-guide calls it *Cowork mode* throughout), then say `"set me up"`. All the GTM skills run locally,
-against your profile, in your voice, driven by ad hoc prompts you type turn by turn. No VPS, no
-Docker, no database, and no standing agent — you're the one calling each skill. This is what most
-people want. → [Getting started](#getting-started-cowork-mode)
+Download this repo and open the folder in your workspace of choice — the **Claude desktop app**
+(Claude Code / Cowork), **Google Antigravity**, **Cursor**, or **Codex** — then say `"set me up"`. All
+the GTM skills run locally, against your profile, in your voice, driven by ad hoc prompts you type
+turn by turn. No VPS, no Docker, no database, and no standing agent — you're the one calling each
+skill. This is what most people want. → [Getting started](#getting-started-cowork-mode)
 
 **2 · Advanced mode — self-hosted AI agent.**
-Deploy an autonomous AI agent (e.g. **Hermes**) — locally or on your own **VPS** — that runs the
+Deploy the self-hosted **Claude Agent SDK** runtime — locally or on your own **VPS** — that runs the
 workflow graph on your behalf: it works news → plan → research → studio → publish 24/7 as
 containerized services, pausing only at the two human approval gates in Telegram. Needs Docker and a
 secret manager. → [`docs/DEPLOY.md`](docs/DEPLOY.md)
@@ -291,11 +293,17 @@ for the prospecting budget model.
 
 ## What it does out of the box
 
-**9 packs ship in-repo, spanning 22 workflow variants** — each a wired **workflow graph** on the
+**10 packs ship in-repo, spanning 22 workflow variants** — each a wired **workflow graph** on the
 same unmodified engine. A pack is just which skills run, in what order, under which gates. Most are
 sequential chains; `planning` is a **batch** of independent nodes that run side by side, and
 `creator` fans out and rejoins — proving a pack is a *graph*, not necessarily a pipeline. All skills
 are shared, so a pack composes existing skills rather than owning them.
+
+**A pack pauses only where your decision matters:** to commit a direction before work is spent
+(approve the plan), to protect an expensive step (sign off frames before a video renders), or to
+stop something leaving the system (a post, a reply, contacts loaded into your sender). One pause is
+the norm and two the exception; a review that would only re-read finished work waits for the next
+pause that guards something.
 
 | Pack | For | Variants | External gate |
 |---|---|---|---|
@@ -304,10 +312,12 @@ are shared, so a pack composes existing skills rather than owning them.
 | **[Creator](#creator)** | The same signal, as short-form **video** | 7 | Gate 1 + Gate 2 |
 | **[Prospecting](#prospecting)** | Reach the right prospect, at the right time, with the right message | 1 | staged paused — you activate |
 | **[Solution architecture](#solution-architecture)** | Use case → technical solution (pre-sales / SA) | 1 | — documents only |
-| **Engagement** | Show up where buyers already are: `call-prep`, LinkedIn + Reddit replies (gated), community listening, weekly market watch | 5 | reply variants gated |
+| **Engagement** | Show up where buyers already are: `call-prep`, LinkedIn + Reddit replies (gated), community listening | 4 | reply variants gated |
 | **Inbound** | A reply landed — `inbound-triage` classifies it and drafts a response behind the same human gate | 1 | gated draft, never auto-sends |
 | **Knowledge refresh** | Re-reads your corpus and flags what has gone stale before a run leans on it | 1 | — writes to your profile only |
+| **Market intelligence** | Continuous competitor/regulatory signals and weekly internal positioning read | 1 | — documents only |
 | **Outcomes loop** | Feeds real results (replies, engagement) back so the next run is scored against what actually worked | 2 | — reads and records only |
+
 
 ### Planning
 
@@ -341,7 +351,7 @@ are shared, so a pack composes existing skills rather than owning them.
 | **Prospecting** | Reach the right prospect, at the right time, with the right message |
 |---|---|
 | **What it does** | Sources, enriches, and scores leads so your outreach lands where it should. Every account scored against **your** ideal customer profile, not a generic list |
-| **Flow** | prospect → dossier → **outreach (gated)** → email-quality → **sequence (gated)** |
+| **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** — one approval: you review the finished emails and the lead list together before anything reaches your sender |
 | **Data sources** | **Vibe Prospecting** — discovery, firmographics, company-level buyer-intent. **RocketReach** — verified contact email/phone, news & hiring triggers, job-change timing. **Apollo** — last-resort contact backstop (email only), company buying-intent, job-posting signals. Fused into a "why now" heat signal. Free web search is the fallback when none are connected |
 | **Output** | Scored brief · contact-ready outreach packs · HubSpot-ready CSV. Email drafts follow best-practice sequence structure (a real signal as the hook, a matched case study, one clear ask) and cite only public signals — intent times the touch, it never appears in the copy |
 | **After a reply lands** | The `inbound` pack reads it (read-only), classifies intent (P0–P3), and drafts a reply behind the same human gate. Nothing auto-sends |
@@ -359,7 +369,7 @@ are shared, so a pack composes existing skills rather than owning them.
 
 ---
 
-## GTM skill suite (59 skills — all profile-driven)
+## GTM skill suite (63 skills — all profile-driven)
 
 Every skill is **company and product agnostic** — brand, voice, ICP, markets, and product all load
 from the active profile bundle. Zero hardcoded company strings (CI-gated by `debrand_check.sh`).
@@ -370,9 +380,9 @@ from the active profile bundle. Zero hardcoded company strings (CI-gated by `deb
 |---|---|
 | **Prospecting** | `prospect`, `market-scan`, `events-tracker`, `draft-outreach`, `email-sequence`, `email-quality`, `inbound-triage` |
 | **Account & call prep** | `call-prep`, `account-plan`, `account-dossier`, `deck-research`, `build-deck` |
-| **Proof & partners** | `case-study`, `consulting-partner-brief`, `product-partner-brief` |
+| **Proof & partners** | `case-study`, `consulting-partner-brief`, `product-partner-brief`, `commercial-proposal` |
 | **Content pipeline** | `content-radar`, `content-plan`, `content-research`, `content-studio`, `content-publish`, `format-router` |
-| **Short-form video** | `video-router`, `creator-brief`, `video-script`, `video-storyboard`, `video-render`, `video-avatar`, `video-finish`, `video-score`, `video-clip`, `video-restyle`, `demo-capture`, `video-router`, `video-storyboard` |
+| **Short-form video** | `video-router`, `creator-brief`, `video-plan`, `video-script`, `video-storyboard`, `video-preview`, `video-render`, `video-avatar`, `video-finish`, `video-score`, `video-clip`, `video-restyle`, `demo-capture`, `video-footage` |
 | **Engagement** | `linkedin-engagers`, `linkedin-reply`, `reddit-reply`, `community-signal-analysis` |
 | **Carousels & infographics** | `carousel-pdf`, `carousel-visuals`, `carousel-auto`, `infographic-data`, `infographic-handwritten` |
 | **GTM planning** | `gtm-planning`, `campaign-plan`, `solution-discovery`, `solution-design`, `solution-scope-check`, `gateway-runbook` |
@@ -579,14 +589,15 @@ mechanical, no-PII nodes route to a non-US/EU inference endpoint.
 plugin/        gtm-engine plugin — the GTM skills, loaded by the Agent SDK
   skills/      one folder per skill; each has SKILL.md + references/
   .claude-plugin/plugin.json
+.agents/       multi-agent configuration (AGENTS.md symlink, mcp_config.json, hooks.json for Antigravity & Codex)
 profiles/      per-company bundles (the tenant layer — data only)
 packs/         declarative workflow graphs — one folder per pack, graphs/<variant>.toml inside
 gtm_core/      shared engine library (skills, graph runner, packs, profiles, ledgers, check_env)
 agent/         Agent SDK app — brain, graph runner, session store, ledgers, publish, radar
 cockpit/       Telegram bot + human-gate handlers (self-hosting only)
-backend/       FastAPI multi-tenant backend (auth, runs, gate, billing) + schema/ migrations
+backend/       FastAPI multi-tenant backend (auth, runs, gate, entitlement enforcement) + schema/ migrations
 mcp_server/    MCP server runtime — curated gtm_core tools, API-key auth, metering
-deploy/        Docker Compose + tunnel config (self-hosting)
+deploy/        multi-tenant backend API stack — Docker Compose + tunnel config
 scripts/       ops + dashboard scripts (incl. bootstrap.sh / bootstrap.ps1)
 schemas/       JSON Schemas for the data contracts
 tests/         content linter + contract tests + fixtures
@@ -622,6 +633,21 @@ CI-gated) live in [`docs/RULES.md`](docs/RULES.md).
 CI runs the shell lint gates and `pytest tests/` on pull requests; use `uv run …` for everything
 (`uv run pytest tests/ -q`, `uv run ruff check .`) — never bare `python`. Contributions are accepted
 under the project's Apache-2.0 license (below).
+
+### Local Backend Stack (FastAPI + Postgres + Redis + MCP)
+
+> [!NOTE]
+> **Who is this for?**
+> You only need this stack if you are developing or testing your own client application against the FastAPI REST API. If you are interacting with GTM Engine through **Claude Desktop, Google Antigravity, Cursor, or Codex** (Cowork mode), you do **not** need Docker or this stack — all skills run directly in your workspace with zero infrastructure.
+
+To run the local backend server for client application development:
+```bash
+./scripts/stack.sh start       # on Windows: .\scripts\stack.ps1 start
+./scripts/stack.sh status      # inspect container health & ports
+./scripts/stack.sh seed        # create dev workspace & test tokens
+./scripts/stack.sh stop        # shutdown cleanly (data preserved)
+```
+Zero external credentials needed (runs hermetically with fake run execution and local dev secrets).
 
 ---
 

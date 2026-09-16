@@ -308,6 +308,34 @@ def test_a_clean_probe_trips_nothing_at_all():
     assert findings == []
 
 
+def test_a_clean_probe_with_an_honest_manifest_declaration_still_trips_nothing():
+    """The V11 geometry rule fires on a CLAIM with no evidence; an uncaptioned cut that says so
+    (`caption_route: none`) and a captioned cut that carries its boxes are both clean."""
+    assert vl.evaluate(_mk(), ratio="9:16", caption_route="none") == []
+    manifest = {
+        "frame": [1080, 1920],
+        "screens": [{"index": 0, "box": {"x": 100, "y": 1400, "w": 880, "h": 150}}],
+    }
+    assert (
+        vl.evaluate(
+            _mk(), ratio="9:16", manifest=manifest, caption_route="local", captions_preburned=True
+        )
+        == []
+    )
+
+
+def test_a_measured_soundtrack_with_events_and_no_dead_air_trips_nothing():
+    """The V10 floor-only rule reads the momentary series; a track that moves is clean."""
+    ctx = {
+        "silent_runs": [],
+        "silent_fraction": 0.0,
+        "integrated_lufs": -15.4,
+        "loudness_abruptness_lu": 3.4,
+        "loudness_event_fraction": 0.36,
+    }
+    assert vl.evaluate(_mk(duration_s=30.0), ratio="9:16", audio_context=ctx) == []
+
+
 def test_the_shipped_defect_trips_v1_and_v4_but_not_v2_or_v3_without_context():
     p = _mk(width=720, height=1280, fps=24.0, bit_rate=1_420_000, duration_s=15.041667)
     findings = vl.evaluate(p, ratio="9:16", purpose="predictor")

@@ -136,12 +136,12 @@ def test_entitled_skills_drops_skills_above_the_plan():
     pro_plus = entitled_skills("pro_plus")
 
     # The three named in the report: all three are out of reach for free…
-    for paid in ("content-radar", "video-render", "case-study"):
+    for paid in ("content-radar", "carousel-visuals", "case-study"):
         assert paid not in free
-    # …and the ladder is monotone, not all-or-nothing: pro buys the creator renders,
-    # pro_plus buys the marketing/content chain.
-    assert "video-render" in pro and "content-radar" not in pro and "case-study" not in pro
-    assert {"content-radar", "case-study"} <= pro_plus
+    # …and the ladder is monotone, not all-or-nothing: pro buys visual renders,
+    # pro_plus buys the marketing/content chain and video suite.
+    assert "carousel-visuals" in pro and "content-radar" not in pro and "case-study" not in pro
+    assert {"content-radar", "case-study", "video-render"} <= pro_plus
     assert free < pro < pro_plus  # strict subsets
 
     # Positive control: a free workspace is not scoped to nothing — the free-floor
@@ -177,6 +177,11 @@ def test_execute_run_passes_the_entitlement_scope_to_the_session():
     class _Conn:
         async def execute(self, sql, *args):
             return None
+
+        async def fetchrow(self, sql, *args):
+            # RL-03: start_run now guards its UPDATE with `status NOT IN (...)` and
+            # reads the match back via `RETURNING id` instead of a bare `execute`.
+            return {"id": args[0]} if args else None
 
     class _Sessions:
         def __init__(self):

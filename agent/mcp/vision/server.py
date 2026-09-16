@@ -29,8 +29,10 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from gtm_core.confine import ConfinementError, confined_source_file
 from gtm_core.metering import resolve_rates
 from gtm_core.models import resolve_model
+from gtm_core.paths import resolve_content_root
 
 # --- Anthropic wiring (registry-resolved) ------------------------------------ #
 # The model id and base_url come from the single source of truth (gtm_core/models.toml,
@@ -81,18 +83,40 @@ def _load_image(image_path: str) -> tuple[str, str]:
     raw = (image_path or "").strip()
     if not raw:
         raise ValueError("no image_path provided")
-    path = Path(raw).expanduser()
-    suffix = path.suffix.lower()
+    suffix = Path(raw).suffix.lower()
     media_type = _MEDIA_TYPES.get(suffix)
     if media_type is None:
         raise ValueError(
             f"unsupported image type {suffix!r} (expected one of {', '.join(sorted(_MEDIA_TYPES))})"
         )
-    if not path.is_file():
-        raise ValueError(f"no readable image file at {raw}")
-    size = path.stat().st_size
-    if size > _MAX_IMAGE_BYTES:
-        raise ValueError(f"image is {size} bytes (> {_MAX_IMAGE_BYTES} limit); downscale it first")
+    # Confine BEFORE reading. This is a file-path parameter on a tool that ships the bytes
+    # to a third party, so an unconfined path is an arbitrary-file exfiltration primitive:
+    # `expanduser()` alone resolved ~/.ssh/id_rsa.png or any absolute path the brain composed
+    # from untrusted text. Same treatment as the other workers in this class
+    # (gemini_image/references.py, higgsfield_video/server.py). confined_source_file also
+    # performs the is-a-file and size checks, so there is one refusal path rather than three.
+    try:
+        path = confined_source_file(
+            raw,
+            content_root=resolve_content_root(),
+            max_bytes=_MAX_IMAGE_BYTES,
+            action="read",
+        )
+    except ConfinementError as exc:
+        # Keep the guidance accurate per failure. Appending "must live under the content
+        # root" to a SIZE refusal would send the caller to fix the wrong thing, and the
+        # brain acts on these strings — a misleading refusal costs a retry loop.
+        text = str(exc)
+        if "outside the resolved content root" in text:
+            raise ValueError(
+                f"{text} — images must live under the profile's content root "
+                f"(the cockpit saves inbound images to content/<profile>/uploads/)"
+            ) from exc
+        if "over the" in text and "byte cap" in text:
+            raise ValueError(f"{text}; downscale it first") from exc
+        if "does not exist" in text:
+            raise ValueError(f"no readable image file at {raw} ({text})") from exc
+        raise ValueError(text) from exc
     data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
     return media_type, data
 

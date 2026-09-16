@@ -218,6 +218,7 @@ INPUT_GLOBS = (
     "prospects/sequences/.pool/sequence-stats.json",
     "prospects/sequences/.pool/sequence-state.json",
     "prospects/sequences/.pool/lint-*.json",
+    "prospects/evals/lanes-state.jsonl",
     "prospects/imports/*.csv",
     "prospects/prospects-*-hubspot.csv",
     "accounts/*/prospects-*-outreach-*.md",

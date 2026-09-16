@@ -16,6 +16,7 @@ Lens coverage (per the hardening PRD verification plan):
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -383,6 +384,107 @@ def test_a_worker_can_only_beat_its_own_leases(clean_db):
     asyncio.run(body())
 
 
+def test_a_gate_wait_reclaim_never_burns_attempts(clean_db):
+    """RL-17 (V024) on the real engine. A run parked at `awaiting_approval` can have its
+    lease reclaimed repeatedly — purely from waiting out `p_lease_s`, with zero actual
+    execution failures — and `attempts` must never move. Reclaim it MORE than
+    MAX_ATTEMPTS (3, backend/services/runs/queue.py) times to prove dispatch_claimed's
+    "failed too many times" guard can never fire on a gate wait alone."""
+
+    async def body():
+        from backend.database import create_pool, workspace_scope
+
+        api = await create_pool(clean_db["api_dsn"], min_size=1, max_size=3)
+        try:
+            async with api.acquire() as c:
+                _, wid = await _register(c, "gatewait@example.com")
+            rid = await _seed_run(api, workspace_scope, wid)
+            async with workspace_scope(api, wid) as c:
+                await c.execute("UPDATE runs SET status='queued' WHERE id=$1::uuid", rid)
+
+            # First dispatch: promotes queued -> running, attempts 0 -> 1.
+            async with api.acquire() as c, c.transaction():
+                first = await c.fetch("SELECT * FROM claim_next_run($1, $2)", "worker-a", 90)
+            assert len(first) == 1
+            assert first[0]["attempts"] == 1
+
+            # The node hits its gate: parked at awaiting_approval, pre-reclaim attempts=1.
+            async with workspace_scope(api, wid) as c:
+                await c.execute("UPDATE runs SET status='awaiting_approval' WHERE id=$1::uuid", rid)
+                pre_reclaim_attempts = await c.fetchval(
+                    "SELECT attempts FROM runs WHERE id=$1::uuid", rid
+                )
+            assert pre_reclaim_attempts == 1
+
+            # Reclaim 4 times (> MAX_ATTEMPTS=3), purely by expiring the lease each time —
+            # exactly what a long gate wait does to a worker's heartbeat.
+            for n in range(4):
+                async with workspace_scope(api, wid) as c:
+                    await c.execute(
+                        "UPDATE runs SET heartbeat_at = now() - interval '1000 seconds' "
+                        "WHERE id=$1::uuid",
+                        rid,
+                    )
+                async with api.acquire() as c, c.transaction():
+                    claimed = await c.fetch(
+                        "SELECT * FROM claim_next_run($1, $2)", f"worker-gate-{n}", 90
+                    )
+                assert len(claimed) == 1, f"reclaim {n} should have found the gated row"
+                assert claimed[0]["prev_status"] == "awaiting_approval"
+                assert claimed[0]["attempts"] == pre_reclaim_attempts, (
+                    f"reclaim {n} of an awaiting_approval run must NOT bump attempts"
+                )
+
+            async with workspace_scope(api, wid) as c:
+                row = await c.fetchrow("SELECT status, attempts FROM runs WHERE id=$1::uuid", rid)
+            assert row["status"] == "awaiting_approval"
+            assert row["attempts"] == pre_reclaim_attempts
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
+def test_a_stranded_running_lease_reclaim_still_burns_attempts(clean_db):
+    """RL-17 (V024) regression guard: the fix must not touch the crash-loop protection
+    MAX_ATTEMPTS exists for. A run that is genuinely 'running' (never gated) whose lease
+    expires — a crashed or killed worker, not a human waiting — must still increment
+    `attempts` on every reclaim exactly as V021 always did."""
+
+    async def body():
+        from backend.database import create_pool, workspace_scope
+
+        api = await create_pool(clean_db["api_dsn"], min_size=1, max_size=3)
+        try:
+            async with api.acquire() as c:
+                _, wid = await _register(c, "stuckrun@example.com")
+            rid = await _seed_run(api, workspace_scope, wid)
+            async with workspace_scope(api, wid) as c:
+                await c.execute(
+                    "UPDATE runs SET status='running', claimed_by='worker-dead', "
+                    "heartbeat_at = now() - interval '1000 seconds', attempts = 1 "
+                    "WHERE id=$1::uuid",
+                    rid,
+                )
+
+            async with api.acquire() as c, c.transaction():
+                claimed = await c.fetch("SELECT * FROM claim_next_run($1, $2)", "worker-b", 90)
+            assert len(claimed) == 1
+            assert claimed[0]["prev_status"] == "running"
+            assert claimed[0]["attempts"] == 2, (
+                "a stranded running lease's reclaim must still count against MAX_ATTEMPTS"
+            )
+
+            async with workspace_scope(api, wid) as c:
+                row = await c.fetchrow("SELECT status, attempts FROM runs WHERE id=$1::uuid", rid)
+            assert row["status"] == "running"
+            assert row["attempts"] == 2
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
 def test_run_events_rows_are_invisible_to_another_workspace(clean_db):
     """A5/T28 — the publish relay writes run_events under the run's workspace, and the
     durable event log is the stream's replay source. If it leaked across tenants, one
@@ -413,6 +515,258 @@ def test_run_events_rows_are_invisible_to_another_workspace(clean_db):
                     )
                     == []
                 ), "the replay read must be empty for a workspace that does not own the run"
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
+def _account_linked_identity_sql() -> str:
+    """The EXACT query DELETE /v1/account's federated step-up runs, read from the router's
+    source. Parsed, not imported: this tier installs only pytest + asyncpg, and importing the
+    router pulls in FastAPI. A mocked suite matches this text by substring, so only here are
+    its column names and the ``$3::uuid`` cast checked against a real schema."""
+    import ast
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "backend" / "routers" / "account.py"
+    for node in ast.parse(src.read_text(encoding="utf-8")).body:
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        if any(isinstance(t, ast.Name) and t.id == "LINKED_IDENTITY_SQL" for t in targets):
+            # Adjacent string literals parse to ONE Constant, so this is the full query text.
+            assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+            return node.value.value
+    raise AssertionError("backend/routers/account.py no longer defines LINKED_IDENTITY_SQL")
+
+
+def test_account_step_up_identity_link_matches_only_this_users_issuer_subject(clean_db):
+    """The federated DELETE step-up refuses unless (issuer, subject) maps to the authenticated
+    user. Run as gtm_api on the plain pool, with a text user id, exactly as the router does."""
+    sql = _account_linked_identity_sql()
+    issuer_a, issuer_b = "https://idp-a.example", "https://idp-b.example"
+
+    async def body():
+        from backend.database import create_pool
+
+        api = await create_pool(clean_db["api_dsn"], min_size=1, max_size=2)
+        try:
+            async with api.acquire() as c:
+                alice, _ = await _register(c, "fa@example.com")
+                bob, _ = await _register(c, "fb@example.com")
+                await c.execute(
+                    "INSERT INTO external_identities(issuer, subject, user_id) "
+                    "VALUES($1, $2, $3::uuid)",
+                    issuer_a,
+                    "subject-a",
+                    alice,
+                )
+                assert await c.fetchval(sql, issuer_a, "subject-a", alice) == 1
+                assert await c.fetchval(sql, issuer_a, "subject-a", bob) is None
+                assert await c.fetchval(sql, issuer_b, "subject-a", alice) is None
+                assert await c.fetchval(sql, issuer_a, "subject-b", alice) is None
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
+def test_a_failed_runs_error_code_is_written_and_read_under_rls(clean_db):
+    """M-07 (V023) on the real engine. The fakes emulate the UPDATE by regex; only Postgres
+    proves the column exists, is nullable with no default, and that gtm_api — FORCE RLS, no
+    BYPASSRLS — writes it through ``_fail_run`` and reads it back on both read paths (the poll
+    query and the stream's opening read, each an asyncpg Record), while another tenant sees
+    nothing. The queue claim, which names its columns, still hands the run out after V023."""
+
+    async def body():
+        from backend.database import create_pool, workspace_scope
+        from backend.services.runs.persistence import _fail_run
+        from backend.services.runs.queries import fetch_run_detail
+        from backend.services.runs.stream import _read_opening, _terminal_frame
+
+        admin = await asyncpg.create_pool(clean_db["admin_dsn"], min_size=1, max_size=1)
+        api = await create_pool(clean_db["api_dsn"], min_size=1, max_size=3)
+        try:
+            async with admin.acquire() as c:
+                column = await c.fetchrow(
+                    "SELECT data_type, is_nullable, column_default FROM information_schema.columns "
+                    "WHERE table_name = 'runs' AND column_name = 'error_code'"
+                )
+            assert dict(column) == {
+                "data_type": "text",
+                "is_nullable": "YES",
+                "column_default": None,
+            }
+
+            async with api.acquire() as c:
+                _, wa = await _register(c, "failed-a@example.com")
+                _, wb = await _register(c, "failed-b@example.com")
+            rid = await _seed_run(api, workspace_scope, wa)
+            async with workspace_scope(api, wa) as c:
+                await c.execute("UPDATE runs SET status='queued' WHERE id=$1::uuid", rid)
+            async with api.acquire() as c, c.transaction():
+                claimed = await c.fetch("SELECT * FROM claim_next_run($1, $2)", "worker-m07", 90)
+            assert [str(r["id"]) for r in claimed] == [rid]
+            async with workspace_scope(api, wa) as c:
+                assert (
+                    await c.fetchval("SELECT error_code FROM runs WHERE id=$1::uuid", rid) is None
+                )
+
+            await _fail_run(api, wa, rid, "gate timeout", error_code="gate_timeout")
+
+            async with workspace_scope(api, wa) as c:
+                row = await c.fetchrow(
+                    "SELECT status, error, error_code FROM runs WHERE id=$1::uuid", rid
+                )
+                opening = await _read_opening(c, wa, rid, None)
+            assert dict(row) == {
+                "status": "failed",
+                "error": "gate timeout",
+                "error_code": "gate_timeout",
+            }
+            detail = await fetch_run_detail(api, wa, rid)
+            assert detail["error_code"] == "gate_timeout"
+            assert detail["stages"][0]["error_code"] == "gate_timeout"
+            assert '"error_code":"gate_timeout"' in _terminal_frame(opening.row)
+            async with workspace_scope(api, wb) as c:
+                assert (
+                    await c.fetchrow("SELECT error_code FROM runs WHERE id=$1::uuid", rid) is None
+                )
+            assert await fetch_run_detail(api, wb, rid) is None
+        finally:
+            await api.close()
+            await admin.close()
+
+    asyncio.run(body())
+
+
+def test_client_request_id_concurrent_admission_creates_exactly_one_row(clean_db):
+    """RT-04 (V025) on the real engine. Two concurrent POST /v1/runs-shaped calls for the
+    SAME workspace + client_request_id must yield exactly one row and the SAME run_id — a
+    fake conn cannot prove this, since the whole point is Postgres's own unique index plus
+    _reserve_cap's advisory lock serialising the two transactions. Fires both through
+    insert_run_row directly (asyncio.gather), the exact function POST /v1/runs calls."""
+
+    async def body():
+        import uuid
+
+        from backend.database import create_pool, workspace_scope
+        from backend.schemas import RunRequest
+        from backend.services.runs.admission import insert_run_row
+
+        api = await create_pool(clean_db["api_dsn"], min_size=2, max_size=4)
+        try:
+            async with api.acquire() as c:
+                _, wid = await _register(c, "rt04-race@example.com")
+
+            req = RunRequest(
+                profile_name="p", prompt="do the thing", client_request_id="race-key-1"
+            )
+            run_id_a, run_id_b = str(uuid.uuid4()), str(uuid.uuid4())
+            result_a, result_b = await asyncio.gather(
+                insert_run_row(api, wid, run_id_a, profile_name="p", agent_row=None, body=req),
+                insert_run_row(api, wid, run_id_b, profile_name="p", agent_row=None, body=req),
+            )
+
+            effective_a, existed_a, *_ = result_a
+            effective_b, existed_b, *_ = result_b
+            # Exactly one of the two calls won the race (existed=False); the other lost
+            # (existed=True) and both report the SAME winning run_id.
+            assert {existed_a, existed_b} == {True, False}
+            assert effective_a == effective_b
+
+            async with workspace_scope(api, wid) as c:
+                rows = await c.fetch(
+                    "SELECT id::text FROM runs WHERE workspace_id = $1::uuid "
+                    "AND client_request_id = 'race-key-1'",
+                    wid,
+                )
+            assert [r["id"] for r in rows] == [effective_a]
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
+def test_open_gate_row_never_clobbers_a_decision_committed_while_it_waits(clean_db):
+    """RL-12 (Gap 1) on the real engine. ``_open_gate_row``'s reset is a single
+    ``INSERT ... ON CONFLICT DO UPDATE ... WHERE`` statement precisely so that its WHERE
+    clause is evaluated against the row's CURRENT COMMITTED state — never a value read by
+    an earlier, separate statement. A fake conn cannot prove this: a single-threaded mock
+    always serialises the two calls in SOME order and never makes one of them block on a
+    real row lock, so it cannot show the WHERE clause seeing a decision that committed
+    WHILE the reset statement was waiting to acquire the lock, only one that committed
+    strictly before or strictly after.
+
+    Session A holds a transaction open that recorded a decision (mirroring
+    ``_record_gate_decision``) for 1.5s before committing; session B's ``_open_gate_row``
+    call starts 0.3s in — while A's row lock is still held — and is timed. Two things
+    together prove genuine cross-transaction atomicity rather than lucky sequencing:
+    B's call must have BLOCKED for most of A's remaining hold (not returned early with a
+    stale answer), and once unblocked it must report the row unchanged, not reset."""
+
+    async def body():
+
+        from backend.database import create_pool, workspace_scope
+        from backend.services.runs.gates import (
+            _content_sha,
+            _open_gate_row,
+            _record_gate_decision,
+        )
+
+        api = await create_pool(clean_db["api_dsn"], min_size=2, max_size=3)
+        try:
+            async with api.acquire() as c:
+                _, wid = await _register(c, "rl12-race@example.com")
+            run_id = await _seed_run(api, workspace_scope, wid)
+            sha = _content_sha("the pending draft")
+
+            # The gate's original open — the row session B's reset attempt will race
+            # against. Its own `opened_at` is asserted unchanged at the end (Gap 2's
+            # property: a left-alone row keeps its REAL open time, not a fresh one).
+            first_open = await _open_gate_row(api, wid, run_id, "plan", "plan", sha)
+            assert first_open[0] is True  # a fresh insert always "changes" something
+            original_opened_at = first_open[1]
+
+            hold_s, start_delay = 1.5, 0.3
+
+            async def _hold_a_committed_decision() -> None:
+                async with workspace_scope(api, wid) as conn:
+                    recorded = await _record_gate_decision(conn, wid, run_id, "approve", None)
+                    assert recorded is True
+                    # The transaction — and the row lock its UPDATE took — stays open here.
+                    await asyncio.sleep(hold_s)
+                # Commits on exiting this block.
+
+            async def _attempt_reset_while_a_holds_the_lock() -> tuple[tuple, float]:
+                await asyncio.sleep(start_delay)
+                started = time.monotonic()
+                result = await _open_gate_row(api, wid, run_id, "plan", "plan", sha)
+                return result, time.monotonic() - started
+
+            _, (reset_result, elapsed) = await asyncio.gather(
+                _hold_a_committed_decision(), _attempt_reset_while_a_holds_the_lock()
+            )
+
+            changed, opened_at, _db_now = reset_result
+            assert changed is False, "a decision committed mid-wait must be left alone"
+            assert opened_at == original_opened_at, (
+                "a left-alone row must report its ORIGINAL open time, not a fresh one"
+            )
+            # The headline proof: B did not read stale pre-commit data and return early —
+            # it genuinely waited on A's row lock for most of A's remaining hold.
+            assert elapsed >= hold_s - start_delay - 0.3, (
+                f"_open_gate_row returned too fast ({elapsed:.3f}s) to have waited on "
+                "session A's row lock — it may have read a stale, pre-commit row instead"
+            )
+
+            async with workspace_scope(api, wid) as c:
+                row = await c.fetchrow(
+                    "SELECT state, decided_at, applied_at FROM run_gates "
+                    "WHERE run_id = $1::uuid AND gate = 'plan' AND node_id = 'plan'",
+                    run_id,
+                )
+            assert row["state"] == "approved" and row["decided_at"] is not None
+            assert row["applied_at"] is None, "the decision must still be UNCLAIMED"
         finally:
             await api.close()
 

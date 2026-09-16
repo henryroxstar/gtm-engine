@@ -29,6 +29,13 @@ def _lint_presenter_engine(
         return
     if str(shot.get("role", "") or "").strip() != "presenter":
         return
+    # Q5: High emotional load beats cannot use synthetic avatars
+    if str(shot.get("emotional_load", "") or "").strip().lower() == "high":
+        errors.append(
+            f"{prefix} has emotional_load='high' but specifies role='presenter'. "
+            "High emotional load beats cannot route to synthetic avatars; use broll or real human footage."
+        )
+        return
     speaks = bool(str(shot.get("spoken", "") or "").strip())
     if not speaks:
         return

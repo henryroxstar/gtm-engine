@@ -298,8 +298,9 @@ def test_stream_per_workspace_cap_429():
 
 def test_cancel_publishes_done_to_stream():
     conn = AsyncMock()
-    # require_auth entitlement, then cancel_run's SELECT status (non-terminal)
-    conn.fetchrow.side_effect = [_ENTITLEMENT_ROW, {"status": "running"}]
+    # require_auth entitlement, cancel_run's SELECT status (non-terminal), then
+    # cancel()'s own conditional `UPDATE runs ... RETURNING id`.
+    conn.fetchrow.side_effect = [_ENTITLEMENT_ROW, {"status": "running"}, {"id": RUN_ID}]
     app = _make_app()
     p1, p2 = _patched(conn)
 
@@ -309,10 +310,10 @@ def test_cancel_publishes_done_to_stream():
         with p1, p2, TestClient(app) as client:
             resp = client.post(f"/v1/runs/{RUN_ID}/cancel", headers=_auth_header())
         assert resp.status_code == 200
-        assert resp.json()["status"] == "rejected"
+        assert resp.json()["status"] == "canceled"
         event, data = q.get_nowait()
         assert event == "done"
-        assert data["status"] == "rejected"
+        assert data["status"] == "canceled"
     finally:
         runs_router._unsubscribe(RUN_ID, q)
 

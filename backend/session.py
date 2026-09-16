@@ -35,7 +35,9 @@ def _skills_key(allowed_skills: frozenset[str] | None) -> tuple[str, ...] | None
     return None if allowed_skills is None else tuple(sorted(allowed_skills))
 
 
-def _workspace_scoped_config(base_cfg: Any, workspace_id: str, repo_root: Path) -> Any:
+def _workspace_scoped_config(
+    base_cfg: Any, workspace_id: str, repo_root: Path, credentials: dict[str, str] | None = None
+) -> Any:
     """Return a copy of ``base_cfg`` with content + profile roots pinned to this
     workspace's isolated tree (``data/workspaces/<ws>/``), creating the dirs.
 
@@ -44,6 +46,17 @@ def _workspace_scoped_config(base_cfg: Any, workspace_id: str, repo_root: Path) 
     subprocess env, so the run's skills are scoped too — with no shared-os.environ
     race across concurrent runs. Kept as a module function so it is unit-testable
     without an SDK session.
+
+    BYOK fail-closed (2026-09-14): the four provider fields below are ALWAYS
+    overwritten from ``credentials`` — never left at ``base_cfg``'s value — even
+    when the workspace has no key for a provider (``None`` in that case). Leaving
+    them inherited would let a workspace with no BYOK key silently fall back to
+    ``base_cfg``'s platform-level key (``SALESHANDY_API_KEY`` etc. from Doppler,
+    meant for the single-tenant personal VPS): one tenant's outreach running
+    through another party's real Saleshandy/Apollo/RocketReach/Syften account —
+    cost, quota, and sending-reputation leakage, not just a scoping gap. With the
+    field set to ``None``, ``agent/mcp_config.py``'s ``if cfg.<provider>_api_key:``
+    simply omits that MCP tool from the run instead.
     """
     import dataclasses
 
@@ -53,7 +66,18 @@ def _workspace_scoped_config(base_cfg: Any, workspace_id: str, repo_root: Path) 
     content_dir = workspace_content_root(workspace_id, repo_root)
     profiles_dir.mkdir(parents=True, exist_ok=True)
     content_dir.mkdir(parents=True, exist_ok=True)
-    return dataclasses.replace(base_cfg, content_root=content_dir, profiles_root=profiles_dir)
+
+    creds = credentials or {}
+    replacements = {
+        "content_root": content_dir,
+        "profiles_root": profiles_dir,
+        "saleshandy_api_key": creds.get("saleshandy"),
+        "apollo_api_key": creds.get("apollo"),
+        "rocketreach_api_key": creds.get("rocketreach"),
+        "syften_api_key": creds.get("syften"),
+    }
+
+    return dataclasses.replace(base_cfg, **replacements)
 
 
 # Strong refs to in-flight pack-run metering writes (fire-and-forget create_task
@@ -201,6 +225,14 @@ class BackendSessionStore:
         for session in sessions:
             await session.close()
 
+    async def evict_workspace(self, workspace_id: str) -> None:
+        """Evict all warm sessions for a given workspace (e.g., when credentials change)."""
+        async with self._lock:
+            to_close = [k for k in self._sessions.keys() if k[0] == workspace_id]
+            evicted = [self._sessions.pop(k) for k in to_close]
+        for session in evicted:
+            await session.close()
+
 
 class _BackendSession:
     """One agent session for one (workspace_id, profile_name).
@@ -291,7 +323,14 @@ class _BackendSession:
 
         cfg = Config.from_env(repo_root=self._repo_root)
         if self._workspace_id:
-            cfg = _workspace_scoped_config(cfg, self._workspace_id, self._repo_root)
+            credentials = None
+            if self._pool:
+                from .services.integrations import get_workspace_credentials
+
+                credentials = await get_workspace_credentials(self._pool, self._workspace_id)
+            cfg = _workspace_scoped_config(
+                cfg, self._workspace_id, self._repo_root, credentials=credentials
+            )
         self._agent = AgentSession(
             cfg,
             self._profile,

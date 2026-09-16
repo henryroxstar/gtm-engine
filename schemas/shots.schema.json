@@ -39,13 +39,18 @@
       "minLength": 1,
       "description": "Where this cut's voice-over comes from when the brand kit records no identity.voice_id — an operator-recorded WAV, a licensed read, an already-rendered track. Optional, and free text: the point is that a human named a source, not that they picked from a menu. Without it, gtm_core.shots_lint refuses any shot carrying a `spoken` line on a profile with no voice, because video-render generates the VO only when a voice_id is present and has no else-branch — so the line renders as silence and only video_lint V10 catches it, after the whole render has been paid for."
     },
+    "caption_voice": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The narrative voice governing captions throughout the film, matching creator-brief decision 10 (e.g. 'close narrator', 'inner voice', 'second person', 'character', 'choric'). Optional."
+    },
     "narration": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "lines"
       ],
-      "description": "An independent VOICE-OVER TRACK laid over an already-cut timeline \u2014 the case `spoken`/`vo_seconds` cannot express, and the reason this key exists. Those two model the lane where a shot IS the render request: `spoken` marks a shot as one an audio-capable video model will render (integer duration, the seedance_2_0 4s floor), and `vo_seconds` binds that shot's `duration_s` to the truncate/atempo ceilings gtm_core.video_finish.mux enforces. Both are correct there and are unchanged by this key. Neither fits NARRATION, where `duration_s` is final-CUT length rather than a render request, a line may start before its picture cut on purpose, and the gaps between lines are audio design rather than dead air. Measured on content/<tenant>/scripts/archive/2026-09-04-bao-daily-launch.shots.json (30.0s, 12 beats, 10 lines): putting the real read on the shots fired 7 vo-parity errors, and removing `vo_seconds` while keeping `spoken` fired 16 duration errors, so the read was filed in the free-form `production` namespace and the film's actual audio script became invisible to every gate. Placement here is by VOICE ONSET on the master timeline and is deliberately INDEPENDENT of shot boundaries \u2014 nothing in a line names a shot, because the picture beat a line falls under is derivable from its onset (verified against all 10 lines of that film) and a copied shot number is a restated number waiting to go stale on the next re-cut. The two lanes are mutually exclusive per file: a document carrying both this key and a shot-level `spoken`/`vo_seconds` is refused by gtm_core.shots_lint, because they make contradictory claims about what `duration_s` means. `vo_source` still answers where the read came from and is not restated here.",
+      "description": "An independent VOICE-OVER TRACK laid over an already-cut timeline \u2014 the case `spoken`/`vo_seconds` cannot express, and the reason this key exists. Those two model the lane where a shot IS the render request: `spoken` marks a shot as one an audio-capable video model will render (integer duration, the seedance_2_0 4s floor), and `vo_seconds` binds that shot's `duration_s` to the truncate/atempo ceilings gtm_core.video_finish.mux enforces. Both are correct there and are unchanged by this key. Neither fits NARRATION, where `duration_s` is final-CUT length rather than a render request, a line may start before its picture cut on purpose, and the gaps between lines are audio design rather than dead air. Measured on one 30.0s launch film's shots document (12 beats, 10 lines): putting the real read on the shots fired 7 vo-parity errors, and removing `vo_seconds` while keeping `spoken` fired 16 duration errors, so the read was filed in the free-form `production` namespace and the film's actual audio script became invisible to every gate. Placement here is by VOICE ONSET on the master timeline and is deliberately INDEPENDENT of shot boundaries \u2014 nothing in a line names a shot, because the picture beat a line falls under is derivable from its onset (verified against all 10 lines of that film) and a copied shot number is a restated number waiting to go stale on the next re-cut. The two lanes are mutually exclusive per file: a document carrying both this key and a shot-level `spoken`/`vo_seconds` is refused by gtm_core.shots_lint, because they make contradictory claims about what `duration_s` means. `vo_source` still answers where the read came from and is not restated here.",
       "properties": {
         "lines": {
           "type": "array",
@@ -224,7 +229,39 @@
             "type": "string",
             "description": "Why the caption diverges from the VO. Required alongside caption_text_override in practice: an unexplained divergence is indistinguishable from a typo, and this is the field that tells a later reader which one it is."
           },
+          "caption_function": {
+            "type": "string",
+            "enum": [
+              "premise",
+              "want",
+              "cost",
+              "stakes",
+              "time",
+              "interior",
+              "irony",
+              "setup",
+              "callback",
+              "turn",
+              "describe",
+              "message"
+            ],
+            "description": "Declared narrative function of this shot's burned caption (caption-craft.md). Required on every shot carrying a narrative caption in narrative caption mode. One of twelve functions: premise, want, cost, stakes, time, interior, irony, setup, callback, turn, describe, message."
+          },
+          "caption_pairs_with": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-indexed shot number this caption pairs with in a narrative thread. Required when caption_function == 'callback' (must point to an earlier 'setup' shot). Recommended when caption_function == 'setup' (points to the subsequent 'callback' shot)."
+          },
+          "emotional_load": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "Emotional intensity level of the beat (Q5). 'high' beats (intense grief, breakthrough joy, tears) cannot route to synthetic avatars; they must use human footage or broll. Default is 'low'."
+          },
           "audio_bed": {
+
             "type": "string",
             "description": "What this shot SOUNDS like when nobody is speaking in it — room tone, a music cue, an SFX. Required by gtm_core.shots_lint on any shot with no `spoken` line, because a shot with neither is silent and a run of them is what makes a finished film read as broken (2026-08-28: 39% of three-questions-p1 was digital silence, and no gate had an opinion). Distinct from `sfx`, which is a diegetic cue handed to a native-audio MODEL; this is a direction for the finishing mix. Deliberate silence is legitimate and is declared as \"silent — <why>\": only the reason separates it from the accidental kind."
           },
@@ -253,6 +290,14 @@
             "minItems": 1,
             "description": "Element SLUGS this shot is built from (`gtm_core.elements`) — a character, an environment, an object, a product, a wardrobe item the library already holds. Naming one here is how a shot inherits a subject's pose set and its constraints instead of re-describing them, which is what makes the same prop look like the same prop across shots.\n\n`video-storyboard` resolves each slug to that element's ordered pose files and hands them to the render as `reference_images`; `video-render` resolves it to a provider element id where one is registered. Slugs are validated as bare path segments in Python (`_safe_segment`), and `gtm_core.shots_lint` WARNS when a named slug has no element under the bound profile's content root — a check that is inert when the linter was given no profile, because guessing one is how a tenant's elements get reported as missing from another tenant's tree."
           },
+          "element_ref": {
+            "type": "string",
+            "description": "Identity anchor element slug (gtm_core.elements) required on character shots to maintain identity across the image-to-video boundary."
+          },
+          "visual_invariant": {
+            "type": "string",
+            "description": "Wardrobe, lighting, and environmental invariants that must remain stable across shots referencing the same element_ref."
+          },
           "end_frame": {
             "type": "string",
             "minLength": 1,
@@ -268,7 +313,7 @@
           },
           "production": {
             "type": "object",
-            "description": "RESERVED namespace for this shot's production record — what was MADE, and how, as opposed to what to shoot. The provider video_id, the frames dir, the build command, the lane, the burned-in timecode, the planned-vs-measured durations, the source of that measurement, a superseded value kept for comparison, a dated note about any of it. Free-form: values may be of any type and nothing reads them. Two exceptions stay OUT here and are declared as real fields, because gtm_core.video_finish.burn_captions reads them: `id` and `file`. See the top-level `production` description for why the namespace exists at all.",
+            "description": "RESERVED namespace for this shot's production record — what was MADE, and how, as opposed to what to shoot. The provider video_id, the frames dir, the build command, the lane, the burned-in timecode, the planned-vs-measured durations, the source of that measurement, a superseded value kept for comparison, a dated note about any of it. Free-form: values may be of any type and nothing reads them. Two exceptions stay OUT here and are declared as real fields, because gtm_core.video_finish.burn_captions reads them: `id` and `file`.\n\nTWO keys INSIDE the namespace are read, and this is where they are documented. FIRST, `overlay` — a chat bubble drawn beside the phone in frame and burned in post (so the phone can be held at a natural angle, screen away from the lens, and the screen stays blank), consumed by `gtm_core.video_finish overlays` and checked by `gtm_core.shots_lint.overlay`. Shape: `{\"kind\": \"outgoing bubble\" | \"incoming bubble\" | \"action chip\" (or the short forms outgoing/incoming/chip), \"text\": \"...\" (required, non-empty, at most 160 characters; \"\\n\" is a hard line break), \"side\"?: \"left\" | \"right\" (which frame edge the bubble hugs — the tail points toward the other side, where the phone is; default: outgoing right, incoming and chip left), \"y_frac\"?: (0,1) (vertical centre as a fraction of frame height, default 0.62; the scene lifts a tall bubble clear of the caption band and the sidecar records where it actually landed), \"w_frac\"?: (0,1) (max bubble width as a fraction of frame width, default 0.46, chip 0.40), \"arrive_s\"?: >= 0 (when the bubble lands, default 0.25), \"start_s\"? / \"end_s\"? (the window the bubble is present, default the whole shot as PROBED off the file), \"note\"?: free prose}`. A list of such objects composites them in order — \"a chip, then a bubble\" is two entries, never a compound `kind`. An unknown key is refused by the finish verb rather than dropped. The finish verb writes `<shot-id>-overlaid.overlays.json` beside the composite, recording the MEASURED pixel box of each bubble. It lives here rather than as a declared field because the shot lists that carry it already did so before anything read it; the schema stays `additionalProperties: true` on this namespace.\n\nSECOND: `transition_in` — how this shot is CUT INTO, consumed per join by `gtm_core.video_finish stitch` (`--transitions-from-shots`) and checked by `gtm_core.shots_lint.transition` and `gtm_core.shots_coverage`. Shape: `{\"kind\": \"dissolve\" | \"fade\" | \"push\" (dissolve = a cross-dissolve from the previous shot, fade = through black, push = a vertical feed-scroll where the outgoing shot slides up and out while the incoming shot slides up into frame from the bottom), \"duration_s\": a number in (0, 1.0], \"why\"?: free prose}`. The ABSENCE of the key is a hard cut — that is the default, and there is no \"cut\" kind, because a default written twice is a default that can disagree with itself. Declared on the FIRST shot it is refused: a transition describes a JOIN, and the first shot has none. It consumes `duration_s` of overlap out of BOTH adjacent shots, so the stitch refuses one longer than either can host, and every caption after it lands that much earlier on the master's timeline. The stitch records the joins it applied as `<master stem>.transitions.json`, which the finish `run` carries onto the finish manifest as `transitions` — the evidence `shots_coverage --stage finish` reads back.\n\nTHIRD: `screen_ui` — this shot's picture is a `gtm_core.screen_ui` render rather than a generated or captured clip, consumed by `gtm_core.screen_ui.build` (the rebuild driver `video-finish` Step 1.7 runs for a screen_ui film). Shape: `{\"scene\": \"<a name in gtm_core.screen_ui.registry._SCENES>\", \"image\"?: \"<path, relative to this shots.json>\", \"stills\"?: [\"<path>\", ...] (order-significant), \"actions\"?: \"<path to a timed actions JSON>\", \"duration_s\"?: <override the shot's own duration_s for the RENDER only, e.g. to cover a transition overlap>}`. Which of `image`/`stills`/`actions` apply, and which other keys a scene accepts, is the same `_SCENE_EXTRAS` allowlist `gtm_core.screen_ui.cli` already enforces — an unlisted key for that scene is refused, not silently ignored. A shot with neither `screen_ui` nor a top-level `file` is a validation error the driver reports and refuses to build past, never a shot it renders something generic for.",
             "additionalProperties": true
           }
         }

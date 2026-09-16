@@ -154,6 +154,8 @@ def test_get_run_returns_protocol1_nodes_and_content():
         "error": None,
         "pending_gate": None,
         "pending_content": None,
+        "gate_kind": None,
+        "gate_node_id": None,
     }
     block = {"id": "node-radar", "type": "markdown", "props": {"text": "t"}, "fallback_text": "t"}
 
@@ -189,3 +191,107 @@ def test_get_run_returns_protocol1_nodes_and_content():
         body2 = client.get(f"/v1/runs/{run_id}").json()
         assert body2["nodes"] is None
         assert body2["content"] is None
+
+
+def test_get_run_exposes_the_open_gate_kind_and_node_id():
+    """A polling client (no open stream) must be able to identify which gate is open and
+    what kind it is — not just that the run is awaiting_approval (client issue #240)."""
+    ws_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    run_row = {
+        "id": run_id,
+        "status": "awaiting_approval",
+        "profile_name": "p",
+        "output": None,
+        "error": None,
+        "pending_gate": "⟦GATE:plan⟧",
+        "pending_content": "the enroll draft",
+        "gate_kind": "email_enroll",
+        "gate_node_id": "sequence",
+    }
+
+    conn = AsyncMock()
+    conn.fetchrow.return_value = run_row
+    conn.fetch.side_effect = [[], []]
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _scope(pool, workspace_id):
+        yield conn
+
+    app = FastAPI()
+    app.include_router(runs_router.router, prefix="/v1")
+    app.state.pool = MagicMock()
+    ctx = WorkspaceCtx(user_id="u", workspace_id=ws_id, entitlement="pro")
+    app.dependency_overrides[require_auth] = lambda: ctx
+
+    with (
+        patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+        TestClient(app) as client,
+    ):
+        body = client.get(f"/v1/runs/{run_id}").json()
+
+    assert body["gate"] == "email_enroll"
+    assert body["pending_node_id"] == "sequence"
+
+
+def test_list_runs_surfaces_the_open_gate_per_row():
+    """FL15/M-12: an approvals-inbox client should be able to build its view from ONE
+    GET /runs call — not a follow-up GET /runs/{id} per row (client issue #240, now
+    also on the list endpoint). Two rows, one gated one not, so the query's per-row
+    correlated subquery can't accidentally return the same value for every row."""
+    ws_id = str(uuid.uuid4())
+    gated_id = str(uuid.uuid4())
+    plain_id = str(uuid.uuid4())
+    rows = [
+        {
+            "id": gated_id,
+            "status": "awaiting_approval",
+            "profile_name": "p",
+            "agent_id": None,
+            "payload": None,
+            "created_at": None,
+            "pending_gate": "⟦GATE:publish⟧",
+            "gate_kind": "publish",
+            "gate_node_id": "publish",
+        },
+        {
+            "id": plain_id,
+            "status": "running",
+            "profile_name": "p",
+            "agent_id": None,
+            "payload": None,
+            "created_at": None,
+            "pending_gate": None,
+            "gate_kind": None,
+            "gate_node_id": None,
+        },
+    ]
+
+    conn = AsyncMock()
+    conn.fetch.return_value = rows
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _scope(pool, workspace_id):
+        yield conn
+
+    app = FastAPI()
+    app.include_router(runs_router.router, prefix="/v1")
+    app.state.pool = MagicMock()
+    ctx = WorkspaceCtx(user_id="u", workspace_id=ws_id, entitlement="pro")
+    app.dependency_overrides[require_auth] = lambda: ctx
+
+    with (
+        patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+        TestClient(app) as client,
+    ):
+        body = client.get("/v1/runs").json()
+
+    by_id = {r["run_id"]: r for r in body}
+    assert by_id[gated_id]["gate"] == "publish"
+    assert by_id[gated_id]["pending_node_id"] == "publish"
+    assert by_id[plain_id]["gate"] is None
+    assert by_id[plain_id]["pending_node_id"] is None

@@ -67,13 +67,17 @@ def _run_gate2(ws_env, dispatch_return):
 
 
 def _reached_ok(conn) -> bool:
-    return any("status = 'ok'" in c.args[0] for c in conn.execute.call_args_list)
+    # RL-03: complete_run now reads its guarded write's match back via `fetchrow(...
+    # RETURNING id)` instead of a bare `execute` — check both call lists.
+    calls = list(conn.execute.call_args_list) + list(conn.fetchrow.call_args_list)
+    return any("status = 'ok'" in c.args[0] for c in calls)
 
 
 def test_hash_mismatch_fails_the_run(ws_env):
     conn, fail_run_mock = _run_gate2(ws_env, DispatchOutcome(ok=False, status="hash_mismatch"))
     fail_run_mock.assert_awaited_once()
     assert "integrity" in fail_run_mock.await_args.args[3].lower()
+    assert fail_run_mock.await_args.kwargs == {"error_code": "draft_integrity_failed"}
     assert not _reached_ok(conn)
 
 
@@ -81,6 +85,7 @@ def test_disclosure_missing_fails_the_run(ws_env):
     conn, fail_run_mock = _run_gate2(ws_env, DispatchOutcome(ok=False, status="disclosure_missing"))
     fail_run_mock.assert_awaited_once()
     assert "disclos" in fail_run_mock.await_args.args[3].lower()
+    assert fail_run_mock.await_args.kwargs == {"error_code": "disclosure_required"}
     assert not _reached_ok(conn)
 
 
@@ -94,6 +99,7 @@ def test_publish_failed_fails_the_run(ws_env):
     conn, fail_run_mock = _run_gate2(ws_env, outcome)
     fail_run_mock.assert_awaited_once()
     assert "rate limit" in fail_run_mock.await_args.args[3].lower()
+    assert fail_run_mock.await_args.kwargs == {"error_code": "dispatch_failed"}
     assert not _reached_ok(conn)
 
 
@@ -103,6 +109,7 @@ def test_no_destination_configured_fails_the_run(ws_env):
     conn, fail_run_mock = _run_gate2(ws_env, None)
     fail_run_mock.assert_awaited_once()
     assert "destination" in fail_run_mock.await_args.args[3].lower()
+    assert fail_run_mock.await_args.kwargs == {"error_code": "publish_not_configured"}
     assert not _reached_ok(conn)
 
 

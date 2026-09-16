@@ -40,6 +40,13 @@ _bearer = HTTPBearer(auto_error=False)
 # never a literal here). Same false-positive shape as backend/push.py's _TOKEN_SCOPE.
 _SERVICE_SECRET_ENV = "BILLING_SYNC_SECRET"  # nosec B105
 
+# RFC 6750 §3: no error param when no credentials were sent; ``invalid_token`` otherwise.
+_CHALLENGE_MISSING = {"WWW-Authenticate": "Bearer"}
+_CHALLENGE_INVALID = {"WWW-Authenticate": 'Bearer error="invalid_token"'}
+_CHALLENGE_EXPIRED = {
+    "WWW-Authenticate": 'Bearer error="invalid_token", error_description="token expired"'
+}
+
 
 # ── workspace context ─────────────────────────────────────────────────────────
 
@@ -71,18 +78,41 @@ async def require_auth(
     request: Request,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> WorkspaceCtx:
-    """Validate Bearer JWT and return workspace context. 401 on failure."""
+    """Validate Bearer JWT and return workspace context. 401 on failure.
+
+    Only an authentic token is ever reported as ``token_expired``: PyJWT verifies the
+    signature before the claims, so a forged expired token is ``token_invalid``. The
+    library's own message is never forwarded.
+    """
     if creds is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing token")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_missing", "message": "Missing bearer token"},
+            headers=_CHALLENGE_MISSING,
+        )
     try:
         payload = _auth.decode_token(creds.credentials, expected_type="access")
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_expired", "message": "Access token expired"},
+            headers=_CHALLENGE_EXPIRED,
+        ) from exc
     except jwt.InvalidTokenError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_invalid", "message": "Invalid access token"},
+            headers=_CHALLENGE_INVALID,
+        ) from exc
 
     workspace_id = payload.get("workspace_id")
     user_id = payload.get("sub")
     if not workspace_id or not user_id:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Malformed token payload")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_invalid", "message": "Invalid access token"},
+            headers=_CHALLENGE_INVALID,
+        )
 
     # Fetch live from DB so the billing service's entitlement sync (PUT
     # /v1/entitlement/{workspace_id}) takes effect immediately, no re-login needed.
@@ -119,7 +149,10 @@ def require_service_auth(request: Request) -> None:
         )
     header = request.headers.get("Authorization")
     if not header or not hmac.compare_digest(header, secret):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid service authorization")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "service_auth_invalid", "message": "Invalid service authorization"},
+        )
 
 
 # ── DB connection scoped to the authenticated workspace ───────────────────────

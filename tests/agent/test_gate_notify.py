@@ -159,6 +159,94 @@ def test_optout_alert_no_send_without_a_token(monkeypatch):
     assert captured == {}
 
 
+# --------------------------------------------------------------------------- push_pack_gate
+
+
+def _run_pack_gate(monkeypatch, profile: str, run_id: str, node_ids: list[str]) -> dict:
+    captured: dict = {}
+    _patch_httpx(monkeypatch, captured)
+    monkeypatch.setattr("agent.profiles.load_gate1_chat_id", lambda *a, **kw: 12345, raising=False)
+    from pathlib import Path
+
+    asyncio.run(
+        gate_notify.push_pack_gate(
+            _Cfg(),
+            Path("/nonexistent"),
+            profile,
+            run_id,
+            node_ids,
+            pack="prospecting",
+            variant="prospect-outreach",
+        )
+    )
+    return captured
+
+
+def test_pack_gate_names_the_node_and_the_resolve_command(monkeypatch):
+    captured = _run_pack_gate(monkeypatch, "acme", "r-1", ["sequence"])
+    text = captured["data"]["text"]
+    assert captured["data"]["parse_mode"] == "HTML"
+    assert "sequence" in text
+    assert "--gate-decision approve" in text
+    assert "--pack prospecting" in text
+    assert "--variant prospect-outreach" in text
+    assert "--run-id r-1" in text
+
+
+def test_pack_gate_lists_multiple_nodes(monkeypatch):
+    captured = _run_pack_gate(monkeypatch, "acme", "r-1", ["outreach", "sequence"])
+    text = captured["data"]["text"]
+    assert "outreach, sequence" in text
+
+
+def test_pack_gate_fields_are_html_escaped(monkeypatch):
+    captured = _run_pack_gate(monkeypatch, "<b>evil</b>", "r<script>", ["node<script>"])
+    text = captured["data"]["text"]
+    assert "<script>" not in text.replace("<code>", "").replace("</code>", "").replace(
+        "<b>", ""
+    ).replace("</b>", "")
+    assert "&lt;script&gt;" in text
+
+
+def test_pack_gate_no_send_without_a_token(monkeypatch):
+    captured: dict = {}
+    _patch_httpx(monkeypatch, captured)
+    from pathlib import Path
+
+    asyncio.run(
+        gate_notify.push_pack_gate(
+            _Cfg(telegram_bot_token=""),
+            Path("/nonexistent"),
+            "p",
+            "r",
+            ["n"],
+            pack="prospecting",
+            variant="prospect-outreach",
+        )
+    )
+    assert captured == {}
+
+
+def test_pack_gate_no_send_without_a_configured_chat_id(monkeypatch):
+    captured: dict = {}
+    _patch_httpx(monkeypatch, captured)
+    monkeypatch.setattr("agent.profiles.load_gate1_chat_id", lambda *a, **kw: None, raising=False)
+    from pathlib import Path
+
+    asyncio.run(
+        gate_notify.push_pack_gate(
+            _Cfg(),
+            Path("/nonexistent"),
+            "p",
+            "r",
+            ["n"],
+            pack="prospecting",
+            variant="prospect-outreach",
+        )
+    )
+    assert captured == {}
+
+
 def test_optout_alert_no_send_without_a_configured_chat_id(monkeypatch):
     captured: dict = {}
     _patch_httpx(monkeypatch, captured)

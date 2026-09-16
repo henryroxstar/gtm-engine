@@ -135,13 +135,43 @@ def test_v1_endpoint_payload_is_contentless(service_account):
 
     message = sent["body"]["message"]
     assert message["token"] == "device-1"
-    assert message["data"] == {"run_id": RUN_ID, "gate": "⟦GATE:plan⟧"}
+    # data.gate is the stream's enum value, not the raw ⟦GATE:...⟧ sentinel — one gate
+    # vocabulary for a client to parse everywhere.
+    assert message["data"] == {"run_id": RUN_ID, "gate": "plan"}
     # Contentless: the only strings on the wire are the fixed labels + ids.
     blob = json.dumps(sent["body"])
     assert "pending_content" not in blob
+    assert "⟦GATE" not in blob
     assert message["notification"] == {
         "title": "GTM — action needed",
         "body": "Plan ready for review",
+    }
+
+
+def test_publish_gate_payload_uses_the_stream_gate_vocabulary(service_account):
+    """The publish gate was previously untested — same normalisation as the plan gate,
+    covering the branch _build_payload takes for ⟦GATE:publish⟧."""
+    pool, _conn, scope = _pool_with_tokens([("device-1", "fcm")])
+    fake = FakeFcm()
+    with (
+        patch("backend.push.workspace_scope", scope),
+        patch.dict(
+            os.environ,
+            {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+            clear=False,
+        ),
+    ):
+        count = asyncio.run(
+            push_mod.send_gate_push(pool, WS_ID, RUN_ID, "⟦GATE:publish⟧", transport=fake)
+        )
+
+    assert count == 1
+    (sent,) = fake.sends
+    message = sent["body"]["message"]
+    assert message["data"] == {"run_id": RUN_ID, "gate": "publish"}
+    assert message["notification"] == {
+        "title": "GTM — action needed",
+        "body": "Post ready to approve",
     }
 
 
@@ -233,3 +263,25 @@ def test_no_tokens_registered_is_zero():
     fake = FakeFcm()
     assert _send(pool, scope, fake, {"PUSH_PROVIDER": "fcm"}) == 0
     assert fake.token_mints == 0
+
+
+# ── #240: the push names the real gate kind and the waiting step ─────────────────
+
+
+def test_payload_carries_pack_gate_kind_node_id_and_matching_body():
+    """A pack's enrollment gate must not push as "Plan ready for review" (the pre-#240
+    behaviour flattened every pack gate to plan) — the kind, its label and the node id
+    all reach the device, and the payload still carries no gate content."""
+    payload = push_mod._build_payload(RUN_ID, "email_enroll", "sequence")
+    assert payload["data"] == {"run_id": RUN_ID, "gate": "email_enroll", "node_id": "sequence"}
+    assert payload["body"] == "Contacts ready to load into your sender"
+    review = push_mod._build_payload(RUN_ID, "review", "capture")
+    assert review["data"]["gate"] == "review" and review["body"] == "Ready for your review"
+
+
+def test_payload_normalises_sentinels_and_unknown_kinds():
+    assert push_mod._build_payload(RUN_ID, "⟦GATE:publish⟧")["data"] == {
+        "run_id": RUN_ID,
+        "gate": "publish",
+    }
+    assert push_mod._build_payload(RUN_ID, "something-new")["data"]["gate"] == "review"

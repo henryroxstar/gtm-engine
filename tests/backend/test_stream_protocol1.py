@@ -246,7 +246,11 @@ def test_decide_gate_edit_resolved_sha_is_edited_bytes():
         runs_router._gate_decisions.pop(RUN_ID, None)
 
 
-def test_cancel_open_gate_emits_gate_resolved_reject():
+def test_cancel_open_gate_emits_only_done_never_gate_resolved():
+    """A cancel is not a gate decision (ST-15): unlike an operator's reject via
+    POST /gate, cancelling a run parked at an open gate must never emit
+    `gate_resolved` — no fake decision is written for the waiter to consume — only the
+    terminal `done` frame, now carrying status `canceled`."""
     conn = AsyncMock()
     conn.fetchrow.return_value = {"status": "awaiting_approval"}
     client = _gate_client(conn)
@@ -259,11 +263,12 @@ def test_cancel_open_gate_emits_gate_resolved_reject():
         with client._scope_patch:  # type: ignore[attr-defined]
             resp = client.post(f"/v1/runs/{RUN_ID}/cancel")
         assert resp.status_code == 200
+        assert resp.json()["status"] == "canceled"
         frames = _drain(q)
         _assert_all_valid(frames)
-        assert [e for e, _ in frames] == ["gate_resolved", "done"]
-        assert frames[0][1]["decision"] == "reject"
-        assert frames[1][1]["status"] == "rejected"
+        assert [e for e, _ in frames] == ["done"]
+        assert frames[0][1]["status"] == "canceled"
+        assert RUN_ID not in runs_router._gate_decisions
     finally:
         runs_router._unsubscribe(RUN_ID, q)
         runs_router._gate_events.pop(RUN_ID, None)

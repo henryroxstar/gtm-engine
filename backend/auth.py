@@ -27,6 +27,9 @@ _SECRET = lambda: os.environ["BACKEND_JWT_SECRET"]  # noqa: E731 — evaluated l
 _ACCESS_TTL = lambda: int(os.getenv("BACKEND_JWT_EXPIRE_MINUTES", "60"))  # noqa: E731
 _REFRESH_TTL = lambda: int(os.getenv("BACKEND_REFRESH_EXPIRE_DAYS", "30"))  # noqa: E731
 _ALGO = "HS256"
+#: exp leeway, matching backend/oidc.py's CLOCK_SKEW_S — one clock policy across both
+#: verifiers so a token is not valid on one path and expired on the other.
+_CLOCK_SKEW_S = 60
 
 
 # ── passwords ─────────────────────────────────────────────────────────────────
@@ -36,7 +39,11 @@ def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
+def verify_password(plain: str, hashed: str | None) -> bool:
+    # A NULL/empty hash is a federated, password-less user (V016). Fail closed rather
+    # than raise, so a caller that forgets the None check gets a 401, never a 500.
+    if not hashed:
+        return False
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
@@ -80,7 +87,21 @@ def create_refresh_token(user_id: str, workspace_id: str) -> str:
 
 def decode_token(token: str, expected_type: str = "access") -> dict:
     """Decode and validate a JWT. Raises jwt.InvalidTokenError on failure."""
-    payload = jwt.decode(token, _SECRET(), algorithms=[_ALGO])
+    # `require` is the load-bearing part, not `algorithms`. PyJWT only *validates* `exp`
+    # when the claim is present, so a token minted without one simply never expired —
+    # a stolen access token was good forever. Both claims below are already emitted by
+    # create_access_token/create_refresh_token, so this rejects nothing legitimate.
+    # `iss`/`aud` are deliberately NOT required here: this family has one issuer and one
+    # audience and is signed with a private HS256 secret, and adding them would invalidate
+    # every token already in the wild. backend/oidc.py requires them where it matters —
+    # federated tokens from an external IdP.
+    payload = jwt.decode(
+        token,
+        _SECRET(),
+        algorithms=[_ALGO],
+        leeway=_CLOCK_SKEW_S,
+        options={"require": ["exp", "type"]},
+    )
     if payload.get("type") != expected_type:
         raise jwt.InvalidTokenError(
             f"expected token type {expected_type!r}, got {payload.get('type')!r}"

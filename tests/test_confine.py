@@ -231,3 +231,139 @@ def test_video_finish_still_exports_all_three_names():
 
     for name in ("_confined_dir", "_confined_output", "_safe_asset_path"):
         assert callable(getattr(vf, name)), f"video_finish no longer exports {name}"
+
+
+# ── symlink hint (plan #8) — surfaced ONLY from the video_finish wrappers ────────────────────
+
+
+def test_a_symlinked_profile_dir_directly_under_root_gets_a_hint(root: Path, tmp_path: Path):
+    """`content/<profile>` itself is a symlink (e.g. to another disk) — the operator meant to
+    write there, but resolution lands outside `root`. The hint names the fix."""
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-acme"
+    real.mkdir()
+    link = root / "linked-acme"
+    link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._confined_output(link / "beat.mp4", content_root=root)
+    msg = str(exc.value)
+    assert msg.startswith(
+        f"refusing to write outside the resolved content root: {(real / 'beat.mp4').resolve()} "
+        f"(root: {root.resolve()})"
+    )
+    assert (
+        f" — {link} is a symlink to {real.resolve()}; if that is this profile's content dir" in msg
+    )
+    assert f"--content-root {link}" in msg
+    assert "GTM_CONTENT_ROOT" in msg
+
+
+def test_confined_dir_hint_when_the_dir_itself_is_the_symlink(root: Path, tmp_path: Path):
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-dir"
+    real.mkdir()
+    link = root / "linked-dir"
+    link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._confined_dir(link, content_root=root)
+    assert f"--content-root {link}" in str(exc.value)
+
+
+def test_safe_asset_path_hint_for_a_symlinked_profile_dir(root: Path, tmp_path: Path):
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-acme3"
+    real.mkdir()
+    (real / "clip.mp4").write_bytes(b"mp4")
+    link = root / "linked-acme3"
+    link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._safe_asset_path(link / "clip.mp4", content_root=root)
+    assert f"--content-root {link}" in str(exc.value)
+
+
+def test_a_symlink_deeper_than_the_root_first_segment_gets_no_hint(root: Path, tmp_path: Path):
+    """A symlink somewhere inside a profile dir (not the profile dir itself) is not the shape
+    the hint exists for — hinting there would coach widening the root past an arbitrary
+    writer-planted symlink, not past a genuine 'the whole profile is a symlink' setup."""
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-nested"
+    real.mkdir()
+    nested_link = root / "acme" / "nested-link"
+    nested_link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._confined_output(nested_link / "beat.mp4", content_root=root)
+    msg = str(exc.value)
+    assert " is a symlink to " not in msg
+    assert msg == (
+        f"refusing to write outside the resolved content root: {(real / 'beat.mp4').resolve()} "
+        f"(root: {root.resolve()})"
+    )
+
+
+def test_a_symlink_entirely_outside_root_gets_no_hint(root: Path, tmp_path: Path):
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-outside"
+    real.mkdir()
+    link = tmp_path / "outside-link"  # not under root at all
+    link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._confined_output(link / "beat.mp4", content_root=root)
+    assert " is a symlink to " not in str(exc.value)
+
+
+def test_a_plain_outside_path_with_no_symlink_gets_the_exact_old_message(
+    root: Path, tmp_path: Path
+):
+    """Byte-identical to the pinned pre-hint behaviour: no symlink anywhere means no hint."""
+    from gtm_core import video_finish as vf
+
+    outside = tmp_path / "elsewhere" / "x.mp4"
+    outside.parent.mkdir()
+
+    with pytest.raises(vf.PolishError) as exc:
+        vf._confined_output(outside, content_root=root)
+    assert str(exc.value) == (
+        f"refusing to write outside the resolved content root: {outside.resolve()} "
+        f"(root: {root.resolve()})"
+    )
+
+
+def test_gtm_core_confine_itself_never_adds_the_hint(root: Path, tmp_path: Path):
+    """The hint must not leak into `gtm_core.confine`'s own exception — that module also backs
+    the Gemini and Higgsfield MCP servers, so a hint there would reach a model directly."""
+    real = tmp_path / "real-acme4"
+    real.mkdir()
+    link = root / "linked-acme4"
+    link.symlink_to(real)
+
+    with pytest.raises(ConfinementError) as exc:
+        confined_output_path(link / "beat.mp4", content_root=root)
+    msg = str(exc.value)
+    assert " is a symlink to " not in msg
+    assert msg == (
+        f"refusing to write outside the resolved content root: {(real / 'beat.mp4').resolve()} "
+        f"(root: {root.resolve()})"
+    )
+
+
+def test_symlink_hint_still_raises_confinementerror_type_under_the_hood(root: Path, tmp_path: Path):
+    """The wrapper's exception is still PolishError (pinned), not a new type, even with a hint."""
+    from gtm_core import video_finish as vf
+
+    real = tmp_path / "real-acme5"
+    real.mkdir()
+    link = root / "linked-acme5"
+    link.symlink_to(real)
+
+    with pytest.raises(vf.PolishError):
+        vf._confined_output(link / "beat.mp4", content_root=root)

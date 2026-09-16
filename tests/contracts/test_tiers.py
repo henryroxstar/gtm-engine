@@ -94,7 +94,7 @@ CORE_PAID = _skill("case-study", Tier.CORE, "pro_plus")
 PIPELINE_FREE = _skill("knowledge-refresh", Tier.PIPELINE, "free")
 PIPELINE_PAID = _skill("email-quality", Tier.PIPELINE, "pro")
 PRODUCTION_FREE = _skill("airq-scan", Tier.PRODUCTION, "free")
-PRODUCTION_PAID = _skill("video-render", Tier.PRODUCTION, "pro")
+PRODUCTION_PAID = _skill("carousel-visuals", Tier.PRODUCTION, "pro")
 
 # Back-compat aliases for the tier-generic invariants (I2/I4/I5/I6).
 CORE_SKILL = CORE_FREE

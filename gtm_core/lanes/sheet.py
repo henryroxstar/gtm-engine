@@ -1,10 +1,15 @@
 """The hold sheet — bulk-first review of the hold queue, one HTML file, no server.
 
-Groups are keyed by **(trigger, seat)**: the decision logic is the same within a trigger, and
-copy is per-spec with one generic spec per seat, so within a group the email a row would get
-is the same. The operator reads the reason once, decides the group once, and overrides by
+Groups are keyed by **(question, seat)** (PS12) — not by the raw trigger. Several triggers
+ask the operator the same underlying question (``HOLD_QUESTION`` maps e.g.
+``competitor-adjacent``/``partner``/``regulator``/``strategic-account`` all onto
+``account-off-limits``), and grouping by trigger split those into near-duplicate sections
+with the same three choices restated in slightly different words each time. Copy is
+per-spec with one generic spec per seat, so within a group the email a row would get is the
+same. The operator reads the question once, decides the group once, and overrides by
 exception. Anti-anchoring is structural: no radio is ever pre-checked; a prior decision on
-the same account is shown as text in the "Before" column.
+the same account is shown as text in the "Before" column. This is presentation-only: each
+row still carries its own raw ``trigger``, unchanged, for ``hold-apply``/``decisions.py``.
 
 Rendering is the labeler's own pattern (``labeler-src/build_from_sheet.py``): bare
 ``__TOKEN__`` placeholders in a template that ships with this package, JSON-escaped so a
@@ -16,11 +21,11 @@ never dropped.
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 
 from ..cells import seat_of
-from .model import HOLD_COPY, HOLD_ORDER, SALVAGE_KINDS
+from ..htmlpage import script_json as _json
+from .model import HOLD_ORDER, HOLD_QUESTION, QUESTION_COPY, SALVAGE_KINDS
 
 TEMPLATE = Path(__file__).with_name("template_hold.html")
 
@@ -30,11 +35,6 @@ def _seat(title: str) -> str:
         return seat_of(title or "") or "unresolved"
     except Exception:  # noqa: BLE001 — a seat resolver failure must not block review
         return "unresolved"
-
-
-def _json(value) -> str:
-    """JSON that is safe inside a ``<script>`` block."""
-    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
 
 
 def build_sheet_payload(
@@ -48,21 +48,27 @@ def build_sheet_payload(
     groups: dict[tuple[str, str], list[dict]] = {}
     for i, r in enumerate(hold_rows):
         trigger = (r.get("trigger") or "").strip().lower()
+        question = HOLD_QUESTION.get(trigger, trigger)
         seat = _seat(r.get("title") or "")
-        groups.setdefault((trigger, seat), []).append((i, r))
-    order = {t: n for n, t in enumerate(HOLD_ORDER)}
+        groups.setdefault((question, seat), []).append((i, r))
+    # A question's risk position is the earliest (riskiest) HOLD_ORDER trigger that maps to
+    # it, so e.g. `account-off-limits` (earliest member `competitor-adjacent`, index 0) still
+    # sorts ahead of `tier-a-would-get-generic` (index 10) exactly as the triggers did alone.
+    order: dict[str, int] = {}
+    for n, trig in enumerate(HOLD_ORDER):
+        order.setdefault(HOLD_QUESTION.get(trig, trig), n)
     keys = sorted(groups, key=lambda k: (order.get(k[0], len(order)), k[1]))
     out_groups, out_rows = [], []
     for key in keys:
-        trigger, seat = key
-        title, meaning = HOLD_COPY.get(
-            trigger, (trigger.replace("-", " "), {"suppress": "", "generic": "", "salvage": ""})
+        question, seat = key
+        title, meaning = QUESTION_COPY.get(
+            question, (question.replace("-", " "), {"suppress": "", "generic": "", "salvage": ""})
         )
-        gkey = f"{trigger}|{seat}"
+        gkey = f"{question}|{seat}"
         out_groups.append(
             {
                 "key": gkey,
-                "trigger": trigger,
+                "question": question,
                 "seat": seat,
                 "title": title,
                 "count": len(groups[key]),
@@ -71,6 +77,7 @@ def build_sheet_payload(
             }
         )
         for i, r in groups[key]:
+            trigger = (r.get("trigger") or "").strip().lower()
             out_rows.append(
                 {
                     "row_id": f"{i}:{(r.get('email') or '').strip().lower()}",

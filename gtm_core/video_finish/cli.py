@@ -8,20 +8,20 @@ from pathlib import Path
 from .audio import room_tone
 from .burn import burn_captions
 from .cli_narration import _cmd_narration_track
+from .cli_voice_polish import _cmd_voice_polish
 from .confine import _confined_dir, _confined_output
 from .errors import FfmpegUnavailable, PlanError, PolishError
 from .execute import execute
-from .mux import frames_to_video, mux
+from .mux import frames_to_video, mux, overlay_frames
+from .overlays import apply_overlays
 from .parser import build_parser
 from .plan import plan
 from .polish import grade_shot, predictor_trim
 from .ratio import pad_to_ratio
 from .sfx import mix_sfx_cues
 from .sfx_cues import SfxCue
-from .sfx_detect import (
-    find_transient,
-)
-from .shots import ShotSegment
+from .sfx_detect import find_transient
+from .shots import ShotSegment, transitions_from_shots
 from .split import TakeCut, split
 from .stitch import stitch
 
@@ -66,7 +66,9 @@ def _cmd_run(args) -> int:
         return 2
 
     try:
-        result = execute(p, workdir=workdir, out_dir=args.out_dir, kit=kit, repo_root=repo_root)
+        result = execute(
+            p, workdir=workdir, out_dir=args.out_dir, kit=kit, repo_root=repo_root, spec=spec
+        )
     except FfmpegUnavailable as exc:
         print(f"video-finish: {exc}", file=sys.stderr)
         return 3
@@ -95,9 +97,9 @@ def _cmd_frames_to_video(args) -> int:
         return 2
     try:
         frames_to_video(args.frames_glob, fps=args.fps, out_path=out)
-    except FfmpegUnavailable as exc:
+    except (FfmpegUnavailable, ValueError) as exc:
         print(f"video-finish: {exc}", file=sys.stderr)
-        return 3
+        return 2 if isinstance(exc, ValueError) else 3
     if args.as_json:
         print(json.dumps({"out_path": str(out), "fps": args.fps}, indent=2))
     else:
@@ -376,6 +378,94 @@ def _cmd_burn_captions(args) -> int:
     return 0
 
 
+def _cmd_overlays(args) -> int:
+    try:
+        out_dir = _confined_dir(args.out_dir, content_root=args.content_root)
+    except PolishError as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 2
+    try:
+        doc = json.loads(args.shots.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"video-finish: could not read --shots: {exc}", file=sys.stderr)
+        return 2
+    raw_shots = doc.get("shots") if isinstance(doc, dict) else None
+    if not raw_shots:
+        print("video-finish: --shots JSON has no non-empty 'shots' array", file=sys.stderr)
+        return 2
+
+    from ..brandkit import load_brand_kit
+    from ..paths import resolve_profiles_root
+
+    profiles_root = args.profiles_root or resolve_profiles_root()
+    try:
+        kit = load_brand_kit(profiles_root, args.profile, args.product)
+    except Exception as exc:  # noqa: BLE001 — surfaced verbatim, never swallowed
+        print(f"video-finish: could not resolve brand kit: {exc}", file=sys.stderr)
+        return 2
+
+    workdir = args.workdir or (out_dir / "_work")
+    shot_ids = [s.strip() for s in args.shot_ids.split(",") if s.strip()] if args.shot_ids else None
+    try:
+        result = apply_overlays(
+            raw_shots,
+            ratio=args.ratio,
+            kit=kit,
+            fps=args.fps,
+            shots_root=args.shots_root or args.shots.resolve().parent,
+            out_dir=out_dir,
+            workdir=workdir,
+            repo_root=args.repo_root,
+            shot_ids=shot_ids,
+        )
+    except FfmpegUnavailable as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 3
+    except ValueError as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 4
+    if args.as_json:
+        print(
+            json.dumps(
+                {
+                    "ratio": result.ratio,
+                    "overlaid": [asdict(o) for o in result.overlaid],
+                    "skipped": [{"shot_id": sid, "why": why} for sid, why in result.skipped],
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(
+            f"video-finish: composited overlays onto {len(result.overlaid)} shots "
+            f"-> {out_dir} ({len(result.skipped)} skipped)"
+        )
+        for sid, why in result.skipped:
+            print(f"  skipped {sid}: {why}")
+    return 0
+
+
+def _cmd_overlay_scene(args) -> int:
+    try:
+        out = _confined_output(args.out, content_root=args.content_root)
+    except PolishError as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 2
+    try:
+        overlay_frames(args.src, args.frames_glob, fps=args.fps, out_path=out)
+    except FfmpegUnavailable as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 3
+    except ValueError as exc:
+        print(f"video-finish: {exc}", file=sys.stderr)
+        return 4
+    if args.as_json:
+        print(json.dumps({"out_path": str(out), "fps": args.fps}, indent=2))
+    else:
+        print(f"video-finish: wrote {out}")
+    return 0
+
+
 def _cmd_stitch(args) -> int:
     try:
         out = _confined_output(args.out, content_root=args.content_root)
@@ -394,6 +484,14 @@ def _cmd_stitch(args) -> int:
         ShotSegment(path=str(s["path"]), reframed=bool(s.get("reframed", False)))
         for s in raw_segments
     ]
+    transitions = None
+    if args.transitions_from_shots is not None:
+        try:
+            doc = json.loads(args.transitions_from_shots.read_text())
+            transitions = transitions_from_shots(doc)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"video-finish: {exc}", file=sys.stderr)
+            return 2
     workdir = args.workdir or (out.parent / "_work")
     try:
         out_path = stitch(
@@ -402,6 +500,7 @@ def _cmd_stitch(args) -> int:
             out_path=out,
             workdir=workdir,
             crossfade_s=args.crossfade_s,
+            transitions=transitions,
             normalize=args.normalize,
             video_bitrate=args.video_bitrate,
         )
@@ -411,7 +510,8 @@ def _cmd_stitch(args) -> int:
     except ValueError as exc:
         print(f"video-finish: {exc}", file=sys.stderr)
         return 4
-    method = "xfade re-encode" if args.crossfade_s > 0 else "concat demuxer (stream copy)"
+    re_encoded = args.crossfade_s > 0 or any(d for _, d in transitions or [])
+    method = "xfade re-encode" if re_encoded else "concat demuxer (stream copy)"
     if args.as_json:
         print(
             json.dumps(
@@ -484,12 +584,15 @@ _HANDLERS = {
     "predictor-trim": _cmd_predictor_trim,
     "frames-to-video": _cmd_frames_to_video,
     "room-tone": _cmd_room_tone,
+    "voice-polish": _cmd_voice_polish,
     "mux": _cmd_mux,
     "split": _cmd_split,
     "find-transient": _cmd_find_transient,
     "mix-sfx": _cmd_mix_sfx,
     "grade": _cmd_grade,
     "burn-captions": _cmd_burn_captions,
+    "overlays": _cmd_overlays,
+    "overlay-scene": _cmd_overlay_scene,
     "stitch": _cmd_stitch,
     "narration-track": _cmd_narration_track,
 }

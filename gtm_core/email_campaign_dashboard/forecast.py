@@ -55,6 +55,12 @@ def _lanes(m: dict) -> list[dict]:
     written to a published team inbox that is ALSO a role-inbox merge row — the same two
     emails on the same two days — so that address is counted once, in the lane that renders
     it.
+
+    `cells.toml` can register the same physical sequence more than once — a second segment
+    variant, a second campaign's row pointing at the address the first already claimed — and
+    each registration becomes its own entry in ``m["messages"]``. Both the campaign-wide
+    `reviewed` sum and this per-lane loop deduplicate by `sequence_id` so a sequence reachable
+    from four registrations is counted once, not four times over.
     """
     samples = m.get("samples") or {}
     lanes: list[dict] = []
@@ -67,22 +73,39 @@ def _lanes(m: dict) -> list[dict]:
     for r in samples.get("rendered") or []:
         rendered.setdefault(r["spec"], set()).add(r["to"])
 
+    messages = list({msg["sequence_id"]: msg for msg in m["messages"]}.values())
+
     # 1. The sequencer lanes. Denominator and label are unchanged from when this card had
     #    only one row: a checked list beats the manifest's target, because "the list that was
     #    checked, once it is loaded" is the number a reader can go and look at. `enrolled` is
     #    the fallback — the provider's own read-back, not the number of rows the spec renders
     #    (this campaign drafted 10 named-seat emails and loaded 4 of them; only what is
     #    loaded is on a schedule, so only what is loaded is forecast).
-    reviewed = sum(_i((msg.get("lint") or {}).get("rows")) for msg in m["messages"])
+    reviewed = sum(_i((msg.get("lint") or {}).get("rows")) for msg in messages)
     target = _i(
         next((c["targets"] for c in m["campaigns"]["campaigns"] if c.get("targets")), {}).get(
             "prospects"
         )
     )
-    for msg in m["messages"]:
+    # `reviewed` and `target` are CAMPAIGN-WIDE denominators, so they describe one lane and
+    # only one. With a second sequence they were applied to each message in turn and the
+    # campaign's whole population was counted once per sequence — two identical rows of 12
+    # for a campaign of 12 (found 2026-09-09, the day this campaign grew its second
+    # sequence). Past one sequence the only honest per-lane number is that sequence's own
+    # enrolled count, read back from the provider.
+    multi = len(messages) > 1
+    for msg in messages:
         days = sorted(c["day"] for c in msg["copy"])
         enrolled = _i((seqs.get(msg["sequence_id"]) or {}).get("enrolled"))
-        if reviewed:
+        if multi:
+            label, people = (
+                (
+                    f"{(seqs.get(msg['sequence_id']) or {}).get('name') or msg['sequence_id']}"
+                    " — loaded, paces itself once a person starts it"
+                ),
+                enrolled,
+            )
+        elif reviewed:
             label, people = "the list that was checked, once it is loaded", reviewed
         elif target:
             label, people = "the campaign's own qualified-and-sendable target", target
@@ -251,7 +274,7 @@ def _forecast_block(m: dict) -> str:
     return f"""
       <div class="card">
         <h2>How long it runs, once it starts</h2>
-        <table><thead><tr><th>Lane</th><th>People</th><th>Emails</th>
+        <table><thead><tr><th>Audience</th><th>People</th><th>Emails</th>
         <th>Each person gets</th><th>Sending + tail</th><th>Total</th><th>Done by</th>
         </tr></thead>
         <tbody>{rows}</tbody></table>

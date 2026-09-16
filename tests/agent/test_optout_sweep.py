@@ -373,6 +373,140 @@ def test_a_non_optout_reply_is_recorded_as_a_reply_received_signal(tmp_path, mon
     assert signals[0]["source_items"] and signals[0]["source_items"][0].startswith("sig_")
 
 
+# ── PS6: a genuine reply also writes the ledger status the engaged-account hold
+# trigger reads. Before this, nothing ever wrote "replied", so that trigger could
+# never fire no matter how many prospects wrote back.
+
+
+def test_a_non_optout_reply_calls_mark_replied(tmp_path, monkeypatch):
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    calls: list = []
+
+    def fake_mark_replied(profile, emails, *, source, content_root=None):
+        calls.append((profile, set(emails), source, content_root))
+        return {"changed": 1, "retired_skipped": [], "unmatched": []}
+
+    monkeypatch.setattr(optout_sweep, "mark_replied", fake_mark_replied)
+
+    rc = _run_sweep(
+        tmp_path,
+        monkeypatch,
+        records,
+        [{"id": "t1", "lastMessageAt": "2026-08-11T14:00:00Z"}],
+        {"t1": ("dana@acme.example", "sure, thanks for sending that over")},
+    )
+    assert rc == 0
+    assert calls == [("example", {"dana@acme.example"}, "optout_sweep", tmp_path)]
+
+
+def test_a_commercial_reply_also_calls_mark_replied(tmp_path, monkeypatch):
+    """Every CLASSIFIED_TYPES bucket is a genuine reply — pricing/meeting/buyer-intent
+    included, not only the plain reply_received default."""
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    calls: list = []
+    monkeypatch.setattr(
+        optout_sweep,
+        "mark_replied",
+        lambda profile, emails, *, source, content_root=None: (
+            calls.append((profile, set(emails), source))
+            or {"changed": 1, "retired_skipped": [], "unmatched": []}
+        ),
+    )
+
+    rc = _run_sweep(
+        tmp_path,
+        monkeypatch,
+        records,
+        [{"id": "t1", "lastMessageAt": "2026-08-11T14:00:00Z"}],
+        {"t1": ("dana@acme.example", "sure, send over pricing")},
+    )
+    assert rc == 0
+    assert calls == [("example", {"dana@acme.example"}, "optout_sweep")]
+
+
+def test_an_optout_reply_does_not_call_mark_replied(tmp_path, monkeypatch):
+    """An opt-out is the opposite signal from engagement — it must never be recorded
+    as 'replied', which is exactly what the separate `if not match:` branch above
+    already guarantees (this reply never reaches `signals` at all)."""
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    calls: list = []
+    monkeypatch.setattr(
+        optout_sweep, "mark_replied", lambda *a, **kw: calls.append((a, kw)) or {"changed": 0}
+    )
+
+    rc = _run_sweep(
+        tmp_path,
+        monkeypatch,
+        records,
+        [{"id": "t1", "lastMessageAt": "2026-08-11T14:00:00Z"}],
+        {"t1": ("dana@acme.example", "please unsubscribe me")},
+    )
+    assert rc == 0
+    assert calls == []
+
+
+def test_a_mark_replied_failure_does_not_abort_the_sweep(tmp_path, monkeypatch):
+    """Best-effort, like signal dispatch: a raise here must not take down the sweep or
+    suppress the signal that was already recorded before this call."""
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    def boom(*a, **kw):
+        raise RuntimeError("latest.json is locked")
+
+    monkeypatch.setattr(optout_sweep, "mark_replied", boom)
+
+    rc = _run_sweep(
+        tmp_path,
+        monkeypatch,
+        records,
+        [{"id": "t1", "lastMessageAt": "2026-08-11T14:00:00Z"}],
+        {"t1": ("dana@acme.example", "sure, thanks for sending that over")},
+    )
+    assert rc == 0
+    signals = [r for r in records if r.get("event") == "signal"]
+    assert len(signals) == 1, "a mark_replied failure must not suppress the recorded signal"
+
+
+def test_mark_replies_retries_durable_signals_from_history(tmp_path, monkeypatch):
+    """PS-R C2: prior reply signals in history.jsonl are retried on subsequent sweeps."""
+    history_file = tmp_path / "example" / "history.jsonl"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    history_file.write_text(
+        json.dumps(
+            {
+                "event": "signal",
+                "signal_type": "reply_received",
+                "who": "prior@acme.example",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    calls: list = []
+
+    def fake_mark_replied(profile, emails, *, source, content_root=None):
+        calls.append((profile, set(emails), source, content_root))
+        return {"changed": 1, "retired_skipped": [], "unmatched": []}
+
+    monkeypatch.setattr(optout_sweep, "mark_replied", fake_mark_replied)
+
+    # Run sweep with no new messages
+    rc = _run_sweep(tmp_path, monkeypatch, records, [], {})
+    assert rc == 0
+    assert calls == [("example", {"prior@acme.example"}, "optout_sweep", tmp_path)]
+
+
 def test_a_commercial_reply_escalates_instead_of_being_drafted(tmp_path, monkeypatch):
     """The behaviour change `gtm_core.reply_classify` exists for.
 

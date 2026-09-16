@@ -1,28 +1,9 @@
 ---
 name: case-study
 description: >-
-  Turn a solution design — or a delivered engagement — into a publishable 1-2 page customer
-  story: Markdown, a self-contained HTML companion, a Word (.docx), and a quote-and-approval
-  pack the customer's comms/legal team can sign off. When a live customer conversation is
-  available, runs an interview protocol first (references/interview-protocol.md) that asks for
-  the moment they doubted themselves most rather than for 'a story' — the former yields the
-  first wrong call and the low point, the latter a success anecdote — and classifies the draft
-  at validation as anecdote / accomplishment / true story, refusing to ship an accomplishment
-  under a story's title. **Evidence-tiered by construction:** *Deployed* produces a case study
-  with measured outcomes, *Pilot* a pilot story scoped to the pilot's N and window, and
-  *Design-stage* a **Solution Story** whose outcomes are explicitly modeled — never dressed up
-  as achieved. Every number carries its basis (measured / customer-reported / modeled /
-  unverified) and every named customer, person, and quote is tracked for sign-off; the skill
-  never invents a metric, a quote, or a person. Customer-as-hero structure: results strip,
-  why-now industry trigger, pain-claim-gain, what they tried first and why it failed, how it
-  works, an applicability panel, and an evidence log. Trigger when the user says "write a case
-  study for [company]", "turn this solution design into a case study", "make a case study",
-  "customer story for [company]", "success story for [account]", "case-study one-pager", or
-  "case study from the [company] design". Consumes `solution-design`, `solution-discovery`,
-  and `account-dossier` outputs from the account folder when present, plus the profile's
-  case-study proof library and industry pack. Reads PROFILE for brand, byline, output folder,
-  and language. Read-only — never sends, publishes, or contacts anyone; produces files in
-  content/<active>/accounts/<account-slug>/.
+  Extract authentic customer success stories and proof points into structured case studies
+  following the interview-protocol. Trigger when the user says "write a case study", "customer
+  story for [account]", "turn this win into a case study", or "document customer outcome".
 metadata:
   version: "0.4.0"
   phase: "4"

@@ -329,6 +329,39 @@ def test_read_target_markets_strips_double_quoted_items(tmp_path):
     assert ec.read_target_markets("acme", tmp_path) == ["United States", "Singapore"]
 
 
+def test_read_target_markets_raises_on_region_name(tmp_path):
+    """Confirmed 2026-09-14: a tenant's PROFILE.md declared `target_markets` with the region
+    "Southeast Asia" alongside real countries. Compared literally against a lead's `country`,
+    a region name never matches, so it must be rejected at parse time rather than silently
+    failing every real lead in it (or, if ever auto-expanded, silently opening a whole region's
+    worth of jurisdictions at once)."""
+    _write_profile(
+        tmp_path,
+        "target_markets:  [United States (primary), Southeast Asia, Hong Kong]\n",
+    )
+    with pytest.raises(ValueError, match="Southeast Asia"):
+        ec.read_target_markets("acme", tmp_path)
+
+
+def test_normalize_market_resolves_sar_alias_to_hong_kong():
+    assert ec.normalize_market("Hong Kong SAR") == "hong kong"
+    assert ec.normalize_market("HKSAR") == "hong kong"
+
+
+def test_check_markets_region_value_fails_every_real_lead_in_it():
+    """If a region name ever reaches `check_markets` directly (e.g. via the CLI's `--market`
+    override, which bypasses `read_target_markets`'s region guard), the pre-existing failure
+    mode still holds: no lead's `country` is ever literally "southeast asia", so every real
+    lead in the region is reported out-of-market rather than silently accepted."""
+    rows = [
+        {"email": "a@example.com", "country": "Singapore"},
+        {"email": "b@example.com", "country": "Malaysia"},
+    ]
+    r = ec.check_markets(rows, ["Southeast Asia"])
+    assert r.failed
+    assert any("2 lead(s) outside target_markets" in d for d in r.detail)
+
+
 def test_read_target_markets_raises_when_key_absent(tmp_path):
     _write_profile(tmp_path, "company: Acme\n")
     with pytest.raises(ValueError):

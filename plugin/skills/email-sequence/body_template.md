@@ -602,22 +602,30 @@ their Why Now clause, at least one row addressed to a person who worked at a dif
 entirely (the resolved contact's own email domain gave it away), and roughly two dozen accounts that
 already ship a directly competing or adjacent product — none of it caught by any existing gate.
 
-**Run this before staging copy and again before enrolling any batch:**
+**Run this before staging copy:**
 
 ```bash
 uv run python -m gtm_core.account_integrity \
-  --csv content/<active>/prospects/sequences/ready-to-load.csv \
+  --csv content/<active>/prospects/sequences/ready-to-load-personalised-<date>.csv \
   --profile <active>
+```
 
-# at enrollment, additionally keep only rows research cleared:
+**At enrollment, `--lane` is not optional — name exactly one enrollable lane.** `gtm_core.prospects
+lanes route` writes two lists a human may load, both dated and visible in `sequences/`:
+`ready-to-load-personalised-<date>.csv` and `ready-to-load-generic-<date>.csv` (`repair`, `hold`
+and `excluded` are pool artifacts under `sequences/.pool/lanes/` — never load them). Naming
+`--lane` widens `--require-verdict` to that lane's admissible set (`generic`: send / re-angle /
+empty verdict, with no-dossier / verdict-missing / relation-unresolved reported as one advisory
+line each) and the gate now **refuses** — exit 2, before anything is read for content — a CSV
+whose own `lane` column disagrees with the flag, carries a `hold`/`excluded` row, or names more
+than one enrollable lane with no `--lane` to say which is meant. Omitting `--lane` on a list that
+carries multiple enrollable lanes is a refusal, not a skip: always name `--lane` to be unambiguous:
+
+```bash
 uv run python -m gtm_core.account_integrity \
-  --csv content/<active>/prospects/sequences/ready-to-load.csv \
-  --profile <active> --require-verdict send
+  --csv content/<active>/prospects/sequences/ready-to-load-personalised-<date>.csv \
+  --profile <active> --require-verdict send --lane personalised
 
-# lane-aware (2026-09-03): enrol the lane CSVs `gtm_core.prospects lanes route` wrote, naming
-# the lane so the gate admits what that lane admits (generic: send / re-angle / empty verdict,
-# with no-dossier / verdict-missing / relation-unresolved reported as one advisory line each)
-# and REFUSES a CSV whose own `lane` column disagrees:
 uv run python -m gtm_core.account_integrity \
   --csv content/<active>/prospects/sequences/ready-to-load-generic-<date>.csv \
   --profile <active> --require-verdict send --lane generic
@@ -741,9 +749,12 @@ A "why now" cannot open a merge sequence unless **every enrolled row has one**. 
 uv run python -m gtm_core.prospects_consolidate split-by-signal --profile <active>
 ```
 
-It writes `ready-to-load-signal.csv` (rows whose `why_now` reduces to a safe clause, in a
-`signal_clause` column for a `{{Why Now}}` custom field) and `ready-to-load-generic.csv` (the rest,
-for the generic arc). Then lint and stage each spec against **its own** CSV.
+It writes `ready-to-load-signal.csv` and `ready-to-load-generic.csv` under `sequences/.pool/`
+(PS17 — neither is something a human loads directly; a merge sequence is built *from* one of them
+by a later, explicit step, so they sit beside `master-list.csv` in the hidden pool rather than in
+the visible `sequences/` folder): the signal file carries rows whose `why_now` reduces to a safe
+clause, in a `signal_clause` column for a `{{Why Now}}` custom field; the generic file is the rest,
+for the generic arc. Then lint and stage each spec against **its own** CSV.
 
 `gtm_core.merge_hygiene.signal_clause` is deliberately **fail-closed** — a row it cannot reduce
 goes generic rather than sending a mangled opener. It rejects, by construction:
@@ -1184,13 +1195,15 @@ uv run python -m gtm_core.prospects wave-gate check --profile <active>
 ```
 
 It exits non-zero until a wave's outcomes are on file with enough sends for a positive-reply rate
-to mean anything, and prints the rate when they are. Record the last wave with
+to mean anything, and prints the rate when they are. It also guards domain safety: an opt-out rate
+exceeding 5.0% on 30+ sends (or >3 raw opt-outs on <30 sends) blocks the next wave unless acknowledged
+with `--ack-high-optout`. Record the last wave with
 `wave-gate ingest --profile <active> --json -`, piping the sequencer's own outcomes payload in (the
 deterministic side makes no network call; the provider tool is yours to call). This is the PRD's
 "require a `positive_reply_rate` reading from the previous wave before staging the next", and it
 exists because the alternative already happened: 24 emails sent, 0 positive replies, and three
 rounds of aesthetic review run instead of reading the one real signal in hand. The gate does not
-judge the rate — only that somebody looked.
+judge the positive reply rate (only that somebody looked) but refuses unsafe opt-out surges.
 
 Follow the active adapter's tool map. Read it for exact tool names, required parameters, and quirks;
 the logical flow is:
@@ -1219,10 +1232,63 @@ the logical flow is:
    e.g. a CRM logging address such as HubSpot). CC/BCC values are the operator's own PII — take them at
    runtime or from env; **never read them from committed config**, and never write them into the spec
    file or a ledger.
-6. **Enroll the leads.** **Confirm the exact sequence + entry step + lead list with the operator
-   before bulk enrollment** (the tool requires it; it is a PII egress). Enroll only prospects that
-   pass the **Enrollment hygiene gate** above (verified email, not on DNC / a manual pack) **and only
-   after the Compliance preflight has been run and confirmed** — address, opt-out, market.
+6. **Do NOT enroll any lead.** `add_leads_to_sequence` and `import_prospects_to_sequence` are denied
+   to you outright — calling either fails closed, by design (`agent/permissions.py`). Enrollment is a
+   PII egress and is no longer this skill's capability: it is dispatched by Python, after this node's
+   `gate = true` pause is explicitly approved by the operator (`sequence-enroll`, the next node in the
+   pack graph — `agent/email_dispatch.py`). Your job here stops at composing the plan: pick only
+   prospects that pass the **Enrollment hygiene gate** above (verified email, not on DNC / a manual
+   pack) **and only after the Compliance preflight has been run and confirmed** — address, opt-out,
+   market — then write the plan to the enroll-draft file (Step 6a) and stop.
+
+### 6a. Write the enrollment plan and stop
+
+Write the approved-pending enrollment request to
+`content/<active>/prospects/sequences/.pending/<run-id>.enroll-draft.json` as a single JSON object.
+`<run-id>` is the **pack run id** given at the end of your prompt, exactly — the gate reads only the
+draft named after its own run, so a draft under any other name is never shown and the run fails at
+the pause.
+
+```json
+{
+  "tool": "import_prospects_to_sequence",
+  "sequence_id": "<the hashed sequence id from step 2>",
+  "step_id": "<the hashed step id prospects enter at>",
+  "steps": [
+    {"step_id": "<hashed step id>",
+     "variants": [{"subject": "<subject as staged>", "content": "<body as staged>", "preheader": ""}]}
+  ],
+  "prospect_list": [
+    {"Email": "<address>", "First Name": "<first>", "Last Name": "<last>", "Company": "<company>",
+     "Why Now": "<the row's signal_clause>"}
+  ]
+}
+```
+
+The operator approves **both halves together** — who is enrolled and what they will receive — and
+one approval hash covers the whole file:
+
+- **`steps`** is the copy: **every** step of the paused sequence, each with **all** of its variants,
+  exactly as you staged them (the copy Step 7 compares against). Before anyone is enrolled, Python
+  reads the sequence back from Saleshandy and **enrolls nobody** if a step or variant is missing,
+  extra, or worded differently — so a step left out of `steps` blocks the enrollment, it does not
+  slip through.
+- **`prospect_list`** rows are keyed by the account's **field labels**, and each key is imported as
+  that field: the built-in `Email` (required), `First Name`, `Last Name`, `Company`, plus **every
+  custom field the copy merges** — e.g. `Why Now` from the row's `signal_clause`. A label the account
+  has no field for refuses the whole import; leaving a merged field out enrolls people whose email
+  renders with a blank where their personalised line should be.
+
+Use `"tool": "add_leads_to_sequence"` with `"lead_ids": [...]` instead of `prospect_list` only when
+enrolling Lead Finder lead IDs (it still needs `steps`). Every lead/prospect in the list must already
+have passed the Enrollment hygiene gate and the Compliance preflight above — the draft is what gets
+enrolled if approved, so nothing ineligible belongs in it. Do not write partial or speculative drafts:
+only prospects you are actually recommending for enrollment right now. An operator's edit at the gate
+replaces the whole draft and is checked the same way: people and field values can change, but copy
+changed at the gate no longer matches Saleshandy, and nobody is enrolled.
+
+**Present the draft to the operator and stop this node's turn here.** Do not call any Saleshandy tool
+after writing it. The gate on this node is what turns your draft into a real API call — never you.
 
 Keep the sequence **PAUSED** throughout. A freshly built sequence is already inert — so the invariant
 is simply: **do not call the provider's resume / activate / status-change tool. Ever.** If the
@@ -1259,37 +1325,42 @@ Any difference: fix it, then re-read and re-compare. **Do not report a sequence 
 loaded until this passes** — "the writes succeeded" is not the same claim and must not be reported as
 if it were.
 
-Also assert the send state is untouched: `active=false`, `emails.total=0`, `scheduled=0`, and the
-enrolled count equals the source list exactly (a count that is off by even one means rows were
-dropped or duplicated silently).
+Also assert the send state is untouched: `active=false`, `emails.total=0`, `scheduled=0` — no lead
+has been enrolled yet at this point in the flow (enrollment is a later, separately-gated step; see
+Step 6a), so there is nothing to reconcile a count against here.
 
-## Hand off — the operator activates
+## Hand off — present the enrollment plan for approval (the operator has not activated anything yet)
 
-Stop after staging and report:
+Stop after staging the sequence STRUCTURE and writing the enroll-draft (Step 6a), and report:
 
-- Sequence name + id / link, sending account, schedule, and enrolled-lead count (flag any leads
-  skipped, with why — unverified/bad/risky email, or DNC/manual-pack suppression).
+- Sequence name + id / link, sending account, schedule, and the **planned** lead count from the
+  enroll-draft you just wrote (flag any leads you excluded from the plan, with why —
+  unverified/bad/risky email, or DNC/manual-pack suppression).
 - The touch summary (subjects + day offsets) and where the full spec lives on disk.
-- One line, explicitly: **"Review it in <provider> and hit Activate/Resume yourself — I won't turn it
-  on."**
+- One line, explicitly: **"Enrollment is pending your approval on this gate — nothing has been sent
+  to <provider> yet. Once approved, the leads are enrolled automatically; you still activate/resume
+  the sequence yourself in <provider>'s UI — I won't turn it on."**
 
-Record the staging in the ledger (no send happened — this logs the build). Itemize every excluded
-lead per the **Enrollment hygiene gate** above — a bare count breaks reconciliation later. If this
-sequence belongs to a known campaign plan (`content/<active>/plans/campaigns/<slug>.campaign.toml`
-or its `.md`/`.html`), pass that plan's `slug` as `"campaign"` so `campaigns.html` rolls it up
-automatically — leave it `""` for a standalone sequence with no campaign plan (it still shows up,
-just under "Unlinked sequences"):
+Record the staging in the ledger (no send happened, and no enrollment has happened either — this logs
+the structure build only). Itemize every excluded lead per the **Enrollment hygiene gate** above — a
+bare count breaks reconciliation later. If this sequence belongs to a known campaign plan
+(`content/<active>/plans/campaigns/<slug>.campaign.toml` or its `.md`/`.html`), pass that plan's
+`slug` as `"campaign"` so `campaigns.html` rolls it up automatically — leave it `""` for a standalone
+sequence with no campaign plan (it still shows up, just under "Unlinked sequences"):
 
 ```bash
 python -m gtm_core.ledger_cli append-history --profile <active> \
   --json '{"event":"sequence_staged","skill":"email-sequence","provider":"<email_tool>",
-  "sequence_id":"<id>","touches":<n>,"leads_total":<n>,"leads_enrolled":<n>,
+  "sequence_id":"<id>","touches":<n>,"leads_total":<n>,"leads_planned":<n>,
   "leads_excluded":[{"email":"<addr>","reason":"email_verification_bad|email_verification_risky|dnc_suppressed"}],
   "status":"paused","spec":"<spec path>","campaign":"<campaign-slug or \"\">"}'
 ```
 
-Offer follow-ups: read back stats later (the provider's sequence-stats tool, read-only), refine a
-touch (edit the spec, then update the step), or stage the next segment.
+`leads_planned` — not `leads_enrolled` — because enrollment has not happened yet; the enroll-draft
+dispatcher logs its own `"enrolled"` / `"enroll_failed"` history event once the operator approves the
+gate (`agent/email_dispatch.py`). Offer follow-ups: read back stats later (the provider's
+sequence-stats tool, read-only), refine a touch (edit the spec, then update the step), or stage the
+next segment.
 
 ## After a send window closes (the checks nobody thinks to run)
 
@@ -1336,11 +1407,23 @@ identically to a current one, so the render alone proves nothing:
 python -m gtm_core.email_campaign_dashboard --profile <active> --scope open --check-fresh
 ```
 
-Then **surface the page to the operator** — one line, e.g. *"📊 Status: `content/<active>/email_campaign_status.html`
-— 30 ready · 417 verifying · 1,231 accounts to enrich · seq 0 sent/0 replied"* — so they always land
-on the one page that shows the whole funnel (account backlog → email funnel → ready/verifying/blocked)
-**and live sequencer performance** (loaded / sent / opened / replied / meetings / bounce-health per
-sequence), instead of hunting through CSVs or the Saleshandy UI.
+Then **report the current status, same shape every other step in this pipeline reports it.** Run:
+
+```bash
+uv run python -m gtm_core.prospects status --profile <active>
+```
+
+and paste its output, unedited, between the markers below (if the command exits 1 because no list has been routed yet, paste its message verbatim — do not compose your own table):
+
+<!-- operator -->
+[paste the command's output here, unedited]
+<!-- /operator -->
+
+Then point the operator at the page itself — one line, e.g. *"here's the full picture:
+`content/<active>/email_campaign_status.html`"* — so they always land on the one page that shows
+the whole funnel (account backlog → email funnel → ready/verifying/blocked) **and live sequencer
+performance** (loaded / sent / opened / replied / meetings / bounce-health per sequence), instead
+of hunting through CSVs or the Saleshandy UI.
 
 **Refresh the live sequencer stats first** (this is what powers the performance card): for every
 sequence you touched — and in any read-back / "check stats / how's it doing" mode, for every active

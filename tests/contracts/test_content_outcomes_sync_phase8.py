@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 BODY = REPO / "plugin" / "skills" / "content-outcomes-sync" / "body_template.md"
 SKILL_MD = REPO / "plugin" / "skills" / "content-outcomes-sync" / "SKILL.md"
@@ -16,6 +18,8 @@ MANIFEST = REPO / "gtm_core" / "skills" / "content_outcomes_sync.py"
 
 
 def _text(path: Path) -> str:
+    if not path.is_file():
+        pytest.skip(f"{path.parent.name} is withheld from this build (OSS carve)")
     return path.read_text(encoding="utf-8")
 
 
@@ -90,6 +94,8 @@ def test_body_records_retention_seconds_and_proxy_meta():
 
 
 def test_skill_md_is_in_sync_with_body():
+    if not BODY.is_file():
+        pytest.skip("content-outcomes-sync is withheld from this build (OSS carve)")
     skill_md = _text(SKILL_MD)
     assert "Buffer MCP" in skill_md
     assert "predictor_band" in skill_md

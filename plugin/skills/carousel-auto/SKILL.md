@@ -1,14 +1,9 @@
 ---
 name: carousel-auto
 description: >-
-  Automate the weekly carousel pipeline from market-scan signals to publish-ready package.
-  This skill should be used when the user says "auto-carousel", "run my carousel workflow",
-  "weekly carousel", "carousel from market scan", "carousel from this week's scan", "generate
-  this week's carousel", "automate my carousel", "what should I carousel this week", "build a
-  carousel from the scan", or "turn this week's signal into a carousel". Reads the latest
-  market-signals file, scores signals for carousel potential, picks the strongest arc shape
-  and theme, chains through carousel-pdf to render the deck, then optionally chains to
-  carousel-visuals for cover art and motion teaser — all in one guided run.
+  Automate weekly carousel production from market scan signals to finished on-brand slide
+  decks and visuals. Trigger when the user says "auto-carousel", "weekly carousel", "carousel
+  from market scan", "what should I carousel this week", or "build a carousel from the scan".
 license: MIT
 metadata:
   version: "0.6.0"
@@ -27,3 +22,10 @@ specify.
 Its declared interface is above (`carousel-auto`, tier `production`).
 
 See `docs/SKILLS.md` for the full skill roster.
+
+## Interface Contract
+
+- **Target & Output:** Automated orchestration from market scan signal to publish-ready LinkedIn carousel (PDF deck, cover art, motion teaser).
+- **Inputs:** Reads latest market signals, scores signals for carousel potential, selects arc shape (myth-bust, how-to, case-study, framework).
+- **Chains:** Orchestrates `carousel-pdf` (render deck) and optional `carousel-visuals` (cover art, teaser).
+- **Gates:** Preserves human approval gates before deck rendering and before any metered generation spend.

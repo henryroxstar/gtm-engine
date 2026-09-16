@@ -110,7 +110,12 @@ def test_every_reference_file_is_named_somewhere_in_its_skill(skill: Path):
 def test_the_capture_contract_is_loaded_conditionally_and_says_so():
     """C3's reference is the one CONDITIONAL load in the tree — the body must state the gate,
     or a rendered run reads camera direction it cannot act on."""
-    body = (SKILLS / "video-script" / "body_template.md").read_text(encoding="utf-8")
+    body_file = SKILLS / "video-script" / "body_template.md"
+    if not body_file.is_file():
+        pytest.skip(
+            "video-script/body_template.md not present in this distribution (paid-tier stub)"
+        )
+    body = body_file.read_text(encoding="utf-8")
     assert "capture-contract.md" in body
     window = body[body.index("capture-contract.md") - 400 : body.index("capture-contract.md") + 200]
     assert "live_action" in window, (

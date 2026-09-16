@@ -1148,3 +1148,75 @@ def test_a_story_script_missing_the_front_block_line_warns(setup):
     assert any("no `message_share:` front-block line" in w for w in _shares(result)), result[
         "warnings"
     ]
+
+
+# --- K3: caption budget function column vs sibling .shots.json ------------------------------
+
+
+def test_caption_budget_function_column_matches_shots(setup):
+    """K3 case: budget table's function column matches shot list -> passes."""
+    import json
+
+    _make_profile_tree(setup, "example")
+    content_root = _make_content_tree(setup, "example", _STORY_ITEM)
+    shots_data = {
+        "source_item": "ci-x",
+        "shots": [
+            {"n": 1, "duration_s": 55.0, "caption_function": "premise"},
+            {"n": 9, "duration_s": 5.0, "caption_function": "message"},
+        ],
+    }
+    shots_file = content_root / "example" / "scripts" / "2026-08-18-t.shots.json"
+    shots_file.parent.mkdir(parents=True, exist_ok=True)
+    shots_file.write_text(json.dumps(shots_data), encoding="utf-8")
+
+    budget_table = "\n".join(
+        [
+            "## Caption budget",
+            "",
+            "| Beat | Duration | Caption words | w/s | function | message |",
+            "|---|---|---|---|---|---|",
+            "| 1 | 55s | 8 | 2.9 | premise | |",
+            "| 9 | 5s | 4 | 0.8 | message | yes |",
+        ]
+    )
+    body = _story_script(budget_table, "message_share: 5/60\n")
+    _write_script(content_root, "example", body)
+    result = cq.script_check("example", "ci-x", content_root=content_root)
+    assert result["proceed"] is True
+    assert result["checks"]["caption_functions_consistent"] is True
+
+
+def test_caption_budget_function_column_disagrees_is_refused(setup):
+    """K3 case: budget table's function column disagrees with shot list -> refused."""
+    import json
+
+    _make_profile_tree(setup, "example")
+    content_root = _make_content_tree(setup, "example", _STORY_ITEM)
+    shots_data = {
+        "source_item": "ci-x",
+        "shots": [
+            {"n": 1, "duration_s": 55.0, "caption_function": "premise"},
+            {"n": 9, "duration_s": 5.0, "caption_function": "message"},
+        ],
+    }
+    shots_file = content_root / "example" / "scripts" / "2026-08-18-t.shots.json"
+    shots_file.parent.mkdir(parents=True, exist_ok=True)
+    shots_file.write_text(json.dumps(shots_data), encoding="utf-8")
+
+    budget_table = "\n".join(
+        [
+            "## Caption budget",
+            "",
+            "| Beat | Duration | Caption words | w/s | function | message |",
+            "|---|---|---|---|---|---|",
+            "| 1 | 55s | 8 | 2.9 | describe | |",
+            "| 9 | 5s | 4 | 0.8 | message | yes |",
+        ]
+    )
+    body = _story_script(budget_table, "message_share: 5/60\n")
+    _write_script(content_root, "example", body)
+    result = cq.script_check("example", "ci-x", content_root=content_root)
+    assert result["proceed"] is False
+    assert result["checks"]["caption_functions_consistent"] is False
+    assert any("disagrees with" in b for b in result["blocking"])

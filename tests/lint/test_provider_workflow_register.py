@@ -117,6 +117,10 @@ def test_the_router_body_cites_the_register_rather_than_restating_it() -> None:
     A workflow table copied into a skill body drifts from the catalog the moment the provider
     ships a new version — and the body is the copy nobody re-probes.
     """
+    if not ROUTER_BODY.is_file():
+        import pytest
+
+        pytest.skip("video-router/body_template.md not present (paid-tier stub)")
     body = ROUTER_BODY.read_text(encoding="utf-8")
     assert "docs/reference/provider-workflows.md" in body, (
         "the router body does not cite the provider workflow register, so the rule "

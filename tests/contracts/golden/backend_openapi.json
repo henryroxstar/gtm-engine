@@ -427,16 +427,32 @@
         "type": "object"
       },
       "DeleteAccountRequest": {
+        "description": "Step-up re-auth for an irreversible, destructive action (account + ALL data).\n\nBoth fields are optional here because which one is REQUIRED depends on the account\ntype, which is only known once the user row is loaded \u2014 the handler enforces it.",
         "properties": {
           "current_password": {
-            "minLength": 1,
-            "title": "Current Password",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Password"
+          },
+          "idp_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idp Token"
           }
         },
-        "required": [
-          "current_password"
-        ],
         "title": "DeleteAccountRequest",
         "type": "object"
       },
@@ -622,6 +638,20 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "IntegrationPayload": {
+        "properties": {
+          "api_key": {
+            "minLength": 1,
+            "title": "Api Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key"
+        ],
+        "title": "IntegrationPayload",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -717,7 +747,7 @@
         "type": "object"
       },
       "OnboardIngestResponse": {
-        "description": "POST /v1/onboard/ingest response.",
+        "description": "POST /v1/onboard response.",
         "properties": {
           "confidence": {
             "title": "Confidence",
@@ -1117,6 +1147,7 @@
           "agent_id": {
             "anyOf": [
               {
+                "format": "uuid",
                 "type": "string"
               },
               {
@@ -1124,6 +1155,19 @@
               }
             ],
             "title": "Agent Id"
+          },
+          "client_request_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Request Id"
           },
           "dry_run": {
             "default": false,
@@ -1226,6 +1270,39 @@
             ],
             "title": "Content"
           },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "gate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate"
+          },
           "nodes": {
             "anyOf": [
               {
@@ -1240,6 +1317,17 @@
               }
             ],
             "title": "Nodes"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack"
           },
           "pending_content": {
             "anyOf": [
@@ -1263,6 +1351,28 @@
             ],
             "title": "Pending Content Sha"
           },
+          "pending_gate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Gate"
+          },
+          "pending_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Node Id"
+          },
           "profile_name": {
             "title": "Profile Name",
             "type": "string"
@@ -1283,6 +1393,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
           }
         },
         "required": [
@@ -1472,7 +1593,7 @@
   "paths": {
     "/v1/account": {
       "delete": {
-        "description": "Hard-delete the authenticated user and ALL their data \u2014 DB **and** on-disk.\n\nRequires the current password (step-up re-auth) for an irreversible action.\nPostgres CASCADE propagates the DB rows (workspace \u2192 subscriptions, profiles,\nruns, push_tokens, api_keys, cost_records); the workspace's on-disk tree\n(``data/workspaces/<ws>/`` \u2014 account dossiers, prospect PII, outreach) is\nremoved too. GDPR Art. 17: fail loud, so an erasure that cannot complete is\nnever silently reported as done.",
+        "description": "Hard-delete the authenticated user and ALL their data \u2014 DB **and** on-disk.\n\nRequires a step-up re-auth for an irreversible action: ``current_password`` for a\npassword account, a fresh ``idp_token`` for a federated one (module docstring).\nPostgres CASCADE propagates the DB rows (workspace \u2192 subscriptions, profiles,\nruns, push_tokens, api_keys, cost_records); the workspace's on-disk tree\n(``data/workspaces/<ws>/`` \u2014 account dossiers, prospect PII, outreach) is\nremoved too. GDPR Art. 17: fail loud, so an erasure that cannot complete is\nnever silently reported as done.",
         "operationId": "delete_account_v1_account_delete",
         "requestBody": {
           "content": {
@@ -1701,6 +1822,7 @@
             "name": "agent_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Agent Id",
               "type": "string"
             }
@@ -1739,6 +1861,7 @@
             "name": "agent_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Agent Id",
               "type": "string"
             }
@@ -1784,6 +1907,7 @@
             "name": "agent_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Agent Id",
               "type": "string"
             }
@@ -1918,6 +2042,7 @@
             "name": "key_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Key Id",
               "type": "string"
             }
@@ -2179,6 +2304,162 @@
         ]
       }
     },
+    "/v1/integrations": {
+      "get": {
+        "description": "List all configured integrations.\n\nNever returns the plaintext keys \u2014 only metadata and configuration status.",
+        "operationId": "list_integrations_v1_integrations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Integrations V1 Integrations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/v1/integrations/{provider}": {
+      "delete": {
+        "description": "Remove a configured integration.",
+        "operationId": "delete_integration_v1_integrations__provider__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "saleshandy",
+                "apollo",
+                "rocketreach",
+                "syften"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Integration V1 Integrations  Provider  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Integration",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "description": "Configure or update a third-party integration credential.",
+        "operationId": "set_integration_v1_integrations__provider__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "saleshandy",
+                "apollo",
+                "rocketreach",
+                "syften"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Integration V1 Integrations  Provider  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/v1/ledger/costs": {
       "get": {
         "description": "Return cost summary for the workspace, defaulting to the current month.\n\n``agent_id`` filters to that agent's rows \u2014 partitions are disjoint (rows carry\nat most one agent) and sum to the workspace total across agents + the\nNULL-agent remainder (pre-A4 rows).",
@@ -2207,6 +2488,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
@@ -2261,6 +2543,7 @@
             "required": false,
             "schema": {
               "default": 50,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -2309,6 +2592,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -2431,6 +2715,7 @@
             "name": "draft_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Draft Id",
               "type": "string"
             }
@@ -2472,6 +2757,7 @@
             "name": "draft_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Draft Id",
               "type": "string"
             }
@@ -2520,6 +2806,7 @@
             "name": "draft_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Draft Id",
               "type": "string"
             }
@@ -2587,6 +2874,7 @@
             "name": "draft_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Draft Id",
               "type": "string"
             }
@@ -2665,6 +2953,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
@@ -3096,7 +3385,7 @@
     },
     "/v1/runs": {
       "get": {
-        "description": "List the most recent runs for this workspace (optionally one agent's \u2014 A4).",
+        "description": "List the most recent runs for this workspace, optionally narrowed to one\nagent's (A4) and/or one status \u2014 e.g. ``?status=awaiting_approval`` to find every\nrun parked at a gate, which the default recency ordering can otherwise push past\n``limit`` and out of view. A bare `str`, not an enum, for the same reason\nRunResponse.status is (see schemas.py) \u2014 an unrecognized value just matches zero\nrows rather than 422ing.",
         "operationId": "list_runs_v1_runs_get",
         "parameters": [
           {
@@ -3105,6 +3394,8 @@
             "required": false,
             "schema": {
               "default": 20,
+              "maximum": 100,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -3116,6 +3407,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
@@ -3123,6 +3415,22 @@
                 }
               ],
               "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
             }
           }
         ],
@@ -3163,7 +3471,7 @@
         ]
       },
       "post": {
-        "description": "Queue a pipeline run. Returns immediately; poll GET /runs/{id} for status.\n\nTwo modes (RunRequest): prompt mode (unchanged) and pack mode, which validates\nfail-closed BEFORE any slot/spend is touched, in the normative A1/A12 order \u2014\nrequest-shaped errors before profile-shaped ones: 404 unknown variant \u2192 403\npack_not_activated \u2192 403 entitlement_required \u2192 422 missing_settings \u2192 422\npack_not_ready (blocked only; degraded proceeds).\n\nA5: the handler ENQUEUES (writes a `queued` row + payload) instead of spawning the\npipeline in this process. A worker's claim loop takes it under FOR UPDATE SKIP\nLOCKED, so a run survives the death of the process that accepted it and any worker\ncan execute it. Every admission refusal above still happens before a row exists.",
+        "description": "Queue a pipeline run. Returns immediately; poll GET /runs/{id} for status.\n\nTwo modes (RunRequest): prompt mode (unchanged) and pack mode, which validates\nfail-closed BEFORE any slot/spend is touched, in the normative A1/A12 order \u2014\nrequest-shaped errors before profile-shaped ones: 404 unknown variant \u2192 403\npack_not_activated \u2192 403 entitlement_required \u2192 422 missing_settings \u2192 422\npack_not_ready (blocked only; degraded proceeds) \u2192 402 cost_cap_reached (RL-08/M-06,\nboth modes) \u2192 429 too_many_concurrent_runs (inside insert_run_row).\n\nA5: the handler ENQUEUES (writes a `queued` row + payload) instead of spawning the\npipeline in this process. A worker's claim loop takes it under FOR UPDATE SKIP\nLOCKED, so a run survives the death of the process that accepted it and any worker\ncan execute it. Every admission refusal above still happens before a row exists.\n\nRT-04: an optional `client_request_id` makes this idempotent. A fast-path replay check\nruns FIRST \u2014 before any admission check \u2014 so a retry of an already-admitted request\nskips every refusal (pack/entitlement/budget/cap) that already ran the first time and\nsimply returns the original run's current state. The actual concurrency-safety\nbackstop for two requests racing at the same instant lives inside insert_run_row's own\n`ON CONFLICT` (this fast path can't close that window; the transaction can).",
         "operationId": "create_run_v1_runs_post",
         "requestBody": {
           "content": {
@@ -3218,6 +3526,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -3266,6 +3575,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -3316,6 +3626,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -3325,6 +3636,7 @@
             "name": "artifact_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Artifact Id",
               "type": "string"
             }
@@ -3363,7 +3675,7 @@
     },
     "/v1/runs/{run_id}/cancel": {
       "post": {
-        "description": "Cancel a pending, running, or gate-paused run.\n\nSets status to 'rejected' with error 'canceled by user'. If the run is\nwaiting at a gate, the gate event is resolved immediately so the background\ntask exits cleanly. 409 if the run is already in a terminal state.",
+        "description": "Cancel a pending, running, or gate-paused run.\n\nSets status to 'canceled' with error 'canceled by user', and closes any open\ndurable gate row (run_gates.state -> 'rejected') in the same write so a polling\nclient sees gate=None/pending_node_id=None immediately instead of a stale open\ngate on a dead run. If the run is waiting at a gate, the in-process waiter is\nwoken so the background task exits cleanly. 409 if the run is already terminal.",
         "operationId": "cancel_run_v1_runs__run_id__cancel_post",
         "parameters": [
           {
@@ -3371,6 +3683,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -3421,6 +3734,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }
@@ -3481,6 +3795,7 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Run Id",
               "type": "string"
             }

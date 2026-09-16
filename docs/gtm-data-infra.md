@@ -158,7 +158,7 @@ Nothing below is a new source of truth — each is a **derived, regenerable view
 from the ledgers, run manifests, and per-account files above. Deleting any of them loses no
 data; re-running the generator rebuilds it.
 
-- **Prospect consolidation** ([`gtm_core/prospects_consolidate.py`](../gtm_core/prospects_consolidate.py))
+- **Prospect consolidation** ([`gtm_core/prospects_consolidate/`](../gtm_core/prospects_consolidate/))
   — folds the scattered prospecting outputs into one deduped, verification-scored view and
   emits a `ready-to-load.csv` (ready vs needs-verify split) alongside the cumulative
   `prospects/latest.json`. `latest.json` is a **merge file, not an overwrite** — consolidation

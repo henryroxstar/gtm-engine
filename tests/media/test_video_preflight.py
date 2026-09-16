@@ -512,3 +512,54 @@ def test_the_story_capture_default_never_changes_lane_readiness(profiles: Path):
     assert [lane.variant for lane in with_item.ready_lanes] == [
         lane.variant for lane in without.ready_lanes
     ], "passing an item changed which lanes are runnable — the default must bound, never block"
+
+
+# --- K7: caption_mode derivation -------------------------------------------------------------
+
+
+def test_caption_mode_narrative_when_no_voice(profiles: Path):
+    """K7: preflight on a profile/lane with no voice derives caption_mode = 'narrative'."""
+    pf = vp.preflight("acme", profiles_root=profiles)
+    assert pf.constraints.caption_mode == "narrative"
+
+    # Also check text render and dict serialization
+    rendered = vp._render_text(pf)
+    assert "caption mode      narrative" in rendered
+    d = vp._as_dict(pf)
+    assert d["constraints"]["caption_mode"] == "narrative"
+
+
+def test_caption_mode_subtitles_for_presenter_lane(profiles: Path):
+    """K7: preflight with --lane presenter-video derives caption_mode = 'subtitles' when voiced."""
+    # When lane is specified as presenter-video and vo_available is True
+    root = profiles
+    brand = root / "acme" / "knowledge" / "BRAND.toml"
+    brand.write_text(
+        brand.read_text(encoding="utf-8")
+        .replace('voice_id = ""', 'voice_id = "v123"')
+        .replace('soul_id = ""', 'soul_id = "s123"'),
+        encoding="utf-8",
+    )
+    pf = vp.preflight("acme", profiles_root=profiles, lane="presenter-video")
+    assert pf.constraints.caption_mode == "subtitles"
+
+
+def test_ffmpeg_availability_reported_in_constraints_and_render(profiles: Path, monkeypatch):
+    """ffmpeg detection is surfaced in constraints, JSON dict, and human-readable text.
+
+    Patches ``video_lint.ffmpeg_available`` — video_preflight owns no ``shutil.which`` call
+    of its own, per tests/contracts/test_ffmpeg_module_boundary.py, and reports availability
+    via that shared helper instead."""
+    # When ffmpeg is found
+    monkeypatch.setattr(vp.video_lint, "ffmpeg_available", lambda: True)
+    pf_installed = vp.preflight("acme", profiles_root=profiles)
+    assert pf_installed.constraints.ffmpeg_available is True
+    assert vp._as_dict(pf_installed)["constraints"]["ffmpeg_available"] is True
+    assert "ffmpeg            installed" in vp._render_text(pf_installed)
+
+    # When ffmpeg is missing
+    monkeypatch.setattr(vp.video_lint, "ffmpeg_available", lambda: False)
+    pf_missing = vp.preflight("acme", profiles_root=profiles)
+    assert pf_missing.constraints.ffmpeg_available is False
+    assert vp._as_dict(pf_missing)["constraints"]["ffmpeg_available"] is False
+    assert "ffmpeg            NOT FOUND" in vp._render_text(pf_missing)

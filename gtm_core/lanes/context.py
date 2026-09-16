@@ -25,6 +25,7 @@ from ..prospects_consolidate.paths import _sequences_dir
 from ..prospects_consolidate.suppression import _load_sent
 from ..prospects_state import _identity_keys, latest_path, load_latest
 from ..suppression import LedgerIndex, load_index
+from .model import PROTECTIVE_HOLD_TRIGGERS
 
 #: The tenant file that turns repeated decisions into policy (``lanes suggest-rules`` only
 #: PROPOSES lines for it; the operator writes them). Resolved under the profile's knowledge
@@ -43,17 +44,16 @@ DEFAULT_REGULATED_SUFFIXES = (
     ".europa.eu",
 )
 
-#: ``latest.json`` statuses that mean "already in conversation". None exist on disk today
-#: (the vocabulary is ``new`` / ``disqualified`` / ``contact-resolved`` /
-#: ``contact-defective``); the trigger is wired so the day one is recorded it holds.
+#: The account statuses that default to "already in conversation" when the tenant policy does
+#: not override them (PS6). Aligned with :data:`gtm_core.prospects_state.LEDGER_STATUSES`.
+#: Every account in latest.json with one of these statuses is held under `engaged-account`.
 DEFAULT_ENGAGED_STATUSES = frozenset(
     {"engaged", "customer", "partner", "in-conversation", "replied", "meeting"}
 )
 
-#: ``history.jsonl`` ``signal`` rows whose ``signal_type`` means "they said no".
-NEGATIVE_SIGNAL_TYPES = frozenset(
-    {"opt_out", "optout", "unsubscribe", "not_interested", "objection", "do_not_contact"}
-)
+#: History events that mean "someone was told not to contact". Stamped by opt-out sweeps
+#: and prior campaign outcomes.
+NEGATIVE_SIGNAL_TYPES = frozenset({"negative_reply", "optout", "unsubscribe", "not_interested"})
 
 
 @dataclass
@@ -88,6 +88,7 @@ def _load_policy(ctx: RouterContext, path: Path) -> None:
         return
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     for trigger, choice in (data.get("auto") or {}).items():
+        trig = str(trigger).strip().lower()
         choice = str(choice).strip().lower()
         if choice == "suppress":
             # Policy may never suppress: a wrong suppress loses a prospect quietly, a wrong
@@ -96,12 +97,17 @@ def _load_policy(ctx: RouterContext, path: Path) -> None:
                 f"{POLICY_FILE}: [auto] {trigger} = suppress is REFUSED — suppress stays human"
             )
             continue
+        if trig in PROTECTIVE_HOLD_TRIGGERS:
+            ctx.notes.append(
+                f"{POLICY_FILE}: [auto] {trigger} is REFUSED — protective hold triggers stay human"
+            )
+            continue
         if choice not in ("generic", "salvage"):
             ctx.notes.append(
                 f"{POLICY_FILE}: [auto] {trigger} = {choice!r} ignored (generic|salvage)"
             )
             continue
-        ctx.policy_auto[str(trigger).strip().lower()] = choice
+        ctx.policy_auto[trig] = choice
     hold = data.get("hold") or {}
     if hold.get("regulated_domains"):
         ctx.regulated_suffixes = (
@@ -172,6 +178,9 @@ def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) 
             continue
         csv_path = seq_dir / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
         if not csv_path.is_file():
+            ctx.notes.append(
+                f"registered enrolled list for sequence {src['sequence_id']!r} is missing on disk: {src['csv']}"
+            )
             continue
         with csv_path.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):

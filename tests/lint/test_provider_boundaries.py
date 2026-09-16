@@ -122,9 +122,12 @@ def test_the_boundary_table_covers_every_connected_media_provider() -> None:
     `gemini-image` was: connected, named once in the whole repo, with no boundary against
     Higgsfield's image generation.
     """
-    body = (REPO / "plugin" / "skills" / "video-router" / "body_template.md").read_text(
-        encoding="utf-8"
-    )
+    router_body = REPO / "plugin" / "skills" / "video-router" / "body_template.md"
+    if not router_body.is_file():
+        import pytest
+
+        pytest.skip("video-router/body_template.md not present (paid-tier stub)")
+    body = router_body.read_text(encoding="utf-8")
     missing = [p for p in _PROVIDERS if p not in body]
     assert not missing, (
         f"the router's provider-boundary table does not account for: {missing}. Every connected "
@@ -139,9 +142,12 @@ def test_captions_are_routed_to_reap_with_a_recorded_reason() -> None:
     but an undocumented defensible call is indistinguishable from an oversight, and the next
     reader re-litigates it. The decline is the thing that has to be written down, not the choice.
     """
-    body = (REPO / "plugin" / "skills" / "video-router" / "body_template.md").read_text(
-        encoding="utf-8"
-    )
+    router_body = REPO / "plugin" / "skills" / "video-router" / "body_template.md"
+    if not router_body.is_file():
+        import pytest
+
+        pytest.skip("video-router/body_template.md not present (paid-tier stub)")
+    body = router_body.read_text(encoding="utf-8")
     assert "subtitles" in body, (
         "the Higgsfield `subtitles` workflow is never mentioned, so routing captions to Reap "
         "reads as an oversight rather than a decision"

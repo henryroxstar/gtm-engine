@@ -745,9 +745,10 @@ def test_filter_by_verdict_has_one_implementation():
 
 
 def test_outcomes_sync_cites_the_producers_not_get_outcomes_as_a_results_feed():
-    body = (REPO / "plugin" / "skills" / "outcomes-sync" / "body_template.md").read_text(
-        encoding="utf-8"
-    )
+    outcomes_sync_body = REPO / "plugin" / "skills" / "outcomes-sync" / "body_template.md"
+    if not outcomes_sync_body.is_file():
+        pytest.skip("outcomes-sync is withheld from this build (OSS carve)")
+    body = outcomes_sync_body.read_text(encoding="utf-8")
     assert "gtm_core.sequencer_outcomes" in body and "gtm_core.sequencer_sends" in body
     assert "returns the category TAXONOMY, not results" in body
     assert "0 sends recorded while" in body, "the run must end with the zero-denominator alarm"

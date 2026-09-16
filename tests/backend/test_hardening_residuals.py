@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -216,3 +217,226 @@ def test_cors_permissive_default_kept_outside_production():
 
     assert check_cors_origins(None, "development") == ["*"]
     assert check_cors_origins("*", "test") == ["*"]
+
+
+# ── Dev-secret boot guard ─────────────────────────────────────────────────────
+# deploy/.env.dev.example commits deliberately PUBLIC values for BACKEND_JWT_SECRET and
+# BILLING_SYNC_SECRET. Copied into a real config they make every token forgeable and every
+# entitlement grantable, so outside ENV=development the backend refuses to boot on them.
+
+_DEV_ENV_FILE = Path(__file__).resolve().parents[2] / "deploy" / ".env.dev.example"
+_NON_DEV_ENVS = [None, "", "production", "staging", "test", "Development"]
+# Low-entropy stand-ins for a Doppler-injected value — none starts with the dev prefix.
+_REAL_LOOKING = ("x" * 48, "not-local-dev-prefixed-" + "y" * 24)
+
+
+def _dev_values() -> tuple[str, str]:
+    """The two secrets exactly as the committed dev env file sets them. deploy/ is private and
+    omitted from the public carve, so there the file-backed cases skip rather than fail."""
+    if not _DEV_ENV_FILE.is_file():
+        pytest.skip("deploy/.env.dev.example is not in this tree (omitted from the public carve)")
+    values = {}
+    for line in _DEV_ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.lstrip().startswith("#"):
+            values[key.strip()] = value.strip()
+    return values["BACKEND_JWT_SECRET"], values["BILLING_SYNC_SECRET"]
+
+
+def test_dev_secret_prefix_covers_both_committed_dev_values():
+    """The guard's prefix is only a guard if the dev file's values actually carry it."""
+    from backend.main import _DEV_SECRET_PREFIX
+
+    for value in _dev_values():
+        assert value.startswith(_DEV_SECRET_PREFIX), "dev env value escaped the guard prefix"
+
+
+def test_dev_secrets_boot_in_development():
+    from backend.main import check_no_dev_secrets
+
+    check_no_dev_secrets("development", *_dev_values())
+
+
+@pytest.mark.parametrize("env", _NON_DEV_ENVS)
+def test_either_dev_secret_refuses_to_boot_outside_development(env):
+    from backend.main import check_no_dev_secrets
+
+    jwt_dev, billing_dev = _dev_values()
+    real = _REAL_LOOKING[0]
+    cases = [
+        ((jwt_dev, real), "BACKEND_JWT_SECRET"),
+        ((real, billing_dev), "BILLING_SYNC_SECRET"),
+        ((jwt_dev, billing_dev), "BACKEND_JWT_SECRET"),
+    ]
+    for pair, named in cases:
+        with pytest.raises(RuntimeError, match=named) as refused:
+            check_no_dev_secrets(env, *pair)
+        # The refusal names the variable, never the value.
+        assert jwt_dev not in str(refused.value) and billing_dev not in str(refused.value)
+
+
+@pytest.mark.parametrize("env", [*_NON_DEV_ENVS, "development"])
+def test_real_looking_secrets_boot_everywhere(env):
+    from backend.main import check_no_dev_secrets
+
+    check_no_dev_secrets(env, *_REAL_LOOKING)
+    check_no_dev_secrets(env, _REAL_LOOKING[1], _REAL_LOOKING[0])
+
+
+@pytest.mark.parametrize("env", _NON_DEV_ENVS)
+def test_empty_or_unset_secrets_are_not_this_guards_concern(env):
+    from backend.main import check_no_dev_secrets
+
+    for value in (None, ""):
+        check_no_dev_secrets(env, value, value, value)
+
+
+# VAULT_KEK cannot carry the "local-dev-" prefix the other two do: get_kek() requires valid
+# 32-byte hex, and no ASCII marker survives that constraint. So its committed dev placeholder
+# is guarded by exact match instead — a real Doppler KEK that merely happens to be valid hex
+# must never be mistaken for it (test_a_real_looking_vault_kek_boots_everywhere below).
+
+
+def _dev_vault_kek() -> str:
+    """VAULT_KEK exactly as the committed dev env file sets it."""
+    if not _DEV_ENV_FILE.is_file():
+        pytest.skip("deploy/.env.dev.example is not in this tree (omitted from the public carve)")
+    for line in _DEV_ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "VAULT_KEK":
+            return value.strip()
+    raise AssertionError("VAULT_KEK not found in deploy/.env.dev.example")
+
+
+def test_dev_vault_kek_constant_matches_the_committed_dev_value():
+    """The guard's exact-match constant is only a guard if it matches the dev file's value."""
+    from backend.main import _DEV_VAULT_KEK
+
+    assert _DEV_VAULT_KEK == _dev_vault_kek()
+
+
+def test_dev_vault_kek_boots_in_development():
+    from backend.main import check_no_dev_secrets
+
+    check_no_dev_secrets("development", *_dev_values(), _dev_vault_kek())
+
+
+@pytest.mark.parametrize("env", _NON_DEV_ENVS)
+def test_dev_vault_kek_refuses_to_boot_outside_development(env):
+    from backend.main import check_no_dev_secrets
+
+    kek_dev = _dev_vault_kek()
+    real = _REAL_LOOKING[0]
+    with pytest.raises(RuntimeError, match="VAULT_KEK") as refused:
+        check_no_dev_secrets(env, real, real, kek_dev)
+    # The refusal names the variable, never the value.
+    assert kek_dev not in str(refused.value)
+
+
+@pytest.mark.parametrize("env", [*_NON_DEV_ENVS, "development"])
+def test_a_real_looking_vault_kek_boots_everywhere(env):
+    from backend.main import check_no_dev_secrets
+
+    # Valid 32-byte hex, like a real Doppler-generated KEK — exact match only, never "is hex".
+    real_kek = "ab" * 32
+    check_no_dev_secrets(env, *_REAL_LOOKING, real_kek)
+
+
+def test_lifespan_refuses_a_dev_vault_kek_before_touching_the_database(monkeypatch):
+    """Wiring proof for VAULT_KEK, same shape as the JWT/billing case above — and the
+    highest-blast-radius of the three: a leaked KEK is non-revocable, since rotating it
+    does not retroactively re-encrypt every already-stored encrypted_credentials row."""
+    from fastapi import FastAPI
+
+    from backend import main as backend_main
+
+    monkeypatch.delenv("GTM_FAKE_RUNS", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.delenv("BACKEND_JWT_SECRET", raising=False)
+    monkeypatch.delenv("BILLING_SYNC_SECRET", raising=False)
+    monkeypatch.setenv("VAULT_KEK", _dev_vault_kek())
+
+    async def _boot():
+        async with backend_main.lifespan(FastAPI()):
+            pass
+
+    with pytest.raises(RuntimeError, match="VAULT_KEK"):
+        asyncio.run(_boot())
+
+
+def test_lifespan_refuses_a_dev_secret_before_touching_the_database(monkeypatch):
+    """Wiring, not just the function: with DATABASE_URL unset a missing guard would surface
+    as a KeyError, so a RuntimeError naming the secret proves the lifespan calls it."""
+    from fastapi import FastAPI
+
+    from backend import main as backend_main
+
+    monkeypatch.delenv("GTM_FAKE_RUNS", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("BILLING_SYNC_SECRET", _dev_values()[1])
+
+    async def _boot():
+        async with backend_main.lifespan(FastAPI()):
+            pass
+
+    with pytest.raises(RuntimeError, match="BILLING_SYNC_SECRET"):
+        asyncio.run(_boot())
+
+
+# ── #241 Q6: edited content at a gate with no draft is refused, not silently dropped ──
+
+
+def _drive_decide_gate_kind(gate_kind, decision, edited_content=None):
+    pending = "stub"
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "status": "awaiting_approval",
+        "pending_gate": "⟦GATE:plan⟧",
+        "pending_content": pending,
+        "gate_kind": gate_kind,
+    }
+    request = MagicMock()
+    request.app.state.pool = MagicMock()
+    ws = MagicMock()
+    ws.workspace_id = "ws1"
+    body = GateRequest(
+        decision=decision,
+        content_sha=runs_router._content_sha(pending),
+        edited_content=edited_content,
+    )
+
+    async def _go():
+        runs_router._gate_events["run1"] = asyncio.Event()
+        runs_router._gate_decisions.pop("run1", None)
+        try:
+            with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope(conn)):
+                return await runs_router.decide_gate("run1", body, ws, request)
+        finally:
+            runs_router._gate_events.pop("run1", None)
+            runs_router._gate_decisions.pop("run1", None)
+
+    return asyncio.run(_go())
+
+
+@pytest.mark.parametrize(
+    ("decision", "edited"), [("edit", "trimmed drafts"), ("approve", "trimmed drafts")]
+)
+def test_decide_gate_refuses_edited_content_at_a_review_gate(decision, edited):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        _drive_decide_gate_kind("review", decision, edited)
+    assert ei.value.status_code == 422
+
+
+@pytest.mark.parametrize("gate_kind", ["plan", "email_enroll", None])
+def test_decide_gate_still_accepts_edits_where_a_draft_or_prompt_run_applies_them(gate_kind):
+    result = _drive_decide_gate_kind(gate_kind, "edit", "edited bytes")
+    assert result["decision"] == "edit"
+
+
+def test_decide_gate_still_accepts_plain_approve_and_reject_at_a_review_gate():
+    assert _drive_decide_gate_kind("review", "approve")["decision"] == "approve"
+    assert _drive_decide_gate_kind("review", "reject")["decision"] == "reject"

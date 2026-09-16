@@ -11,6 +11,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from gtm_core import shots_lint as sl
 
 REPO = Path(__file__).resolve().parents[2]
@@ -219,6 +221,10 @@ def test_video_script_worked_example_has_no_lint_errors():
     """The canonical Step 1.5 example is what operators copy — it must never teach a pattern
     the linter then rejects. Warnings are tolerated (the example is an excerpt, so its beat
     total legitimately drifts from total_duration_s)."""
+    if not SCRIPT_BODY.is_file():
+        pytest.skip(
+            "video-script/body_template.md not present in this distribution (paid-tier stub)"
+        )
     body = SCRIPT_BODY.read_text(encoding="utf-8")
     idx = body.index("Step 1.5")
     m = re.search(r"```json\n(.*?)```", body[idx:], re.DOTALL)
@@ -227,12 +233,20 @@ def test_video_script_worked_example_has_no_lint_errors():
     assert errors == []
 
 
+def test_presenter_refused_on_high_emotional_load():
+    """Q5: High emotional load beats cannot route to synthetic presenter."""
+    doc = _doc(shots=[_shot(role="presenter", emotional_load="high")])
+    errors, _ = sl.lint_shotlist(doc)
+    assert any("emotional_load='high'" in e for e in errors)
+
+
 # --- CLI -----------------------------------------------------------------------------------
 
 
 def test_cli_exit_1_on_errors_and_json_output(tmp_path, capsys):
     p = tmp_path / "bad.shots.json"
     p.write_text(json.dumps(_doc(shots=[_shot(camera="pan left then tilt up")])))
+
     rc = sl.main([str(p)])
     out = json.loads(capsys.readouterr().out)
     assert rc == 1

@@ -109,3 +109,17 @@ def test_the_old_entry_points_still_work():
 
     assert callable(prospects_consolidate._cli)
     assert callable(list_fit.main)
+
+
+def test_status_is_a_registered_verb_with_a_dispatchable_entry_point():
+    """PS8: `status` is the 19th verb — one decision made in plain language, not a
+    module path an operator has to already know."""
+    assert cli.VERBS.get("status") == "gtm_core.prospect_status_cli"
+    module = importlib.import_module(cli.VERBS["status"])
+    assert cli._entry_point(module) is not None
+
+
+def test_help_lists_the_status_verb(capsys):
+    assert cli.main(["--help"]) == 0
+    out = capsys.readouterr().out
+    assert "status" in out

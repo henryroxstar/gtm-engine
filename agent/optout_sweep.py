@@ -45,7 +45,8 @@ from gtm_core.optout_watch import (
     record_optout_event,
     save_watermark,
 )
-from gtm_core.reply_classify import classify_reply
+from gtm_core.prospects_state import mark_replied
+from gtm_core.reply_classify import CLASSIFIED_TYPES, classify_reply
 from gtm_core.signals import build_signal, new_signals, record_signals
 
 logger = logging.getLogger("agent.optout_sweep")
@@ -231,6 +232,7 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
     fresh = new_signals(signals, history_path)
     if fresh:
         record_signals(ledgers, fresh)
+    _mark_replies(cfg, profile, fresh)
     logger.info("optout_sweep: signals seen=%d new=%d", len(signals), len(fresh))
 
     # W4: act on what was just recorded. Best-effort and last, because opt-out detection
@@ -246,6 +248,60 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
 
     logger.info("optout_sweep: profile=%s checked=%d found=%d", profile, len(candidates), found)
     return 0
+
+
+def _mark_replies(cfg: Config, profile: str, fresh: list[dict]) -> None:
+    """A genuine (non-opt-out) inbound reply is the ledger write PS6 needs.
+
+    Every ``signal_type`` :func:`classify_reply` can return is, by construction, a reply
+    that is NOT an opt-out (the opt-out branch above is a separate ``if`` earlier in
+    :func:`run` and never reaches ``signals``) — so every fresh signal here is a genuine
+    reply and its ``who`` (the reply's own ``from`` address) is passed straight to
+    :func:`gtm_core.prospects_state.mark_replied`. Filtered against
+    :data:`~gtm_core.reply_classify.CLASSIFIED_TYPES` anyway, defensively, so a future
+    signal type this module does not yet know about is never assumed to be a reply.
+
+    Best-effort and never fatal, mirroring :func:`_dispatch_signals`: this runs after
+    opt-out detection has already completed, so a failure here must not un-do that.
+    """
+    emails = {s["who"] for s in fresh if s.get("who") and s.get("signal_type") in CLASSIFIED_TYPES}
+    # Derive from durable signals in history.jsonl so previously failed or unmatched marks are retried
+    history_path = cfg.content_root / profile / "history.jsonl"
+    if history_path.is_file():
+        try:
+            with history_path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                        if (
+                            r.get("event") == "signal"
+                            and r.get("signal_type") in CLASSIFIED_TYPES
+                            and r.get("who")
+                        ):
+                            emails.add(str(r["who"]).strip().lower())
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            pass
+
+    if not emails:
+        return
+    try:
+        summary = mark_replied(
+            profile, emails, source="optout_sweep", content_root=cfg.content_root
+        )
+        if summary.get("unmatched"):
+            logger.warning(
+                "optout_sweep: mark_replied unmatched %d email(s) for profile=%s: %s",
+                len(summary["unmatched"]),
+                profile,
+                summary["unmatched"],
+            )
+    except Exception:
+        logger.warning("optout_sweep: mark_replied failed for profile=%s", profile, exc_info=True)
 
 
 async def _dispatch_signals(cfg: Config, profile: str) -> None:

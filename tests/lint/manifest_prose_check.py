@@ -69,19 +69,10 @@ ALLOWLIST = Path(__file__).with_name("manifest_prose_allow.txt")
 #: A description above this is over budget whatever it contains — the blunt backstop for
 #: verbose prose that dodges both patterns above.
 #:
-#: Calibration, stated because the first attempt got it wrong. 2,000 was proposed from the
-#: seven already-right-sized private skills (699-1,714 chars) — but those are skills with less
-#: contract to declare, so the figure measured their SUBJECT MATTER, not the boundary between
-#: interface and notes. Once `video-avatar` and `video-storyboard` were stripped of every dated
-#: finding they still stood at 2,665 and 2,928 chars of pure interface: identity-handle
-#: resolution, look precedence, refusal rules, gate mechanics, the downstream hand-off. Cutting
-#: to 2,000 would have deleted contract, which is the one thing this rule must not cause.
-#:
-#: So the budget is set above the largest legitimate description rather than at the average
-#: one. It still fails the case this lint was written for by a wide margin — `video-avatar`'s
-#: pre-audit description was 4,075 — while the date/measurement rules above do the precise
-#: work. A budget is the backstop here, not the mechanism.
-MAX_DESCRIPTION_CHARS = 3_200
+#: Following the 2026-09-11 skill manifest rightsizing initiative, all skill descriptions
+#: are decoupled from interface contracts (now cleanly in body_template.md under `## Interface Contract`)
+#: and capped at 500 characters to prevent context window saturation in AI agents and Antigravity.
+MAX_DESCRIPTION_CHARS = 500
 
 #: An ISO date, or a "we checked this on..." phrasing followed by a year. Both forms appear
 #: in the prose this rule exists to move.

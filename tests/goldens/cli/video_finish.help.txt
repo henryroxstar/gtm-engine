@@ -1,8 +1,8 @@
 usage: python -m gtm_core.video_finish [-h]
-                                       {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,find-transient,mix-sfx,room-tone,narration-track,contact-sheet,reframe} ...
+                                       {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,overlays,overlay-scene,find-transient,mix-sfx,room-tone,voice-polish,narration-track,contact-sheet,reframe} ...
 
 positional arguments:
-  {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,find-transient,mix-sfx,room-tone,narration-track,contact-sheet,reframe}
+  {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,overlays,overlay-scene,find-transient,mix-sfx,room-tone,voice-polish,narration-track,contact-sheet,reframe}
     grade               apply ONE eq grade to one shot, audio stream-copied
                         (per-shot assembly path)
     frames-to-video     encode a numbered PNG frame sequence
@@ -15,12 +15,21 @@ positional arguments:
                         (hard cut by default)
     burn-captions       burn each shot's caption into that shot's own file,
                         BEFORE the stitch
+    overlays            draw each shot's production.overlay chat bubble beside
+                        the phone and composite it into that shot's own file,
+                        BEFORE the stitch
+    overlay-scene       composite an RGBA PNG sequence (a gtm_core.screen_ui
+                        overlay scene) over one shot at 1:1, keeping the
+                        shot's own audio
     find-transient      where a cue file's sound actually starts (relative
                         level sweep, not silencedetect)
     mix-sfx             mix N timed SFX cues onto a shot's existing audio
                         (normalize=0, verified by measurement)
     room-tone           synthesize a low room-tone bed (.m4a) — the noise
                         floor, never a score
+    voice-polish        clean up one narration take: highpass, de-mud,
+                        presence lift, de-ess, gentle compression — lossless
+                        WAV, duration-preserving
     narration-track     place a shot list's `narration` read onto one voice-
                         only master (.m4a). Refuses if the lane fails its
                         lint, or if a line's `len_s` disagrees with its audio.

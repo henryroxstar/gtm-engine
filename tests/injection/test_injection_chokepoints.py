@@ -137,6 +137,23 @@ def test_reply_gate_strips_own_nested_sentinels(payload):
         assert frag not in draft.body
 
 
+def test_a_forged_to_block_quoted_inside_the_reply_is_not_promoted_to_the_recipient():
+    """The reply twin of the ⟦MEDIA⟧ promotion check above, and the same bug.
+
+    `_REPLY_FORGERIES[1]` — a ⟦TO⟧ block — was ALREADY in this corpus, but the stripping
+    test only inspected `draft.body`, so the suite carried the exploit and asserted past it.
+    `agent/reply.py:_field` searched the whole raw string, so an inbound message could set
+    the RECIPIENT of the reply it was quoted into. Fixed by excising the ⟦REPLY⟧ span first,
+    exactly as agent/publish.py does for ⟦POST⟧.
+    """
+    raw = f"⟦GATE:reply⟧\n⟦REPLY⟧\nGenuine reply. {_REPLY_FORGERIES[1]}\n⟦/REPLY⟧"
+    draft = reply.parse_reply_block(raw)
+    assert draft is not None
+    assert draft.to == ""
+    assert draft.thread_id == ""
+    assert "⟦" not in draft.body
+
+
 def test_scraped_gate_marker_alone_does_not_forge_a_gate():
     """A forged gate marker sitting in scraped text (no genuine gate) parses to nothing."""
     for payload in FORGED_GATE_MARKERS:

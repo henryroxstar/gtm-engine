@@ -3,10 +3,110 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
+from ..prospect_status import LABELS, NEXT_STEP, STATUSES
 from .aggregate import _ceiling_sub, _planned_sub, _scope_figures
 from .config import BENCHMARKS, PRIMARY_BENCHMARK
+from .filters import sub_counts
 from .forecast import _forecast_block, drafted_to
-from .format import _e, _i, _pct, _scoped_out, _stat, roster_gap, scope_label
+from .format import (
+    _e,
+    _i,
+    _pct,
+    _pool_scope_note,
+    _scoped_out,
+    _stat,
+    roster_gap,
+    scope_label,
+)
+
+#: The five statuses rendered as tiles here. `needs_address` is the sixth `STATUSES` id but
+#: gets its own card below, textually marked as a different population — see
+#: `_prospect_status_block`.
+_LANE_STATUSES: tuple[str, ...] = tuple(s for s in STATUSES if s != "needs_address")
+
+
+def _prospect_status_block(m: dict) -> str:
+    """PS14: the six-word operator status (`gtm_core.prospect_status`) as five summing
+    tiles, plus the ledger's own — the same six words `prospects status` prints, so the
+    page and the CLI cannot disagree about what one of them means.
+
+    Renders only what ``model.prospect_status_model`` already derived; nothing here reads
+    ``lanes-state.jsonl`` or calls ``status_of`` a second time. When the router has never
+    run on this profile (``available`` is False) each of the five tiles still renders —
+    an em dash and a reason, the same refusal shape ``_status_view``'s other tiles already
+    use (e.g. the sending-ceiling tile) — rather than a zero that reads as "nothing is
+    waiting" when the truth is "nobody has looked yet".
+
+    ``needs_address`` is never summed into the five: it counts the account LEDGER, a
+    different and larger population than the current routed list, and folding the two
+    together is the double-counting failure this page has already paid for once.
+    """
+    ps = m.get("prospect_status") or {}
+    available = bool(ps.get("available"))
+    counts = ps.get("counts") or {}
+    total = ps.get("total") or 0
+    unmapped = ps.get("unmapped") or 0
+    needs = ps.get("needs_address") or 0
+    scope_note = _pool_scope_note(m, "The prospect pool")
+
+    if available:
+        tiles = "".join(
+            _stat(
+                counts.get(s, 0),
+                LABELS[s],
+                NEXT_STEP[s],
+                raw={"value": counts.get(s, 0)},
+                src=f"status:{s}",
+            )
+            for s in _LANE_STATUSES
+        )
+        total_line = (
+            f'<p class="note">These five sum to <strong>{total:,}</strong> — every person '
+            "in the current list.</p>"
+        )
+    else:
+        tiles = "".join(
+            _stat(
+                "—",
+                LABELS[s],
+                "nothing to show yet — run your prospecting first",
+                raw={"value": "—"},
+                src=f"status:{s}",
+            )
+            for s in _LANE_STATUSES
+        )
+        total_line = '<p class="note">Nothing to show yet — run your prospecting first.</p>'
+    unmapped_line = (
+        f'<p class="note">{unmapped:,} more row(s) carry a state this page does not '
+        "recognise. Held out of the total above rather than guessed at — that is a gap in "
+        "the status mapping, not a real status.</p>"
+        if unmapped
+        else ""
+    )
+    needs_tile = _stat(
+        needs,
+        LABELS["needs_address"],
+        f"{NEXT_STEP['needs_address']} — not counted above",
+        raw={"value": needs},
+        src="status:needs_address",
+    )
+    diff_note = f"not part of the {total:,} above" if available else "not part of the routed list"
+    return f"""
+      <div class="card">
+        <h2>Where the current list stands</h2>
+        {scope_note}
+        <div class="stats">{tiles}</div>
+        {total_line}
+        {unmapped_line}
+      </div>
+      <div class="card">
+        <h2>Needs an address</h2>
+        <div class="stats">{needs_tile}</div>
+        <p class="note"><strong>A different population — {diff_note}.</strong>
+        This counts named contacts in the account ledger with no reachable address at all,
+        which includes accounts that have never reached the current routed list.</p>
+      </div>"""
+
 
 # --- views ----------------------------------------------------------------------
 
@@ -36,7 +136,7 @@ def _roster_stats(m: dict) -> str:
     # so a page with no per-recipient renders still says something rather than zero.
     merge = len({r["to"] for r in (m.get("samples") or {}).get("rendered") or []})
     drafted = len(drafted_to(m))
-    unreachable = r["accounts"] - r["contact_verified"]
+    rows = r["rows"]
     # A pack is claimed by a campaign's DATE SUFFIX (`model.scope_to_campaign`), so a slug
     # without one claims none. That makes the drafted figure a floor, not a count — said
     # here rather than letting a lane silently go missing from a total.
@@ -53,21 +153,35 @@ def _roster_stats(m: dict) -> str:
             "accounts researched",
             "the whole segment, not a slice",
             raw={"value": r["accounts"]},
-            src="roster:accounts",
+            src="rows:all",
         )
         + _stat(
             r["contact_verified"],
             "contacts verified",
-            f"{r['named_seat']} to a named seat · {unreachable} with no address at all",
             raw={"value": r["contact_verified"]},
-            src="roster:contact_verified",
+            src="rows:co_has_email",
+            sub_html=sub_counts(
+                rows,
+                [
+                    ("co_named", " to a named seat"),
+                    ("co_no_email", " with no address at all"),
+                ],
+            ),
         )
         + _stat(
             r["signal"],
             "carry a dated why-now",
-            f"{r['signal_sourced']} of them cite a source — evidence is the binding constraint",
             raw={"value": r["signal"]},
-            src="roster:signal",
+            src="rows:co_signal",
+            sub_html=sub_counts(
+                rows,
+                [
+                    (
+                        "co_signal_sourced",
+                        " of them cite a source — evidence is the binding constraint",
+                    )
+                ],
+            ),
         )
         + _stat(
             drafted or packs + enrolled,
@@ -89,6 +203,7 @@ def _roster_stats(m: dict) -> str:
 
 
 def _status_view(m: dict) -> str:
+    status_block = _prospect_status_block(m)
     roster_stats = _roster_stats(m)
     fig = _scope_figures(m)
     seqs = [x for x in m["status"].get("sequences", []) if x.get("id")]
@@ -115,7 +230,7 @@ def _status_view(m: dict) -> str:
 
     seq_rows = "".join(
         f"<tr><td>{_e(x.get('name', '') or x['id'])}</td>"
-        f"<td><span class='pill {'good' if str(x.get('status', '')).lower() in ('active', 'running') else 'warn'}'>"
+        f"<td class='tech'><span class='pill {'good' if str(x.get('status', '')).lower() in ('active', 'running') else 'warn'}'>"
         f"{_e(x.get('status') or '—')}</span></td>"
         f"<td class='num-cell'>{_i(x.get('loaded')):,}</td>"
         f"<td class='num-cell'>{_i(x.get('sent')):,}</td>"
@@ -233,7 +348,7 @@ def _status_view(m: dict) -> str:
           8.5% (Backlinko/Pitchbox, 12M emails) is link-building and blogger outreach, not B2B
           sales — a different population answering a different request. Quoting it as a sales
           benchmark is a category error, and inflated ranges usually trace back to it.</p>
-          <table><thead><tr><th>Figure</th><th>Counted as</th><th>Source</th></tr></thead>
+          <table><thead><tr><th>Figure</th><th>How it is counted</th><th>Source</th></tr></thead>
           <tbody>{src_rows}</tbody></table>
         </details>
       </div>"""
@@ -298,6 +413,7 @@ def _status_view(m: dict) -> str:
       </div>"""
 
     return f"""
+      {status_block}
       {roster_stats}
       <div class="stats">
         {
@@ -350,7 +466,7 @@ def _status_view(m: dict) -> str:
 
       <div class="card">
         <h2>Email sequences</h2>
-        <table><thead><tr><th>Sequence</th><th>State</th><th>People</th><th>Emails sent</th>
+        <table><thead><tr><th>Sequence</th><th class="tech">State</th><th>People</th><th>Emails sent</th>
         <th>Replies</th><th>Progress</th></tr></thead><tbody>{seq_rows}</tbody></table>
         <p class="note">Progress is emails sent against the {due_txt} each person is due.
         How long the whole run takes is worked out below.</p>

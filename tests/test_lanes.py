@@ -9,6 +9,7 @@ import csv
 import datetime
 import json
 import random
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,25 @@ def test_lane_csvs_are_disjoint_and_cover_the_input(tmp_path):
         "c@z.example": "hold",
         "d@w.example": "excluded",
     }
+
+
+def test_lane_csv_headers_have_no_duplicate_columns(tmp_path):
+    """PS4 regression: `MASTER_COLS` already carries `lane`/`lane_reason`/`judge_defect_class`
+    (the last via `JUDGE_COLUMNS`), so a naive `[*MASTER_COLS, *LANE_COLUMNS]` wrote every
+    lane CSV's header twice for all three. `test_lane_csvs_are_disjoint_and_cover_the_input`
+    only checks `LANE_COLUMNS` is a SUBSET of the header, which a duplicated superset still
+    satisfies — it cannot catch this."""
+    rows = [
+        _row(email="a@x.example", company="X", company_domain="x.example"),
+        _row(email="b@y.example", company="Y", company_domain="y.example", verdict="re-angle"),
+    ]
+    recs = [_rec("a@x.example", "send")]
+    result = lanes.route(rows, recs, _ctx())
+    paths = lanes.write_lanes(result, tmp_path, "2026-09-03")
+    for lane, path in paths.items():
+        with path.open(newline="", encoding="utf-8") as fh:
+            header = csv.DictReader(fh).fieldnames or []
+        assert len(header) == len(set(header)), f"{lane}: duplicate columns in {header}"
 
 
 def test_hold_beats_every_other_lane():
@@ -291,6 +311,109 @@ def test_contested_verdict_routes_generic_never_personalised():
         _row(), [_rec("jordan.vance@vertex.example", "send", body_hash="h2")], previous=previous
     )
     assert r.lane == "personalised" and "contested" not in r.flags
+
+
+# --------------------------------------------------------- PS5: stable reason codes
+
+
+def test_verdict_lane_reason_codes_cover_every_branch():
+    """Every branch of `_verdict_lane` (plus the stickiness override) gets its own stable,
+    kebab-case code — see `Routed.stable_reason`. `trigger` is empty in every one of these
+    cases, so `stable_reason` falls through to `reason_code`."""
+    cases = [
+        ({}, [_rec("jordan.vance@vertex.example", "send")], "personalised", "researcher-send"),
+        (
+            {},
+            [_rec("jordan.vance@vertex.example", "re-angle", repair_attempt=3)],
+            "generic",
+            "repair-cap",
+        ),
+        (
+            {},
+            [_rec("jordan.vance@vertex.example", "re-angle", repair_attempt=0)],
+            "repair",
+            "judge-verdict",
+        ),
+        (
+            {},
+            [_rec("jordan.vance@vertex.example", "send", grounding="research=2")],
+            "repair",
+            "grounding",
+        ),
+        ({}, None, "generic", "no-judge-verdict"),
+        (
+            {"signal_observed": "2025-01-01"},
+            [_rec("jordan.vance@vertex.example", "send")],
+            "generic",
+            "stale-clause",
+        ),
+        (
+            {"why_now": ""},
+            [_rec("jordan.vance@vertex.example", "send")],
+            "generic",
+            "no-signal-clause",
+        ),
+        ({"verdict": "re-angle"}, [], "generic", "research-verdict"),
+        ({"verdict": ""}, [], "generic", "research-verdict"),
+    ]
+    for kw, recs, lane, code in cases:
+        r = _lane(_row(**kw), recs)
+        assert (r.lane, r.reason_code) == (lane, code), (kw, r.lane, r.reason_code)
+        assert r.stable_reason == code, "trigger is empty here, so stable_reason == reason_code"
+
+
+def test_contested_stickiness_sets_the_contested_judge_reason_code():
+    previous = {
+        "jordan.vance@vertex.example": {
+            "lane": "repair",
+            "judge_verdict": "re-angle",
+            "body_hash": "h1",
+        }
+    }
+    r = _lane(
+        _row(), [_rec("jordan.vance@vertex.example", "send", body_hash="h1")], previous=previous
+    )
+    assert r.lane == "generic" and r.reason_code == "contested-judge"
+    assert r.stable_reason == "contested-judge"
+
+
+def test_stable_reason_is_the_trigger_for_hold_and_excluded_rows():
+    """A trigger fired — the second-pass triggers too (PS12's `tier-a-generic`) — so
+    `stable_reason` reads the trigger id itself, never a `_verdict_lane` code."""
+    r = _lane(_row(verdict="drop"))
+    assert r.lane == "hold" and r.trigger == "researcher-drop"
+    assert r.stable_reason == "researcher-drop"
+    r = _lane(_row(suppression="out-of-market"))
+    assert r.lane == "excluded" and r.trigger == "suppressed"
+    assert r.stable_reason == "suppressed"
+    rows = [_row(tier="A", verdict="")]
+    result = lanes.route(rows, [], _ctx())
+    assert result.routed[0].trigger == "tier-a-generic"
+    assert result.routed[0].stable_reason == "tier-a-generic"
+
+
+def test_stable_reason_stamps_the_decision_for_a_decided_row():
+    """A row a prior decision or policy answered stamps `<choice>:<trigger>`, so it reads as
+    visibly distinct from a row that is freshly held on the same trigger."""
+    key = ("prior-contact", lanes.account_key(_row()))
+    ctx = _ctx(prior_emails={"jordan.vance@vertex.example"})
+    generic = {key: {"decision": "generic", "detail": "this address was already emailed"}}
+    r = _lane(_row(), None, ctx, decisions=generic)
+    assert r.lane == "generic" and r.stable_reason == "generic:prior-contact"
+    salvage = {key: {"decision": "salvage", "detail": "this address was already emailed"}}
+    r = _lane(_row(), None, ctx, decisions=salvage)
+    assert r.lane == "repair" and r.stable_reason == "salvage:prior-contact"
+
+
+def test_write_state_carries_reason_additively(tmp_path):
+    """PS5: `reason` is a NEW field; the existing `trigger` field is unchanged (`lanes/cli.py`
+    stickiness reads it) and stays blank for a verdict-lane row exactly as before."""
+    result = lanes.route([_row()], [_rec("jordan.vance@vertex.example", "send")], _ctx())
+    path = tmp_path / "lanes-state.jsonl"
+    dec.write_state(result, path, "2026-09-03")
+    rec = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["trigger"] == ""
+    assert rec["reason"] == "researcher-send"
 
 
 # --------------------------------------------------------- hold triggers, each with a positive control
@@ -631,6 +754,78 @@ def test_suggest_rules_needs_ten_unanimous_and_never_proposes_suppress(
     )
 
 
+def test_auto_policy_refuses_protective_hold_triggers(tmp_path):
+    """PS-R I5: [auto] policy must never automate protective hold triggers."""
+    from gtm_core.lanes.context import RouterContext, _load_policy
+    from gtm_core.lanes.model import PROTECTIVE_HOLD_TRIGGERS
+
+    policy_file = tmp_path / "lane-policy.toml"
+    content = "[auto]\n" + "\n".join(f'{t} = "generic"' for t in PROTECTIVE_HOLD_TRIGGERS)
+    policy_file.write_text(content, encoding="utf-8")
+
+    ctx = RouterContext(profile="acme", as_of=AS_OF)
+    _load_policy(ctx, policy_file)
+    for t in PROTECTIVE_HOLD_TRIGGERS:
+        assert t not in ctx.policy_auto
+        assert any(t in note and "REFUSED" in note for note in ctx.notes)
+
+
+def test_suggest_rules_never_proposes_protective_triggers(tmp_path, monkeypatch, capsys):
+    """PS-R I5: suggest-rules must never propose protective hold triggers."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    path = dec.decisions_path("acme")
+    path.parent.mkdir(parents=True)
+    rows = [
+        {"trigger": "engaged-account", "account_key": f"d:ea{i}.example", "decision": "generic"}
+        for i in range(15)
+    ]
+    rows += [
+        {"trigger": "prior-contact", "account_key": f"d:pc{i}.example", "decision": "salvage"}
+        for i in range(15)
+    ]
+    rows += [
+        {"trigger": "untraceable-number", "account_key": f"d:un{i}.example", "decision": "generic"}
+        for i in range(10)
+    ]
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    assert lanes.main(["suggest-rules", "--profile", "acme"]) == 0
+    out = capsys.readouterr().out
+    assert 'untraceable-number = "generic"' in out
+    assert "engaged-account" not in out.split("[auto]")[-1]
+    assert "prior-contact" not in out.split("[auto]")[-1]
+    assert "protective hold triggers are never proposed" in out
+
+
+def test_duplicate_contact_pass_does_not_overwrite_decided_protective_row(tmp_path):
+    """PS-R I6: When a contact with a protective trigger (prior-contact) has been
+    decided (salvaged to repair), the second pass (duplicate-contact) must not
+    overwrite its trigger or downgrade its decision."""
+    ctx = _ctx()
+    ctx.prior_emails.add("prior@vertex.example")
+
+    row1 = _row(email="prior@vertex.example", company="Vertex", company_domain="vertex.example")
+    row2 = _row(email="new@vertex.example", company="Vertex", company_domain="vertex.example")
+
+    decisions = {
+        ("prior-contact", "d:vertex.example"): {
+            "decision": "salvage",
+            "detail": "this address was already emailed",
+            "trigger": "prior-contact",
+        }
+    }
+    result = lanes.route([row1, row2], [], ctx, decisions=decisions)
+
+    r1 = next(r for r in result.routed if r.email == "prior@vertex.example")
+    r2 = next(r for r in result.routed if r.email == "new@vertex.example")
+
+    # r1 must retain its protective trigger and repair lane
+    assert r1.trigger == "prior-contact"
+    assert r1.lane == "repair"
+    # r2 is the duplicate contact and is held on duplicate-contact
+    assert r2.trigger == "duplicate-contact"
+    assert r2.lane == "hold"
+
+
 # --------------------------------------------------------- CLI route
 
 
@@ -712,6 +907,223 @@ def test_route_writes_lanes_hold_queue_and_state(tmp_path, monkeypatch, capsys):
     assert hold.is_file() and "researcher-drop" in hold.read_text(encoding="utf-8")
     state = dec.read_state(dec.state_path("acme"))
     assert state["jordan.vance@vertex.example"]["lane"] == "personalised"
+    # PS17: the hold-lane CSV is a pool artifact, hidden under `.pool/lanes/` — never
+    # written into the visible `sequences/` folder alongside personalised/generic.
+    assert (seq / ".pool" / "lanes" / "ready-to-load-hold-2026-09-03.csv").is_file()
+    assert not (seq / "ready-to-load-hold-2026-09-03.csv").is_file()
+
+
+# --------------------------------------------------------- PS17: pool-vs-visible file placement
+
+
+def test_write_lanes_hides_repair_hold_excluded_in_the_pool(tmp_path):
+    rows = [
+        _row(email="a@x.example", company="X", company_domain="x.example"),
+        _row(email="b@y.example", company="Y", company_domain="y.example", verdict="re-angle"),
+        _row(email="c@z.example", company="Z", company_domain="z.example", verdict="drop"),
+        _row(
+            email="d@w.example",
+            company="W",
+            company_domain="w.example",
+            suppression="out-of-market",
+        ),
+    ]
+    recs = [_rec("a@x.example", "send")]
+    result = lanes.route(rows, recs, _ctx())
+    paths = lanes.write_lanes(result, tmp_path, "2026-09-03")
+    assert paths["personalised"].parent == tmp_path
+    assert paths["generic"].parent == tmp_path
+    for lane in ("repair", "hold", "excluded"):
+        assert paths[lane].parent == tmp_path / ".pool" / "lanes"
+        assert not (tmp_path / paths[lane].name).exists(), f"{lane} must not also sit visibly"
+
+
+def test_write_lanes_supersedes_the_prior_stamp_never_deletes(tmp_path):
+    rows = [_row(email="a@x.example", company="X", company_domain="x.example")]
+    result = lanes.route(rows, [_rec("a@x.example", "send")], _ctx())
+    first = lanes.write_lanes(result, tmp_path, "2026-09-03")
+    assert first["personalised"].is_file()
+    second = lanes.write_lanes(result, tmp_path, "2026-09-04")
+    assert second["personalised"].is_file()
+    # The 09-03 stamp is gone from sequences/ — moved, not deleted — and lands in
+    # .pool/.superseded/ instead.
+    assert not first["personalised"].exists()
+    superseded = tmp_path / ".pool" / ".superseded" / "ready-to-load-personalised-2026-09-03.csv"
+    assert superseded.is_file()
+
+
+def test_write_lanes_supersedes_a_pre_ps17_visible_hold_stamp(tmp_path):
+    """A hold/repair/excluded stamp written before PS17 sits VISIBLY in `seq_dir` (the old
+    layout). The next route must still find and archive it, even though the new stamp for
+    that lane now lands in `.pool/lanes/`."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    legacy = tmp_path / "ready-to-load-hold-2026-09-01.csv"
+    legacy.write_text("email\n", encoding="utf-8")
+    rows = [_row(verdict="drop")]
+    result = lanes.route(rows, [], _ctx())
+    lanes.write_lanes(result, tmp_path, "2026-09-03")
+    assert not legacy.exists()
+    assert (tmp_path / ".pool" / ".superseded" / "ready-to-load-hold-2026-09-01.csv").is_file()
+
+
+def test_write_lanes_pool_path_matches_prospects_consolidate_pool_dir(tmp_path):
+    """`write_lanes` used to hardcode `.pool`/`.pool/lanes`/`.pool/.superseded` as three
+    separate literal path segments, rather than building on the SAME `.pool` convention
+    `prospects_consolidate.paths._pool_dir` uses for `master-list.csv`/
+    `needs-verification.csv` (and now `queues.split_by_signal`'s two lists too). Pin that
+    the two resolve to the literal same directory today, so a future divergence between
+    the two conventions — one keyed by profile, one keyed by an already-resolved
+    `seq_dir` — is caught immediately instead of silently."""
+    from gtm_core.prospects_consolidate.paths import _pool_dir, _sequences_dir
+
+    content_root = tmp_path / "content"
+    seq_dir = _sequences_dir("acme", content_root)
+    rows = [_row(verdict="drop")]
+    result = lanes.route(rows, [], _ctx())
+    paths = lanes.write_lanes(result, seq_dir, "2026-09-03")
+
+    router_pool_dir = paths["hold"].parent.parent  # .../.pool/lanes -> .../.pool
+    assert router_pool_dir == _pool_dir("acme", content_root) == seq_dir / ".pool"
+
+
+# --------------------------------------------------------- PS2: ready-to-load.csv tracks the last route
+
+
+def test_route_restamps_ready_to_load_csv_immediately(tmp_path, monkeypatch):
+    """`lanes route` must not leave `ready-to-load.csv` stale until the next `consolidate`
+    sweep notices the new state file — on live data this was seen 5 days stale."""
+    from gtm_core.adjudication import write_records
+    from gtm_core.prospects_consolidate.columns import MASTER_COLS
+    from gtm_core.prospects_consolidate.io import _atomic_write_csv, _load_master
+    from gtm_core.prospects_consolidate.paths import ready_to_load_path
+
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path / "content"))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(tmp_path / "profiles"))
+    seq = tmp_path / "content" / "acme" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+
+    # Simulate a prior `consolidate` sweep that already wrote ready-to-load.csv with a
+    # now-stale lane (as if from an earlier route).
+    stale_row = dict.fromkeys(MASTER_COLS, "")
+    stale_row.update(
+        email="jordan.vance@vertex.example",
+        first="Jordan",
+        last="Vance",
+        company="Vertex Systems",
+        company_domain="vertex.example",
+        lane="generic",
+        lane_reason="stale from a prior run",
+    )
+    _atomic_write_csv(ready_to_load_path("acme", tmp_path / "content"), [stale_row])
+
+    pool = _pool(tmp_path, [_row()])
+    recs = tmp_path / "sweep-normal-2026-09-01.jsonl"
+    write_records([_rec("jordan.vance@vertex.example", "send")], recs)
+    rc = lanes.main(
+        [
+            "route",
+            "--profile",
+            "acme",
+            "--csv",
+            str(pool),
+            "--records",
+            str(recs),
+            "--as-of",
+            "2026-09-03",
+        ]
+    )
+    assert rc == 0
+
+    rows = _load_master(ready_to_load_path("acme", tmp_path / "content"))
+    row = next(r for r in rows if r["email"] == "jordan.vance@vertex.example")
+    assert row["lane"] == "personalised"
+    assert row["lane_reason"] == "researcher-send"
+
+
+def test_ready_to_load_lane_totals_match_lanes_state_after_route_and_diverge_when_hand_edited(
+    tmp_path, monkeypatch
+):
+    """Contract: after a route, `ready-to-load.csv`'s lane totals (a `Counter` over the
+    `lane` column) exactly match `lanes-state.jsonl`'s. A positive control alone can't prove
+    the check discriminates (§R18) — this also hand-edits the CSV afterward and asserts the
+    SAME comparison then fails."""
+    from gtm_core.adjudication import write_records
+    from gtm_core.prospects_consolidate.columns import MASTER_COLS
+    from gtm_core.prospects_consolidate.io import _atomic_write_csv, _load_master
+    from gtm_core.prospects_consolidate.paths import ready_to_load_path
+
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path / "content"))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(tmp_path / "profiles"))
+    seq = tmp_path / "content" / "acme" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+
+    def _seed(email, company, domain):
+        row = dict.fromkeys(MASTER_COLS, "")
+        row.update(email=email, first="Dana", last="Doe", company=company, company_domain=domain)
+        return row
+
+    ready_path = ready_to_load_path("acme", tmp_path / "content")
+    _atomic_write_csv(
+        ready_path,
+        [_seed("a@x.example", "X", "x.example"), _seed("b@y.example", "Y", "y.example")],
+    )
+
+    pool = _pool(
+        tmp_path,
+        [
+            _row(email="a@x.example", company="X", company_domain="x.example"),
+            _row(
+                email="b@y.example",
+                company="Y",
+                company_domain="y.example",
+                verdict="drop",
+            ),
+        ],
+    )
+    recs = tmp_path / "sweep-normal-2026-09-01.jsonl"
+    write_records([_rec("a@x.example", "send")], recs)
+    assert (
+        lanes.main(
+            [
+                "route",
+                "--profile",
+                "acme",
+                "--csv",
+                str(pool),
+                "--records",
+                str(recs),
+                "--as-of",
+                "2026-09-03",
+            ]
+        )
+        == 0
+    )
+
+    from gtm_core.enrollment_gate import _refuse_lane_state_mismatch
+
+    ready_rows = _load_master(ready_path)
+    ready_counts = Counter(r["lane"] for r in ready_rows if r["lane"])
+    state = dec.read_state(dec.state_path("acme"))
+    # Only the emails ready-to-load.csv itself carries — `state` covers every routed row,
+    # which is a superset the moment a hold/excluded row also came through this pool.
+    ready_emails = {r["email"] for r in ready_rows}
+    state_counts = Counter(v["lane"] for e, v in state.items() if e in ready_emails)
+    assert ready_counts == state_counts
+    assert (
+        _refuse_lane_state_mismatch(ready_rows, "acme", content_root=tmp_path / "content") is None
+    )
+
+    # Negative control: hand-diverge one row's lane, then re-check the SAME comparison
+    # AND verify that the lane-state agreement check refuses the tampered list (§R18).
+    ready_rows[0]["lane"] = "generic"  # diverged from "personalised" in state
+    _atomic_write_csv(ready_path, ready_rows)
+    tampered_rows = _load_master(ready_path)
+    tampered_counts = Counter(r["lane"] for r in tampered_rows if r["lane"])
+    assert tampered_counts != state_counts
+    refusal = _refuse_lane_state_mismatch(tampered_rows, "acme", content_root=tmp_path / "content")
+    assert refusal is not None
+    assert "REFUSED" in refusal
+    assert "lanes-state.jsonl" in refusal
 
 
 def test_the_lanes_verb_is_registered():
@@ -807,13 +1219,69 @@ def _hold_rows():
     ]
 
 
-def test_hold_groups_key_on_reason_and_seat_and_are_risk_ordered():
+def test_hold_groups_key_on_question_and_seat_and_are_risk_ordered():
+    """PS12: grouping moved from (trigger, seat) to (question, seat) — several triggers with
+    near-identical meanings collapse onto one question (`competitor-adjacent` is one of four
+    triggers mapped to `account-off-limits`). This fixture's `competitor-adjacent` row is the
+    only row on its question, so the group count is unchanged; the risk order is unchanged
+    too, because a question's sort position is its earliest (riskiest) member trigger's."""
     groups, rows = lanes.build_sheet_payload(_hold_rows())
-    assert [g["trigger"] for g in groups] == ["competitor-adjacent", "tier-a-generic"], "risk order"
-    tier = next(g for g in groups if g["trigger"] == "tier-a-generic")
+    assert [g["question"] for g in groups] == [
+        "account-off-limits",
+        "tier-a-would-get-generic",
+    ], "risk order"
+    tier = next(g for g in groups if g["question"] == "tier-a-would-get-generic")
     assert tier["count"] == 2 and sum(1 for r in rows if r["group"] == tier["key"]) == 2
     assert tier["meaning"]["suppress"] and tier["meaning"]["generic"] and tier["meaning"]["salvage"]
     assert all(g["title"] for g in groups)
+    # Each row still carries its OWN raw trigger — presentation-only grouping, per PS12.
+    off_limits_row = next(r for r in rows if r["email"] == "c@z.example")
+    assert off_limits_row["trigger"] == "competitor-adjacent"
+
+
+def test_every_hold_trigger_maps_to_a_documented_question():
+    for trigger in lanes.HOLD_ORDER:
+        question = lanes.HOLD_QUESTION[trigger]
+        assert lanes.QUESTION_COPY[question][1].keys() == {"suppress", "generic", "salvage"}
+
+
+def test_triggers_sharing_a_question_group_together_within_one_seat():
+    """The whole point of PS12: two DIFFERENT triggers that ask the same question and share a
+    seat land in one group, not two."""
+    rows = [
+        {
+            "email": "a@x.example",
+            "first": "Ada",
+            "last": "Lin",
+            "title": "CISO",
+            "company": "X",
+            "company_domain": "x.example",
+            "tier": "B",
+            "trigger": "competitor-adjacent",
+            "lane_reason": "hold:competitor-adjacent — x",
+            "evidence": "",
+            "prior_decision": "",
+            "judge_defect_class": "",
+        },
+        {
+            "email": "b@y.example",
+            "first": "Bo",
+            "last": "Ray",
+            "title": "CISO",
+            "company": "Y",
+            "company_domain": "y.example",
+            "tier": "B",
+            "trigger": "partner",
+            "lane_reason": "hold:partner — y",
+            "evidence": "",
+            "prior_decision": "",
+            "judge_defect_class": "",
+        },
+    ]
+    groups, out_rows = lanes.build_sheet_payload(rows)
+    assert len(groups) == 1 and groups[0]["question"] == "account-off-limits"
+    assert {r["email"] for r in out_rows} == {"a@x.example", "b@y.example"}
+    assert {r["trigger"] for r in out_rows} == {"competitor-adjacent", "partner"}
 
 
 def test_shared_body_rendered_once_per_group_and_rows_carry_only_deltas():
@@ -899,3 +1367,169 @@ def test_route_writes_the_hold_sheet_and_hold_sheet_rebuilds_it(tmp_path, monkey
         == 0
     )
     assert sheet.is_file()
+
+
+def test_c1_reheld_row_clears_decided_stamp_and_status_of_succeeds():
+    """C1: _hold_or_decide must clear an earlier decided stamp when a row lands in hold."""
+    from gtm_core import prospect_status as ps
+
+    ctx = _ctx(policy_auto={"tier-a-generic": "salvage"})
+    rows = [
+        _row(
+            email="alex@brightpath.example",
+            company="Wavelet Corp",
+            company_domain="waveletcorp.example",
+            tier="A",
+            score="90",
+            verdict="re-angle",
+        ),
+        _row(
+            email="avery@brightpath.example",
+            company="Wavelet Corp",
+            company_domain="waveletcorp.example",
+            tier="A",
+            score="85",
+            verdict="re-angle",
+        ),
+    ]
+    result = lanes.route(rows, [], ctx)
+    by_email = {r.email: r for r in result.routed}
+    r1 = by_email["alex@brightpath.example"]
+    r2 = by_email["avery@brightpath.example"]
+    assert r1.lane == "repair"
+    assert r2.lane == "hold"
+    assert r2.trigger == "duplicate-contact"
+    assert r2.decided == ""
+    assert r2.stable_reason == "duplicate-contact"
+    # status_of must not raise UnmappedStatus
+    assert ps.status_of(r2.lane, r2.stable_reason) == "waiting_on_you"
+
+
+def test_c1_contract_route_write_state_through_cli_and_page_model(tmp_path, monkeypatch, capsys):
+    """End-to-end contract: real route + write_state with policy auto-decisions and re-held rows
+    passes through both the CLI and the page model without UnmappedStatus.
+    """
+    from gtm_core import prospect_status_cli
+    from gtm_core.email_campaign_dashboard import model as dash_model
+
+    content_root = tmp_path / "content"
+    profiles_root = tmp_path / "profiles"
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content_root))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+
+    prospects_dir = content_root / "acme" / "prospects"
+    seq_dir = prospects_dir / "sequences"
+    evals_dir = prospects_dir / "evals"
+    seq_dir.mkdir(parents=True)
+    evals_dir.mkdir(parents=True)
+
+    # Initialize latest.json
+    (prospects_dir / "latest.json").write_text(
+        json.dumps({"items": [{"company": "Wavelet Corp", "account_id": "a:123"}]}),
+        encoding="utf-8",
+    )
+
+    ctx = _ctx(profile="acme", policy_auto={"tier-a-generic": "salvage"})
+    rows = [
+        _row(
+            email="alex@brightpath.example",
+            company="Wavelet Corp",
+            company_domain="waveletcorp.example",
+            tier="A",
+            score="90",
+            verdict="re-angle",
+        ),
+        _row(
+            email="avery@brightpath.example",
+            company="Wavelet Corp",
+            company_domain="waveletcorp.example",
+            tier="A",
+            score="85",
+            verdict="re-angle",
+        ),
+    ]
+
+    result = lanes.route(rows, [], ctx)
+    lanes.write_state(result, evals_dir / "lanes-state.jsonl", "2026-09-11")
+
+    # CLI must exit 0 and render cleanly
+    assert prospect_status_cli.main(["--profile", "acme"]) == 0
+    out = capsys.readouterr().out
+    assert "Waiting on you" in out
+    assert "Being fixed" in out
+
+    # Dashboard model must parse with 0 unmapped
+    status_model = dash_model.prospect_status_model("acme")
+    assert status_model["unmapped"] == 0
+    assert status_model["total"] == 2
+    assert status_model["counts"]["waiting_on_you"] == 1
+    assert status_model["counts"]["being_fixed"] == 1
+
+
+def test_c3_archiving_preserves_registered_enrolled_lists_and_exact_stamp_shape(tmp_path):
+    """C3: write_lanes must never archive a file registered in cells.toml,
+    must only match the exact ready-to-load-<lane>-YYYY-MM-DD.csv stamp shape,
+    and _load_enrolled must emit a note when a registered list is missing on disk.
+    """
+    from gtm_core.lanes import context as ctx_module
+    from gtm_core.lanes import router as router_module
+
+    content_root = tmp_path / "content"
+    seq_dir = content_root / "acme" / "prospects" / "sequences"
+    seq_dir.mkdir(parents=True)
+
+    # 1. Create a registered enrolled list with a date stamp
+    reg_csv = seq_dir / "ready-to-load-personalised-2026-09-09.csv"
+    reg_csv.write_text(
+        "email,first,company\nalex@brightpath.example,Alex,Wavelet Corp\n", encoding="utf-8"
+    )
+
+    # 2. Create an unregistered older stamped file
+    unreg_csv = seq_dir / "ready-to-load-personalised-2026-09-08.csv"
+    unreg_csv.write_text(
+        "email,first,company\nold@brightpath.example,Old,Wavelet Corp\n", encoding="utf-8"
+    )
+
+    # 3. Create a custom-suffix file that does not match YYYY-MM-DD
+    custom_csv = seq_dir / "ready-to-load-personalised-special.csv"
+    custom_csv.write_text(
+        "email,first,company\nspecial@brightpath.example,Special,Wavelet Corp\n", encoding="utf-8"
+    )
+
+    # Write cells.toml registering reg_csv and a missing file
+    cells_toml = seq_dir / "cells.toml"
+    cells_toml.write_text(
+        "[[sequence]]\n"
+        'id = "SEQ-001"\n'
+        'lane = "personalised"\n'
+        'csv = "ready-to-load-personalised-2026-09-09.csv"\n'
+        'spec = "spec-run.md"\n\n'
+        "[[sequence]]\n"
+        'id = "SEQ-MISSING"\n'
+        'lane = "generic"\n'
+        'csv = "missing-list-20260909.csv"\n'
+        'spec = "spec-gen.md"\n',
+        encoding="utf-8",
+    )
+
+    result = router_module.RoutingResult()
+    router_module.write_lanes(result, seq_dir, "2026-09-10")
+
+    # Unregistered stamped file MUST be archived to .pool/.superseded/
+    superseded = seq_dir / ".pool" / ".superseded"
+    assert not unreg_csv.is_file(), "Unregistered stamped file should have been superseded"
+    assert (superseded / "ready-to-load-personalised-2026-09-08.csv").is_file()
+
+    # Registered file MUST NOT be moved
+    assert reg_csv.is_file(), "File registered in cells.toml must NOT be moved by archiving"
+
+    # Custom-named file MUST NOT be moved (does not match YYYY-MM-DD)
+    assert custom_csv.is_file(), "Non-YYYY-MM-DD file must NOT be moved by archiving"
+
+    # Test _load_enrolled behavior
+    ctx = ctx_module.RouterContext(profile="acme", as_of=AS_OF)
+    ctx_module._load_enrolled(ctx, "acme", content_root, seq_dir)
+    # The registered enrolled email is preserved in ctx.enrolled
+    assert "alex@brightpath.example" in ctx.enrolled
+    # Missing registered list produces a note
+    assert any("missing-list-20260909.csv" in note for note in ctx.notes)

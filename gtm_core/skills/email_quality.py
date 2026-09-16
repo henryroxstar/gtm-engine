@@ -19,24 +19,9 @@ SKILL = GTMSkill(
     capability_tier=Tier.PIPELINE,
     version="0.3.0",
     phase="1",
-    description="Close the loop between reading emails and improving them. Runs the four modes of "
-    "the email-quality program: `judge` scores every row of a staged sequence against the rubric "
-    "with a cheap pinned model and writes a verdict per row; `sheet` builds the blind labeling "
-    "sheet an operator fills in and seals a class-balanced holdout from it; `apply` turns those "
-    "human labels into durable changes to the next send list — disqualifying bad-fit accounts and "
-    "suppressing wrong-person addresses through both the lifecycle status and the suppression "
-    "ledger; `report` scores the judge against the sealed holdout beside the deterministic rule "
-    "fleet, and gives every linter rule a keep / recalibrate / delete verdict from its fire rate "
-    'crossed with human evidence. This skill should be used when the user says "improve email '
-    'quality", "run an email eval", "score these emails", "judge this sequence", "review the '
-    'outreach copy", "why are our emails not getting replies", "which linter rules are pulling '
-    'their weight", or "apply the eval labels". The judge RANKS and never blocks — it writes a '
-    "verdict column, and the deterministic account-integrity gate is what refuses a row at "
-    "enrollment. An optional repair pass re-composes rows the judge rejects, capped at three "
-    "attempts by the CLI rather than by the model, and repaired rows are excluded from the "
-    "validation holdout because labelling copy the judge shaped and then validating the judge on "
-    "it is circular. Touches no send path: sequences stay paused and activation stays the "
-    "operator's.",
+    description=(
+        'Evaluate and score outbound email drafts against voice, spam triggers, length constraints, and relevance rubrics. Trigger when the user says "audit email quality", "score outbound drafts", "check cold email copy", "review outreach before sending", or as QA gate in prospecting.'
+    ),
     fallback_note="The judge picks its transport automatically and needs no configuration: with "
     "ANTHROPIC_API_KEY set it scores one row per request against the Anthropic API; without one it "
     "falls back to the Agent SDK on the host's own auth (an OAuth subscription in a local Claude "

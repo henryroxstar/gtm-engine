@@ -1,21 +1,9 @@
 ---
 name: content-publish
 description: >-
-  Stage a reviewed LinkedIn text post (plus hosted image/video media when present) for
-  human-approved publishing to the active company's one pre-authorized LinkedIn account. This
-  skill NEVER posts anything itself and NEVER calls any API, webhook, or curl — it only emits
-  the exact post text inside a publish-gate block; the cockpit then shows that exact text in
-  Telegram and publishes it ONLY after the operator presses "Approve & publish". The
-  destination account is pinned server-side and is not selectable here. Before staging, reads
-  the asset's finish.json and uses hosted_media_urls only; local media files are refused and
-  the operator is told to run media-host or post manually. Before staging, confirms
-  deterministic post-generation quality checks (`python -m gtm_core.content_quality post`)
-  passed — failing closed on linter errors, missing disclosure, or objective video-finish
-  failures. For a rendered video/clip/restyle item, checks its identity_used against the
-  profile's BRAND.toml disclosure line before staging (EU AI Act Article 50) and carries the
-  identity list into the gate block for the cockpit to re-verify independently. Use when the
-  user says "publish it", "post this to LinkedIn", "ship the post", "send it", or after
-  content-studio/video-finish has produced a linted asset the user wants live.
+  Stage reviewed posts and hosted media for human-approved publishing to pre-authorized social
+  channels behind Telegram publish gates. Trigger when the user says "publish it", "post this
+  to LinkedIn", "ship the post", "send it", or after studio produces a publishable asset.
 metadata:
   version: "0.5.0"
   phase: "1"
@@ -80,7 +68,7 @@ Only proceed to Step 2 if `"proceed": true`. If the post-check blocks (linter er
 missing disclosure, etc.), fix the source asset or report the blocker rather than staging a post
 that would fail at the gate.
 
-## Step 1b — Synthetic-media disclosure (EU AI Act Art. 50, §6.2)
+## Step 1b — Synthetic-media disclosure (EU AI Act Article 50, §6.2)
 
 If this item is a rendered video/clip/restyle asset, its manifest — `render-<ratio>.json`
 (video-render), `render-clips.json` (video-clip), or the restyle render json (video-restyle) —

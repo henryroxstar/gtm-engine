@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from ..database import workspace_scope
@@ -26,6 +26,7 @@ from ..deps import WorkspaceCtx, require_auth
 from ..ratelimit import limiter
 from ..schemas import GateRequest, RunRequest, RunResponse
 from ..services.runs.admission import (
+    find_existing_run_id,
     insert_run_row,
     resolve_acting_agent,
     resolve_pack_for_run,
@@ -36,6 +37,7 @@ from ..services.runs.budget import (  # noqa: F401
     _reserve_or_deny,
     _settle_run_reservations,
     _track_run,
+    admits,
 )
 from ..services.runs.decisions import (
     cancel,
@@ -43,6 +45,7 @@ from ..services.runs.decisions import (
     fetch_open_gate,
     publish_gate_resolved,
     record_decision,
+    refuses_edit,
     run_status,
 )
 from ..services.runs.events import (  # noqa: F401
@@ -112,6 +115,7 @@ from ..services.runs.state import (  # noqa: F401
 # here so this module keeps its pre-split import surface (backend/main.py and the
 # test-suite import them from here). PRD 2026-09-01 §7 Phase 1a — pure motion.
 from ..services.runs.stream import run_event_stream
+from ..types import UuidStr
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -129,15 +133,30 @@ async def create_run(
     fail-closed BEFORE any slot/spend is touched, in the normative A1/A12 order —
     request-shaped errors before profile-shaped ones: 404 unknown variant → 403
     pack_not_activated → 403 entitlement_required → 422 missing_settings → 422
-    pack_not_ready (blocked only; degraded proceeds).
+    pack_not_ready (blocked only; degraded proceeds) → 402 cost_cap_reached (RL-08/M-06,
+    both modes) → 429 too_many_concurrent_runs (inside insert_run_row).
 
     A5: the handler ENQUEUES (writes a `queued` row + payload) instead of spawning the
     pipeline in this process. A worker's claim loop takes it under FOR UPDATE SKIP
     LOCKED, so a run survives the death of the process that accepted it and any worker
     can execute it. Every admission refusal above still happens before a row exists.
+
+    RT-04: an optional `client_request_id` makes this idempotent. A fast-path replay check
+    runs FIRST — before any admission check — so a retry of an already-admitted request
+    skips every refusal (pack/entitlement/budget/cap) that already ran the first time and
+    simply returns the original run's current state. The actual concurrency-safety
+    backstop for two requests racing at the same instant lives inside insert_run_row's own
+    `ON CONFLICT` (this fast path can't close that window; the transaction can).
     """
     pool = request.app.state.pool
     run_id = str(uuid.uuid4())
+
+    if body.client_request_id is not None:
+        existing_id = await find_existing_run_id(pool, ws.workspace_id, body.client_request_id)
+        if existing_id is not None:
+            detail = await fetch_run_detail(pool, ws.workspace_id, existing_id)
+            if detail is not None:
+                return RunResponse(**detail)
 
     agent_row, profile_name = await resolve_acting_agent(pool, ws.workspace_id, body)
     if body.pack is not None:
@@ -153,9 +172,37 @@ async def create_run(
             body,
         )
 
+    # RL-08/M-06: refuse an over-cap run synchronously, before any row is written or a
+    # concurrency slot is spent — the same fail-closed verdict the executor's own
+    # _budget_guard/_reserve_or_deny check before every dispatch batch (unchanged,
+    # defense-in-depth against a cap exhausted by other runs in the admission→dispatch
+    # gap). agent_budget_usd mirrors insert_run_row's own computation below so the two
+    # agree; the two-line duplication is cheaper than reordering insert_run_row's return.
+    agent_id = agent_row["agent_id"] if agent_row is not None else None
+    agent_budget_usd = (
+        float(agent_row["monthly_budget_usd"])
+        if agent_row is not None and agent_row["monthly_budget_usd"] is not None
+        else None
+    )
+    if not await admits(pool, ws.workspace_id, agent_id, agent_budget_usd):
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            {"code": "cost_cap_reached", "message": "monthly cost cap reached"},
+        )
+
     # Writes the queued row + payload, and enforces the per-workspace concurrency cap
-    # (429 over it) in the SAME transaction, so a refusal leaves no row behind.
-    run_agent_id, _agent_budget_usd, _run_language = await insert_run_row(
+    # (429 over it) in the SAME transaction, so a refusal leaves no row behind. RT-04:
+    # `existed` is True only when this exact instant lost an idempotency race — the
+    # fast-path check above already covers the (overwhelmingly common) sequential-retry
+    # case, so reaching `existed=True` here means two requests with the same
+    # client_request_id truly overlapped in time.
+    (
+        effective_run_id,
+        existed,
+        run_agent_id,
+        _agent_budget_usd,
+        _run_language,
+    ) = await insert_run_row(
         pool,
         ws.workspace_id,
         run_id,
@@ -163,14 +210,21 @@ async def create_run(
         agent_row=agent_row,
         body=body,
     )
+    if existed:
+        detail = await fetch_run_detail(pool, ws.workspace_id, effective_run_id)
+        if detail is not None:
+            return RunResponse(**detail)
     return RunResponse(
-        run_id=run_id, status="queued", profile_name=profile_name, agent_id=run_agent_id
+        run_id=effective_run_id,
+        status="queued",
+        profile_name=profile_name,
+        agent_id=run_agent_id,
     )
 
 
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
-    run_id: str,
+    run_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> RunResponse:
@@ -190,27 +244,40 @@ async def get_run(
 async def list_runs(
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
-    limit: int = 20,
-    agent_id: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    agent_id: UuidStr | None = None,
+    status: str | None = None,
 ) -> list[RunResponse]:
-    """List the most recent runs for this workspace (optionally one agent's — A4)."""
+    """List the most recent runs for this workspace, optionally narrowed to one
+    agent's (A4) and/or one status — e.g. ``?status=awaiting_approval`` to find every
+    run parked at a gate, which the default recency ordering can otherwise push past
+    ``limit`` and out of view. A bare `str`, not an enum, for the same reason
+    RunResponse.status is (see schemas.py) — an unrecognized value just matches zero
+    rows rather than 422ing.
+    """
     rows = await fetch_recent_runs(
-        request.app.state.pool, ws.workspace_id, limit=limit, agent_id=agent_id
+        request.app.state.pool,
+        ws.workspace_id,
+        limit=limit,
+        agent_id=agent_id,
+        status=status,
     )
     return [RunResponse(**r) for r in rows]
 
 
 @router.post("/{run_id}/cancel", status_code=status.HTTP_200_OK)
 async def cancel_run(
-    run_id: str,
+    run_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> dict:
     """Cancel a pending, running, or gate-paused run.
 
-    Sets status to 'rejected' with error 'canceled by user'. If the run is
-    waiting at a gate, the gate event is resolved immediately so the background
-    task exits cleanly. 409 if the run is already in a terminal state.
+    Sets status to 'canceled' with error 'canceled by user', and closes any open
+    durable gate row (run_gates.state -> 'rejected') in the same write so a polling
+    client sees gate=None/pending_node_id=None immediately instead of a stale open
+    gate on a dead run. If the run is waiting at a gate, the in-process waiter is
+    woken so the background task exits cleanly. 409 if the run is already terminal.
     """
     pool = request.app.state.pool
     current = await run_status(pool, ws.workspace_id, run_id)
@@ -218,15 +285,20 @@ async def cancel_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
     if current in _TERMINAL_STATUSES:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, f"Run is already terminal (status={current!r})"
+            status.HTTP_409_CONFLICT,
+            {
+                "code": "run_already_terminal",
+                "message": f"Run is already terminal (status={current!r})",
+                "status": current,
+            },
         )
     await cancel(pool, ws.workspace_id, run_id)
-    return {"run_id": run_id, "status": "rejected"}
+    return {"run_id": run_id, "status": "canceled"}
 
 
 @router.post("/{run_id}/gate", status_code=status.HTTP_200_OK)
 async def decide_gate(
-    run_id: str,
+    run_id: UuidStr,
     body: GateRequest,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
@@ -243,16 +315,35 @@ async def decide_gate(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
     if row["status"] != "awaiting_approval":
         raise HTTPException(
-            status.HTTP_409_CONFLICT, f"Run is not awaiting approval (status={row['status']!r})"
+            status.HTTP_409_CONFLICT,
+            {
+                "code": "gate_not_open",
+                "message": f"Run is not awaiting approval (status={row['status']!r})",
+                "status": row["status"],
+            },
         )
     if not content_matches(row, body.content_sha):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "content_sha does not match the current gate content (stale or superseded)",
+            {
+                "code": "content_sha_mismatch",
+                "message": "content_sha does not match the current gate content "
+                "(stale or superseded)",
+            },
+        )
+    if refuses_edit(row, body.decision, body.edited_content):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "This gate has no editable draft — edited content would not be applied. "
+            "Approve or reject it.",
         )
     if not await record_decision(pool, ws.workspace_id, run_id, body.decision, body.edited_content):
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "A decision has already been recorded for this gate"
+            status.HTTP_409_CONFLICT,
+            {
+                "code": "gate_already_decided",
+                "message": "A decision has already been recorded for this gate",
+            },
         )
     publish_gate_resolved(
         ws.workspace_id, run_id, body.decision, body.content_sha, body.edited_content
@@ -262,7 +353,7 @@ async def decide_gate(
 
 @router.get("/{run_id}/stream")
 async def stream_run(
-    run_id: str,
+    run_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
     chunks: bool = False,
@@ -288,8 +379,19 @@ async def stream_run(
     # Per-workspace concurrent-stream cap. The asyncpg pool is small (max 10) and
     # streams are long-lived; the stream itself holds no DB connection while idle
     # (snapshot read below, then served from the in-memory queue).
+    # The counter is per PROCESS, not per workspace across the deployment: it guards THIS
+    # worker's pool, which is the resource at risk, and a stream is pinned to the worker
+    # holding its socket. At BACKEND_WORKERS > 1 the effective per-workspace ceiling is
+    # N x this — unlike the run cap, which counts in SQL because it bounds spend.
     if _workspace_stream_count.get(ws.workspace_id, 0) >= _MAX_STREAMS_PER_WORKSPACE:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many open run streams")
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            {
+                "code": "too_many_streams",
+                "message": "Too many open run streams",
+                "max": _MAX_STREAMS_PER_WORKSPACE,
+            },
+        )
 
     # 404 fast (before opening a stream) if the run isn't visible to this workspace.
     async with workspace_scope(pool, ws.workspace_id) as conn:
@@ -324,7 +426,7 @@ async def stream_run(
 
 @router.get("/{run_id}/artifacts")
 async def list_artifacts(
-    run_id: str,
+    run_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ) -> dict:
@@ -343,8 +445,8 @@ async def list_artifacts(
 @router.get("/{run_id}/artifacts/{artifact_id}")
 @limiter.limit("30/minute")
 async def download_artifact(
-    run_id: str,
-    artifact_id: str,
+    run_id: UuidStr,
+    artifact_id: UuidStr,
     ws: Annotated[WorkspaceCtx, Depends(require_auth)],
     request: Request,
 ):
