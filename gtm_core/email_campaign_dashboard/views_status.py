@@ -18,6 +18,7 @@ from .format import (
     roster_gap,
     scope_label,
 )
+from .views_funnel import _attrition_funnel_block, _safe_downloads_block
 
 #: The five statuses rendered as tiles here. `needs_address` is the sixth `STATUSES` id but
 #: gets its own card below, textually marked as a different population — see
@@ -203,6 +204,8 @@ def _roster_stats(m: dict) -> str:
 
 
 def _status_view(m: dict) -> str:
+    funnel_block = _attrition_funnel_block(m)
+    downloads_block = _safe_downloads_block(m)
     status_block = _prospect_status_block(m)
     roster_stats = _roster_stats(m)
     fig = _scope_figures(m)
@@ -413,7 +416,9 @@ def _status_view(m: dict) -> str:
       </div>"""
 
     return f"""
+      {funnel_block}
       {status_block}
+      {downloads_block}
       {roster_stats}
       <div class="stats">
         {

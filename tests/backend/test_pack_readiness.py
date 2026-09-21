@@ -23,6 +23,7 @@ os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-key-32-bytes-long-xx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.routers import packs as packs_router  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
@@ -30,6 +31,7 @@ from tests.backend._protocol1 import (  # noqa: E402
     BUDGET_MODULES,
     SCOPE_MODULES,
     patch_everywhere,
+    user_principal,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -77,6 +79,8 @@ def client(ws_env):
     # keep exercising the readiness path these tests are actually about.
     ctx = WorkspaceCtx(user_id=str(uuid.uuid4()), workspace_id=ws_env.ws_id, entitlement="pro_plus")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs/packs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     return TestClient(app, raise_server_exceptions=True)
 
 
@@ -216,8 +220,8 @@ def test_t4_ready_profile_lists_clean(client, ws_env):
 
 
 def test_t5_missing_settings_wins_over_pack_not_ready(client, ws_env):
-    _provision(ws_env.profiles_root, knowledge={})  # also knowledge-blocked
-    resp = client.post("/v1/runs", json=_run_body(inputs={}))  # AND missing brand_name
+    _provision(ws_env.profiles_root, knowledge={}, profile_md="")  # missing from PROFILE.md
+    resp = client.post("/v1/runs", json=_run_body(inputs={}))  # AND missing in inputs
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "missing_settings"
 

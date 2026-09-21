@@ -22,14 +22,17 @@ os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-key-32-bytes-long-xx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.routers import packs as packs_router  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
     BUDGET_MODULES,
+    DONE_PUSH_MODULES,
     PUSH_MODULES,
     SCOPE_MODULES,
     patch_everywhere,
+    user_principal,
 )
 from tests.contracts.minijsonschema import validate as schema_validate  # noqa: E402
 
@@ -88,6 +91,8 @@ def client(ws_env):
     # keep exercising the code path they were written for.
     ctx = WorkspaceCtx(user_id=str(uuid.uuid4()), workspace_id=ws_env.ws_id, entitlement="pro_plus")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs/packs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     return TestClient(app, raise_server_exceptions=True)
 
 
@@ -135,7 +140,7 @@ def test_prospecting_missing_inputs_toml_tolerated(client, ws_env):
     _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
     got = client.get(f"/v1/packs?profile_name={PROFILE}").json()
     assert [d["pack"] for d in got] == ["prospecting"]
-    assert got[0]["inputs"] == {"settings": [], "knowledge": []}
+    assert got[0]["inputs"] == {"settings": [], "knowledge": [], "context": []}
     # No declared inputs ⇒ nothing can be missing ⇒ ready.
     assert got[0]["readiness"]["status"] == "ready"
 
@@ -240,12 +245,55 @@ def test_create_not_activated_403(client, ws_env):
 
 
 def test_create_missing_settings_422_lists_keys(client, ws_env):
-    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    _provision(
+        ws_env.profiles_root, packs_toml='active = ["marketing"]\n', profile_md="# PROFILE\n"
+    )
     resp = client.post("/v1/runs", json=_run_body(inputs={}))
     assert resp.status_code == 422
     detail = resp.json()["detail"]
     assert detail["code"] == "missing_settings"
     assert detail["missing"] == ["brand_name"]
+
+
+def test_listing_populates_settings_default_from_profile(client, ws_env):
+    # ON-08 / FL8: descriptor settings expose default from PROFILE.md
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    resp = client.get(f"/v1/packs?profile_name={PROFILE}")
+    assert resp.status_code == 200
+    got = resp.json()
+    post_desc = next(d for d in got if d["pack"] == "marketing" and d["variant"] == "linkedin-post")
+    brand_setting = next(s for s in post_desc["inputs"]["settings"] if s["key"] == "brand_name")
+    assert brand_setting.get("default") == "ExampleCo"
+
+
+def test_create_uses_profile_default_when_inputs_omitted(client, ws_env):
+    # ON-08 / FL8: run admission accepts PROFILE.md default when request inputs omit it
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(
+        side_effect=lambda sql, *a: (
+            0
+            if "count(*) FROM runs" in sql
+            else a[0]
+            if sql.strip().startswith("INSERT INTO runs")
+            else MagicMock()
+        )
+    )
+
+    @contextlib.asynccontextmanager
+    async def _scope(pool, workspace_id):
+        yield conn
+
+    async def _skip_run(*a, **kw):
+        pass
+
+    with (
+        patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
+        patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=True)),
+        patch.object(runs_router, "_execute_pack_run", _skip_run),
+    ):
+        resp = client.post("/v1/runs", json=_run_body(inputs={}))
+    assert resp.status_code == 202
 
 
 def test_create_mode_validation_422(client, ws_env):
@@ -292,6 +340,7 @@ def _pack_run_harness(ws_env, recorded, awaiting_on=None, budget_side_effect=Non
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
         patch_everywhere(BUDGET_MODULES, "acheck_budget", budget),
         patch_everywhere(PUSH_MODULES, "send_gate_push", AsyncMock(return_value=0)),
+        patch_everywhere(DONE_PUSH_MODULES, "send_run_done_push", AsyncMock(return_value=0)),
     ):
         yield conn
 

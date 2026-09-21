@@ -13,6 +13,9 @@ from pathlib import Path
 
 from .slug import _STAGING_DIR
 
+# The ProfileDraft a staged tree was rendered from — see stage(draft=...).
+_DRAFT_FILE = ".draft.json"
+
 
 class ProfileAlreadyExistsError(ValueError):
     """promote() refused: a live profile with this slug already exists."""
@@ -26,7 +29,12 @@ class DraftNotStagedError(ValueError):
 
 
 def stage(
-    slug: str, files: dict[str, str], cfg: Config, company_name: str = ""
+    slug: str,
+    files: dict[str, str],
+    cfg: Config,
+    company_name: str = "",
+    *,
+    draft: dict | None = None,
 ) -> tuple[str, Path]:
     """Write rendered files to profiles/.staging/<slug>/ and return (draft_id, staged_root).
 
@@ -35,6 +43,9 @@ def stage(
         files: dict[relative_path, content] from render().
         cfg: Runtime config.
         company_name: Extracted company name stored in meta for confirm-step verification.
+        draft: The ProfileDraft the files were rendered from. When given it is persisted as
+            ``.draft.json`` beside the meta, so a later process holding only the draft_id (a
+            resumed CLI session, or the API after a restart) can promote without the original.
 
     Returns:
         (draft_id, staged_root)
@@ -70,6 +81,9 @@ def stage(
         "updated_at": now,
     }
     (staging_root / ".onboard-meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    if draft is not None:
+        draft_file = confined_output_path(staging_root / _DRAFT_FILE, content_root=staging_root)
+        draft_file.write_text(json.dumps(draft), encoding="utf-8")
 
     return draft_id, staging_root
 

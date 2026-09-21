@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -97,11 +98,15 @@ def upload(
     if uploader is not None:
         return uploader(str(source), profile)
 
-    # TODO(G-A+-5): call the pinned MCP upload tool once the provider is selected.
-    # The tool name and server are read from server configuration, not from the brain.
+    from . import r2_client
+
+    if r2_client.is_configured() or os.getenv("GTM_MEDIA_HOST_PROVIDER") == "r2":
+        return r2_client.r2_media_uploader(str(source), profile, content_root=root)
+
     raise MediaHostError(
         "No media-host MCP tool is configured. "
-        "Set GTM_MEDIA_HOST_SERVER / GTM_MEDIA_HOST_TOOL env vars or pass uploader=."
+        "Set R2 credentials (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY) "
+        "or GTM_MEDIA_HOST_SERVER / GTM_MEDIA_HOST_TOOL env vars, or pass uploader=."
     )
 
 

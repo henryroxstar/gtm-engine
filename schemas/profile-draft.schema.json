@@ -12,7 +12,11 @@
       "additionalProperties": false,
       "required": ["type", "value"],
       "properties": {
-        "type": {"type": "string", "enum": ["url", "file", "text"]},
+        "type": {
+          "type": "string",
+          "enum": ["url", "file", "text", "paste"],
+          "description": "How the source reached us. `paste` is a synonym of `text` that live models emit unprompted; agent/onboard/knowledge.py:_source_label treats both as 'manual' provenance."
+        },
         "value": {"type": "string", "minLength": 1},
         "crawled_pages": {"type": "integer", "minimum": 0}
       }
@@ -31,8 +35,12 @@
         },
         "brand_name": {"type": "string", "minLength": 1},
         "description": {"type": "string", "minLength": 10},
-        "markets": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-        "social_handle": {"type": "string"}
+        "markets": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Empty is a legitimate answer: the prompt tells the brain to leave what it could not obtain UNSET and list it under `gaps` rather than infer it."
+        },
+        "social_handle": {"type": ["string", "null"]}
       }
     },
     "voice": {
@@ -131,14 +139,22 @@
     "brand": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["palette"],
+      "description": "Brand material as body_template.md's `### brand` section asks for it. Nothing here is required: that section's standing rule is to obtain rather than infer, and to leave what could not be obtained UNSET and listed under `gaps` — a fabricated logo and an invented palette have both shipped from this repo. Sub-shapes are deliberately unpinned because the prompt does not pin them either; the closed key set is what this object enforces.",
       "properties": {
         "palette": {
-          "type": "array",
+          "type": ["array", "object", "null"],
           "items": {"type": "string"},
-          "minItems": 1,
-          "description": "Hex colour codes sampled from the website (best-effort)."
+          "description": "Colour ROLES (canvas, surface, ink, primary, accent, rule, plus a light-mode set) as an object, per the prompt. An array of hex codes is the older sampled-from-the-site form and still renders. `null` records that no palette was obtainable."
         },
+        "brand_document": {"description": "The brand guideline / design-system document, if one exists. `null` is a real answer, not a gap."},
+        "gradients": {"description": "Named gradients with ordered stops."},
+        "sub_brand_map": {"description": "Which product maps to which sub-brand/suite; records confirmed absences too."},
+        "typography": {"description": "Display face, body face, and the role restriction between them."},
+        "logo_files": {"description": "The logo pack by lockup and background, plus clear-space/minimum-size rules. Never generated or approximated."},
+        "mode_default": {"description": "Dark-first or light-first, and which asset types invert it."},
+        "imagery": {"description": "The house look as prompt text, plus hard rejects and soft avoids."},
+        "accessibility": {"description": "Contrast rules, any no-meaning-by-colour-alone rule, an alt-text template."},
+        "pronunciation": {"description": "How the company name is said, one respelling."},
         "assets_note": {"type": "string"}
       }
     },
@@ -188,11 +204,10 @@
           "description": "For secondary personas, only where their journey differs from the primary — where they enter, what leads, their sharpest trigger and objection.",
           "items": {
             "type": "object",
-            "additionalProperties": false,
-            "required": ["persona"],
+            "additionalProperties": true,
             "properties": {
-              "persona": {"type": "string", "minLength": 1, "description": "Persona title (matches an icp.personas[].title)."},
-              "notes": {"type": "string", "description": "How this persona's journey differs — entry stage, leading message, sharpest trigger, top objection."}
+              "persona": {"type": "string", "description": "Persona title (matches an icp.personas[].title). This is the key render_icp.py reads."},
+              "notes": {"type": "string", "description": "How this persona's journey differs — entry stage, leading message, sharpest trigger, top objection. The prompt names these four as prose, not as fields, so a model may split them into keys of its own naming instead; both are accepted."}
             }
           }
         },

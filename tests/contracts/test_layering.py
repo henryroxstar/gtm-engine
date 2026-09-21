@@ -30,6 +30,7 @@ ALLOWED_EDGES = {
     ("backend", "gtm_core"),
     ("backend", "agent"),
     ("mcp_server", "gtm_core"),
+    ("mcp_server", "backend"),
 }
 
 

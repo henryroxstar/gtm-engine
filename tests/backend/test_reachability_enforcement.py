@@ -169,7 +169,12 @@ def test_execute_run_passes_the_entitlement_scope_to_the_session():
 
     from backend.routers import runs as runs_router
     from gtm_core.gating import entitled_skills
-    from tests.backend._protocol1 import BUDGET_MODULES, SCOPE_MODULES, patch_everywhere
+    from tests.backend._protocol1 import (
+        BUDGET_MODULES,
+        DONE_PUSH_MODULES,
+        SCOPE_MODULES,
+        patch_everywhere,
+    )
 
     ws_id = "00000000-0000-0000-0000-000000000001"
     run_id = "00000000-0000-0000-0000-0000000000a1"
@@ -207,6 +212,9 @@ def test_execute_run_passes_the_entitlement_scope_to_the_session():
             with (
                 patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
                 patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=True)),
+                patch_everywhere(
+                    DONE_PUSH_MODULES, "send_run_done_push", AsyncMock(return_value=0)
+                ),
             ):
                 await runs_router._execute_run(
                     MagicMock(),

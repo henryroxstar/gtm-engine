@@ -51,6 +51,7 @@ HOLD_ORDER = (
     "untraceable-number",
     "tier-a-generic",
     "duplicate-contact",
+    "unattended-generic",
 )
 
 #: Triggers that EXCLUDE a row outright (deterministic, no decision to make). ``already-
@@ -172,6 +173,14 @@ HOLD_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "salvage": "swap: this person, not the first — say why",
         },
     ),
+    "unattended-generic": (
+        "Unattended run fail-closed",
+        {
+            "suppress": "suppress",
+            "generic": "generic",
+            "salvage": "salvage",
+        },
+    ),
 }
 
 #: Which QUESTION a hold trigger answers, for the hold sheet (PS12). Several triggers with
@@ -193,6 +202,7 @@ HOLD_QUESTION: dict[str, str] = {
     "untraceable-number": "number-not-grounded",
     "tier-a-generic": "tier-a-would-get-generic",
     "duplicate-contact": "second-contact-same-account",
+    "unattended-generic": "unattended-fail-closed",
 }
 
 #: Plain-English title + per-choice meaning per QUESTION id (not per trigger) — adapted from
@@ -247,6 +257,14 @@ QUESTION_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "suppress": "one person per account — drop this one (reversible)",
             "generic": "email both (not recommended)",
             "salvage": "swap: this person, not the first — say why",
+        },
+    ),
+    "unattended-fail-closed": (
+        "Unattended run encountered an account lacking a strong story",
+        {
+            "suppress": "keep it out of outreach (reversible)",
+            "generic": "send the seat email anyway",
+            "salvage": "re-research or write a custom outreach note",
         },
     ),
 }

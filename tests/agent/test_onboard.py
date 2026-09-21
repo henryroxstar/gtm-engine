@@ -1,8 +1,8 @@
 # tests/agent/test_onboard.py
 """Unit tests for agent.onboard — pure Python functions (no live SDK calls).
 
-SDK-calling functions (extract, extract_product) are tested with monkeypatched
-claude_agent_sdk.query. Staging/promote tests use the cfg_isolated fixture that
+SDK-calling functions (extract, extract_product) are tested with a monkeypatched
+agent.session.stream_brain_messages. Staging/promote tests use the cfg_isolated fixture that
 redirects both content_root and profiles_root to tmp_path so they never touch
 the real profiles/ directory.
 """
@@ -288,7 +288,7 @@ def test_extract_returns_validated_dict(cfg, monkeypatch):
             content=[TextBlock(text=json.dumps(_VALID_DRAFT))], model="claude-sonnet-4-6"
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", _mock_query)
+    monkeypatch.setattr("agent.session.stream_brain_messages", _mock_query)
 
     from agent.onboard import extract
 
@@ -307,7 +307,7 @@ def test_extract_strips_markdown_fences(cfg, monkeypatch):
         text = f"```json\n{json.dumps(_VALID_DRAFT)}\n```"
         yield AssistantMessage(content=[TextBlock(text=text)], model="claude-sonnet-4-6")
 
-    monkeypatch.setattr("claude_agent_sdk.query", _mock_query)
+    monkeypatch.setattr("agent.session.stream_brain_messages", _mock_query)
 
     from agent.onboard import extract
 
@@ -323,7 +323,7 @@ def test_extract_rejects_invalid_json(cfg, monkeypatch):
             content=[TextBlock(text="not json at all")], model="claude-sonnet-4-6"
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", _mock_query)
+    monkeypatch.setattr("agent.session.stream_brain_messages", _mock_query)
 
     from agent.onboard import extract
 
@@ -344,7 +344,7 @@ def test_extract_rejects_missing_required_field(cfg, monkeypatch):
             content=[TextBlock(text=json.dumps(bad_draft))], model="claude-sonnet-4-6"
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", _mock_query)
+    monkeypatch.setattr("agent.session.stream_brain_messages", _mock_query)
 
     from agent.onboard import extract
 
@@ -368,7 +368,7 @@ def test_extract_rejects_unknown_capabilities(cfg, monkeypatch):
             content=[TextBlock(text=json.dumps(draft_with_bad_cap))], model="claude-sonnet-4-6"
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", _mock_query)
+    monkeypatch.setattr("agent.session.stream_brain_messages", _mock_query)
 
     from agent.onboard import extract
 

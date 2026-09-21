@@ -127,7 +127,7 @@ _TENANT_TABLES = (
     "encrypted_credentials",
     "cost_records",
     "runs",
-    "mcp_calls",
+    "unified_metering_log",
     "push_tokens",
     "entitlement_sync_events",
     "cost_reservations",
@@ -137,6 +137,7 @@ _TENANT_TABLES = (
     "agents",
     "run_gates",
     "run_events",
+    "webhook_events",
 )
 
 

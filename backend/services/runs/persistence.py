@@ -4,12 +4,14 @@ closed set of failure codes."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal, NamedTuple, get_args
 
 from ...database import workspace_scope
+from ...push import send_run_done_push
 from .events import publish_run_event
-from .state import _TERMINAL_STATUSES
+from .state import _TERMINAL_STATUSES, _track
 
 #: Why a run ended ``failed``, for a client to branch on (M-07). ``error`` stays the prose to
 #: show or log. Grow it additively: a client treats an unknown code as a generic failure.
@@ -198,3 +200,7 @@ async def _fail_run(
         "done",
         {"run_id": run_id, "status": "failed", "error": error, "error_code": error_code},
     )
+    # ST-02: tell a backgrounded client the run failed. Non-blocking and tracked
+    # (ST-13), same as complete_run's own push. Fires for every failure code,
+    # gate_timeout included — send_run_done_push's docstring says why.
+    _track(asyncio.create_task(send_run_done_push(pool, workspace_id, run_id, "failed")))

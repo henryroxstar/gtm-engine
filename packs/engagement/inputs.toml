@@ -23,6 +23,21 @@ key = "brand_name"
 source = "ask"
 required = false
 
+[[settings]]
+key = "account"
+source = "ask"
+required = true
+
+[[settings]]
+key = "meeting"
+source = "ask"
+required = false
+
+[[settings]]
+key = "attendees"
+source = "ask"
+required = false
+
 [[knowledge]]
 topic = "voice"
 required = true

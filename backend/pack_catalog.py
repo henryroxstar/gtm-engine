@@ -184,9 +184,13 @@ def blocked_items(report: ReadinessReport, resolved: ResolvedVariant) -> list[di
 
 
 def variant_readiness(
-    profiles_root: Path, profile: str, resolved: ResolvedVariant
+    profiles_root: Path,
+    profile: str,
+    resolved: ResolvedVariant,
+    *,
+    context: dict[str, str] | None = None,
 ) -> ReadinessReport:
-    return check_readiness(profiles_root, profile, resolved.inputs)
+    return check_readiness(profiles_root, profile, resolved.inputs, context=context)
 
 
 # ── descriptor build ──────────────────────────────────────────────────────────
@@ -197,13 +201,25 @@ def descriptor(
     *,
     entitlement: str,
     readiness: ReadinessReport | None,
+    profile_text: str | None = None,
 ) -> dict:
     """One PackDescriptor dict (schemas/pack-descriptor.schema.json).
 
     Never exposes ``prompt`` or ``model_role`` — the API must not leak
     orchestration detail (schema's normative exclusion).
     """
+    from agent.profiles import read_profile_field
+
     g = resolved.graph
+    settings_list: list[dict] = []
+    for s in resolved.inputs.settings:
+        item: dict = {"key": s.key, "source": s.source, "required": s.required}
+        if profile_text:
+            default_val = read_profile_field(profile_text, s.key)
+            if default_val is not None:
+                item["default"] = default_val
+        settings_list.append(item)
+
     d: dict = {
         "pack": g.pack,
         "variant": g.variant,
@@ -218,13 +234,18 @@ def descriptor(
             for n in g.nodes
         ],
         "inputs": {
-            "settings": [
-                {"key": s.key, "source": s.source, "required": s.required}
-                for s in resolved.inputs.settings
-            ],
+            "settings": settings_list,
             "knowledge": [
                 {"topic": k.topic, "required": k.required, "freshness": k.freshness}
                 for k in resolved.inputs.knowledge
+            ],
+            "context": [
+                {
+                    "name": c.name,
+                    "required": c.required,
+                    **({"max_bytes": c.max_bytes} if c.max_bytes is not None else {}),
+                }
+                for c in getattr(resolved.inputs, "context", ())
             ],
         },
     }
@@ -251,10 +272,24 @@ def descriptor(
     return d
 
 
-def missing_required_settings(resolved: ResolvedVariant, provided: dict[str, str]) -> list[str]:
-    """Required ask-settings absent from the run request's inputs map (A1 422 envelope)."""
-    return [
-        s.key
-        for s in resolved.inputs.settings
-        if s.source == "ask" and s.required and not (provided.get(s.key) or "").strip()
-    ]
+def missing_required_settings(
+    resolved: ResolvedVariant,
+    provided: dict[str, str],
+    *,
+    profile_text: str | None = None,
+) -> list[str]:
+    """Required ask-settings absent from the run request's inputs map (A1 422 envelope).
+
+    Falls back to read_profile_field(profile_text, s.key) before declaring a key missing.
+    """
+    from agent.profiles import read_profile_field
+
+    missing = []
+    for s in resolved.inputs.settings:
+        if s.source == "ask" and s.required:
+            val = (provided.get(s.key) or "").strip()
+            if not val and profile_text:
+                val = (read_profile_field(profile_text, s.key) or "").strip()
+            if not val:
+                missing.append(s.key)
+    return missing

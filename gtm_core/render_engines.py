@@ -94,6 +94,8 @@ class EngineSpec:
     #: When this engine's CAPABILITY CLAIMS were last probed against the live provider — not when
     #: the file was edited, and not when a model id was last seen in a catalog listing.
     verified_on: str = ""
+    #: Can this engine transfer performance/expression from a driving clip of a real performer?
+    performance_transfer: bool = False
 
 
 def _registry_path(registry_path: Path | None = None) -> Path:
@@ -145,6 +147,7 @@ def _spec(name: str, table: dict) -> EngineSpec:
         audio_default=bool(table.get("audio_default", False)),
         audio_toggle=str(table.get("audio_toggle", "")),
         verified_on=str(table.get("verified_on", "")),
+        performance_transfer=bool(table.get("performance_transfer", False)),
     )
 
 

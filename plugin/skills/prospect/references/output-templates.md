@@ -112,8 +112,16 @@ Rules-Version: [the current RULES_VERSION from tests/linter/outreach_pack_linter
 >
 > [bare first name from PROFILE, on its own line]
 
+**Source Evidence:** `[Signal Provider] | [YYYY-MM-DD] | [Raw headline / snippet / source citation]`
+
 **Word count:** [n] / 100 — plain text; no images, attachments, or calendar links; ≤1 untracked link
 
+> **Provenance Pairing (MANDATORY):** Every email draft must be explicitly paired with its underlying
+> `**Source Evidence:**` data block (`[Signal Provider] | [YYYY-MM-DD] | [Raw snippet / headline / source URL]`).
+> A draft opener and its premise must be grounded directly in verifiable evidence (e.g.,
+> `RocketReach Intent (+2) | 2026-09-18 | Acme IT Blog: 'Passing SOC2 Phase 1'`). Drafts with detached or
+> hallucinated triggers are refused.
+>
 > **Write the real first name into the greeting.** `{{First Name}}` and friends are the *sequencer's*
 > merge syntax and mean nothing here: this pack is sent by hand, so a merge tag ships literally as
 > `Hi {{First Name}},` (it did, in 28 of 50 packs on 2026-07-19). If the contact genuinely is not

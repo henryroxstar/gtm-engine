@@ -44,6 +44,7 @@ import tomllib
 from pathlib import Path
 
 from gtm_core.list_fit import role_fit
+from gtm_core.paths import _safe_segment
 from gtm_core.prospects_consolidate import _prospects_dir
 
 # The persona-axis resolver lives with the linter that enforces it. Importing it here
@@ -154,7 +155,7 @@ def lane_index(profile: str, content_root: Path | None = None) -> dict[str, str]
     for src in load_cell_map(profile, content_root):
         if not src["lane"]:
             continue
-        csv_path = base / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+        csv_path = base / _safe_segment(src["csv"], "csv")
         if not csv_path.is_file():
             continue
         with csv_path.open(newline="", encoding="utf-8") as fh:
@@ -173,7 +174,7 @@ def list_overlaps(profile: str, content_root: Path | None = None) -> list[dict]:
     seen: dict[str, str] = {}
     pairs: dict[tuple[str, str], int] = {}
     for src in load_cell_map(profile, content_root):
-        csv_path = base / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+        csv_path = base / _safe_segment(src["csv"], "csv")
         if not csv_path.is_file():
             continue
         with csv_path.open(newline="", encoding="utf-8") as fh:
@@ -191,7 +192,7 @@ def list_overlaps(profile: str, content_root: Path | None = None) -> list[dict]:
 
 def _enrolled_cells(src: dict, base: Path) -> dict[str, dict]:
     """Cell rows for one sequence, counted from its enrolment CSV."""
-    csv_path = base / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+    csv_path = base / _safe_segment(src["csv"], "csv")
     variant = variant_of(src["spec"])
     cells: dict[str, dict] = {}
     if not csv_path.is_file():
@@ -233,7 +234,7 @@ def email_index(profile: str, content_root: Path | None = None) -> dict[str, str
     base = _prospects_dir(profile, content_root) / "sequences"
     index: dict[str, str] = {}
     for src in load_cell_map(profile, content_root):
-        csv_path = base / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+        csv_path = base / _safe_segment(src["csv"], "csv")
         if not csv_path.is_file():
             continue
         variant = variant_of(src["spec"])
@@ -553,7 +554,7 @@ def supply_profile(profile: str, content_root: Path | None = None) -> dict:
     total = 0
 
     for src in load_cell_map(profile, content_root):
-        csv_path = base / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+        csv_path = base / _safe_segment(src["csv"], "csv")
         if not csv_path.is_file():
             continue
         with csv_path.open(newline="", encoding="utf-8") as fh:
@@ -678,7 +679,7 @@ def intent_profile(profile: str, content_root: Path | None = None) -> dict:
     new_in_role = {"true": 0, "false": 0, "unknown": 0}
 
     for src in load_cell_map(profile, content_root):
-        csv_path = seq_dir / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
+        csv_path = seq_dir / _safe_segment(src["csv"], "csv")
         if not csv_path.is_file():
             continue
         with csv_path.open(newline="", encoding="utf-8") as fh:

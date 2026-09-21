@@ -16,7 +16,7 @@ Client API contracts (the backend's client-facing surface; consumed by any app/c
 
 - `pack-descriptor.schema.json` — `{pack,variant,nodes[],inputs}` — item shape of the pack-listing API (`GET /v1/packs`); a read-only view of a pack graph variant, no server internals.
 - `run-event.schema.json` — `{event,seq,data}` — the SSE run-progress stream vocabulary (`GET /v1/runs/{id}/stream`), protocol 0 (live today) + additive protocol 1 (node lifecycle, structured content blocks, gate resolution).
-- `agent.schema.json` — `{agent_id,workspace_id,name,profile_name,packs[],language,monthly_budget_usd,status}` — one agent as a narrowing-only bundle of profile + packs + budget within a workspace.
+- `agent.schema.json` — `{agent_id,workspace_id,name,profile_name,packs[],language,monthly_budget_usd,daily_dispatch_cap,read_scope,status}` — one agent as a narrowing-only bundle of profile + packs + budget + daily dispatch cap within a workspace; `read_scope` (`own`/`workspace`) sets which runs an API key bound to it may read (never cancel).
 - `run-artifact.schema.json` — `{artifact_id,run_id,name,rel_path,size_bytes,media_type,sha256,node_id,created_at}` — one file deliverable of a run; item shape of `GET /v1/runs/{id}/artifacts` (download by opaque `artifact_id` only — pointer semantics, never a client-supplied path).
 
 > Note: `NewsItem` maps onto the prod `discovery_items` row — `COALESCE(item_name,name)→title`, plus `trending_score`, `is_active`, `is_stale`, `published_at`, `created_at`.

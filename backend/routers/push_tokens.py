@@ -1,8 +1,13 @@
 """Push token registration endpoints.
 
-The mobile client calls POST /v1/push-tokens after obtaining a device token from
-FCM or APNs and storing it server-side so gate notifications can reach the device.
-On logout the client calls DELETE /v1/push-tokens/{token} to deregister.
+The mobile client calls POST /v1/push-tokens after obtaining an FCM registration token
+and storing it server-side so gate and run-completion notifications can reach the
+device. On logout the client calls DELETE /v1/push-tokens/{token} to deregister.
+
+FCM only (ST-13): 'platform: apns' is refused with a 422 — the delivery path
+(backend/push.py) only ever sends to 'fcm' tokens, so an APNs registration was
+previously a dead row. iOS registers its FCM token; Firebase Messaging handles APNs
+delivery underneath.
 
 Each token is scoped to the authenticated workspace (RLS-enforced).
 UNIQUE(workspace_id, token) means re-registering the same token is idempotent.
@@ -17,13 +22,14 @@ from pydantic import BaseModel
 
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
+from ..schemas import ERROR_RESPONSES
 
-router = APIRouter(prefix="/push-tokens", tags=["push"])
+router = APIRouter(prefix="/push-tokens", tags=["push"], responses=ERROR_RESPONSES)
 
 
 class RegisterTokenRequest(BaseModel):
     token: str
-    platform: Literal["apns", "fcm"]
+    platform: Literal["fcm"]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -36,6 +42,13 @@ async def register_token(
 
     Idempotent: registering the same token twice is a no-op (UPSERT).
     Call this on every app launch in case the OS rotated the token.
+
+    Tokens are scoped to the authenticated workspace. There is no per-workspace limit.
+    Invalid/dead tokens reported by FCM are automatically pruned server-side.
+
+    Push notifications are purely hints and contain NO customer PII, prospect data, or draft text.
+    They are sent when a run hits an approval gate, or finishes (ok/failed).
+    The payload `data` object contains `run_id`, the terminal `status`, or the `gate` kind.
     """
     pool = request.app.state.pool
     async with workspace_scope(pool, ws.workspace_id) as conn:

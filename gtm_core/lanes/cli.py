@@ -68,6 +68,7 @@ def _cli_route(args) -> int:
         source=", ".join(p.name for p in args.records),
         decisions=prior,
         previous=previous,
+        unattended=args.unattended,
     )
     print(summary(result))
     if args.dry_run:
@@ -165,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--max-record-age-days", type=int, default=DEFAULT_MAX_RECORD_AGE_DAYS)
     rp.add_argument("--allow-stale-records", action="store_true")
     rp.add_argument("--dry-run", action="store_true", help="print the summary; write nothing")
+    rp.add_argument(
+        "--unattended", action="store_true", help="fail-closed by routing generic/repair to hold"
+    )
 
     hp = sub.add_parser("hold-apply", help="apply a filled hold queue (plan by default)")
     hp.add_argument("--profile", required=True)

@@ -287,6 +287,8 @@ def upsert_latest(
             # value a later run gets an opinion about.
             if str(prior.get(ACCOUNT_ID_FIELD) or "").strip():
                 merged[ACCOUNT_ID_FIELD] = prior[ACCOUNT_ID_FIELD]
+            if str(prior.get("added_at") or "").strip():
+                merged["added_at"] = prior["added_at"]
             result_items[pos] = merged
             updated += 1
         else:
@@ -302,10 +304,13 @@ def upsert_latest(
     # file written before this field existed gains ids on its next merge rather than
     # needing a migration. Never overwrites: the id is the account's identity, and
     # reassigning it would break every join that already quotes it.
+    timestamp_str = generated_at or datetime.now(UTC).isoformat()
     for item in result_items:
         if not str(item.get(ACCOUNT_ID_FIELD) or "").strip():
             item[ACCOUNT_ID_FIELD] = f"a-{uuid.uuid4().hex[:10]}"
             ids_stamped += 1
+        if not str(item.get("added_at") or "").strip():
+            item["added_at"] = timestamp_str
 
     if not allow_shrink and len(result_items) < len(existing_items):
         raise ValueError(
@@ -443,6 +448,66 @@ def mark_replied(
     return _mark_replied(profile, emails, source=source, content_root=content_root)
 
 
+def mutate_account(
+    profile: str,
+    account: str,
+    updates: dict[str, str],
+    *,
+    content_root: Path | None = None,
+) -> dict:
+    """Mutate arbitrary fields on an account by its slug, id, or domain.
+
+    This provides chat-native CRUD capability (e.g. dropping a zombie row).
+    Snapshots first, writes atomically, and returns a summary.
+    """
+    current = load_latest(profile, content_root)
+    items = [dict(it) for it in current.get("items", [])]
+
+    changed = False
+    found = False
+
+    target_keys = {
+        f"i:{account.lower()}",
+        f"d:{account.lower()}",
+        f"a:{account.lower()}",
+        f"c:{account.lower()}",
+    }
+
+    for pos, item in enumerate(items):
+        item_keys = set(_identity_keys(item))
+        # Match by explicit ID, or any of the identity keys matching the account string
+        if (
+            item.get("id") == account
+            or item.get(ACCOUNT_ID_FIELD) == account
+            or (target_keys & item_keys)
+        ):
+            found = True
+            for k, v in updates.items():
+                if items[pos].get(k) != v:
+                    items[pos][k] = v
+                    changed = True
+
+    if not found:
+        return {"profile": profile, "account": account, "status": "not_found", "changed": False}
+
+    if changed:
+        snap = snapshot(profile, content_root)
+        out = dict(current)
+        out["items"] = items
+        out["generated_at"] = datetime.now(UTC).isoformat()
+        _atomic_write(latest_path(profile, content_root), out)
+    else:
+        snap = None
+
+    return {
+        "profile": profile,
+        "account": account,
+        "status": "ok",
+        "changed": changed,
+        "snapshot": str(snap) if snap else None,
+    }
+
+
 def restore(
     profile: str, snapshot_file: str | None = None, content_root: Path | None = None
 ) -> Path:
@@ -491,6 +556,16 @@ def _cli(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list-snapshots", help="list available snapshots")
     ls.add_argument("--profile", required=True)
 
+    mut = sub.add_parser("mutate", help="mutate arbitrary fields on a specific account")
+    mut.add_argument("--profile", required=True)
+    mut.add_argument("--account", required=True, help="account slug, id, or domain")
+    mut.add_argument(
+        "--set", action="append", required=True, help="key=value to set (e.g., verdict=drop)"
+    )
+    mut.add_argument(
+        "--reason", default="", help="reason, sets verdict_reason if verdict is mutated"
+    )
+
     args = ap.parse_args(argv)
 
     if args.cmd == "merge":
@@ -522,6 +597,20 @@ def _cli(argv: list[str] | None = None) -> int:
         snap_dir = _snapshot_dir(args.profile)
         for s in sorted(snap_dir.glob("latest-*.json")):
             print(s)
+        return 0
+
+    if args.cmd == "mutate":
+        updates = {}
+        for s in args.set:
+            if "=" not in s:
+                print(f"ERROR: --set must be key=value, got {s}", file=sys.stderr)
+                return 2
+            k, v = s.split("=", 1)
+            updates[k.strip()] = v.strip()
+        if args.reason and "verdict" in updates:
+            updates["verdict_reason"] = args.reason
+        summary = mutate_account(args.profile, args.account, updates)
+        print(json.dumps(summary, indent=2))
         return 0
 
     return 1

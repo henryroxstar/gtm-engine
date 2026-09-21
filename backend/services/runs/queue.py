@@ -186,6 +186,7 @@ async def dispatch_claimed(pool, repo_root, sessions, row) -> bool:
         )
     elif mode == "pack":
         inputs = payload.get("inputs")
+        context = payload.get("context")
         coro = _execute_pack_run(
             pool,
             repo_root,
@@ -200,6 +201,7 @@ async def dispatch_claimed(pool, repo_root, sessions, row) -> bool:
             agent_budget_usd=payload.get("agent_budget_usd"),
             language=payload.get("language"),
             dry_run=bool(payload.get("dry_run")),
+            context=context if isinstance(context, dict) else {},
         )
     else:
         if sessions is None:

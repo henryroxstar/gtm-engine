@@ -153,6 +153,7 @@ higgsfield.ai
 elevenlabs.io
 saleshandy.com
 syften.com
+revenuecat.com
 firecrawl.dev
 sentry.io
 hubspot.com
@@ -214,6 +215,7 @@ yandex.com
 google.com
 bing.com
 duckduckgo.com
+baidu.com
 # Public infrastructure / standards bodies / platform hosts used as inert URL shapes:
 github.com
 githubusercontent.com

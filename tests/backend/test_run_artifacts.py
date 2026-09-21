@@ -25,6 +25,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend import artifacts as artifacts_mod  # noqa: E402
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
@@ -35,6 +36,7 @@ from tests.backend._protocol1 import (  # noqa: E402
     drive_gate,
     fake_executor,
     pack_run_harness,
+    user_principal,
     validate_frame,
 )
 from tests.backend.test_packs_api import PROFILE, _provision  # noqa: E402
@@ -252,6 +254,8 @@ def _route_client(ws_env, conn):
     app.state.cfg = MagicMock(repo_root=REPO)
     ctx = WorkspaceCtx(user_id="u", workspace_id=ws_env.ws_id, entitlement="pro")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     @asynccontextmanager
     async def _scope(pool, workspace_id):

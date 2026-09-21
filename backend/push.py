@@ -21,13 +21,22 @@ API, so a notification intercepted at the OS/provider layer leaks no customer
 content (the same reasoning as the publish gate's server-pinned destination).
 
 Transport config (all from Doppler / environment):
-  PUSH_PROVIDER                    = "fcm" | "apns" | unset (no-op)
+  PUSH_PROVIDER                    = "fcm" | unset (no-op) — "apns" is refused at
+                                      registration (backend/routers/push_tokens.py), not here
   PUSH_FCM_SERVICE_ACCOUNT_JSON    = the service-account JSON (raw, or a path to it)
-  PUSH_APNS_*                      = reserved; APNs is not implemented
+  PUSH_TITLE                       = notification title shown in the system tray (ST-03);
+                                      defaults to "GTM — action needed"
+
+**Sent on two occasions** (:func:`send_gate_push`, :func:`send_run_done_push`): a run
+pausing at a gate, and a run reaching a terminal 'ok' or 'failed' status — 'failed'
+covers every RunErrorCode, gate_timeout included, since a client that only opens the
+app when pushed would otherwise never learn a run it approved a gate on then died.
+Never rejected or canceled: those are the operator's own action, not news to them.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -50,6 +59,12 @@ _TOKEN_REFRESH_MARGIN_S = 120  # mint a new token this long before expiry
 _HTTP_OK = 200
 _HTTP_CLIENT_ERROR = 400
 _HTTP_SERVER_ERROR = 500
+
+#: ST-13: exactly one retry, after this backoff, on a 5xx or a transport exception
+#: (timeout, connection reset) — common and transient. A 4xx never retries: the caller
+#: already knows how to read it (dead token vs. hard failure). Module-level so tests can
+#: zero it out without a real sleep.
+_RETRY_BACKOFF_S = 0.2
 
 # Transport: (method, url, headers, json_body|data) -> (status_code, parsed_body).
 # Injectable so tests never touch the network (gtm_core/calendly_poll.py house style).
@@ -145,16 +160,19 @@ async def _access_token(account: dict, *, transport: Transport | None = None) ->
         log.exception("push: failed to sign the FCM token assertion")
         return None
 
-    send = transport or _httpx_transport
-    status_code, body = await send(
-        "POST",
+    result = await _post_retrying(
+        transport or _httpx_transport,
         token_uri,
+        "the FCM token exchange",
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": assertion,
         },
     )
+    if result is None:
+        return None
+    status_code, body = result
     if status_code != _HTTP_OK or not isinstance(body, dict) or not body.get("access_token"):
         # Never log the body: a token response carries a bearer credential.
         log.error(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
@@ -186,6 +204,39 @@ async def send_gate_push(
     registered, the provider is unset, or the transport is unavailable).
     Safe to call and ignore — a push failure never blocks the gate.
     """
+    payload = _build_payload(run_id, gate_type, node_id)
+    return await _dispatch(pool, workspace_id, run_id, payload, transport=transport)
+
+
+async def send_run_done_push(
+    pool: asyncpg.Pool,
+    workspace_id: str,
+    run_id: str,
+    status: str,
+    *,
+    transport: Transport | None = None,
+) -> int:
+    """ST-02: notify every registered device that a run finished — 'ok' or 'failed'
+    only, 'failed' covering every RunErrorCode including gate_timeout. Never rejected
+    or canceled: those are the operator's own action, not news to them. Same
+    contentless, best-effort contract as :func:`send_gate_push` — a push failure never
+    fails the run.
+    """
+    payload = _build_done_payload(run_id, status)
+    return await _dispatch(pool, workspace_id, run_id, payload, transport=transport)
+
+
+async def _dispatch(
+    pool: asyncpg.Pool,
+    workspace_id: str,
+    run_id: str,
+    payload: dict,
+    *,
+    transport: Transport | None = None,
+) -> int:
+    """Shared FCM v1 delivery: fetch the workspace's tokens, mint an access token, send
+    to every registered ``fcm`` device (ST-13: one bounded retry per token on a 5xx or a
+    transport exception), prune dead tokens. Returns the number of tokens reached."""
     try:
         tokens = await _fetch_tokens(pool, workspace_id)
     except Exception:
@@ -197,14 +248,12 @@ async def send_gate_push(
     if not tokens:
         return 0
 
-    payload = _build_payload(run_id, gate_type, node_id)
     provider = _provider()
 
     if not provider:
         log.info(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
-            "push: PUSH_PROVIDER not set — would notify %d token(s) for %s gate on run %s",
+            "push: PUSH_PROVIDER not set — would notify %d token(s) for run %s",
             len(tokens),
-            gate_type,
             run_id,
         )
         return 0
@@ -228,21 +277,16 @@ async def send_gate_push(
         if platform != "fcm":
             log.debug("push: token platform %r not handled by provider 'fcm'", platform)
             continue
-        try:
-            status_code, body = await (transport or _httpx_transport)(
-                "POST",
-                url,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-                json_body=_fcm_v1_message(token, payload),
-            )
-        except Exception:
-            log.exception(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
-                "push: dispatch failed for token platform=%s run=%s", platform, run_id
-            )
-            continue
+        result = await _post_retrying(
+            transport or _httpx_transport,
+            url,
+            f"dispatch to a {platform} token for run {run_id}",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json_body=_fcm_v1_message(token, payload),
+        )
+        if result is None:
+            continue  # neither counted nor pruned
+        status_code, body = result
         if status_code == _HTTP_OK:
             dispatched += 1
         elif _is_dead_token(status_code, body):
@@ -261,6 +305,31 @@ async def send_gate_push(
         len(dead),
     )
     return dispatched
+
+
+async def _post_retrying(
+    send: Transport, url: str, what: str, **kwargs: Any
+) -> tuple[int, Any] | None:
+    """ST-13's bounded retry, for every POST on the FCM path (the token exchange and each
+    send): a 5xx or a transport exception (timeout, connection reset) retries exactly
+    once, after :data:`_RETRY_BACKOFF_S`; a 4xx never retries. None when both attempts
+    raised — logged here, never raised."""
+    for attempt in range(2):
+        try:
+            status_code, body = await send("POST", url, **kwargs)
+        except Exception:  # noqa: BLE001 — a push failure never propagates
+            if attempt == 0:
+                await asyncio.sleep(_RETRY_BACKOFF_S)
+                continue
+            log.exception(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+                "push: %s failed (after retry)", what
+            )
+            return None
+        if status_code >= _HTTP_SERVER_ERROR and attempt == 0:
+            await asyncio.sleep(_RETRY_BACKOFF_S)
+            continue
+        return status_code, body
+    return None  # unreachable — the loop always returns or continues once
 
 
 def _fcm_v1_message(token: str, payload: dict) -> dict:
@@ -312,6 +381,17 @@ async def _delete_tokens(pool: asyncpg.Pool, workspace_id: str, tokens: list[str
         )
 
 
+#: ST-03: the FCM `notification` block is always present (never data-only), so Android
+#: renders this verbatim in the system tray and the app cannot rewrite it. An operator
+#: env var lets a deployment show its own product name instead of the gtm-engine default.
+_DEFAULT_TITLE = "GTM — action needed"
+
+
+def _title() -> str:
+    """Read at call time (not import time) so tests and Doppler reloads take effect."""
+    return os.getenv("PUSH_TITLE") or _DEFAULT_TITLE
+
+
 #: Notification body per gate kind — the same kinds the stream's ``awaiting_approval.gate``
 #: carries (``schemas/run-event.schema.json``). A kind outside this map reads as ``review``.
 _GATE_LABELS = {
@@ -319,6 +399,14 @@ _GATE_LABELS = {
     "publish": "Post ready to approve",
     "email_enroll": "Contacts ready to load into your sender",
     "review": "Ready for your review",
+}
+
+#: ST-02: notification body per terminal status this fires for — 'ok' and 'failed' only.
+#: send_run_done_push's docstring says why rejected/canceled are excluded, and why a
+#: gate_timeout failure is included.
+_DONE_LABELS = {
+    "ok": "Your run is complete",
+    "failed": "Your run failed",
 }
 
 
@@ -339,4 +427,12 @@ def _build_payload(run_id: str, gate_type: str, node_id: str | None = None) -> d
     data = {"run_id": run_id, "gate": kind}
     if node_id:
         data["node_id"] = node_id
-    return {"title": "GTM — action needed", "body": _GATE_LABELS[kind], "data": data}
+    return {"title": _title(), "body": _GATE_LABELS[kind], "data": data}
+
+
+def _build_done_payload(run_id: str, status: str) -> dict:
+    """Contentless, same as :func:`_build_payload`: the run id and its terminal status.
+    An unrecognised status (defensive — callers only ever pass 'ok'/'failed') reads as a
+    generic 'finished' rather than raising into the run's completion path."""
+    body = _DONE_LABELS.get(status, "Your run finished")
+    return {"title": _title(), "body": body, "data": {"run_id": run_id, "status": status}}

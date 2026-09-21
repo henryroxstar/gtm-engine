@@ -36,6 +36,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.errors import register_error_handlers  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
@@ -44,6 +45,7 @@ from backend.services.runs import pack_executor as runs_pack_executor  # noqa: E
 from gtm_core.capabilities import Entitlement  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
     BUDGET_MODULES,
+    DONE_PUSH_MODULES,
     PUSH_MODULES,
     REPO,
     SCOPE_MODULES,
@@ -51,6 +53,7 @@ from tests.backend._protocol1 import (  # noqa: E402
     fake_executor,
     pack_run_harness,
     patch_everywhere,
+    user_principal,
 )
 from tests.backend.test_packs_api import PROFILE, _provision  # noqa: E402
 
@@ -120,6 +123,7 @@ def _drive_gate(decision: str, edited_content=None, chunks=(GATE_CHUNK,)) -> _Co
             patch_everywhere(SCOPE_MODULES, "workspace_scope", _fake_scope_factory(conn)),
             patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=True)),
             patch_everywhere(PUSH_MODULES, "send_gate_push", AsyncMock(return_value=0)),
+            patch_everywhere(DONE_PUSH_MODULES, "send_run_done_push", AsyncMock(return_value=0)),
         ):
             task = asyncio.create_task(
                 runs_router._execute_run(
@@ -271,7 +275,12 @@ def _gate_client() -> TestClient:
     app = FastAPI()
     app.include_router(runs_router.router, prefix="/v1")
     app.state.pool = MagicMock()
-    app.dependency_overrides[require_auth] = lambda: WorkspaceCtx(USER_ID, WS_ID, Entitlement.PRO)
+    ctx = WorkspaceCtx(USER_ID, WS_ID, Entitlement.PRO)
+    app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): decide_gate resolves identity via require_principal, then
+    # calls require_human(principal) itself — a kind="user" Principal clears that gate
+    # exactly like every plain user JWT did before this task.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     register_error_handlers(app)
     return TestClient(app)
 
@@ -326,4 +335,84 @@ def test_post_gate_edit_with_edited_content_still_reaches_decide_gate():
         )
     assert resp.status_code == 200
     fetch.assert_awaited_once()
+    record.assert_awaited_once()
+
+
+# ── FL19 / NG-19: Publish gate EU AI Act disclosure check on edit ─────────────
+
+
+def _synthetic_publish_gate_row(profile_name: str = "creator") -> dict:
+    content = (
+        "⟦GATE:publish⟧\n"
+        "⟦POST⟧\n"
+        "Here is a cool video. Made with AI. Reviewed and posted by a human.\n"
+        "⟦/POST⟧\n"
+        "⟦IDENTITY⟧soul,voice⟦/IDENTITY⟧"
+    )
+    return {
+        "status": "awaiting_approval",
+        "pending_gate": "⟦GATE:publish⟧",
+        "pending_content": content,
+        "gate_kind": "publish",
+        "profile_name": profile_name,
+    }
+
+
+def test_publish_gate_edit_stripping_disclosure_returns_422(tmp_path):
+    row = _synthetic_publish_gate_row(profile_name="creator")
+    content_sha = hashlib.sha256(row["pending_content"].encode()).hexdigest()
+    fetch = AsyncMock(return_value=row)
+    record = AsyncMock(return_value=True)
+
+    client = _gate_client()
+    client.app.state.cfg = MagicMock(repo_root=tmp_path)
+
+    with (
+        patch.object(runs_router, "fetch_open_gate", fetch),
+        patch.object(runs_router, "record_decision", record),
+        patch(
+            "agent.publish.candidate_disclosure_lines",
+            return_value=["Made with AI. Reviewed and posted by a human."],
+        ),
+    ):
+        resp = client.post(
+            f"/v1/runs/{RUN_ID}/gate",
+            json={
+                "decision": "edit",
+                "content_sha": content_sha,
+                "edited_content": "Here is a cool video with disclosure stripped out.",
+            },
+        )
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error"]["code"] == "disclosure_missing"
+    record.assert_not_awaited()
+
+
+def test_publish_gate_edit_preserving_disclosure_succeeds(tmp_path):
+    row = _synthetic_publish_gate_row(profile_name="creator")
+    content_sha = hashlib.sha256(row["pending_content"].encode()).hexdigest()
+    fetch = AsyncMock(return_value=row)
+    record = AsyncMock(return_value=True)
+
+    client = _gate_client()
+    client.app.state.cfg = MagicMock(repo_root=tmp_path)
+
+    with (
+        patch.object(runs_router, "fetch_open_gate", fetch),
+        patch.object(runs_router, "record_decision", record),
+        patch(
+            "agent.publish.candidate_disclosure_lines",
+            return_value=["Made with AI. Reviewed and posted by a human."],
+        ),
+    ):
+        resp = client.post(
+            f"/v1/runs/{RUN_ID}/gate",
+            json={
+                "decision": "edit",
+                "content_sha": content_sha,
+                "edited_content": "Here is a cool video. Made with AI. Reviewed and posted by a human.",
+            },
+        )
+    assert resp.status_code == 200
     record.assert_awaited_once()

@@ -75,7 +75,9 @@ def _a_swept_token() -> str:
 
 def _known_good_line() -> str:
     """The one allowed match, un-escaped from its filter regex into literal text."""
-    return _knob("KNOWN_GOOD_TOKEN_LINES").replace("\\", "")
+    line = _knob("KNOWN_GOOD_TOKEN_LINES")
+    line = re.sub(r"\([^)]*?(/)[^)]*?\)", r"\1", line)
+    return line.replace("\\", "")
 
 
 def _run_sweep(carve: Path) -> subprocess.CompletedProcess:

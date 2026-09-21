@@ -113,9 +113,10 @@ def test_create_run_threads_resolved_language(ws_env):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
+    from backend.callers.rest import require_principal
     from backend.deps import WorkspaceCtx, require_auth
     from backend.routers import runs as runs_router
-    from tests.backend._protocol1 import REPO, SCOPE_MODULES, patch_everywhere
+    from tests.backend._protocol1 import REPO, SCOPE_MODULES, patch_everywhere, user_principal
     from tests.backend.test_agents import AgentsDb, _scope
     from tests.backend.test_packs_api import _provision
 
@@ -133,6 +134,8 @@ def test_create_run_threads_resolved_language(ws_env):
     # now gated at pro_plus (gtm_core/gating.toml).
     ctx = WorkspaceCtx(user_id=str(uuid.uuid4()), workspace_id=ws_env.ws_id, entitlement="pro_plus")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): create_run now depends on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     body = {
         "pack": "marketing",

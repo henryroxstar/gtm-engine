@@ -12,6 +12,30 @@ from .errors import OnboardingInputError
 # ── ingest ────────────────────────────────────────────────────────────────────
 
 
+def _validate_url(source: str) -> None:
+    s = source.strip()
+    if not s:
+        raise OnboardingInputError("URL cannot be empty.")
+    if "\n" in s or "\r" in s:
+        raise OnboardingInputError(
+            "Source contains line breaks; for multi-line text, set source_type to 'text'."
+        )
+    if " " in s:
+        raise OnboardingInputError(
+            "Source contains spaces; for raw description text, set source_type to 'text'."
+        )
+    if len(s) > 2048:
+        raise OnboardingInputError("URL exceeds maximum length of 2048 characters.")
+    import re
+
+    if not re.match(
+        r"^(https?://)?[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(:\d+)?(/.*)?$", s
+    ):
+        raise OnboardingInputError(
+            f"Source {source!r} is not a valid web address. When source_type is 'url', provide a URL (e.g. 'https://example.com')."
+        )
+
+
 def ingest(source: str, source_type: str, cfg: Config) -> str:
     """Resolve a source to raw text for the extraction brain call.
 
@@ -34,9 +58,13 @@ def ingest(source: str, source_type: str, cfg: Config) -> str:
     elif source_type == "file":
         text = _ingest_file(Path(source))
     elif source_type == "url":
-        from gtm_core.ingest import _ingest_url
+        _validate_url(source)
+        from gtm_core.ingest import UrlIngestInvalidUrlError, _ingest_url
 
-        text = _ingest_url(source, cfg)
+        try:
+            text = _ingest_url(source, cfg)
+        except UrlIngestInvalidUrlError as exc:
+            raise OnboardingInputError(str(exc)) from exc
     else:
         raise OnboardingInputError(
             f"unsupported source_type: {source_type!r} — must be 'url', 'file', or 'text'"

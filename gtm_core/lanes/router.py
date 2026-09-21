@@ -174,6 +174,7 @@ def route_row(
     cap: int = REPAIR_ATTEMPT_CAP,
     decisions: dict | None = None,
     previous: dict | None = None,
+    unattended: bool = False,
 ) -> Routed:
     routed = Routed(row=row, lane="generic")
     judge = _attach_judge(routed, recs, source)
@@ -189,6 +190,12 @@ def route_row(
         return routed
     routed.lane, routed.detail, routed.reason_code = _verdict_lane(row, judge, ctx, cap)
     _apply_stickiness(routed, previous or {})
+
+    if unattended and routed.lane in ("generic", "repair"):
+        routed.trigger = f"unattended-{routed.lane}"
+        routed.detail = f"unattended mode fail-closed for {routed.lane} lane candidate"
+        routed.lane = "hold"
+
     return routed
 
 
@@ -254,6 +261,7 @@ def route(
     cap: int = REPAIR_ATTEMPT_CAP,
     decisions: dict | None = None,
     previous: dict | None = None,
+    unattended: bool = False,
 ) -> RoutingResult:
     index = judge_index(records)
     result = RoutingResult(notes=list(ctx.notes))
@@ -268,6 +276,7 @@ def route(
                 cap=cap,
                 decisions=decisions,
                 previous=previous,
+                unattended=unattended,
             )
         )
     _second_pass(result, decisions or {}, ctx)

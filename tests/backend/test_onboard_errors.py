@@ -5,6 +5,10 @@ right now" (503) and "the model or upstream returned something unusable" (502) b
 The real producers run (``agent.onboard.ingest`` / ``extract`` / ``extract_product`` /
 ``promote``) so the status is bound to the exception each raise site actually throws.
 Every paid path is stubbed to fail loudly: no network, no brain call, no model key.
+
+Ingest and re-extract run as background jobs (issue #259): the status and envelope asserted
+here are the ones the finished job records, which a client reads from
+``GET /onboard/jobs/{job_id}``.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ from __future__ import annotations
 import importlib
 import json
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -23,6 +28,7 @@ from fastapi.testclient import TestClient
 from backend.deps import require_auth
 from backend.errors import register_error_handlers
 from backend.routers import onboard
+from tests.backend.test_onboard_http import settle
 
 _WS = uuid.UUID("22222222-2222-2222-2222-222222222222")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +81,35 @@ def cfg(tmp_path):
     )
 
 
+class _NoDbConn:
+    """Promote's profiles-row write is not what these tests pin — accept it silently."""
+
+    async def execute(self, sql, *args):
+        return "OK"
+
+    async def fetchval(self, sql, *args):
+        return False
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+
+@asynccontextmanager
+async def _no_db_scope(pool, workspace_id):
+    yield _NoDbConn()
+
+
+class _SettlingClient:
+    """A TestClient whose POSTs follow an onboarding job to its end."""
+
+    def __init__(self, client: TestClient) -> None:
+        self._client = client
+
+    def post(self, *args, **kwargs):
+        return settle(self._client, self._client.post(*args, **kwargs))
+
+
 @pytest.fixture
 def client(cfg, monkeypatch):
     async def _cfg(request, ws):
@@ -90,12 +125,15 @@ def client(cfg, monkeypatch):
     monkeypatch.setattr("httpx.Client", _no_network)
     monkeypatch.setattr(_EXTRACT, "_run_brain_query", _no_brain)
     monkeypatch.setattr(onboard, "_drafts", {})
+    monkeypatch.setattr(onboard, "workspace_scope", _no_db_scope)
 
     app = FastAPI()
     register_error_handlers(app)
     app.include_router(onboard.router)
     app.dependency_overrides[require_auth] = _ws
-    return TestClient(app, raise_server_exceptions=False)
+    app.state.pool = object()
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield _SettlingClient(test_client)
 
 
 def _register_draft(tmp_path: Path) -> str:
@@ -180,6 +218,58 @@ def test_ingest_unparseable_upstream_response_is_502(client, cfg, monkeypatch):
     monkeypatch.setattr("httpx.Client", _Client)
     res = client.post("/onboard", json={"source_type": "url", "source": "https://example.com"})
     _assert_error(res, 502, "url_ingest_failed", "Expecting value", "upstream page")
+
+
+class _CrawlClient:
+    """httpx.Client stand-in: the crawl is accepted, then every poll answers ``status``."""
+
+    status = "scraping"
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def post(self, *args, **kwargs):
+        return _JsonResponse({"id": "crawl-1"})
+
+    def get(self, *args, **kwargs):
+        return _JsonResponse({"status": self.status})
+
+
+class _JsonResponse:
+    def __init__(self, body: dict) -> None:
+        self._body = body
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._body
+
+
+def test_ingest_url_crawl_past_its_deadline_is_504(client, cfg, monkeypatch):
+    """Running out of polls used to return no pages, which then read as the caller's
+    unreadable text (422)."""
+    cfg.firecrawl_api_key = "fc-test"
+    monkeypatch.setattr("httpx.Client", _CrawlClient)
+    monkeypatch.setattr("gtm_core.ingest.CRAWL_DEADLINE_S", 0.0)
+    res = client.post("/onboard", json={"source_type": "url", "source": "https://example.com"})
+    _assert_error(res, 504, "url_ingest_timeout", "Firecrawl", "crawl-1")
+
+
+def test_ingest_url_crawl_reported_failed_is_502(client, cfg, monkeypatch):
+    class _FailedCrawl(_CrawlClient):
+        status = "failed"
+
+    cfg.firecrawl_api_key = "fc-test"
+    monkeypatch.setattr("httpx.Client", _FailedCrawl)
+    res = client.post("/onboard", json={"source_type": "url", "source": "https://example.com"})
+    _assert_error(res, 502, "url_ingest_failed", "Firecrawl", "crawl-1")
 
 
 def test_extract_non_json_model_output_is_502(client, monkeypatch):

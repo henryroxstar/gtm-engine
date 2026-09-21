@@ -17,11 +17,11 @@ import asyncio
 from datetime import datetime
 
 from ...database import workspace_scope
-from ...push import send_gate_push
+from ...push import send_gate_push, send_run_done_push
 from .events import _utc_now, publish_run_event
 from .gates import _claim_gate_decision, _content_sha, _open_gate_row
 from .persistence import _fail_run
-from .state import _TERMINAL_STATUSES, _cancelled_runs, _gate_decisions, _gate_events
+from .state import _TERMINAL_STATUSES, _cancelled_runs, _gate_decisions, _gate_events, _track
 
 #: RL-03: every terminal-row write below (the operator-decision transitions; the
 #: pack/prompt executors' own admission and completion writes) guards its UPDATE with
@@ -49,7 +49,7 @@ CANCELLED = "__cancelled__"
 TIMED_OUT = "__timed_out__"
 
 
-async def start_run(pool, workspace_id: str, run_id: str) -> None:
+async def start_run(pool, workspace_id: str, run_id: str) -> bool:
     """running + started_at, and the `status` event that tells a subscriber the run began.
 
     RL-03: guarded against a terminal row — a cancel that lands between admission and
@@ -62,10 +62,11 @@ async def start_run(pool, workspace_id: str, run_id: str) -> None:
             run_id,
         )
     if updated is None:
-        return
+        return False
     publish_run_event(
         workspace_id, run_id, "status", {"run_id": run_id, "status": "running", "ts": _utc_now()}
     )
+    return True
 
 
 async def resume_run(pool, workspace_id: str, run_id: str) -> None:
@@ -123,6 +124,9 @@ async def complete_run(pool, workspace_id: str, run_id: str, output: str) -> Non
     publish_run_event(
         workspace_id, run_id, "done", {"run_id": run_id, "status": "ok", "output": output}
     )
+    # ST-02: tell a backgrounded client the run is ready. Non-blocking (a push failure
+    # never blocks completion) and tracked (ST-13) so shutdown drains it.
+    _track(asyncio.create_task(send_run_done_push(pool, workspace_id, run_id, "ok")))
 
 
 async def rewrite_pending_content(pool, workspace_id: str, run_id: str, content: str) -> None:
@@ -240,8 +244,14 @@ async def hold_gate(
         if reopened:
             # Non-blocking; a push failure never blocks the gate. Skipped on a resume
             # that landed on an unchanged, still-open gate (RL-13/ST-06) — the operator
-            # was already pushed once for these exact bytes.
-            asyncio.create_task(send_gate_push(pool, workspace_id, run_id, gate, node_id=node_id))
+            # was already pushed once for these exact bytes. Tracked (ST-13) so a worker
+            # shutting down right as a gate opens drains this rather than cancelling it
+            # silently.
+            _track(
+                asyncio.create_task(
+                    send_gate_push(pool, workspace_id, run_id, gate, node_id=node_id)
+                )
+            )
         return await _wait_for_decision(
             pool,
             workspace_id,

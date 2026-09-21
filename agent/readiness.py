@@ -79,6 +79,7 @@ def check_readiness(
     *,
     product: str | None = None,
     now: float | None = None,
+    context: dict[str, str] | None = None,
 ) -> ReadinessReport:
     """Diff ``inputs`` against ``profile``'s PROFILE.md + knowledge/ corpus.
 
@@ -137,5 +138,22 @@ def check_readiness(
             )
         else:
             items.append(ReadinessItem("knowledge", k.topic, GREEN, k.required))
+
+    for c in getattr(inputs, "context", ()):
+        val = (context.get(c.name) or "").strip() if context else None
+        if val:
+            items.append(ReadinessItem("context", c.name, GREEN, c.required))
+        elif c.required:
+            items.append(
+                ReadinessItem(
+                    "context",
+                    c.name,
+                    RED,
+                    c.required,
+                    detail=f"missing required context input: {c.name}",
+                )
+            )
+        else:
+            items.append(ReadinessItem("context", c.name, GREEN, c.required))
 
     return ReadinessReport(items=tuple(items))

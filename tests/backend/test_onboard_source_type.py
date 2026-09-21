@@ -14,7 +14,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas import OnboardIngestRequest, OnboardProductExtractRequest
+from backend.schemas import (
+    OnboardIngestRequest,
+    OnboardProductExtractRequest,
+    OnboardPromoteRequest,
+)
 
 
 @pytest.mark.parametrize("model", [OnboardIngestRequest, OnboardProductExtractRequest])
@@ -33,3 +37,50 @@ def test_url_and_text_still_accepted(model):
     """Positive control: the two safe source types the API does support."""
     assert model(source_type="url", source="https://example.com/about").source_type == "url"
     assert model(source_type="text", source="We build X for Y.").source_type == "text"
+
+
+# ON-03 — five request fields the handlers never read (backend/routers/onboard.py
+# ingest_endpoint / promote_endpoint use only source/source_type and
+# confirmed_company_name, respectively). Dropping them from the models so the API
+# stops promising something it silently discards. Pydantic's default
+# extra="ignore" means a client that still sends them keeps getting a normal 2xx —
+# asserted below so the removal is not a client-visible break.
+
+
+def test_dead_ingest_fields_removed():
+    """company_confirmation/additional_notes were accepted but never read."""
+    assert "company_confirmation" not in OnboardIngestRequest.model_fields
+    assert "additional_notes" not in OnboardIngestRequest.model_fields
+
+
+def test_dead_promote_fields_removed():
+    """telegram_chat_id/monthly_tool_budget_usd/per_run_cap_usd/additional_notes
+    were accepted but promote_endpoint only ever reads confirmed_company_name."""
+    for field in (
+        "telegram_chat_id",
+        "monthly_tool_budget_usd",
+        "per_run_cap_usd",
+        "additional_notes",
+    ):
+        assert field not in OnboardPromoteRequest.model_fields
+
+
+def test_old_client_sending_dropped_fields_still_validates():
+    """A client still sending the removed fields is not broken by this change —
+    pydantic's default extra="ignore" drops them silently."""
+    req = OnboardIngestRequest(
+        source_type="text",
+        source="We build X for Y.",
+        company_confirmation="Acme",
+        additional_notes="please hurry",
+    )
+    assert req.source == "We build X for Y."
+
+    promote = OnboardPromoteRequest(
+        confirmed_company_name="Acme",
+        telegram_chat_id=123,
+        monthly_tool_budget_usd=50.0,
+        per_run_cap_usd=10.0,
+        additional_notes="please hurry",
+    )
+    assert promote.confirmed_company_name == "Acme"

@@ -66,6 +66,21 @@ def _guard_profile_segment(profile_name: str | None) -> None:
         ) from exc
 
 
+def _prefill_missing_inputs(resolved, body, profile_text: str | None) -> None:
+    """Pre-fill any missing inputs from profile_text defaults so execution receives them."""
+    if not (profile_text and resolved.inputs and resolved.inputs.settings):
+        return
+    from agent.profiles import read_profile_field
+
+    if body.inputs is None:
+        body.inputs = {}
+    for s in resolved.inputs.settings:
+        if s.source == "ask" and not (body.inputs.get(s.key) or "").strip():
+            default_val = read_profile_field(profile_text, s.key)
+            if default_val is not None:
+                body.inputs[s.key] = default_val
+
+
 async def resolve_pack_for_run(
     repo_root, workspace_id: str, entitlement, profile_name, agent_row, body
 ):
@@ -112,15 +127,39 @@ async def resolve_pack_for_run(
     if not entitlement_meets(entitlement, run_min_entitlement):
         raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "entitlement_required"})
 
-    missing = missing_required_settings(resolved, body.inputs)
+    profile_file = profiles_root / profile_name / "PROFILE.md"
+    profile_text = profile_file.read_text(encoding="utf-8") if profile_file.is_file() else None
+
+    missing = missing_required_settings(resolved, body.inputs, profile_text=profile_text)
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             {"code": "missing_settings", "missing": missing},
         )
 
+    # Pre-fill any missing inputs from profile_text defaults so execution receives them
+    _prefill_missing_inputs(resolved, body, profile_text)
+
+    if getattr(body, "context", None):
+        from ...callers.dependency import refusal_to_http
+        from ...callers.inlet_guard import DefaultInletGuard
+        from ...callers.ports import Refusal
+
+        guard = DefaultInletGuard()
+        try:
+            guard.guard_context(body.context, getattr(resolved.inputs, "context", ()))
+        except Refusal as exc:
+            raise refusal_to_http(exc) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"code": "input_rejected", "message": str(exc)},
+            ) from exc
+
     try:
-        report = variant_readiness(profiles_root, profile_name, resolved)
+        report = variant_readiness(
+            profiles_root, profile_name, resolved, context=getattr(body, "context", None)
+        )
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -164,12 +203,20 @@ async def insert_run_row(
     profile_name: str | None,
     agent_row: dict | None,
     body,
+    principal=None,
 ) -> tuple[str, bool, str | None, float | None, str | None]:
     """Write the run's `queued` row. Returns ``(effective_run_id, existed, agent_id,
     agent_budget_usd, language)`` — ``effective_run_id`` is ``run_id`` unless this call lost
     an idempotency race (see below), in which case it is the WINNING row's id; ``existed``
     is True exactly in that race-loser case, telling the caller to build its response from
     the existing row rather than from this call's own (unused) resolution.
+
+    ``principal`` (Fleet Phase A, optional — ``None`` for a caller predating
+    ``backend.callers``): when given, its ``kind``/``subject`` are written onto the row
+    as ``principal_kind``/``principal_id`` (V026 columns) — pure attribution, read back
+    by ``fetch_run_detail``/``fetch_recent_runs`` and exposed on ``RunResponse`` and the
+    SSE snapshot. ``principal_id`` is the principal's own ``subject`` (a ``users.id`` for
+    ``kind="user"``, an ``api_keys.id`` for ``kind="service"``) — never a secret.
 
     A5: the row is written ``queued`` with a ``payload``, and a worker's claim loop picks
     it up — the handler no longer spawns the work itself. The concurrency cap is enforced
@@ -235,17 +282,22 @@ async def insert_run_row(
         "pack": body.pack,
         "variant": body.variant,
         "inputs": dict(body.inputs or {}),
+        "context": dict(body.context or {}) if getattr(body, "context", None) else {},
         "dry_run": bool(body.dry_run),
         "language": language,
         "agent_budget_usd": agent_budget_usd,
     }
     client_request_id = body.client_request_id
+    external_ref = getattr(body, "external_ref", None)
+    principal_kind = principal.kind if principal is not None else None
+    principal_id = principal.subject if principal is not None else None
     async with workspace_scope(pool, workspace_id) as conn:
         await _reserve_cap(conn, workspace_id)
         inserted_id = await conn.fetchval(
             """INSERT INTO runs(id, workspace_id, profile_name, prompt, dry_run, status,
-                                agent_id, payload, client_request_id)
-               VALUES($1::uuid, $2::uuid, $3, $4, $5, 'queued', $6::uuid, $7::jsonb, $8)
+                                agent_id, payload, principal_kind, principal_id,
+                                client_request_id, external_ref)
+               VALUES($1::uuid, $2::uuid, $3, $4, $5, 'queued', $6::uuid, $7::jsonb, $8, $9, $10, $11)
                ON CONFLICT (workspace_id, client_request_id) WHERE client_request_id IS NOT NULL
                  DO NOTHING
                RETURNING id::text""",
@@ -256,7 +308,10 @@ async def insert_run_row(
             body.dry_run,
             run_agent_id,
             json.dumps(payload),
+            principal_kind,
+            principal_id,
             client_request_id,
+            external_ref,
         )
         if inserted_id is not None:
             return inserted_id, False, run_agent_id, agent_budget_usd, language
@@ -311,7 +366,7 @@ async def _reserve_cap(conn, workspace_id: str) -> None:
     in_flight = await conn.fetchval(
         """SELECT count(*) FROM runs
            WHERE workspace_id = $1::uuid
-             AND status IN ('queued', 'running', 'awaiting_approval')""",
+             AND status IN ('queued', 'running')""",
         workspace_id,
     )
     if (in_flight or 0) >= _MAX_CONCURRENT_RUNS_PER_WORKSPACE:

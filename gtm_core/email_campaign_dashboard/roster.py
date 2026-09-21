@@ -238,6 +238,16 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
     # subtract these figures from each other, so a mixed unit renders "-3 do not".
     def _co(field: str) -> set[str]:
         """The companies for which ANY row carries ``field``. The unit of every tile."""
+        if field == "email":
+            return {
+                column_value(r, "company")
+                for r in rows
+                if column_value(r, "email")
+                and (column_value(r, "email_status") or "").strip().lower() != "unverified"
+                and (column_value(r, "email") or "").strip().lower()
+                not in {"unverified", "none", "null", "n/a"}
+                and "@" in (column_value(r, "email") or "")
+            }
         return {column_value(r, "company") for r in rows if column_value(r, field)}
 
     def _n(field: str) -> int:
@@ -277,7 +287,15 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
                 {
                     "company": column_value(r, "company"),
                     "seat": column_value(r, "title"),
-                    "email": column_value(r, "email"),
+                    "email": (
+                        ""
+                        if (column_value(r, "email_status") or "").strip().lower() == "unverified"
+                        or (column_value(r, "email") or "").strip().lower()
+                        in {"unverified", "none", "null", "n/a"}
+                        or "@" not in (column_value(r, "email") or "")
+                        else column_value(r, "email")
+                    ),
+                    "email_status": column_value(r, "email_status"),
                     "named": bool(column_value(r, "first")),
                     "tier": column_value(r, "tier"),
                     "verdict": column_value(r, "verdict"),

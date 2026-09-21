@@ -18,6 +18,7 @@ os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-key-32-bytes-long-xx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402  # noqa: E402
@@ -28,6 +29,7 @@ from tests.backend._protocol1 import (  # noqa: E402  # noqa: E402
     fake_executor,
     pack_run_harness,
     patch_everywhere,
+    user_principal,
 )
 from tests.backend.test_packs_api import PROFILE, _provision  # noqa: E402
 
@@ -179,6 +181,8 @@ def test_get_run_returns_protocol1_nodes_and_content():
     app.state.pool = MagicMock()
     ctx = WorkspaceCtx(user_id="u", workspace_id=ws_id, entitlement="pro")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     with (
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
@@ -225,6 +229,8 @@ def test_get_run_exposes_the_open_gate_kind_and_node_id():
     app.state.pool = MagicMock()
     ctx = WorkspaceCtx(user_id="u", workspace_id=ws_id, entitlement="pro")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     with (
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
@@ -283,6 +289,8 @@ def test_list_runs_surfaces_the_open_gate_per_row():
     app.state.pool = MagicMock()
     ctx = WorkspaceCtx(user_id="u", workspace_id=ws_id, entitlement="pro")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     with (
         patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),

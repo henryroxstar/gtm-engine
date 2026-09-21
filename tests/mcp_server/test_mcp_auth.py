@@ -17,8 +17,10 @@ import asyncio
 import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from gtm_core.capabilities import Entitlement
-from mcp_server.auth import validate_api_key
+from mcp_server.auth import assert_workspace_profile, validate_api_key
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -107,3 +109,34 @@ def test_correct_hash_sent_to_resolver():
     _run(validate_api_key(_RAW, pool))
     assert captured["hash"] == _HASH
     assert "resolve_api_key" in captured["query"]
+
+
+def test_assert_workspace_profile_bound_passes():
+    """When the profile is bound to the workspace in the DB, it passes without error."""
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value={"1": 1})
+    conn.execute = AsyncMock()
+    pool = MagicMock()
+    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
+    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    # Should not raise
+    _run(assert_workspace_profile(_WS_ID, "my-profile", pool))
+
+
+def test_assert_workspace_profile_unbound_raises():
+    """When the profile is not bound to the workspace, it raises ValueError."""
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.execute = AsyncMock()
+    pool = MagicMock()
+    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
+    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with pytest.raises(ValueError, match="Profile 'other-corp' is not bound"):
+        _run(assert_workspace_profile(_WS_ID, "other-corp", pool))
+
+
+def test_assert_workspace_profile_none_pool_passes():
+    """When pool is None (e.g. stdio / unit-test mode), assertion passes silently."""
+    _run(assert_workspace_profile(_WS_ID, "any-profile", None))

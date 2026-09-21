@@ -166,11 +166,21 @@ repos:
         pass_filenames: false
         always_run: true
 
-      # Multi-agent config sync: regenerate .agents/mcp_config.json when the
-      # authoritative Python MCP config changes so Antigravity/Codex stay in sync.
+      # Multi-agent config sync: regenerate .agents/mcp_config.json and
+      # .cursor/mcp.json when the authoritative Python MCP config changes.
       - id: generate-agent-configs
-        name: sync .agents/mcp_config.json from agent/mcp_config.py
+        name: sync .agents + .cursor MCP configs from agent/mcp_config.py
         entry: uv run python scripts/generate_agent_configs.py
         language: system
         pass_filenames: false
         files: ^agent/mcp_config\.py$
+
+      # Packaging manifest check: every package with an __init__.py must be declared
+      # in [tool.setuptools] packages in pyproject.toml so non-editable wheel installs
+      # ship the whole tree. Catches missing subpackages before commit.
+      - id: packaging-manifest-check
+        name: packaging manifest check (declared vs real packages)
+        entry: uv run python -m pytest tests/contracts/test_packaging_manifest.py -q
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -25,6 +25,10 @@ Judges see clips in a shuffled order with the condition hidden. The mapping from
 to condition is the **key**, and :func:`build_sheet` returns it separately from the sheet so the
 sheet itself can be handed over without leaking the answer. A judge who can tell which clips are
 supposed to be synthetic is not testing the avatar, they are testing their own expectations.
+
+What this panel does not measure
+--------------------------------
+It answers indistinguishability and naturalness, never impact — a natural, undetectable, inert film passes it.
 """
 
 from __future__ import annotations

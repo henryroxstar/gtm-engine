@@ -81,7 +81,9 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from agent.pipeline import STAGES, StageOutcome  # noqa: E402
-from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
+from backend.callers.principal import Principal  # noqa: E402
+from backend.callers.rest import require_principal  # noqa: E402
+from backend.deps import require_auth  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from backend.schemas import GateRequest  # noqa: E402
 from backend.services.runs import lifecycle as runs_lifecycle  # noqa: E402
@@ -89,6 +91,7 @@ from backend.services.runs import pack_executor as runs_pack_executor  # noqa: E
 from gtm_core.gating import entitled_skills  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
     BUDGET_MODULES,
+    DONE_PUSH_MODULES,
     PUSH_MODULES,
     REPO,
     SCOPE_MODULES,
@@ -113,6 +116,7 @@ SEAM_EXECUTOR = "agent.packs.execute_stage"  # the pack executor's per-stage cal
 SEAM_SCOPE = (SCOPE_MODULES, "workspace_scope")  # DB scope → LifecycleDb
 SEAM_BUDGET = (BUDGET_MODULES, "acheck_budget")  # §R2 cap predicate
 SEAM_PUSH = (PUSH_MODULES, "send_gate_push")  # gate push notification
+SEAM_DONE_PUSH = (DONE_PUSH_MODULES, "send_run_done_push")  # ST-02 completion/failure push
 
 ENTITLEMENT = "pro_plus"
 PLAN_GATE = "⟦GATE:plan⟧"
@@ -358,6 +362,7 @@ class Harness:
     pool: FakePool
     push: AsyncMock
     budget: AsyncMock
+    done_push: AsyncMock
 
 
 def _budget_predicate(verdicts) -> AsyncMock:
@@ -384,19 +389,33 @@ def lifecycle_harness(db: LifecycleDb, executor=None, *, budget=(True,)):
         pool=FakePool(db),
         push=AsyncMock(return_value=0),
         budget=_budget_predicate(budget),
+        done_push=AsyncMock(return_value=0),
     )
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch_everywhere(*SEAM_SCOPE, _scope))
         stack.enter_context(patch_everywhere(*SEAM_BUDGET, hz.budget))
         stack.enter_context(patch_everywhere(*SEAM_PUSH, hz.push))
+        stack.enter_context(patch_everywhere(*SEAM_DONE_PUSH, hz.done_push))
         if executor is not None:
             stack.enter_context(patch(SEAM_EXECUTOR, executor))
         yield hz
 
 
-def _ws_ctx(workspace_id: str) -> WorkspaceCtx:
-    return WorkspaceCtx(
-        user_id=str(uuid.uuid4()), workspace_id=workspace_id, entitlement=ENTITLEMENT
+def _ws_ctx(workspace_id: str) -> Principal:
+    """Fleet Phase A (Task 3): every runs.py route this file drives directly
+    (decide_gate/cancel_run/stream_run — bypassing FastAPI's dependency injection
+    entirely, as plain function calls) now takes a ``Principal`` where it used to take
+    a ``WorkspaceCtx``. A ``kind="user"`` Principal is the exact byte-identical
+    equivalent: every admission primitive it reaches (``require_human``,
+    ``authorize_run_read``) is a no-op / pass-through for ``kind="user"``, so this
+    keeps this whole suite's behavior unchanged. Renaming ``_ws_ctx`` was considered
+    and rejected — every call site below reads naturally either way, and the name is
+    used dozens of times in this file."""
+    return Principal(
+        kind="user",
+        subject=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        entitlement=ENTITLEMENT,
     )
 
 
@@ -525,6 +544,9 @@ def _artifact_client(hz: Harness, workspace_id: str) -> TestClient:
     app.state.pool = hz.pool
     app.state.cfg = MagicMock(repo_root=REPO)
     app.dependency_overrides[require_auth] = lambda: _ws_ctx(workspace_id)
+    # Fleet Phase A (Task 3): the artifact routes now depend on require_principal.
+    # _ws_ctx already returns a Principal (see its own docstring).
+    app.dependency_overrides[require_principal] = lambda: _ws_ctx(workspace_id)
     return TestClient(app)
 
 
@@ -709,6 +731,15 @@ def test_node_failure_mid_run_fails_run_and_frees_slot(ws_env):
     assert db.run_status == ["running", "failed"] and db.row["error"] == "plan exploded"
     assert _keys(frames)[-1] == ("done", "failed", "plan exploded")
     assert db.nodes["plan"] == {"state": "failed", "error": "plan exploded"}
+    # ST-09: the failed node's own `node` event now attributes the error to it — before
+    # this fix the frame carried only {run_id, node_id, state}, and a client watching the
+    # stream (rather than polling) could not tell WHICH node broke.
+    plan_failed = next(
+        d
+        for e, d in frames
+        if e == "node" and d.get("node_id") == "plan" and d["state"] == "failed"
+    )
+    assert plan_failed["error"] == "plan exploded"
     assert db.nodes["radar"]["state"] == "completed" and "research" not in db.nodes
     assert recorded == ["radar", "plan"]
     assert run_id not in state._gate_events
@@ -1571,6 +1602,98 @@ def test_push_notify_hook_awaited_once_per_gate_wait(ws_env):
 
     hz = asyncio.run(_go())
     hz.push.assert_awaited_once_with(hz.pool, ws, run_id, "plan", node_id="plan")
+
+
+def test_the_gate_push_runs_in_a_tracked_task(ws_env):
+    """ST-13: hold_gate's push was a bare create_task, so a worker shutting down as a gate
+    opened could cancel it silently. Tracked, shutdown's drain waits for it."""
+    _provision_gated(ws_env)
+    run_id, ws = str(uuid.uuid4()), ws_env.ws_id
+    db = LifecycleDb(run_id, ws)
+    tracked: list[bool] = []
+
+    async def _push(*_args, **_kwargs):
+        tracked.append(asyncio.current_task() in state._background_tasks)
+        return 0
+
+    async def _go():
+        with lifecycle_harness(db, fake_executor([], awaiting_on="plan")) as hz:
+            hz.push.side_effect = _push
+            task = asyncio.create_task(_pack_run(hz, ws_env, run_id))
+            await _until(lambda: hz.push.await_count == 1, what="the gate push")
+            await drive_gate(run_id, "reject")
+            await asyncio.wait_for(task, timeout=10)
+
+    asyncio.run(_go())
+    assert tracked == [True]
+
+
+# ── terminal push (ST-02, tracked per ST-13) ──────────────────────────────────
+
+
+def _terminal_write(ws_env, status: str, write):
+    """Apply one terminal write to a fresh row in ``status``. Returns the harness, the
+    ids, and the background tasks the write created and tracked (all awaited)."""
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    run_id, ws = str(uuid.uuid4()), ws_env.ws_id
+    db = LifecycleDb(run_id, ws)
+    db.row.update(status=status)
+
+    async def _go():
+        with lifecycle_harness(db) as hz:
+            known = set(state._background_tasks)
+            await write(hz, ws, run_id)
+            tracked = set(state._background_tasks) - known
+            await asyncio.gather(*tracked)
+            return hz, tracked
+
+    hz, tracked = asyncio.run(_go())
+    return hz, run_id, ws, tracked
+
+
+def _complete(hz, ws, run_id):
+    return runs_lifecycle.complete_run(hz.pool, ws, run_id, "final output")
+
+
+def _fail(code: str):
+    def _write(hz, ws, run_id):
+        return lifecycle._fail_run(hz.pool, ws, run_id, "it broke", error_code=code)
+
+    return _write
+
+
+def _reject(hz, ws, run_id):
+    return runs_lifecycle.reject_run(hz.pool, ws, run_id)
+
+
+@pytest.mark.parametrize(
+    ("write", "pushed"),
+    [(_complete, "ok"), (_fail("internal_error"), "failed"), (_fail("gate_timeout"), "failed")],
+    ids=["ok", "failed", "gate-timeout"],
+)
+def test_a_finished_run_pushes_its_terminal_status_from_a_tracked_task(ws_env, write, pushed):
+    """ST-02: only a gate used to push, so a user who backgrounded the app never learned
+    the run finished or died — a gate timeout included, since nobody was watching."""
+    hz, run_id, ws, tracked = _terminal_write(ws_env, "running", write)
+    hz.done_push.assert_awaited_once_with(hz.pool, ws, run_id, pushed)
+    assert len(tracked) == 1, "the push runs in exactly one tracked task"
+
+
+@pytest.mark.parametrize(
+    ("status", "write"),
+    [
+        ("awaiting_approval", _reject),
+        ("canceled", _complete),
+        ("rejected", _fail("internal_error")),
+    ],
+    ids=["operator-rejected", "complete-after-cancel", "fail-after-reject"],
+)
+def test_no_terminal_push_for_a_rejection_or_a_refused_write(ws_env, status, write):
+    """A rejection is the operator's own action, not news to them. A terminal write that
+    RL-03's guard refused changed nothing, so it announces nothing either."""
+    hz, _run_id, _ws, tracked = _terminal_write(ws_env, status, write)
+    hz.done_push.assert_not_awaited()
+    assert tracked == set()
 
 
 # ── prompt mode (_execute_run) — the lifecycle a later step unifies with pack mode ──

@@ -40,10 +40,12 @@ from .database import (
 )
 from .routers import (
     account,
+    admin_sync,
     agents,
     api_keys,
     auth,
     entitlement,
+    events,
     integrations,
     ledger,
     onboard,
@@ -52,6 +54,7 @@ from .routers import (
     publish_settings,
     push_tokens,
     runs,
+    webhooks,
     workspaces,
 )
 from .services.runs.fake import flag_truthy
@@ -310,8 +313,11 @@ async def lifespan(app: FastAPI):
     # through here, so a run outlives the process that accepted its request.
     from .services.runs.queue import claim_loop, heartbeat_loop, stop_task
 
-    queue_task = asyncio.create_task(claim_loop(pool, repo_root, app.state.sessions))
-    heartbeat_task = asyncio.create_task(heartbeat_loop(pool))
+    queue_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
+    if os.getenv("QUEUE_WORKER_ENABLED", "true").lower() in ("true", "1", "yes"):
+        queue_task = asyncio.create_task(claim_loop(pool, repo_root, app.state.sessions))
+        heartbeat_task = asyncio.create_task(heartbeat_loop(pool))
 
     yield
 
@@ -333,8 +339,23 @@ async def lifespan(app: FastAPI):
     await pool.close()
 
 
+# Permitted CORS request headers (RT-10): allows standard auth/media types, custom
+# idempotency & client correlation keys, and SSE resume headers for browser/web clients.
+CORS_ALLOW_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "Accept",
+    "Accept-Language",
+    "Idempotency-Key",
+    "X-Client-Request-Id",
+    "X-Request-ID",
+    "Last-Event-ID",
+]
+
+
 def create_app() -> FastAPI:
-    # Error tracking (optional): active only when SENTRY_DSN is set and the SDK is
+    """Build and configure the FastAPI application."""
+    # Sentry (H6): initialize before FastAPI app creation if SENTRY_DSN is
     # installed. Init before app creation so startup/lifespan errors are captured.
     from .observability import init_sentry
 
@@ -367,11 +388,11 @@ def create_app() -> FastAPI:
         allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=CORS_ALLOW_HEADERS,
         # A cross-origin response's headers are invisible to the page unless exposed; the
         # RFC 6750 challenge is how a browser client tells an expired token from a bad one,
         # and Retry-After lets a browser client back off correctly on a 429.
-        expose_headers=["WWW-Authenticate", "Retry-After"],
+        expose_headers=["WWW-Authenticate", "Retry-After", "X-Request-ID"],
     )
 
     # Mount all routers under /v1
@@ -382,6 +403,7 @@ def create_app() -> FastAPI:
         packs.router,
         agents.router,
         runs.router,
+        events.router,
         ledger.router,
         push_tokens.router,
         api_keys.router,
@@ -394,6 +416,8 @@ def create_app() -> FastAPI:
         # auth — a user JWT could otherwise set its own egress target.
         publish_settings.router,
         integrations.router,
+        webhooks.router,
+        admin_sync.router,
     ):
         app.include_router(rtr, prefix="/v1")
 

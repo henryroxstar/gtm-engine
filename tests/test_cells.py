@@ -334,3 +334,28 @@ def test_cross_list_overlap_is_reported_as_counts_not_addresses(tmp_path):
     overlaps = cells.list_overlaps(profile, tmp_path)
     assert overlaps == [{"first": "a.csv", "also_in": "b.csv", "emails": 1}]
     assert "ada@acme.example" not in json.dumps(overlaps)
+
+
+def test_cells_rejects_absolute_path_traversal(tmp_path):
+    root = tmp_path / "content"
+    profile = "test-profile"
+    base = root / profile / "prospects" / "sequences"
+    base.mkdir(parents=True)
+
+    # Write a dummy cells.toml with an absolute path attempt
+    with (base / "cells.toml").open("w") as fh:
+        fh.write(
+            '[[sequence]]\nid = "A"\nspec = "eng-leader/standard"\ncsv = "/etc/passwd"\nlane = "outbound"\n'
+        )
+
+    with pytest.raises(ValueError, match="unsafe csv"):
+        # load_cell_map succeeds, but build_cells calls _safe_segment
+        cells.build_cells(profile, root)
+
+    with (base / "cells.toml").open("w") as fh:
+        fh.write(
+            '[[sequence]]\nid = "B"\nspec = "eng-leader/standard"\ncsv = "/var/run/secrets/kubernetes.io/serviceaccount/token"\nlane = "outbound"\n'
+        )
+
+    with pytest.raises(ValueError, match="unsafe csv"):
+        cells.build_cells(profile, root)

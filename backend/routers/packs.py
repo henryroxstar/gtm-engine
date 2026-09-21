@@ -18,8 +18,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from gtm_core.paths import workspace_profiles_root
 
+from ..callers.limits import enforce_principal_rate
+from ..callers.principal import Principal
+from ..callers.rest import require_principal
 from ..database import workspace_scope
-from ..deps import WorkspaceCtx, require_auth
 from ..pack_catalog import (
     PackResolutionError,
     list_variants,
@@ -27,12 +29,16 @@ from ..pack_catalog import (
     resolve_variant,
     variant_readiness,
 )
+from ..schemas import ERROR_RESPONSES
+from ..services.runs.principal_admission import audit_service_refusal_code
 from ..types import UuidStr
 
-router = APIRouter(prefix="/packs", tags=["packs"])
+router = APIRouter(prefix="/packs", tags=["packs"], responses=ERROR_RESPONSES)
 
 
-async def _profile_for(ws: WorkspaceCtx, request: Request, profile_name: str | None) -> str | None:
+async def _profile_for(
+    principal: Principal, request: Request, profile_name: str | None
+) -> str | None:
     """The profile the listing is computed against: explicit param, else the
     workspace's default profile row. None ⇒ the workspace has no profile yet
     (empty catalog, not an error — onboarding hasn't run)."""
@@ -49,18 +55,32 @@ async def _profile_for(ws: WorkspaceCtx, request: Request, profile_name: str | N
             ) from exc
         return profile_name
     pool = request.app.state.pool
-    async with workspace_scope(pool, ws.workspace_id) as conn:
+    async with workspace_scope(pool, principal.workspace_id) as conn:
         row = await conn.fetchrow(
             "SELECT profile_name FROM profiles WHERE workspace_id = $1::uuid AND is_default = true",
-            ws.workspace_id,
+            principal.workspace_id,
         )
     return row["profile_name"] if row else None
 
 
+async def _agent_view(principal: Principal, request: Request, agent_id: str):
+    """An agent's (profile, pack subset). ``None`` subset = every pack the profile
+    activates. 404 when the agent is not in this workspace."""
+    from ..agents import fetch_agent
+
+    async with workspace_scope(request.app.state.pool, principal.workspace_id) as conn:
+        agent_row = await fetch_agent(conn, principal.workspace_id, agent_id)
+    if agent_row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
+    packs = list(agent_row["packs"]) if agent_row["packs"] is not None else None
+    return agent_row["profile_name"], packs
+
+
 @router.get("")
 async def list_packs(
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
     profile_name: str | None = None,
     agent_id: UuidStr | None = None,
 ) -> list[dict]:
@@ -69,28 +89,30 @@ async def list_packs(
     ``agent_id`` (A4) narrows the listing to that agent's view: its bound profile,
     intersected with its pack subset — a pack that fell out of the intersection
     simply disappears (inert, not an error).
+
+    Fleet Phase A: a `kind="service"` principal is FORCED to its own bound
+    `agent_id` — any caller-supplied `agent_id` is overridden, never merely
+    checked, so a service principal can never see another agent's pack listing.
+    A `kind="user"` principal is unchanged (today's `agent_id` param, byte-identical).
     """
     from ..pack_catalog import descriptor
 
+    if principal.kind == "service":
+        agent_id = principal.agent_id
+
     agent_packs: list[str] | None = None
     if agent_id is not None:
-        from ..agents import fetch_agent
+        profile_name, agent_packs = await _agent_view(principal, request, agent_id)
 
-        pool = request.app.state.pool
-        async with workspace_scope(pool, ws.workspace_id) as conn:
-            agent_row = await fetch_agent(conn, ws.workspace_id, agent_id)
-        if agent_row is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
-        profile_name = agent_row["profile_name"]
-        agent_packs = list(agent_row["packs"]) if agent_row["packs"] is not None else None
-
-    profile = await _profile_for(ws, request, profile_name)
+    profile = await _profile_for(principal, request, profile_name)
     if profile is None:
         return []
     repo_root = request.app.state.cfg.repo_root
-    profiles_root = workspace_profiles_root(ws.workspace_id, repo_root)
+    profiles_root = workspace_profiles_root(principal.workspace_id, repo_root)
 
     out: list[dict] = []
+    profile_file = profiles_root / profile / "PROFILE.md"
+    profile_text = profile_file.read_text(encoding="utf-8") if profile_file.is_file() else None
     for resolved in list_variants(repo_root, profiles_root, profile):
         if agent_packs is not None and resolved.graph.pack not in agent_packs:
             continue
@@ -100,9 +122,14 @@ async def list_packs(
             # Profile row exists but its files are not provisioned yet — the pack is
             # unrunnable for a knowable reason; say so rather than 500 or silence.
             report = None
-        # ws.entitlement is the Entitlement enum in production but tests build the
-        # frozen ctx with a raw string — entitlement_meets accepts both.
-        d = descriptor(resolved, entitlement=ws.entitlement, readiness=report)
+        # principal.entitlement is the Entitlement enum in production but tests build
+        # a frozen principal with a raw string — entitlement_meets accepts both.
+        d = descriptor(
+            resolved,
+            entitlement=principal.entitlement,
+            readiness=report,
+            profile_text=profile_text,
+        )
         if report is None:
             d["readiness"] = {
                 "status": "blocked",
@@ -123,8 +150,9 @@ async def list_packs(
 async def variant_readiness_detail(
     pack: str,
     variant: str,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
     profile_name: str | None = None,
 ) -> dict:
     """Full readiness checklist for one variant — every item, ready ones included.
@@ -132,15 +160,26 @@ async def variant_readiness_detail(
     This is the onboarding wizard's feed: drive each blocked/degraded item green,
     and the variant unlocks. 404 unknown variant; 403 when the profile doesn't
     activate the pack (same information boundary as the listing's absence).
+
+    Fleet Phase A: a `kind="service"` principal sees exactly what `list_packs` shows it
+    — its agent's own profile (a caller-supplied `profile_name` is ignored), and a pack
+    outside its agent's subset is the same 404 as a variant that does not exist.
     """
-    profile = await _profile_for(ws, request, profile_name)
+    if principal.kind == "service":
+        profile_name, agent_packs = await _agent_view(principal, request, principal.agent_id)
+        if agent_packs is not None and pack not in agent_packs:
+            await audit_service_refusal_code(
+                request.app.state.cfg, principal, request.url.path, "pack_not_found"
+            )
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown pack variant")
+    profile = await _profile_for(principal, request, profile_name)
     if profile is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             {"code": "profile_not_found", "message": "No profile for this workspace"},
         )
     repo_root = request.app.state.cfg.repo_root
-    profiles_root = workspace_profiles_root(ws.workspace_id, repo_root)
+    profiles_root = workspace_profiles_root(principal.workspace_id, repo_root)
 
     try:
         resolved = resolve_variant(repo_root, profiles_root, profile, pack, variant)

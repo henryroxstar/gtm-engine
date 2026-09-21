@@ -122,6 +122,8 @@ def test_the_whole_source_surface_is_clean():
 
 
 def test_an_all_english_phrase_is_not_a_key(tmp_path):
+    if not roster.DICT_FILE.exists():
+        pytest.skip(f"{roster.DICT_FILE} is missing (install wamerican)")
     (tmp_path / "content/acme/accounts/the-first-state-bank").mkdir(parents=True)
     assert roster.derive_keys(tmp_path) == set()
 

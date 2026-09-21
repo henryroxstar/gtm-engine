@@ -34,9 +34,51 @@ from .. import auth as _auth
 from .. import oidc
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
-from ..schemas import DeleteAccountRequest, PatchAccountRequest
+from ..schemas import (
+    ERROR_RESPONSES,
+    AccountResponse,
+    DeleteAccountRequest,
+    PatchAccountRequest,
+)
 
-router = APIRouter(prefix="/account", tags=["account"])
+router = APIRouter(prefix="/account", tags=["account"], responses=ERROR_RESPONSES)
+
+
+@router.get("", response_model=AccountResponse, status_code=status.HTTP_200_OK)
+async def get_account(
+    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    request: Request,
+) -> AccountResponse:
+    """Return authenticated user ID, email, primary workspace ID, tier, and role."""
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        user_row = await conn.fetchrow(
+            "SELECT email, display_name FROM users WHERE id = $1::uuid", ws.user_id
+        )
+    if user_row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "user_not_found", "message": "User not found"},
+        )
+
+    role = "owner"
+    async with workspace_scope(pool, ws.workspace_id) as conn:
+        member_row = await conn.fetchrow(
+            "SELECT role FROM workspace_members WHERE workspace_id = $1::uuid AND user_id = $2::uuid",
+            ws.workspace_id,
+            ws.user_id,
+        )
+        if member_row and member_row["role"]:
+            role = member_row["role"]
+
+    return AccountResponse(
+        id=str(ws.user_id),
+        email=user_row["email"],
+        primary_workspace_id=str(ws.workspace_id),
+        tier=getattr(ws.entitlement, "value", str(ws.entitlement)),
+        role=role,
+        display_name=user_row["display_name"],
+    )
 
 
 @router.patch("", status_code=status.HTTP_200_OK)
@@ -269,7 +311,10 @@ async def delete_account(
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT password_hash FROM users WHERE id = $1::uuid", ws.user_id)
     if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "user_not_found", "message": "User not found"},
+        )
     if row["password_hash"]:
         # Password account: only the password steps up — an idp_token is never consulted.
         if body.current_password is None or not _auth.verify_password(
@@ -297,5 +342,8 @@ async def delete_account(
     async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM users WHERE id = $1::uuid", ws.user_id)
     if result == "DELETE 0":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "user_not_found", "message": "User not found"},
+        )
     return {"status": "deleted"}

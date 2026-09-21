@@ -36,11 +36,24 @@ def render_html(m: dict) -> str:
             + _e("; ".join(parts))
             + ". Refresh before trusting anything below.</p></div>"
         )
-    # Only the reconciliation warning stays here. A page-level banner shows on every tab, so
-    # it has to earn that: this one says the figures on all four panels cannot be trusted, and
-    # burying it in a panel a reader may never open would defeat it. "Nothing has been sent" is
-    # a fact about the run rather than about the page — it lives in Operator notes, and the
-    # status panel's first tile carries the same number for the reader who only wants that.
+
+    ps = m.get("prospect_status") or {}
+    counts = ps.get("counts") or {}
+    held_count = counts.get("waiting_on_you", 0)
+    if not held_count:
+        ar = m.get("attrition_receipt") or {}
+        held_count = ar.get("held", 0)
+
+    if held_count > 0:
+        plural = "s" if held_count != 1 else ""
+        require = "require" if held_count != 1 else "requires"
+        banners += (
+            '<div class="card banner action-required"><h2>[ACTION REQUIRED]</h2><p>'
+            f"<strong>{held_count}</strong> account{plural} {require} routing decisions in the "
+            '<a href="evals/lanes-hold-sheet.csv" class="review-sheet-link">Review Sheet</a>.</p></div>'
+        )
+
+    # A page-level banner shows on every tab.
 
     panels = {
         "worklist": _worklist_view(m),

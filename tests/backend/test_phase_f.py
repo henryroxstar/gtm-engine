@@ -135,14 +135,20 @@ class TestRegisterToken:
         assert resp.status_code == 201
         assert resp.json()["platform"] == "fcm"
 
-    def test_register_apns_token(self, client):
+    def test_register_apns_token_refused(self, client):
+        """ST-13: 'apns' was previously accepted (201) and never delivered — a dead row
+        from the moment it was written, since the FCM v1 provider only sends to 'fcm'
+        tokens. Refused up front instead; iOS registers its FCM token."""
         resp = client.post(
             "/v1/push-tokens",
             json={"token": "apns-device-token-xyz", "platform": "apns"},
             headers=_auth_header(),
         )
-        assert resp.status_code == 201
-        assert resp.json()["platform"] == "apns"
+        assert resp.status_code == 422
+        # Pydantic validation error format
+        detail = resp.json()["detail"][0]
+        assert detail["type"] == "literal_error"
+        assert "fcm" in detail["msg"]
 
     def test_invalid_platform_rejected(self, client):
         resp = client.post(

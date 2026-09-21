@@ -20,23 +20,16 @@ from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .schemas import ErrorResponse
+
+# Backward-compatibility alias for internal references (PRD M-03)
+UnifiedErrorResponse = ErrorResponse
+
 log = logging.getLogger(__name__)
-
-
-class ErrorDetail(BaseModel):
-    code: str
-    message: str
-    details: Any = None
-
-
-class UnifiedErrorResponse(BaseModel):
-    error: ErrorDetail
-    detail: Any = None
 
 
 _STATUS_DEFAULT_CODES: dict[int, str] = {
@@ -236,6 +229,29 @@ class UnhandledExceptionMiddleware:
             await response(scope, receive, send)
 
 
+async def refusal_exception_handler(request: Request, exc: Any) -> JSONResponse:
+    """Fleet Phase A (Task 3): a ``backend.callers.ports.Refusal`` raised anywhere in a
+    route body — not just inside the ``require_principal`` dependency itself, which
+    already converts its own refusals via ``refusal_to_http`` before they ever reach
+    here.
+
+    ``backend/callers/dependency.py``'s admission primitives (``bind_agent``,
+    ``require_pack_mode``, ``require_human``, ``authorize_run_read``) and
+    ``backend/callers/limits.py``'s ``enforce_agent_daily_cap`` all raise ``Refusal``
+    rather than ``HTTPException`` — by the time one of these runs, the route's own
+    ``Depends(require_principal)`` has already returned successfully, so there is no
+    dependency-level boundary left to catch it. Registering ONE handler here — rather
+    than a local ``try/except Refusal: raise refusal_to_http(exc) from exc`` around
+    every call site — is the DRYer choice given how many sites in ``create_run`` alone
+    can raise one; it reuses the exact same ``refusal_to_http`` adapter and the exact
+    same envelope ``http_exception_handler`` already builds, so a ``Refusal`` and an
+    ``HTTPException`` render byte-identically on the wire.
+    """
+    from backend.callers.dependency import refusal_to_http
+
+    return await http_exception_handler(request, refusal_to_http(exc))
+
+
 def register_error_handlers(app: Any) -> None:
     """Register the canonical exception handlers on a FastAPI application.
 
@@ -243,8 +259,11 @@ def register_error_handlers(app: Any) -> None:
     `app.add_middleware(CORSMiddleware, ...)` so the new middleware ends up wrapped BY
     CORS (see its docstring for why the ordering matters).
     """
+    from backend.callers.ports import Refusal
+
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_exception_handler(Refusal, refusal_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.add_middleware(UnhandledExceptionMiddleware)

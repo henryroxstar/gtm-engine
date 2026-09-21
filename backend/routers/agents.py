@@ -23,10 +23,15 @@ from gtm_core.paths import workspace_profiles_root
 from ..agents import _AGENT_COLS, agent_row_to_dict, fetch_agent
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
-from ..schemas import AgentCreateRequest, AgentResponse, AgentUpdateRequest
+from ..schemas import (
+    ERROR_RESPONSES,
+    AgentCreateRequest,
+    AgentResponse,
+    AgentUpdateRequest,
+)
 from ..types import UuidStr
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+router = APIRouter(prefix="/agents", tags=["agents"], responses=ERROR_RESPONSES)
 
 
 def _activated_packs(repo_root: Path, workspace_id: str, profile_name: str) -> frozenset[str]:
@@ -117,8 +122,8 @@ async def create_agent(
             raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_name_taken"})
         row = await conn.fetchrow(
             f"""INSERT INTO agents(workspace_id, name, profile_name, packs, language,
-                                   monthly_budget_usd)
-                VALUES($1::uuid, $2, $3, $4, $5, $6)
+                                   monthly_budget_usd, read_scope, daily_dispatch_cap)
+                VALUES($1::uuid, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING {_AGENT_COLS}""",  # noqa: S608 # nosec B608 — cols are a module constant
             ws.workspace_id,
             body.name,
@@ -126,6 +131,8 @@ async def create_agent(
             body.packs,
             body.language,
             body.monthly_budget_usd,
+            body.read_scope,
+            body.daily_dispatch_cap,
         )
     return AgentResponse(**agent_row_to_dict(row))
 
@@ -206,7 +213,15 @@ async def update_agent(
                 raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_name_taken"})
 
         sets, args = [], []
-        for col in ("name", "packs", "language", "monthly_budget_usd", "status"):
+        for col in (
+            "name",
+            "packs",
+            "language",
+            "monthly_budget_usd",
+            "status",
+            "read_scope",
+            "daily_dispatch_cap",
+        ):
             if col in fields:
                 args.append(fields[col])
                 sets.append(f"{col} = ${len(args)}")

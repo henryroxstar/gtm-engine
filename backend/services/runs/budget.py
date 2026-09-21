@@ -9,13 +9,18 @@ from __future__ import annotations
 import asyncio
 import os
 
-from gtm_core.metering import acheck_budget, areserve_budget
+from gtm_core.metering import (
+    acheck_budget,
+    areserve_budget,
+    reserve_credits,
+    settle_credits,
+)
 
 from ...database import workspace_scope
 from .state import _background_tasks, _release_run_slot
 
 # ── cost reservation (follow-up (f), Phase 1) — default OFF ───────────────────────
-# COST_RESERVATION_ENABLED gates the atomic-reservation path (areserve_budget). OFF ⇒
+# COST_RESERVATION_ENABLED gates the atomic-reservation path (areserve_budget/reserve_credits). OFF ⇒
 # the gating calls stay acheck_budget and this behaves byte-identically to today (a
 # reservation-free system has zero open reservations ⇒ same numbers). Phase 1 reserves a
 # fixed conservative per-run estimate; Phase 2 (accurate per-stage estimates) is blocked
@@ -28,19 +33,29 @@ def _reservation_enabled() -> bool:
 
 # Fixed conservative Phase-1 estimate (p90-ish of recent run cost); tune via env.
 RESERVATION_ESTIMATE_USD = float(os.getenv("RESERVATION_ESTIMATE_USD", "2.0"))
+RESERVATION_ESTIMATE_CREDITS = float(os.getenv("RESERVATION_ESTIMATE_CREDITS", "2000.0"))
 
 
 async def _reserve_or_deny(pool, workspace_id: str, run_id: str) -> bool:
     """Flag-gated pre-spend gate. Returns True if the run may proceed (spend admitted).
 
-    Flag ON  → atomic areserve_budget inside workspace_scope (holds a cost_reservations
+    Flag ON  → atomic reserve_credits inside workspace_scope (holds a cost_reservations
                slot; exact under concurrency).
     Flag OFF → today's acheck_budget read (byte-identical to pre-reservation behaviour).
     Both run RLS-subject and are fail-closed on the backend paid route.
     """
     async with workspace_scope(pool, workspace_id) as conn:
         if _reservation_enabled():
-            rid = await areserve_budget(
+            rid = await reserve_credits(
+                conn,
+                workspace_id,
+                run_id=run_id,
+                estimated_credits=RESERVATION_ESTIMATE_CREDITS,
+                fail_closed=True,
+            )
+            if rid is not None:
+                return True
+            legacy_rid = await areserve_budget(
                 conn,
                 workspace_id,
                 run_id=run_id,
@@ -48,7 +63,7 @@ async def _reserve_or_deny(pool, workspace_id: str, run_id: str) -> bool:
                 table="cost_records",
                 fail_closed=True,
             )
-            return rid is not None
+            return legacy_rid is not None
         return await acheck_budget(
             pool, workspace_id, table="cost_records", conn=conn, fail_closed=True
         )
@@ -86,9 +101,27 @@ async def _settle_run_reservations(pool, workspace_id: str, run_id: str) -> None
     is caught by the crash sweep (release_stale_reservations, backend/main.py _evict)."""
     try:
         async with workspace_scope(pool, workspace_id) as conn:
+            open_rows = await conn.fetch(
+                "SELECT id::text FROM cost_reservations WHERE run_id = $1::uuid AND state != 'settled'",
+                run_id,
+            )
+            if not open_rows:
+                return
+
+            cost_row = await conn.fetchrow(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) as actual_usd FROM cost_records WHERE run_id = $1::uuid",
+                run_id,
+            )
+            actual_usd = float(cost_row["actual_usd"]) if cost_row else 0.0
+            actual_credits = actual_usd * 1000.0
+
+            for i, r in enumerate(open_rows):
+                settle_amount = actual_credits if i == 0 else 0.0
+                await settle_credits(conn, r["id"], settle_amount, runtime="backend", run_id=run_id)
+
             await conn.execute(
                 "UPDATE cost_reservations SET state = 'settled', closed_at = now() "
-                "WHERE run_id = $1::uuid AND state = 'open'",
+                "WHERE run_id = $1::uuid AND state != 'settled'",
                 run_id,
             )
     except Exception:  # noqa: BLE001

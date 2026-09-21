@@ -7,6 +7,9 @@ channel                      payload                                   who publi
 ===========================  ========================================  ==========================
 ``gtm:run:{run_id}``         ``{worker, seq, event, data}``            any worker → every worker
                                                                        serving that run's stream
+``gtm:run:{run_id}``         ``{worker, resync: true}`` — an event     the worker that lost it →
+                             got no durable id (ST-16)                 every worker, which sends
+                                                                       its streams a snapshot
 ``gtm:gate:{run_id}``        ``{worker, run_id}`` — a bare WAKE        the worker handling
                                                                        POST /gate → the worker
                                                                        holding the run

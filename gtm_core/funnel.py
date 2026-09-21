@@ -128,6 +128,7 @@ def size(
     pool_available: int = 0,
     backlog_ready: int = 0,
     lookup_credits_remaining: int | None = None,
+    no_fallback: bool = False,
 ) -> Plan:
     """Size the top of the funnel for a DELIVERY target.
 
@@ -192,10 +193,13 @@ def size(
             f"tier, switch why_now_mode to 'structural', or widen discovery."
         )
     if lookup_credits_remaining is not None and lookups_needed > lookup_credits_remaining:
-        raise FunnelInfeasible(
-            f"need ~{lookups_needed:,} contact lookups but only {lookup_credits_remaining:,} "
-            f"credits remain"
-        )
+        msg = f"need ~{lookups_needed:,} contact lookups but only {lookup_credits_remaining:,} credits remain"
+        if no_fallback:
+            raise FunnelInfeasible(msg + " (--no-fallback is active)")
+        else:
+            warnings.append(
+                f"DEGRADATION WARNING: {msg}. The pipeline will fall back to unverified web sources when credits exhaust."
+            )
 
     return Plan(
         target_delivered=target_delivered,
@@ -273,6 +277,9 @@ def _cli(argv: list[str] | None = None) -> int:
     ap.add_argument("--pool-available", type=int, default=0)
     ap.add_argument("--backlog-ready", type=int, default=0)
     ap.add_argument("--lookup-credits", type=int, default=None)
+    ap.add_argument(
+        "--no-fallback", action="store_true", help="Fail if credits exhaust instead of warning"
+    )
     args = ap.parse_args(argv)
 
     try:
@@ -284,6 +291,7 @@ def _cli(argv: list[str] | None = None) -> int:
             pool_available=args.pool_available,
             backlog_ready=args.backlog_ready,
             lookup_credits_remaining=args.lookup_credits,
+            no_fallback=args.no_fallback,
         )
     except FunnelInfeasible as exc:
         print("FUNNEL INFEASIBLE\n  " + str(exc))

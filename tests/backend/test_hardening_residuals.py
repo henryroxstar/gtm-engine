@@ -61,6 +61,9 @@ def _drive_decide_gate(pending_content: str, content_sha: str):
     request.app.state.pool = MagicMock()
     ws = MagicMock()
     ws.workspace_id = "ws1"
+    # Fleet Phase A (Task 3): decide_gate calls require_human(principal) first, which
+    # admits only kind="user" — a bare MagicMock's auto-created .kind would refuse it.
+    ws.kind = "user"
     body = GateRequest(decision="approve", content_sha=content_sha)
 
     async def _go():
@@ -185,6 +188,8 @@ def test_apply_sync_new_applies_update():
     # The FOR UPDATE lock was taken before any write (serializes concurrent syncs).
     lock_sql = conn.fetchrow.call_args.args[0]
     assert "FOR UPDATE" in lock_sql
+    update_sql = conn.execute.call_args_list[1].args[0]
+    assert "plan_cost_cap_usd" in update_sql
 
 
 # ── A9: CORS production boot guard (Track A, 2026-08-09) ─────────────────────
@@ -401,6 +406,9 @@ def _drive_decide_gate_kind(gate_kind, decision, edited_content=None):
     request.app.state.pool = MagicMock()
     ws = MagicMock()
     ws.workspace_id = "ws1"
+    # Fleet Phase A (Task 3): decide_gate calls require_human(principal) first, which
+    # admits only kind="user" — a bare MagicMock's auto-created .kind would refuse it.
+    ws.kind = "user"
     body = GateRequest(
         decision=decision,
         content_sha=runs_router._content_sha(pending),

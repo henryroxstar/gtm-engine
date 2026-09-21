@@ -39,6 +39,10 @@ __all__ = [
     "outcomes_jsonl",
     "accounts_dir",
     "status_page",
+    "run_lock_path",
+    "run_state_json",
+    "run_summary_json",
+    "archive_dir",
     "LEGACY_SUPPRESSION_LEDGERS",
     "main",
 ]
@@ -150,6 +154,26 @@ def status_page(profile: str, content_root: Path | None = None) -> Path:
     return dashboard_path(profile, content_root)
 
 
+def run_lock_path(profile: str, content_root: Path | None = None) -> Path:
+    """Exclusive lock file path for this profile's active prospect run."""
+    return prospects_dir(profile, content_root) / ".run_lock"
+
+
+def run_state_json(profile: str, content_root: Path | None = None) -> Path:
+    """Persistent step-by-step state for the active or last prospect run."""
+    return prospects_dir(profile, content_root) / "run_state.json"
+
+
+def run_summary_json(profile: str, content_root: Path | None = None) -> Path:
+    """Machine-readable structured summary of the last completed prospect run."""
+    return prospects_dir(profile, content_root) / "run_summary.json"
+
+
+def archive_dir(profile: str, content_root: Path | None = None) -> Path:
+    """Archived and purged cleartext prospect data."""
+    return prospects_dir(profile, content_root) / ".archive"
+
+
 #: Printed by the CLI, in the order a run touches them.
 _RESOLVERS = (
     ("latest.json", latest_json, "the cumulative account ledger — the record of record"),
@@ -165,6 +189,10 @@ _RESOLVERS = (
         status_page,
         "the operator page: who we're emailing, what we're saying, what's blocking",
     ),
+    ("run_lock", run_lock_path, "exclusive prospect run lock file"),
+    ("run_state.json", run_state_json, "step-by-step resumable run state"),
+    ("run_summary.json", run_summary_json, "machine-readable run summary"),
+    (".archive/", archive_dir, "archived purged PII CSVs"),
 )
 
 

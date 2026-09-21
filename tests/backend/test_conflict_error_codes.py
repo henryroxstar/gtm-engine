@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-for-unit-tests-only-32x")
 
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.errors import register_error_handlers  # noqa: E402
 from backend.routers import api_keys as api_keys_router  # noqa: E402
@@ -28,6 +29,7 @@ from backend.routers import integrations as integrations_router  # noqa: E402
 from backend.routers import packs as packs_router  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from gtm_core.capabilities import Entitlement  # noqa: E402
+from tests.backend._protocol1 import user_principal  # noqa: E402
 
 WS_ID = "00000000-0000-0000-0000-000000000001"
 USER_ID = "00000000-0000-0000-0000-000000000002"
@@ -42,7 +44,10 @@ def _client(*routers) -> TestClient:
     for rtr in routers:
         app.include_router(rtr.router, prefix="/v1")
     app.state.pool = MagicMock()
-    app.dependency_overrides[require_auth] = lambda: WorkspaceCtx(USER_ID, WS_ID, Entitlement.PRO)
+    ctx = WorkspaceCtx(USER_ID, WS_ID, Entitlement.PRO)
+    app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs/packs routes now depend on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     register_error_handlers(app)
     return TestClient(app)
 

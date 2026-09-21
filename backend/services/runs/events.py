@@ -39,7 +39,13 @@ from datetime import UTC, datetime
 
 from ...broker import GATE_CHANNEL_PREFIX, RUN_CHANNEL_PREFIX, WORKER_ID, get_broker
 from ...database import workspace_scope
-from .state import _STREAM_QUEUE_MAX, _gate_events, _run_subscribers
+from .state import (
+    _STREAM_QUEUE_MAX,
+    _gate_events,
+    _run_subscribers,
+    _track,
+    _workspace_subscribers,
+)
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +88,17 @@ class Frame(tuple):
 # absorb an awaiting_approval, which must never be possible.
 _OVERFLOW_CLOSE = ("__overflow_close__", {})
 
+# ST-16: wakes a stream whose subscription was flagged for resync (see _request_resync).
+_RESYNC = ("__resync__", {})
+
+
+class _Subscription(asyncio.Queue):
+    """One stream's subscriber queue. ``resync`` is ST-16's flag: an event for this run
+    could not be given a durable id, so the stream must replace the client's state with a
+    fresh snapshot before it delivers anything else."""
+
+    resync = False
+
 
 def _publish_event(run_id: str, event: str, data: dict, *, seq: int | None = None) -> None:
     """Push an event to every SSE subscriber of run_id IN THIS PROCESS. Never raises.
@@ -111,10 +128,34 @@ def _publish_event(run_id: str, event: str, data: dict, *, seq: int | None = Non
             pass  # nosec B110 — intentional best-effort swallow
 
 
-def _subscribe(run_id: str) -> asyncio.Queue:
-    q: asyncio.Queue = asyncio.Queue(maxsize=_STREAM_QUEUE_MAX)
+def _subscribe(run_id: str) -> _Subscription:
+    q = _Subscription(maxsize=_STREAM_QUEUE_MAX)
     _run_subscribers.setdefault(run_id, set()).add(q)
     return q
+
+
+def _resync_local(run_id: str) -> None:
+    """Flag every local stream of ``run_id`` for an in-place snapshot, and wake it. A full
+    queue needs no wake: its stream is about to dequeue, and checks the flag when it does."""
+    for q in tuple(_run_subscribers.get(run_id, ())):
+        q.resync = True
+        try:
+            q.put_nowait(_RESYNC)
+        except asyncio.QueueFull:
+            pass
+
+
+def _request_resync(run_id: str) -> None:
+    """ST-16: an event for ``run_id`` reached no durable id, so no ``?since=`` replay will
+    ever carry it. Every open stream of the run — here and, via the broker, on every other
+    worker — sends its client a fresh snapshot instead. The event's own DB write already
+    landed (every publish follows one), so the snapshot carries its effect."""
+    _resync_local(run_id)
+    broker = get_broker()
+    if broker is None:
+        return
+    payload = {"worker": WORKER_ID, "resync": True}
+    _track(asyncio.create_task(broker.publish(f"{RUN_CHANNEL_PREFIX}{run_id}", payload)))
 
 
 def _unsubscribe(run_id: str, q: asyncio.Queue) -> None:
@@ -126,11 +167,48 @@ def _unsubscribe(run_id: str, q: asyncio.Queue) -> None:
         _run_subscribers.pop(run_id, None)
 
 
+def _subscribe_workspace(workspace_id: str) -> _Subscription:
+    q = _Subscription(maxsize=_STREAM_QUEUE_MAX)
+    _workspace_subscribers.setdefault(workspace_id, set()).add(q)
+    return q
+
+
+def _unsubscribe_workspace(workspace_id: str, q: asyncio.Queue) -> None:
+    subs = _workspace_subscribers.get(workspace_id)
+    if subs is None:
+        return
+    subs.discard(q)
+    if not subs:
+        _workspace_subscribers.pop(workspace_id, None)
+
+
+def _publish_workspace_event(
+    workspace_id: str, run_id: str, event: str, data: dict, *, seq: int | None = None
+) -> None:
+    subs = _workspace_subscribers.get(workspace_id)
+    if not subs:
+        return
+    if "run_id" not in data:
+        data = {"run_id": run_id, **data}
+    payload = Frame(event, data, seq)
+    for q in subs:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            try:
+                q.get_nowait()
+                q.put_nowait(_OVERFLOW_CLOSE)
+            except Exception:  # noqa: BLE001
+                pass  # nosec B110 — intentional best-effort swallow
+        except Exception:  # noqa: BLE001
+            pass  # nosec B110 — intentional best-effort swallow
+
+
 # ── the durable publish relay (A5 step 3) ─────────────────────────────────────
 
 #: Bounded: a relay that fell arbitrarily behind would hold the whole event history of
-#: a burst in memory. Over the bound, publishing degrades to immediate local fan-out
-#: (an event is never dropped, it just loses its durable id).
+#: a burst in memory. Over the bound the event is not persisted, and the run's open
+#: streams are resynced with a fresh snapshot instead (ST-16).
 _RELAY_QUEUE_MAX = 2048
 
 _relay_queue: asyncio.Queue | None = None
@@ -142,22 +220,33 @@ def publish_run_event(workspace_id: str, run_id: str, event: str, data: dict) ->
 
     ``workspace_id`` is required — see the module docstring. With a relay running the
     event is queued for its ``run_events`` INSERT (which assigns the seq clients replay
-    against) and its broker publish; with no relay, or a saturated one, it is delivered
-    locally right here, which is protocol-1 behaviour exactly.
+    against) and its broker publish; with a saturated relay the open streams are resynced
+    (ST-16); with no relay at all it is delivered locally right here, which is protocol-1
+    behaviour exactly.
     """
     q = _relay_queue
     if q is None:
         _publish_event(run_id, event, data)
+        _publish_workspace_event(workspace_id, run_id, event, data)
         return
     try:
         q.put_nowait((workspace_id, run_id, event, data))
     except asyncio.QueueFull:
-        log.warning("publish relay saturated; delivering %s locally without a seq", event)
-        _publish_event(run_id, event, data)
+        # ST-16: the event will never be persisted, so it must not reach a subscriber
+        # without an id either — resync the open streams instead.
+        log.warning("publish relay saturated; resyncing streams of %s", run_id)
+        _request_resync(run_id)
 
 
 async def _relay_one(pool, workspace_id: str, run_id: str, event: str, data: dict) -> None:
-    """Persist one event, then fan it out locally and to the other workers."""
+    """Persist one event, then fan it out locally and to the other workers.
+
+    ST-16: on an INSERT failure ``seq`` stays None. Delivering the event anyway would hand
+    a subscriber a frame with no ``id:`` line — one no ``?since=`` resume can ever replay,
+    and not one of the two frame types the schema documents as carrying no resume
+    information (``ping``, the synthesised terminal ``done``). The run's open streams are
+    resynced instead (:func:`_request_resync`).
+    """
     seq: int | None = None
     try:
         async with workspace_scope(pool, workspace_id) as conn:
@@ -172,13 +261,25 @@ async def _relay_one(pool, workspace_id: str, run_id: str, event: str, data: dic
     except Exception:  # noqa: BLE001 — a failed durable write must not lose the frame
         log.warning("run_events insert failed for %s/%s", run_id, event, exc_info=True)
 
+    if seq is None:
+        log.warning("resyncing streams of %s (no durable id for %s)", run_id, event)
+        _request_resync(run_id)
+        return
+
     _publish_event(run_id, event, data, seq=seq)
+    _publish_workspace_event(workspace_id, run_id, event, data, seq=seq)
 
     broker = get_broker()
     if broker is not None:
         await broker.publish(
             f"{RUN_CHANNEL_PREFIX}{run_id}",
-            {"worker": WORKER_ID, "seq": seq, "event": event, "data": data},
+            {
+                "worker": WORKER_ID,
+                "seq": seq,
+                "event": event,
+                "data": data,
+                "workspace_id": workspace_id,
+            },
         )
 
 
@@ -237,10 +338,16 @@ def on_broker_message(channel: str, payload: dict) -> None:
     """
     if channel.startswith(RUN_CHANNEL_PREFIX):
         run_id = channel[len(RUN_CHANNEL_PREFIX) :]
+        if payload.get("resync") is True:
+            _resync_local(run_id)  # ST-16: the originating worker lost an event
+            return
         event = payload.get("event")
         data = payload.get("data")
         if isinstance(event, str) and isinstance(data, dict):
             _publish_event(run_id, event, data, seq=payload.get("seq"))
+            ws_id = payload.get("workspace_id")
+            if ws_id:
+                _publish_workspace_event(ws_id, run_id, event, data, seq=payload.get("seq"))
         return
     if channel.startswith(GATE_CHANNEL_PREFIX):
         run_id = channel[len(GATE_CHANNEL_PREFIX) :]

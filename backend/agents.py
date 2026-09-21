@@ -19,7 +19,7 @@ from typing import Any
 
 _AGENT_COLS = (
     "id::text AS agent_id, workspace_id::text, name, profile_name, packs, "
-    "language, monthly_budget_usd, status, is_default, "
+    "language, monthly_budget_usd, status, is_default, read_scope, daily_dispatch_cap, "
     "created_at::text, updated_at::text"
 )
 
@@ -38,6 +38,8 @@ def agent_row_to_dict(row: Any) -> dict:
         ),
         "status": row["status"],
         "is_default": bool(row["is_default"]),
+        "read_scope": row["read_scope"],
+        "daily_dispatch_cap": row["daily_dispatch_cap"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -146,3 +148,35 @@ async def acheck_agent_budget(
     except Exception:  # noqa: BLE001
         return False
     return spent < float(budget_usd)
+
+
+async def agent_today_dispatch_count(conn: Any, workspace_id: str, agent_id: str) -> int:
+    """Runs created for this agent since the start of the current UTC day.
+
+    Uses ``runs_agent_daily_idx (workspace_id, agent_id, created_at)`` (V026) as a
+    range scan — the index was built specifically for this access pattern.
+    """
+    val = await conn.fetchval(
+        """SELECT COUNT(*) FROM runs
+           WHERE workspace_id = $1::uuid AND agent_id = $2::uuid
+             AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')""",
+        workspace_id,
+        agent_id,
+    )
+    return int(val or 0)
+
+
+async def acheck_agent_daily_cap(
+    conn: Any, workspace_id: str, agent_id: str | None, daily_dispatch_cap: int | None
+) -> bool:
+    """Per-agent dispatch ceiling for the current UTC day: no agent / no cap → allow.
+
+    Unlike ``acheck_agent_budget``, a read error is NOT folded into ``False``: that
+    would report "cap reached" — a 429 telling the caller to wait until tomorrow — for
+    what is really "could not count". The error propagates, and the caller
+    (``backend/callers/limits.py:enforce_agent_daily_cap``) refuses it as a 503.
+    """
+    if agent_id is None or daily_dispatch_cap is None:
+        return True
+    count = await agent_today_dispatch_count(conn, workspace_id, agent_id)
+    return count < daily_dispatch_cap

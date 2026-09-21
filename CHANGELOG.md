@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-21
+
+### Changed
+- Minor updates to CI, agent, backend API, gtm_core, mcp_server, packs, and schemas.
+- Various updates to profile-onboard, prospect, setup, video-script, and video-storyboard skills.
+- Test updates.
+
 ### Fixed
 - A private (hosted-only) skill's stub could silently drop a citation to a doc that still
   ships publicly, so a self-hoster reading the stub lost a pointer to reference material
@@ -1108,3 +1115,5 @@ sections that apply:
   thresholds), and each profile supplies its own gates, rubric line-items, and thresholds. The
   template profile ships a worked example.
 - The skill inventory is no longer guarded by a hardcoded count; it is a generated, CI-gated index.
+ 
+ 

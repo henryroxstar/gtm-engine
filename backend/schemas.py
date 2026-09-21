@@ -39,6 +39,10 @@ class ExchangeRequest(BaseModel):
     token: str = Field(min_length=1)
 
 
+class LogoutResponse(BaseModel):
+    status: Literal["logged_out"] = "logged_out"
+
+
 # ── workspace ─────────────────────────────────────────────────────────────────
 
 
@@ -48,6 +52,12 @@ class WorkspaceResponse(BaseModel):
     display_name: str
     entitlement: str  # free | pro | pro_plus
     monthly_cost_cap_usd: float
+    publish_enabled: bool = False
+    schedule_enabled: bool = False
+
+
+class PatchWorkspaceRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=200, description="Workspace display name")
 
 
 # ── profiles ─────────────────────────────────────────────────────────────────
@@ -64,7 +74,10 @@ class ProfilesListResponse(BaseModel):
 
 
 class ActivateProfileRequest(BaseModel):
-    profile_name: str
+    # Same shape as the DB's own CHECK (profiles.profile_name, V001__data_spine.sql) —
+    # enforced here so a bad name is a 422 from request validation, never a raw
+    # asyncpg CheckViolationError surfacing as a 500 (RT-14).
+    profile_name: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
 
 
 # ── agents (A4) ──────────────────────────────────────────────────────────────
@@ -80,6 +93,10 @@ class AgentCreateRequest(BaseModel):
     packs: list[str] | None = None  # None = every pack the profile activates
     language: str | None = Field(default=None, pattern=_BCP47_SHAPE, max_length=35)
     monthly_budget_usd: float | None = Field(default=None, ge=0)
+    # V026: mirrors the DB's own NOT NULL DEFAULT 'own' / CHECK(>= 0) constraints so a
+    # bad value is a clean 422 here, never a raw asyncpg CheckViolationError (RT-14).
+    read_scope: Literal["own", "workspace"] = "own"
+    daily_dispatch_cap: int | None = Field(default=None, ge=0)
 
 
 class AgentUpdateRequest(BaseModel):
@@ -91,6 +108,8 @@ class AgentUpdateRequest(BaseModel):
     language: str | None = Field(default=None, pattern=_BCP47_SHAPE, max_length=35)
     monthly_budget_usd: float | None = Field(default=None, ge=0)
     status: Literal["active", "paused"] | None = None
+    read_scope: Literal["own", "workspace"] | None = None
+    daily_dispatch_cap: int | None = Field(default=None, ge=0)
 
 
 class AgentResponse(BaseModel):
@@ -103,6 +122,8 @@ class AgentResponse(BaseModel):
     monthly_budget_usd: float | None = None
     status: str  # active | paused | archived (open-world for clients)
     is_default: bool = False
+    read_scope: str = "own"
+    daily_dispatch_cap: int | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -144,6 +165,10 @@ class RunRequest(BaseModel):
     # slot and spend budget twice. Absent (the default) is byte-identical to pre-RT-04
     # behaviour: every id-less request is its own run, as today.
     client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
+    # Fleet Phase B (G1): external correlation id.
+    external_ref: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    # Fleet Phase C (G2): run-scoped documents the caller supplies.
+    context: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> RunRequest:
@@ -169,18 +194,15 @@ class RunResponse(BaseModel):
     profile_name: str
     # A4: attribution — the agent this run executes as (None on pre-A4 rows).
     agent_id: str | None = None
-    # The recipe this run dispatched — None for prompt-mode runs and pre-A1 rows,
-    # which carry no pack/variant. Sourced from the durable `payload` column (A5),
-    # so no new write path is needed.
+    # The recipe this run dispatched — None for prompt-mode runs and pre-A1 rows.
+    # Sourced from the durable `payload` column (A5), so no new write path is needed.
     pack: str | None = None
     variant: str | None = None
-    # ISO-8601 UTC; when the row was enqueued. None only for rows predating the
-    # `created_at` column (pre-V005, none live).
+    inputs: dict[str, Any] | None = Field(default=None, description="Runtime input parameters")
+    # ISO-8601 UTC; when the row was enqueued. None only for pre-V005 rows.
     created_at: str | None = None
     stages: list[dict] = []
-    # M-07: why a `failed` run failed, from a closed set (services/runs/persistence.py
-    # RunErrorCode) — branch on this, show `stages[0].error`. None unless failed, and on
-    # pre-V023 rows. A bare `str`: a code a client does not know is a generic failure.
+    # M-07: error code from closed set (services/runs/persistence.py RunErrorCode).
     error_code: str | None = None
     pending_gate: str | None = None
     pending_content: str | None = None  # set when status == awaiting_approval
@@ -198,6 +220,13 @@ class RunResponse(BaseModel):
     # pre-A2 rows): same vocabulary as the SSE snapshot's nodes[]/content[].
     nodes: list[dict] | None = None
     content: list[dict] | None = None
+    # Fleet Phase A (V026, additive): who started this run — "user" or "service", and
+    # that principal's own subject (a users.id or an api_keys.id — never a secret).
+    # None on every pre-Fleet-Phase-A row.
+    principal_kind: str | None = None
+    principal_id: str | None = None
+    # Fleet Phase B (G1, additive): external correlation id.
+    external_ref: str | None = None
 
 
 class GateRequest(BaseModel):
@@ -244,6 +273,24 @@ class RunCostRollupResponse(BaseModel):
     breakdown: list[dict] = []  # one row per (stage, model): calls, cost_usd, tokens
 
 
+class AgentCostRollupItem(BaseModel):
+    agent_id: str | None = None
+    principal_kind: str | None = None
+    principal_id: str | None = None
+    runs: int = 0
+    calls: int = 0
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class AgentCostRollupResponse(BaseModel):
+    """Per-agent and per-principal cost rollup across a workspace (Fleet PRD §3 G6)."""
+
+    total_usd: float = 0.0
+    items: list[AgentCostRollupItem] = Field(default_factory=list)
+
+
 # ── push tokens ───────────────────────────────────────────────────────────────
 
 
@@ -268,6 +315,11 @@ class SubscriptionResponse(BaseModel):
 class ApiKeyCreateRequest(BaseModel):
     label: str | None = None
     entitlement: Literal["free", "pro", "pro_plus"] = "pro"
+    # Fleet Phase A (V026): bind this key to a gtm-engine agent at mint time — a run
+    # made with the key becomes a "service" Principal narrowed to that agent's own
+    # pack subset/budget/cap (backend/callers/). None (the default) mints an unbound
+    # key — today's pre-Fleet-Phase-A behaviour, unchanged.
+    agent_id: UuidStr | None = None
 
 
 class ApiKeyResponse(BaseModel):
@@ -278,6 +330,14 @@ class ApiKeyResponse(BaseModel):
     last_used_at: str | None
     created_at: str
     is_revoked: bool
+    agent_id: str | None = None
+    principal_kind: Literal["service", "tool"] = Field(
+        "tool",
+        description=(
+            "Distinguishes machine 'service' principal tokens (bound to an agent) from "
+            "MCP 'tool' keys. These are machine tokens, never human credentials (RT-13)."
+        ),
+    )
 
 
 class ApiKeyCreateResponse(ApiKeyResponse):
@@ -285,6 +345,15 @@ class ApiKeyCreateResponse(ApiKeyResponse):
 
 
 # ── account ───────────────────────────────────────────────────────────────────
+
+
+class AccountResponse(BaseModel):
+    id: str
+    email: str
+    primary_workspace_id: str
+    tier: str
+    role: str
+    display_name: str | None = None
 
 
 class PatchAccountRequest(BaseModel):
@@ -378,6 +447,21 @@ class ErrorResponse(BaseModel):
     detail: Any = None
 
 
+# Canonical OpenAPI error response declarations (M-03).
+# Applied to all routers so generated client SDKs receive typed error envelopes
+# ({error: {code, message, details}, detail}) instead of legacy HTTPValidationError.
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Bad Request"},
+    401: {"model": ErrorResponse, "description": "Unauthorized"},
+    403: {"model": ErrorResponse, "description": "Forbidden"},
+    404: {"model": ErrorResponse, "description": "Not Found"},
+    409: {"model": ErrorResponse, "description": "Conflict"},
+    422: {"model": ErrorResponse, "description": "Validation Error"},
+    429: {"model": ErrorResponse, "description": "Too Many Requests"},
+    500: {"model": ErrorResponse, "description": "Internal Server Error"},
+}
+
+
 # ── Onboarding (profile-onboard-ingestion, PRD 2026-06-20) ───────────────────
 
 
@@ -390,10 +474,6 @@ class OnboardIngestRequest(BaseModel):
     # onboarding path (agent.onboard.ingest) keeps "file" for the operator on-box.
     source_type: Literal["url", "text"]
     source: str = Field(min_length=1, description="URL or raw text")
-    company_confirmation: str | None = Field(
-        None, description="Operator-confirmed company name (overrides brain extraction)"
-    )
-    additional_notes: str | None = None
 
 
 class OnboardIngestResponse(BaseModel):
@@ -405,6 +485,30 @@ class OnboardIngestResponse(BaseModel):
     confidence: str
     gaps: list[str]
     flags: dict[str, str] = Field(default_factory=dict)
+
+
+class OnboardJobError(BaseModel):
+    """Why an onboarding job failed: the status and envelope the synchronous route returned."""
+
+    status: int
+    code: str
+    message: str
+
+
+class OnboardJobResponse(BaseModel):
+    """202 from POST /v1/onboard and the product re-extract; GET /v1/onboard/jobs/{id}.
+
+    Poll until ``status`` is ``succeeded`` (``result`` holds the draft) or ``failed``
+    (``error`` holds the code).
+    """
+
+    job_id: str
+    kind: Literal["ingest", "product_extract"]
+    status: Literal["pending", "running", "succeeded", "failed"]
+    result: OnboardIngestResponse | None = None
+    error: OnboardJobError | None = None
+    created_at: str
+    updated_at: str
 
 
 class OnboardProductExtractRequest(BaseModel):
@@ -436,8 +540,13 @@ class OnboardPromoteRequest(BaseModel):
     # Required operator confirmation (tenant boundary safeguard — PRD §7)
     confirmed_company_name: str = Field(min_length=1)
 
-    # Ops form overrides
-    telegram_chat_id: int | None = None
-    monthly_tool_budget_usd: float | None = None
-    per_run_cap_usd: float | None = None
-    additional_notes: str | None = None
+
+# ── webhooks ──────────────────────────────────────────────────────────────────
+
+
+class WebhookResponse(BaseModel):
+    """POST /v1/webhooks/{provider}/{workspace_id} response."""
+
+    run_id: str | None = None
+    status: str  # "queued" | "duplicate"
+    message: str | None = None

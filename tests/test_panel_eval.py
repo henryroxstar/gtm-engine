@@ -261,3 +261,59 @@ def test_panel_eval_cli_build_sheet_and_score(tmp_path):
         ]
     )
     assert rc == 0
+
+
+def test_panel_eval_docstring_and_toml_drift():
+    """Q2: Docstring parity between panel_eval.py and render_engines.toml must hold verbatim."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    normative_sentence = (
+        "It answers indistinguishability and naturalness, never impact — "
+        "a natural, undetectable, inert film passes it."
+    )
+
+    panel_eval_src = (repo_root / "gtm_core" / "panel_eval.py").read_text(encoding="utf-8")
+    render_engines_src = (repo_root / "gtm_core" / "render_engines.toml").read_text(
+        encoding="utf-8"
+    )
+
+    assert normative_sentence in panel_eval_src, (
+        "gtm_core/panel_eval.py docstring missing normative sentence from Q2"
+    )
+    assert normative_sentence in render_engines_src, (
+        "gtm_core/render_engines.toml missing normative sentence from Q2"
+    )
+
+
+def test_panel_eval_reference_run_fixtures():
+    """Q2: Reference run fixtures execute and produce PASS and FAIL verdicts."""
+    import json
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    fixtures_dir = repo_root / "tests" / "fixtures" / "panel_eval"
+
+    clips_file = fixtures_dir / "clips.json"
+    pass_file = fixtures_dir / "judgements_pass.json"
+    fail_file = fixtures_dir / "judgements_fail.json"
+
+    assert clips_file.is_file(), f"missing clips fixture {clips_file}"
+    assert pass_file.is_file(), f"missing pass fixture {pass_file}"
+    assert fail_file.is_file(), f"missing fail fixture {fail_file}"
+
+    sheet_raw = json.loads(clips_file.read_text(encoding="utf-8"))
+    sheet = [pe.Clip(**c) for c in sheet_raw]
+    assert len(sheet) == 9
+
+    # Verify PASS fixture
+    judgements_pass = [pe.Judgement(**j) for j in json.loads(pass_file.read_text(encoding="utf-8"))]
+    verdict_pass = pe.score_panel(sheet, judgements_pass)
+    assert verdict_pass.passed is True, f"expected PASS, got {verdict_pass.reasons}"
+    assert verdict_pass.judges == 5
+
+    # Verify FAIL fixture
+    judgements_fail = [pe.Judgement(**j) for j in json.loads(fail_file.read_text(encoding="utf-8"))]
+    verdict_fail = pe.score_panel(sheet, judgements_fail)
+    assert verdict_fail.passed is False, "expected FAIL for judgements_fail fixture"
+    assert len(verdict_fail.reasons) > 0

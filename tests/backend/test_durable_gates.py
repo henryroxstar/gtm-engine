@@ -16,7 +16,7 @@ import re
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -31,6 +31,7 @@ from backend.services.runs import pack_executor as runs_pack_executor  # noqa: E
 from backend.services.runs import queue as runs_queue  # noqa: E402
 from backend.services.runs import reconcile as runs_reconcile  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402  # noqa: E402
+    DONE_PUSH_MODULES,
     REPO,
     SCOPE_MODULES,
     fake_broker,
@@ -1127,6 +1128,7 @@ def test_resume_onto_a_gate_opened_long_ago_times_out_after_the_remaining_time_o
         with (
             patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope),
             patch.object(runs_lifecycle, "GATE_TIMEOUT_S", 2.0),
+            patch_everywhere(DONE_PUSH_MODULES, "send_run_done_push", AsyncMock(return_value=0)),
         ):
             loop = asyncio.get_running_loop()
             start = loop.time()

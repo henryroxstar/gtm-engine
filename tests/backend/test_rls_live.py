@@ -32,7 +32,7 @@ _TENANT_TABLES = (
     "encrypted_credentials",
     "cost_records",
     "runs",
-    "mcp_calls",
+    "unified_metering_log",
     "push_tokens",
     "entitlement_sync_events",
     "run_nodes",
@@ -42,6 +42,13 @@ _TENANT_TABLES = (
     "run_gates",
     "run_events",
     "workspace_publish_settings",
+    "tenant_accounts",
+    "tenant_contacts",
+    "tenant_suppression",
+    "tenant_people",
+    "tenant_engagements",
+    "tenant_outcomes",
+    "tenant_content_items",
 )
 
 

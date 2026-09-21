@@ -54,7 +54,7 @@ def test_infeasible_when_pool_too_small_names_the_shortfall() -> None:
 
 def test_infeasible_when_lookup_credits_short() -> None:
     with pytest.raises(FunnelInfeasible) as exc:
-        size(500, pool_available=100_000, lookup_credits_remaining=5)
+        size(500, pool_available=100_000, lookup_credits_remaining=5, no_fallback=True)
     assert "credits remain" in str(exc.value)
 
 

@@ -34,6 +34,7 @@ from backend.services.runs import gates as runs_gates
 from backend.services.runs import lifecycle as runs_lifecycle
 from backend.services.runs import pack_executor as runs_pack_executor
 from backend.services.runs import persistence as runs_persistence
+from backend.services.runs import principal_admission as runs_principal_admission
 from backend.services.runs import queries as runs_queries
 from backend.services.runs import queue as runs_queue
 from backend.services.runs import reconcile as runs_reconcile
@@ -43,6 +44,25 @@ from tests.contracts.minijsonschema import validate as schema_validate
 REPO = Path(__file__).resolve().parents[2]
 RUN_EVENT_SCHEMA = json.loads((REPO / "schemas" / "run-event.schema.json").read_text())
 RUN_ARTIFACT_SCHEMA = json.loads((REPO / "schemas" / "run-artifact.schema.json").read_text())
+
+
+def user_principal(ctx):
+    """A ``kind='user'`` Principal mirroring a ``WorkspaceCtx`` override (Fleet Phase A,
+    Task 3: ``GET/POST /v1/runs*`` and ``GET /v1/packs*`` now depend on
+    ``backend.callers.rest.require_principal`` instead of ``backend.deps.require_auth``).
+    A fixture that overrides ``require_auth`` with a fixed ``WorkspaceCtx`` needs this
+    companion override so the route's dependency actually resolves — every admission
+    primitive (``authorize_run_read``, ``bind_agent``, ``require_pack_mode``,
+    ``require_human``) no-ops or passes straight through for ``kind='user'``, so this
+    keeps every existing user-JWT-shaped test byte-identical in behavior."""
+    from backend.callers.principal import Principal
+
+    return Principal(
+        kind="user",
+        subject=ctx.user_id,
+        workspace_id=ctx.workspace_id,
+        entitlement=ctx.entitlement,
+    )
 
 
 def _inline_refs(node, defs, expansions: int = 0):
@@ -195,6 +215,7 @@ SCOPE_MODULES = (
     runs_lifecycle,
     runs_pack_executor,
     runs_persistence,
+    runs_principal_admission,
     runs_queries,
     runs_queue,
     runs_reconcile,
@@ -205,6 +226,14 @@ SCOPE_MODULES = (
 )
 BUDGET_MODULES = (runs_budget, runs_pack_executor)  # acheck_budget bindings
 PUSH_MODULES = (runs_lifecycle,)  # send_gate_push — one binding since the 1b spine
+# ST-02: send_run_done_push — complete_run (lifecycle.py) and _fail_run (persistence.py)
+# each bind their own import. Unpatched, a real send_run_done_push call reaches the
+# genuine backend.push.workspace_scope against a fake pool/conn that has no .transaction()
+# — caught by _dispatch's own try/except, so assertions still pass, but it leaves an
+# "AsyncMockMixin._execute_mock_call was never awaited" warning behind. Same seam
+# discipline as PUSH_MODULES above; kept as its own tuple because it patches a different
+# name (test_services_runs_seams.py checks each attr against its own module list).
+DONE_PUSH_MODULES = (runs_lifecycle, runs_persistence)
 
 
 @contextlib.contextmanager
@@ -233,6 +262,7 @@ def pack_run_harness(conn, executor):
 
     budget_ok = AsyncMock(return_value=True)
     push = AsyncMock(return_value=0)
+    done_push = AsyncMock(return_value=0)
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("agent.packs.execute_stage", executor))
         for mod in SCOPE_MODULES:
@@ -241,6 +271,8 @@ def pack_run_harness(conn, executor):
             stack.enter_context(patch.object(mod, "acheck_budget", budget_ok))
         for mod in PUSH_MODULES:
             stack.enter_context(patch.object(mod, "send_gate_push", push))
+        for mod in DONE_PUSH_MODULES:
+            stack.enter_context(patch.object(mod, "send_run_done_push", done_push))
         yield conn
 
 

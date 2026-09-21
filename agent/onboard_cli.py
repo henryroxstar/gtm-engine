@@ -40,11 +40,12 @@ def cmd_render_stage(args: argparse.Namespace, cfg: Config) -> None:
     files = onboard.render(
         draft, template_knowledge_dir=cfg.profiles_root / "_template" / "knowledge"
     )
-    draft_id, staged = onboard.stage(slug, files, cfg, company_name=draft["company"]["name"])
-    # Persist the draft alongside the staged files so a resumed session (which only has a
-    # draft_id from `status`, not the original temp draft file the live agent session wrote)
-    # can still promote — see the resume gap surfaced by the Task 6 setup-skill review.
-    (staged / ".draft.json").write_text(json.dumps(draft), encoding="utf-8")
+    # draft= persists the draft alongside the staged files so a resumed session (which only
+    # has a draft_id from `status`, not the original temp draft file the live agent session
+    # wrote) can still promote — see the resume gap surfaced by the Task 6 setup-skill review.
+    draft_id, staged = onboard.stage(
+        slug, files, cfg, company_name=draft["company"]["name"], draft=draft
+    )
     # Front-load the promote()-time "already exists" check here so the skill can ask the
     # founder to choose before ever attempting to promote — staging still proceeds either
     # way (there must be something to review/promote later); promote()'s hard-fail-if-exists

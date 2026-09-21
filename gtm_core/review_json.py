@@ -1,8 +1,9 @@
-"""Post-render review.json and prompt-render delta measurement (10x Video PRD §5 / Q4).
+"""Post-render review.json and prompt-render delta measurement (PRD §2.4 / Q4).
 
 Implements:
 - Post-render review.json generation (directed vs observed facial Action Units)
 - Description-never-evaluation posture (RANKS and never GATES)
+- Path confinement wiring via gtm_core.video_finish.confine
 - Prompt decay tracking across shot indices
 - Seed stability regression hash verification
 """
@@ -10,40 +11,81 @@ Implements:
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "EVALUATIVE_WORDS",
+    "VISION_PROMPT_INSTRUCTIONS",
     "ReviewEntry",
     "ReviewManifest",
     "build_review_entry",
+    "validate_frame_path",
     "log_prompt_decay",
     "check_seed_stability",
 ]
 
 EVALUATIVE_WORDS = frozenset(
-    {"good", "bad", "correct", "wrong", "poor", "excellent", "flawless", "terrible"}
+    {
+        "good",
+        "bad",
+        "correct",
+        "wrong",
+        "poor",
+        "excellent",
+        "flawless",
+        "terrible",
+        "effective",
+    }
+)
+
+VISION_PROMPT_INSTRUCTIONS = (
+    "Describe what this face is doing in anatomical muscle terms (Action Units); "
+    "do not evaluate. Do not use evaluative words (good, bad, terrible, effective)."
 )
 
 
 @dataclass
 class ReviewEntry:
-    shot_index: int
-    directed: str
-    observed: str
-    delta: str
+    shot_index: int = 1
+    beat_index: int = 1
+    directed: str = ""
+    observed: str = ""
+    delta: str = ""
     delta_score: float = 0.0
+    human_verdict: str | None = None
     verdict: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.shot_index and not self.beat_index:
+            self.beat_index = self.shot_index
+        elif self.beat_index and not self.shot_index:
+            self.shot_index = self.beat_index
+
+        if self.verdict is not None and self.human_verdict is None:
+            self.human_verdict = self.verdict
+        elif self.human_verdict is not None and self.verdict is None:
+            self.verdict = self.human_verdict
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        v = self.human_verdict if self.human_verdict is not None else self.verdict
+        return {
+            "beat_index": self.beat_index,
+            "shot_index": self.shot_index,
+            "directed": self.directed,
+            "observed": self.observed,
+            "delta": self.delta,
+            "delta_score": self.delta_score,
+            "human_verdict": v,
+            "verdict": v,
+        }
 
 
 @dataclass
 class ReviewManifest:
     run_id: str
-    entries: list[ReviewEntry]
+    entries: list[ReviewEntry] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -56,22 +98,41 @@ class ReviewManifest:
         path.write_text(json.dumps(self.to_json(), indent=2) + "\n", encoding="utf-8")
 
 
+def validate_frame_path(
+    frame_path: Path,
+    project_dir: Path,
+    *,
+    content_root: Path | None = None,
+) -> Path:
+    """Ensure any frame path read for review is confined within project directory.
+
+    Wires through gtm_core.video_finish.confine to guard against arbitrary absolute paths.
+    """
+    from .video_finish.confine import _safe_asset_path
+
+    root = (content_root or project_dir).resolve()
+    return _safe_asset_path(frame_path, content_root=root)
+
+
 def _sanitize_description(desc: str) -> str:
     """Ensure observed descriptions contain anatomical muscle descriptions, not judgements."""
     words = desc.split()
-    cleaned = [w for w in words if w.lower().strip(".,!?:;") not in EVALUATIVE_WORDS]
-    return " ".join(cleaned)
+    sanitized = [w for w in words if w.lower().strip(".,!?:;\"'“”‘’`") not in EVALUATIVE_WORDS]
+    return " ".join(sanitized)
 
 
 def build_review_entry(
     shot_index: int,
     directed_expression: str,
     vlm_description: str,
+    *,
+    beat_index: int | None = None,
 ) -> ReviewEntry:
     """Build a review entry following the Q4 description-only posture.
 
     Prompt instructed to describe muscles (AU), never to evaluate.
     """
+    b_idx = beat_index if beat_index is not None else shot_index
     observed = _sanitize_description(vlm_description)
     directed_lower = directed_expression.lower()
     observed_lower = observed.lower()
@@ -85,10 +146,12 @@ def build_review_entry(
 
     return ReviewEntry(
         shot_index=shot_index,
+        beat_index=b_idx,
         directed=directed_expression,
         observed=observed,
         delta=delta,
         delta_score=round(delta_score, 2),
+        human_verdict=None,
         verdict=None,
     )
 
@@ -97,10 +160,11 @@ def log_prompt_decay(entries: list[ReviewEntry]) -> list[dict[str, Any]]:
     """Log prompt adherence delta score per shot index to track degradation over time."""
     return [
         {
+            "beat_index": e.beat_index,
             "shot_index": e.shot_index,
             "delta_score": e.delta_score,
         }
-        for e in sorted(entries, key=lambda x: x.shot_index)
+        for e in sorted(entries, key=lambda x: x.beat_index)
     ]
 
 

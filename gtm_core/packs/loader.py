@@ -266,9 +266,17 @@ class PackInputKnowledge:
 
 
 @dataclass(frozen=True)
+class PackInputContext:
+    name: str
+    required: bool = False
+    max_bytes: int | None = None
+
+
+@dataclass(frozen=True)
 class PackInputs:
     settings: tuple[PackInputSetting, ...] = ()
     knowledge: tuple[PackInputKnowledge, ...] = ()
+    context: tuple[PackInputContext, ...] = ()
 
 
 def capability_slugs_for_pack(pack: PackGraph) -> frozenset[str]:
@@ -335,4 +343,35 @@ def load_pack_inputs(path: Path) -> PackInputs:
             )
         )
 
-    return PackInputs(settings=tuple(settings), knowledge=tuple(knowledge))
+    context = []
+    for raw_c in raw.get("context", []):
+        name = raw_c.get("name")
+        if not name:
+            raise PackValidationError(
+                "missing_context_name", f"{path}: a context entry has no 'name'"
+            )
+        from gtm_core.paths import _safe_segment
+
+        try:
+            _safe_segment(name, "context name")
+        except ValueError as exc:
+            raise PackValidationError("invalid_context_name", f"{path}: {exc}") from exc
+        max_bytes = raw_c.get("max_bytes")
+        if max_bytes is not None and (not isinstance(max_bytes, int) or max_bytes <= 0):
+            raise PackValidationError(
+                "invalid_max_bytes",
+                f"context.{name}: max_bytes={max_bytes!r} must be a positive integer",
+            )
+        context.append(
+            PackInputContext(
+                name=name,
+                required=bool(raw_c.get("required", False)),
+                max_bytes=max_bytes,
+            )
+        )
+
+    return PackInputs(
+        settings=tuple(settings),
+        knowledge=tuple(knowledge),
+        context=tuple(context),
+    )

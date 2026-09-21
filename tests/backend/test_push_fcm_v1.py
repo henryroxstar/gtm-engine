@@ -285,3 +285,222 @@ def test_payload_normalises_sentinels_and_unknown_kinds():
         "gate": "publish",
     }
     assert push_mod._build_payload(RUN_ID, "something-new")["data"]["gate"] == "review"
+
+
+# ── ST-03: PUSH_TITLE override ────────────────────────────────────────────────
+
+
+def test_title_defaults_and_is_overridable_by_env():
+    with patch.dict(os.environ, {"PUSH_TITLE": ""}, clear=False):
+        assert push_mod._build_payload(RUN_ID, "plan")["title"] == "GTM — action needed"
+    with patch.dict(os.environ, {"PUSH_TITLE": "ExampleCo Alerts"}, clear=False):
+        assert push_mod._build_payload(RUN_ID, "plan")["title"] == "ExampleCo Alerts"
+        assert push_mod._build_done_payload(RUN_ID, "ok")["title"] == "ExampleCo Alerts"
+
+
+# ── ST-02: push on run completion/failure ─────────────────────────────────────
+
+
+def test_done_payload_is_contentless_and_labelled_per_status():
+    ok = push_mod._build_done_payload(RUN_ID, "ok")
+    assert ok["data"] == {"run_id": RUN_ID, "status": "ok"}
+    assert ok["body"] == "Your run is complete"
+    failed = push_mod._build_done_payload(RUN_ID, "failed")
+    assert failed["data"] == {"run_id": RUN_ID, "status": "failed"}
+    assert failed["body"] == "Your run failed"
+    # An unrecognised status (defensive) never raises.
+    assert push_mod._build_done_payload(RUN_ID, "weird")["body"] == "Your run finished"
+
+
+def test_send_run_done_push_dispatches_like_send_gate_push(service_account):
+    """Same transport/token-fetch/dead-token machinery as the gate push, just a
+    different payload builder — proven by dispatching to the same fake devices."""
+    pool, _conn, scope = _pool_with_tokens([("device-1", "fcm")])
+    fake = FakeFcm()
+    with (
+        patch("backend.push.workspace_scope", scope),
+        patch.dict(
+            os.environ,
+            {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+            clear=False,
+        ),
+    ):
+        count = asyncio.run(push_mod.send_run_done_push(pool, WS_ID, RUN_ID, "ok", transport=fake))
+    assert count == 1
+    (sent,) = fake.sends
+    assert sent["body"]["message"]["data"] == {"run_id": RUN_ID, "status": "ok"}
+
+
+# ── ST-13: bounded retry on a 5xx or a transport exception ───────────────────
+
+
+class _SequencedFcm:
+    """Like FakeFcm, but a token's reply is popped from a queue — a transient failure
+    then success, exactly what the retry is for."""
+
+    def __init__(self, replies_by_device: dict[str, list[object]]) -> None:
+        self.sends: list[dict] = []
+        self.replies_by_device = {k: list(v) for k, v in replies_by_device.items()}
+
+    async def __call__(self, method, url, *, headers, json_body=None, data=None):
+        if url == TOKEN_URI:
+            return 200, {"access_token": "ya29.fake-access-token", "expires_in": 3600}
+        self.sends.append({"url": url, "headers": headers, "body": json_body})
+        device = (json_body or {}).get("message", {}).get("token", "")
+        reply = self.replies_by_device[device].pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+@pytest.fixture(autouse=True)
+def _zero_retry_backoff():
+    """No real sleep in this suite — the backoff constant is a production concern."""
+    with patch.object(push_mod, "_RETRY_BACKOFF_S", 0):
+        yield
+
+
+def test_a_5xx_then_200_delivers_exactly_once(service_account):
+    pool, _conn, scope = _pool_with_tokens([("flaky", "fcm")])
+    fake = _SequencedFcm({"flaky": [(503, {"error": {"status": "UNAVAILABLE"}}), (200, {})]})
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert count == 1
+    assert len(fake.sends) == 2, "the retry is the SECOND attempt at the same token"
+
+
+def test_two_5xx_gives_up_without_a_third_attempt(service_account, caplog):
+    pool, _conn, scope = _pool_with_tokens([("flaky", "fcm")])
+    fake = _SequencedFcm(
+        {
+            "flaky": [
+                (503, {"error": {"status": "UNAVAILABLE"}}),
+                (503, {"error": {"status": "UNAVAILABLE"}}),
+            ]
+        }
+    )
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert count == 0
+    assert len(fake.sends) == 2, "exactly one retry — never a third attempt"
+    assert "FCM rejected a send (status 503)" in caplog.text, "giving up must be logged"
+
+
+def test_a_transport_exception_then_success_delivers_once(service_account):
+    pool, _conn, scope = _pool_with_tokens([("flaky", "fcm")])
+    fake = _SequencedFcm({"flaky": [ConnectionError("boom"), (200, {})]})
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert count == 1
+    assert len(fake.sends) == 2
+
+
+def test_two_transport_exceptions_gives_up_and_never_raises(service_account):
+    pool, _conn, scope = _pool_with_tokens([("flaky", "fcm")])
+    fake = _SequencedFcm({"flaky": [ConnectionError("boom"), ConnectionError("boom again")]})
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert count == 0
+    assert len(fake.sends) == 2
+
+
+def test_a_4xx_never_retries(service_account):
+    """A dead token (404 UNREGISTERED) is a permanent verdict — retrying it would just
+    waste a round trip on a device that will never accept the message."""
+    pool, conn, scope = _pool_with_tokens([("gone", "fcm")])
+    fake = _SequencedFcm({"gone": [(404, {"error": {"status": "UNREGISTERED"}})]})
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert count == 0
+    assert len(fake.sends) == 1, "no retry on a 4xx"
+    delete_calls = [c for c in conn.execute.await_args_list if "DELETE FROM push_tokens" in c[0][0]]
+    assert delete_calls and delete_calls[0][0][2] == ["gone"]
+
+
+# ── ST-13: the OAuth2 token exchange gets the same bounded retry ─────────────
+
+
+class _FlakyTokenEndpoint(FakeFcm):
+    """FakeFcm whose token endpoint replies from a queue — a transient failure first."""
+
+    def __init__(self, token_replies: list[object]) -> None:
+        super().__init__()
+        self.token_replies = list(token_replies)
+
+    async def __call__(self, method, url, *, headers, json_body=None, data=None):
+        if url == TOKEN_URI:
+            self.token_mints += 1
+            reply = self.token_replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        return await super().__call__(method, url, headers=headers, json_body=json_body)
+
+
+_MINTED = (200, {"access_token": "ya29.fake-access-token", "expires_in": 3600})
+
+
+@pytest.mark.parametrize(
+    "first_reply",
+    [(503, {"error": "unavailable"}), TimeoutError("token endpoint timed out")],
+    ids=["5xx", "transport-exception"],
+)
+def test_a_transient_token_exchange_failure_is_retried_once(service_account, first_reply):
+    pool, _conn, scope = _pool_with_tokens([("device-1", "fcm")])
+    fake = _FlakyTokenEndpoint([first_reply, _MINTED])
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert fake.token_mints == 2
+    assert count == 1
+
+
+def test_a_token_exchange_that_raises_twice_gives_up_and_never_raises(service_account, caplog):
+    """Before this, an exception from the token endpoint escaped _access_token and ended
+    the push task with an unhandled error."""
+    pool, _conn, scope = _pool_with_tokens([("device-1", "fcm")])
+    fake = _FlakyTokenEndpoint([ConnectionError("reset"), ConnectionError("reset again")])
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert (count, fake.token_mints, fake.sends) == (0, 2, [])
+    assert "token exchange" in caplog.text
+
+
+def test_a_token_exchange_4xx_never_retries(service_account):
+    """invalid_grant is a bad key or a revoked account — a retry cannot fix it."""
+    pool, _conn, scope = _pool_with_tokens([("device-1", "fcm")])
+    fake = _FlakyTokenEndpoint([(400, {"error": "invalid_grant"})])
+    count = _send(
+        pool,
+        scope,
+        fake,
+        {"PUSH_PROVIDER": "fcm", "PUSH_FCM_SERVICE_ACCOUNT_JSON": json.dumps(service_account)},
+    )
+    assert (count, fake.token_mints, fake.sends) == (0, 1, [])

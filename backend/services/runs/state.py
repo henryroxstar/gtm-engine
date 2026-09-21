@@ -24,6 +24,7 @@ _cancelled_runs: set[str] = set()
 # to Postgres LISTEN/NOTIFY or Redis for a multi-worker deploy without touching
 # _execute_run or the endpoint. Polling (GET /runs/{id}) is unaffected.
 _run_subscribers: dict[str, set[asyncio.Queue]] = {}
+_workspace_subscribers: dict[str, set[asyncio.Queue]] = {}
 _workspace_stream_count: dict[str, int] = {}
 _STREAM_QUEUE_MAX = (
     256  # bounded; drop-oldest on overflow so a slow consumer can't stall _execute_run

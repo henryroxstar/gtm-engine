@@ -2,6 +2,7 @@
 
     cancel a run parked at a gate                      -> canceled, gate cleared, one `done`
     cancel a run while a node is actively running       -> no further node reaches `running`
+    the same, on the REAL executor (real_executor)       -> no further node reaches `running`
     a stack recreate while a run is gated                -> the gate is not re-announced
     a duplicate `client_request_id` (sequential)         -> same run_id, listed once
     a duplicate `client_request_id` (truly concurrent)   -> same run_id, listed once
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -47,6 +49,18 @@ pytestmark = pytest.mark.p2
 #: test (below) treat "any awaiting_approval after the watermark" as unambiguously a
 #: re-announcement of the SAME gate, never a legitimately later, different one.
 PACK, VARIANT = "prospecting", "prospect-outreach"
+
+#: The real-executor cancel test's variant — see that test's docstring for the choice.
+REAL_PACK, REAL_VARIANT = "solution-architecture", "solution-architecture"
+
+#: A fictional company for the real-executor test's onboarding (staging has no dev profile).
+_REAL_ONBOARD_SOURCE = (
+    "Harrowgate Tidewater Supply is a mid-sized distributor of marine hardware based in a "
+    "fictional harbour town. It sells deck fittings, winches and mooring gear to boatyards "
+    "and small commercial fleets. Its main product, Tidewater Stockline, is a subscription "
+    "that keeps a yard's spares shelf restocked automatically based on usage. Customers are "
+    "boatyard operations managers and fleet maintenance leads."
+)
 
 #: Terminal run statuses (schemas/content-item.schema.json). Copied, not imported — see
 #: test_p1_errors.py's identical constant for why (this suite talks HTTP to a stack that
@@ -199,6 +213,50 @@ def _drive_prompt_run_to_ok(http, sse_frames, user: LiveUser, run_id: str) -> No
         _approve(http, user, run_id, last.data["pending_content_sha"])
 
 
+def _await_onboard_job(http, user: LiveUser, r, *, timeout_s: float = 300.0) -> dict:
+    """Follow a 202 onboarding job (issue #259) to success and return its result."""
+    assert r.status_code == 202, _error_summary(r)
+    job = r.json()
+    deadline = time.monotonic() + timeout_s
+    while job["status"] in ("pending", "running"):
+        assert time.monotonic() < deadline, f"onboarding job never finished: {job}"
+        time.sleep(0.5)
+        r = http.get(f"/v1/onboard/jobs/{job['job_id']}", headers=user.auth_header())
+        assert r.status_code == 200, _error_summary(r)
+        job = r.json()
+    assert job["status"] == "succeeded", f"onboarding job failed: {job['error']}"
+    return job["result"]
+
+
+def _onboard_profile(http, user: LiveUser) -> str:
+    """Onboard a profile over the API (ingest -> diff -> promote) and return its slug — the
+    real-executor path's stand-in for `provision_local_profile`, which only reaches a local
+    stack. The confirmed company name is read from the staged PROFILE.md's `company:` line,
+    since the ingest response does not expose the name the model extracted. A copy of
+    test_p3_onboarding.py's helpers, per the per-file duplication note above."""
+    r = http.post(
+        "/v1/onboard",
+        headers=user.auth_header(),
+        json={"source_type": "text", "source": _REAL_ONBOARD_SOURCE},
+    )
+    result = _await_onboard_job(http, user, r)
+    draft_id, slug = result["draft_id"], result["slug"]
+
+    r = http.get(f"/v1/onboard/{draft_id}/diff", headers=user.auth_header())
+    assert r.status_code == 200, _error_summary(r)
+    profile_md = r.json()["diffs"]["PROFILE.md"]["new"]
+    match = re.search(r"^company:\s+(.+?)\s*$", profile_md, re.MULTILINE)
+    assert match, "staged PROFILE.md carries no `company:` line"
+
+    r = http.post(
+        f"/v1/onboard/{draft_id}/promote",
+        headers=user.auth_header(),
+        json={"confirmed_company_name": match.group(1)},
+    )
+    assert r.status_code == 200, _error_summary(r)
+    return slug
+
+
 # ── fixtures ────────────────────────────────────────────────────────────────────────────
 
 
@@ -320,6 +378,62 @@ def test_cancel_mid_node_stops_further_dispatch(http, fake_workspace, track_run,
     )
     assert after.frames[-1].event == "done"
     assert after.frames[-1].data.get("status") == "canceled"
+
+
+@pytest.mark.real_executor
+def test_real_executor_cancel_mid_node_stops_further_dispatch(
+    http, new_user, grant_entitlement, track_run, sse_frames
+):
+    """The local_fake test above, on the REAL executor: once a real node is in flight, a
+    cancel must stop the runner from dispatching the next one. The in-flight node may run to
+    completion (the pack runner's contract), so the property is the same narrow one: no node
+    reaches `running` after the cancel, and the run ends `canceled`.
+
+    Variant: `solution-architecture/solution-architecture`. It is a strict chain of four
+    nodes (discovery -> design -> runbook -> deck), so "the next node" is well defined and a
+    concurrent fan-out cannot put two nodes in flight before the cancel; its floor is `free`
+    and it asks for no settings, so a freshly onboarded profile runs it unblocked; and its
+    first node, `solution-discovery`, runs on free paths by default and reaches its metered
+    tools (Firecrawl, Vibe) only on an explicit `deep` opt-in this run never gives — no
+    RocketReach/Vibe/Apollo/crawl spend. Every other multi-node chain a pro workspace may run
+    starts on a paid provider (`prospect`) or a subscription feed (`community-signal-analysis`
+    on Syften); `planning` is a concurrent fan-out.
+
+    Expected spend: one onboarding extraction (cents) plus one brain-plan node, well under
+    the 1.0 USD cap, which bounds it regardless. A real node can take minutes, hence the
+    300s waits. If the stack sets COST_RESERVATION_ENABLED, its per-run estimate
+    (RESERVATION_ESTIMATE_USD, default 2.0) exceeds this cap and the run fails at dispatch
+    before any node runs — a stack-configuration mismatch, not a cancel defect.
+    """
+    user = new_user()
+    grant_entitlement(user, entitlement="pro", cap_usd=1.0)
+    profile = _onboard_profile(http, user)
+    run_id = track_run(user, _start_run(http, user, profile, pack=REAL_PACK, variant=REAL_VARIANT))
+
+    first_running = sse_frames(
+        user,
+        run_id,
+        since=0,
+        until=lambda f: f.event == "node" and f.data.get("state") == "running",
+        timeout_s=300.0,
+    )
+    watermark = first_running.last_id
+
+    r = http.post(f"/v1/runs/{run_id}/cancel", headers=user.auth_header())
+    assert r.status_code == 200, _error_summary(r)
+
+    after = sse_frames(
+        user, run_id, since=watermark, until=lambda f: f.event == "done", timeout_s=300.0
+    )
+    newly_running = [
+        f for f in after.frames if f.event == "node" and f.data.get("state") == "running"
+    ]
+    assert newly_running == [], (
+        f"a node reached 'running' after cancel: {[f.data.get('node_id') for f in newly_running]}"
+    )
+    assert after.frames[-1].event == "done"
+    assert after.frames[-1].data.get("status") == "canceled"
+    assert _await_terminal(http, user, run_id)["status"] == "canceled"
 
 
 # ── 3: a stack recreate while a run is gated does not re-announce the gate ──────────────

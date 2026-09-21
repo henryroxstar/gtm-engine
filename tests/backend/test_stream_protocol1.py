@@ -22,6 +22,8 @@ import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.callers.principal import Principal  # noqa: E402
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402  # noqa: E402
@@ -33,6 +35,7 @@ from tests.backend._protocol1 import (  # noqa: E402  # noqa: E402
     fake_executor,
     pack_run_harness,
     patch_everywhere,
+    user_principal,
     validate_frame,
 )
 from tests.backend.test_packs_api import PROFILE, _provision  # noqa: E402
@@ -160,6 +163,9 @@ def _gate_client(conn) -> TestClient:
     app.state.pool = MagicMock()
     ctx = WorkspaceCtx(user_id=str(uuid.uuid4()), workspace_id=WS_ID, entitlement="pro")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): decide_gate resolves identity via require_principal, then
+    # calls require_human(principal) itself.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
 
     @asynccontextmanager
     async def _scope(pool, workspace_id):
@@ -287,8 +293,11 @@ def _scope_factory(conn):
     return _scope
 
 
-def _ws() -> WorkspaceCtx:
-    return WorkspaceCtx("u", WS_ID, "pro")
+def _ws() -> Principal:
+    """Fleet Phase A (Task 3): stream_run now takes a Principal (was WorkspaceCtx) as
+    its identity parameter — a kind="user" Principal is the byte-identical equivalent
+    for every code path this suite exercises."""
+    return Principal(kind="user", subject="u", workspace_id=WS_ID, entitlement="pro")
 
 
 def test_snapshot_carries_protocol1_nodes_and_content():

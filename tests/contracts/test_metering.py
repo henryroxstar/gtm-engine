@@ -250,7 +250,7 @@ def test_pgsink_row_projection_cost_records():
     assert attributed[-1] == "agent-7"
 
 
-def test_pgsink_row_projection_mcp_calls():
+def test_pgsink_row_projection_unified_metering_log():
     rec = CostRecord(
         runtime="mcp",
         source="draft_post",
@@ -263,9 +263,21 @@ def test_pgsink_row_projection_mcp_calls():
         input_tokens=200,
         output_tokens=80,
     )
-    row = PgSink(object(), "mcp_calls")._row_for_table(rec)
-    # cols: workspace_id, api_key_id, tool_name, profile_name, model, prompt_tokens, completion_tokens, cost_usd
-    assert row == ("ws-1", "key-1", "draft_post", "example2", "deepseek-v4-flash", 200, 80, 0.008)
+    row = PgSink(object(), "unified_metering_log")._row_for_table(rec)
+    # cols: workspace_id, runtime, tool_name, cost_credits, profile_name, model, prompt_tokens, completion_tokens, cost_usd, run_id, api_key_id
+    assert row == (
+        "ws-1",
+        "mcp",
+        "draft_post",
+        8.0,
+        "example2",
+        "deepseek-v4-flash",
+        200,
+        80,
+        0.008,
+        None,
+        None,
+    )
 
 
 @_run
@@ -330,12 +342,18 @@ async def test_mcp_guard_no_hard_ceiling():
     pool = _FakePool(_FakeConn(fetchrow_result={"cap": 1.0, "spent": 100.0}))
     # soft cap still denies (spent >= cap)
     assert (
-        await acheck_budget(pool, "ws-1", table="mcp_calls", hard_ceiling_multiplier=None) is False
+        await acheck_budget(
+            pool, "ws-1", table="unified_metering_log", hard_ceiling_multiplier=None
+        )
+        is False
     )
     # under cap allows
     pool2 = _FakePool(_FakeConn(fetchrow_result={"cap": 100.0, "spent": 1.0}))
     assert (
-        await acheck_budget(pool2, "ws-1", table="mcp_calls", hard_ceiling_multiplier=None) is True
+        await acheck_budget(
+            pool2, "ws-1", table="unified_metering_log", hard_ceiling_multiplier=None
+        )
+        is True
     )
 
 

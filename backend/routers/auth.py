@@ -2,26 +2,42 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+import os
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .. import auth as _auth
 from .. import oidc
+from ..deps import WorkspaceCtx, require_auth
 from ..ratelimit import limiter
 from ..schemas import (
+    ERROR_RESPONSES,
     ExchangeRequest,
     LoginRequest,
+    LogoutResponse,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
 )
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"], responses=ERROR_RESPONSES)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 async def register(body: RegisterRequest, request: Request) -> TokenResponse:
     """Create a new user + workspace. The V001 bootstrap trigger handles the rest."""
+
+    if os.getenv("ALLOW_NATIVE_REGISTRATION", "true").lower() == "false":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            {
+                "code": "native_registration_disabled",
+                "message": "Native registration is disabled in this environment.",
+            },
+        )
+
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         # Check email not already taken
@@ -115,7 +131,8 @@ async def refresh(body: RefreshRequest, request: Request) -> TokenResponse:
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT password_changed_at FROM users WHERE id = $1::uuid", payload["sub"]
+            "SELECT password_changed_at, sessions_invalid_before FROM users WHERE id = $1::uuid",
+            payload["sub"],
         )
     if row is None:
         raise HTTPException(
@@ -127,8 +144,30 @@ async def refresh(body: RefreshRequest, request: Request) -> TokenResponse:
             status.HTTP_401_UNAUTHORIZED,
             {"code": "token_revoked", "message": "Token invalidated by password change"},
         )
+    if row.get("sessions_invalid_before") and _auth.token_predates_password_change(
+        payload, row["sessions_invalid_before"]
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"code": "token_revoked", "message": "Session has been logged out"},
+        )
 
     return TokenResponse(**_auth.token_pair(payload["sub"], payload["workspace_id"]))
+
+
+@router.post("/logout", response_model=LogoutResponse, status_code=status.HTTP_200_OK)
+async def logout(
+    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    request: Request,
+) -> LogoutResponse:
+    """Revoke all active sessions for the authenticated user."""
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET sessions_invalid_before = now() WHERE id = $1::uuid",
+            ws.user_id,
+        )
+    return LogoutResponse(status="logged_out")
 
 
 @router.post("/exchange", response_model=TokenResponse)

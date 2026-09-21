@@ -850,3 +850,45 @@ def test_c2_mark_replied_writes_unmatched_and_failed_to_history(tmp_path, monkey
     assert len(failed_events) == 1
     assert failed_events[0]["who"] == "dana@alpha.example"
     assert "simulated disk error" in failed_events[0]["error"]
+
+
+def test_mutate_account(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {
+                "id": "acme-corp",
+                "domain": "acme.example",
+                "company": "Acme Corp",
+                "status": "new",
+                "lane": "outbound",
+            }
+        ],
+    )
+    # Test mutating an account using the mutate_account function directly
+    summary = ps.mutate_account(
+        "acme",
+        "acme.example",  # matches domain
+        {"status": "disqualified", "verdict": "drop", "verdict_reason": "operator requested"},
+        content_root=tmp_path,
+    )
+    assert summary["status"] == "ok"
+    assert summary["changed"] is True
+
+    data = ps.load_latest("acme", content_root=tmp_path)
+    item = data["items"][0]
+    assert item["status"] == "disqualified"
+    assert item["verdict"] == "drop"
+    assert item["verdict_reason"] == "operator requested"
+    assert item["lane"] == "outbound"  # untouched field remains
+
+    # Test unmatched account
+    summary2 = ps.mutate_account(
+        "acme",
+        "ghost.example",
+        {"status": "disqualified"},
+        content_root=tmp_path,
+    )
+    assert summary2["status"] == "not_found"
+    assert summary2["changed"] is False

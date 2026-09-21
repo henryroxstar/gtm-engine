@@ -10,6 +10,7 @@
 # repo's own URL, not a private-tenant leak. This is the maintainer's public publish
 # identity, intentionally named as the clone source.
 github.com/henryroxstar/gtm-engine
+henryroxstar/gtm-engine
 
 # The tenant denylist IS the token source — it names every tenant by design, and the
 # export's rsync excludes it from the carve (scripts/oss-export.sh §2), so it never

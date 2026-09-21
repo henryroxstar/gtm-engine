@@ -24,8 +24,10 @@ def prompt_gate_kind(sentinel: str) -> str:
 
 def pack_gate_kind(draft_kind: str | None) -> str:
     """A pack gate's kind, from the draft its node left at the gate (``agent.gate_actions``):
-    a plan draft → ``plan``, an enroll draft → ``email_enroll``, none → ``review``."""
-    return {"plan": "plan", "enroll": "email_enroll"}.get(draft_kind, "review")
+    a plan draft → ``plan``, an enroll draft → ``email_enroll``, a publish draft → ``publish``, none → ``review``."""
+    return {"plan": "plan", "enroll": "email_enroll", "publish": "publish"}.get(
+        draft_kind, "review"
+    )
 
 
 def dispatch_target(nodes, gated_node_id: str) -> tuple[str | None, str]:
@@ -33,13 +35,9 @@ def dispatch_target(nodes, gated_node_id: str) -> tuple[str | None, str]:
     on which node: ``(effect, node_id)``, or ``(None, gated_node_id)`` for nothing.
 
     The gated node's OWN declaration wins. Otherwise a DIRECT successor declaring
-    ``email_enroll`` is the target: a dispatch-declared node short-circuits to SKIPPED the
-    instant the runner reaches it (agent/pipeline_executor.py), so it can never itself
-    pause — the approval of its predecessor (``sequence``, whose enroll-draft it needs) is
-    the only point where enrollment can happen. Same shape as the VPS/CLI path's
-    ``agent/__main__.py:_dispatch_gate_successors``. ``publish`` successors are
-    deliberately NOT resolved here: approving a ``studio`` gate would then post to
-    LinkedIn, a separate decision (PENDING.md "Backend pack-mode Gate-2 dispatch").
+    ``email_enroll`` or ``publish`` is the target: a dispatch-declared node short-circuits to SKIPPED
+    the instant the runner reaches it (agent/pipeline_executor.py), so it can never itself
+    pause — the approval of its predecessor is the point where dispatch can happen.
     """
     own = next((getattr(n, "external_effect", None) for n in nodes if n.id == gated_node_id), None)
     if own is not None:
@@ -49,10 +47,10 @@ def dispatch_target(nodes, gated_node_id: str) -> tuple[str | None, str]:
             n
             for n in nodes
             if gated_node_id in getattr(n, "depends_on", ())
-            and getattr(n, "external_effect", None) == "email_enroll"
+            and getattr(n, "external_effect", None) in ("email_enroll", "publish")
         ),
         None,
     )
     if succ is not None:
-        return "email_enroll", succ.id
+        return succ.external_effect, succ.id
     return None, gated_node_id

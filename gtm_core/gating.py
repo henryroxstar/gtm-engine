@@ -47,7 +47,7 @@ _VALID_TIER_KEYS = frozenset(_TIER_DEFAULT_KEY.values())
 _VALID_OSS = frozenset({"public", "private"})
 _KNOWN_SKILL_OVERRIDE_KEYS = frozenset({"min_entitlement", "oss", "reason"})
 _KNOWN_GRAPH_OVERRIDE_KEYS = frozenset({"min_entitlement", "reason"})
-_KNOWN_CARVE_KEYS = frozenset({"stub_bearing_graphs", "reason"})
+_KNOWN_CARVE_KEYS = frozenset({"stub_bearing_graphs", "exclude_mechanics", "reason"})
 
 
 class GatingPolicyError(ValueError):
@@ -72,6 +72,8 @@ class GatingPolicy:
     # policy that declares nothing fails closed on the first stub-bearing graph rather
     # than grandfathering it in.
     carve_stub_bearing_graphs: frozenset[str] = frozenset()
+    # High-value python mechanics that must not ship to OSS.
+    carve_exclude_mechanics: frozenset[str] = frozenset()
 
 
 def _validate_entitlement(value: object, where: str) -> str:
@@ -174,12 +176,22 @@ def load_policy(path: Path | None = None) -> GatingPolicy:
             "[carve].stub_bearing_graphs must be a list of '<pack>/<variant>' strings",
         )
 
+    exclude_mechanics_raw = carve_raw.get("exclude_mechanics", [])
+    if not isinstance(exclude_mechanics_raw, list) or not all(
+        isinstance(x, str) for x in exclude_mechanics_raw
+    ):
+        raise GatingPolicyError(
+            "malformed_carve",
+            "[carve].exclude_mechanics must be a list of strings",
+        )
+
     return GatingPolicy(
         defaults=defaults,
         oss_private_tiers=oss_private_tiers,
         skill_overrides=skill_overrides,
         graph_overrides=graph_overrides,
         carve_stub_bearing_graphs=frozenset(stub_bearing_raw),
+        carve_exclude_mechanics=frozenset(exclude_mechanics_raw),
     )
 
 
@@ -683,6 +695,7 @@ def main(argv: list[str] | None = None) -> int:
         "without a [carve].stub_bearing_graphs declaration",
     )
     p_graphs.add_argument("carved_root")
+    sub.add_parser("carve-excludes", help="print rsync --exclude flags for private mechanics")
     args = parser.parse_args(argv)
 
     if args.cmd == "stub-list":
@@ -715,6 +728,13 @@ def main(argv: list[str] | None = None) -> int:
         declared = stub_bearing_graphs(packs_root)
         for ref, skills in sorted(declared.items()):
             print(f"  declared stub-bearing: {ref} ({', '.join(skills)})")
+        return 0
+    if args.cmd == "carve-excludes":
+        policy = _policy()
+        for exclude in sorted(policy.carve_exclude_mechanics):
+            # In oss-export.sh, the rsync is invoked from the root directory.
+            # So paths like "gtm_core/video_*" will match relative to the root if we use them directly.
+            print(exclude)
         return 0
     return 2
 

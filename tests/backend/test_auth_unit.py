@@ -205,3 +205,6 @@ def test_tokens_from_the_real_minter_still_decode():
     """Compatibility guard: the `require` list must not invalidate live tokens."""
     assert decode_token(create_access_token("u1", "ws1"))["type"] == "access"
     assert decode_token(create_refresh_token("u1", "ws1"), "refresh")["type"] == "refresh"
+
+
+import os

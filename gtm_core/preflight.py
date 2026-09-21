@@ -70,7 +70,7 @@ CAPABILITIES: dict[str, dict] = {
 OK = "ok"
 
 
-def adjudicate(observed: dict[str, str], needed: list[str]) -> dict:
+def adjudicate(observed: dict[str, str], needed: list[str], no_fallback: bool = False) -> dict:
     """Return a verdict: per-capability availability + whether the run should proceed."""
     caps, blocking, degraded = {}, [], []
     for name, spec in CAPABILITIES.items():
@@ -109,7 +109,8 @@ def adjudicate(observed: dict[str, str], needed: list[str]) -> dict:
         if name in needed and caps[name]["degraded"]:
             # Hard stop only when the capability is gone or down to the free web floor.
             # A paid-fallback is a warning the operator must acknowledge, not a block.
-            if not caps[name]["available"] or winner == "web":
+            # If no_fallback is True, ANY degradation is a blocking error.
+            if not caps[name]["available"] or winner == "web" or no_fallback:
                 blocking.append(name)
             else:
                 degraded.append(name)
@@ -169,6 +170,11 @@ def main(argv: list[str] | None = None) -> int:
         "--need", default="discovery", help="comma-separated capabilities this run needs"
     )
     ap.add_argument("--warn-only", action="store_true", help="report but always exit 0")
+    ap.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="exit 2 if any required capability falls back to a secondary provider or web",
+    )
     args = ap.parse_args(argv)
 
     needed = [c.strip() for c in args.need.split(",") if c.strip()]
@@ -176,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         ap.error(f"unknown capability {unknown}; valid: {sorted(CAPABILITIES)}")
 
-    verdict = adjudicate(json.loads(args.observed), needed)
+    verdict = adjudicate(json.loads(args.observed), needed, no_fallback=args.no_fallback)
     verdict["profile"] = args.profile
     print(render(verdict), file=sys.stderr)
     print(json.dumps(verdict, indent=2))

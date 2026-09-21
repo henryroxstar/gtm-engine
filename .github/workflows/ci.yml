@@ -139,14 +139,49 @@ jobs:
       - name: skill manifest smoke
         run: bash tests/smoke/skill_manifest.sh
 
-  # ── 2. Python tests ─────────────────────────────────────────────────────────
-  # Contract/schema tests + content-linter unit tests. The suite is stdlib-only
-  # apart from the test runner itself (pytest); minijsonschema is a vendored,
-  # dependency-free validator in tests/contracts/. We install pytest, plus the
-  # project itself if a root pyproject.toml exists (it is authored by the
-  # cockpit component) so the agent/ and cockpit/ packages import cleanly.
+  # ── 1b. Fast Python tests (every PR) ────────────────────────────────────────
+  # Runs fast contracts, lint checks, and tripwire negative controls on EVERY
+  # PR (targeting dev or main), completing in < 60s. Catches packaging errors,
+  # schema regressions, import layering violations, and broken tripwires before
+  # code merges into dev.
+  fast-tests:
+    name: pytest (contracts + lint + tripwire)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: install wordlist (/usr/share/dict/words)
+        run: sudo apt-get update && sudo apt-get install -y wamerican
+
+      - name: install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-xdist
+          if [ -f pyproject.toml ]; then
+            pip install -e . || echo "::warning::editable install failed; running stdlib-only tests"
+          fi
+
+      - name: pytest (fast tier)
+        run: python -m pytest tests/contracts tests/lint tests/tripwire -q -n auto
+
+  # ── 2. Python tests (full suite) ───────────────────────────────────────────
+  # Full contract, content-linter, media, and integration test suite.
+  # The suite is stdlib-only apart from the test runner itself (pytest);
+  # minijsonschema is a vendored, dependency-free validator in tests/contracts/.
+  # Runs on pushes to main, manual workflow_dispatch, or PRs with 'full-ci' label.
   tests:
-    name: pytest (contracts + linter)
+    name: pytest (full suite)
     runs-on: ubuntu-24.04
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     steps:
@@ -195,7 +230,7 @@ jobs:
           # rendering (F1/F2) — without it the caption tests importorskip into silence, which is
           # coverage that looks green and measures nothing (the §8.1 failure this program exists
           # to fix).
-          pip install pytest pillow pytest-xdist
+          pip install pytest pillow pytest-xdist hypothesis
           # If the project defines a root package (pyproject.toml — authored by the
           # cockpit component), install it so agent/ + cockpit/ imports resolve.
           # Best-effort: deps like claude-agent-sdk may be unavailable in CI, so a
@@ -264,7 +299,7 @@ jobs:
       - name: pytest (dbtest tier)
         env:
           GTM_TEST_PG_ADMIN_DSN: postgres://gtm_app:postgres@localhost:5432/gtm_backend
-        run: python -m pytest tests/backend/test_rls_live.py tests/backend/test_cost_reservation_live.py tests/backend/test_integrations_rls_live.py tests/backend/test_publish_settings_live.py tests/mcp_server/test_mcp_rls_live.py -q
+        run: python -m pytest tests/backend/test_rls_live.py tests/backend/test_cost_reservation_live.py tests/backend/test_integrations_rls_live.py tests/backend/test_publish_settings_live.py tests/backend/test_onboard_promote_live.py tests/backend/test_service_principals_live.py tests/backend/test_migrations.py tests/mcp_server/test_mcp_rls_live.py -q
 
   # ── 3. actionlint ───────────────────────────────────────────────────────────
   # Static-analyse the workflow YAML itself (shellcheck on run: blocks, expression

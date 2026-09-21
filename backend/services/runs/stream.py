@@ -2,8 +2,9 @@
 
 Split out of the router in Phase 1b: what stays there is the HTTP shell (the per-workspace
 stream cap, the 404, the ``StreamingResponse``), and what lives here is the protocol —
-subscribe-before-snapshot, the snapshot frame, heartbeats, backpressure close, and the
-accounting that must run in a ``finally`` so a dropped client always frees its slot.
+subscribe-before-snapshot, the snapshot frame, heartbeats, backpressure close, the in-place
+resync snapshot (ST-16), and the accounting that must run in a ``finally`` so a dropped
+client always frees its slot.
 
 **Protocol 2 (A5 step 3).** ``seq`` is now the DURABLE ``run_events.id`` rather than a
 per-connection counter, which is what makes resume possible: the snapshot advertises the
@@ -25,11 +26,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from ...callers.principal import Principal
 from ...database import workspace_scope
-from .events import _OVERFLOW_CLOSE, _sse_frame, _subscribe, _unsubscribe, _utc_now
+from .events import (
+    _OVERFLOW_CLOSE,
+    _RESYNC,
+    _sse_frame,
+    _subscribe,
+    _subscribe_workspace,
+    _Subscription,
+    _unsubscribe,
+    _unsubscribe_workspace,
+    _utc_now,
+)
+from .gates import _content_sha
+from .queries import _wire_node
 from .state import _STREAM_HEARTBEAT_S, _TERMINAL_STATUSES, _state_lock, _workspace_stream_count
+
+log = logging.getLogger(__name__)
 
 #: The stream vocabulary this server emits (snapshot.protocol).
 PROTOCOL = 2
@@ -62,8 +79,17 @@ class _Opening:
 async def _read_opening(conn, workspace_id: str, run_id: str, since: int | None) -> _Opening | None:
     """The single opening read. None when the run vanished between the 404 check and here."""
     row = await conn.fetchrow(
-        """SELECT id::text, status, output, error, error_code, pending_gate, pending_content
-           FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid""",
+        # ST-01: the same open-run_gates subquery _RUN_DETAIL_SQL (queries.py) already
+        # uses, so a client landing on the snapshot path while a gate is open learns its
+        # kind and node without a supplementary GET.
+        """SELECT r.id::text, r.status, r.output, r.error, r.error_code,
+                  r.pending_gate, r.pending_content, r.payload,
+                  r.principal_kind, r.principal_id, r.external_ref, r.agent_id::text AS agent_id,
+                  (SELECT g.gate FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open'
+                   ORDER BY g.opened_at DESC LIMIT 1) AS gate_kind,
+                  (SELECT g.node_id FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open'
+                   ORDER BY g.opened_at DESC LIMIT 1) AS gate_node_id
+           FROM runs r WHERE r.id = $1::uuid AND r.workspace_id = $2::uuid""",
         run_id,
         workspace_id,
     )
@@ -94,7 +120,7 @@ async def _read_opening(conn, workspace_id: str, run_id: str, since: int | None)
         return _Opening(row, head, replay, None, None)
 
     nodes = await conn.fetch(
-        "SELECT node_id, state FROM run_nodes "
+        "SELECT node_id, state, error FROM run_nodes "
         "WHERE run_id = $1::uuid AND workspace_id = $2::uuid ORDER BY node_id",
         run_id,
         workspace_id,
@@ -108,26 +134,45 @@ async def _read_opening(conn, workspace_id: str, run_id: str, since: int | None)
     return _Opening(row, head, None, nodes, blocks)
 
 
-def _snapshot_frame(opening: _Opening) -> str:
+def _snapshot_payload(opening: _Opening) -> dict:
+    row = opening.row
+    from .queries import _payload
+
+    payload = _payload(row)
+    return {
+        "run_id": row["id"],
+        "status": row["status"],
+        "pack": payload.get("pack"),
+        "variant": payload.get("variant"),
+        "inputs": payload.get("inputs"),
+        "pending_gate": row["pending_gate"],
+        "pending_content": row["pending_content"],
+        "protocol": PROTOCOL,
+        # ST-01: the open gate's identity — None once decided or on a run never gated.
+        "gate": row.get("gate_kind"),
+        "pending_node_id": row.get("gate_node_id"),
+        "pending_content_sha": _content_sha(row["pending_content"]),
+        "nodes": [_wire_node(r) for r in opening.nodes or []],
+        "content": [
+            b["block"] if isinstance(b["block"], dict) else json.loads(b["block"])
+            for b in opening.blocks or []
+        ],
+        # Fleet Phase A (V026, additive): who started this run. .get: tolerate
+        # fakes/fixtures that model only the pre-Fleet-Phase-A columns.
+        "principal_kind": row.get("principal_kind"),
+        "principal_id": row.get("principal_id"),
+        "external_ref": row.get("external_ref"),
+    }
+
+
+def _snapshot_frame(opening: _Opening, *, seq: int | None = None) -> str:
     """The authoritative recovery surface: a client that (re)connects mid-run rebuilds the
     DAG (nodes[]) and the output pane (content[], collapsed replace semantics) from this
     one frame. Its ``id:`` is the watermark everything live is measured against."""
-    row = opening.row
     return _sse_frame(
         "snapshot",
-        {
-            "run_id": row["id"],
-            "status": row["status"],
-            "pending_gate": row["pending_gate"],
-            "pending_content": row["pending_content"],
-            "protocol": PROTOCOL,
-            "nodes": [{"id": r["node_id"], "state": r["state"]} for r in opening.nodes or []],
-            "content": [
-                b["block"] if isinstance(b["block"], dict) else json.loads(b["block"])
-                for b in opening.blocks or []
-            ],
-        },
-        seq=opening.head,
+        _snapshot_payload(opening),
+        seq=opening.head if seq is None else seq,
     )
 
 
@@ -182,11 +227,15 @@ async def run_event_stream(
     # snapshot, or replayed. Live frames at or below it are dropped, which is what closes
     # the subscribe-then-read overlap window.
     watermark = 0
+
+    async def reopen(since: int | None = None) -> _Opening | None:
+        async with workspace_scope(pool, workspace_id) as conn:
+            return await _read_opening(conn, workspace_id, run_id, since)
+
     try:
         yield "retry: 3000\n\n"
 
-        async with workspace_scope(pool, workspace_id) as conn:
-            opening = await _read_opening(conn, workspace_id, run_id, since)
+        opening = await reopen(since)
         if opening is None:
             return
 
@@ -206,7 +255,7 @@ async def run_event_stream(
             yield _terminal_frame(opening.row)
             return
 
-        async for frame in _live_frames(q, is_disconnected, chunks, watermark):
+        async for frame in _live_frames(q, is_disconnected, chunks, watermark, reopen):
             yield frame
     finally:
         _unsubscribe(run_id, q)
@@ -218,16 +267,54 @@ async def run_event_stream(
                 _workspace_stream_count[workspace_id] = remaining
 
 
+async def _resync_frames(
+    reopen: Callable[[], Awaitable[_Opening | None]],
+) -> tuple[list[str], int, bool] | None:
+    """ST-16: ``(frames, new watermark, stream finished)`` for an in-place snapshot, or
+    None when the read failed — the blip that lost the event can fail this read too."""
+    try:
+        opening = await reopen()
+    except Exception:  # noqa: BLE001 — the caller keeps the resync pending and retries
+        log.warning("stream resync read failed; retrying", exc_info=True)
+        return None
+    if opening is None:
+        return [], 0, True
+    frames = [_snapshot_frame(opening)]
+    finished = opening.row["status"] in _TERMINAL_STATUSES
+    if finished:
+        frames.append(_terminal_frame(opening.row))
+    return frames, opening.head, finished
+
+
 async def _live_frames(
-    q: asyncio.Queue,
+    q: _Subscription,
     is_disconnected: Callable[[], Awaitable[bool]],
     chunks: bool,
     watermark: int,
+    reopen: Callable[[], Awaitable[_Opening | None]],
 ) -> AsyncIterator[str]:
-    """The live tail: heartbeats, backpressure close, and de-duplicated event frames."""
+    """The live tail: heartbeats, backpressure close, ST-16 resync, and de-duplicated
+    event frames.
+
+    A resync (an event of this run got no durable id) sends a fresh snapshot in place.
+    Until it has been sent, every dequeued frame is discarded rather than delivered: each
+    was persisted before it was queued, so the snapshot read that follows folds it in, and
+    delivering one first would move the client's resume point past the lost event.
+    """
     while True:
         if await is_disconnected():
             return
+        if q.resync:
+            q.resync = False  # cleared BEFORE the read: a loss during it re-arms the flag
+            resynced = await _resync_frames(reopen)
+            if resynced is None:
+                q.resync = True
+            else:
+                frames, watermark, finished = resynced
+                for frame in frames:
+                    yield frame
+                if finished:
+                    return
         try:
             frame = await asyncio.wait_for(q.get(), timeout=_STREAM_HEARTBEAT_S)
         except TimeoutError:
@@ -236,6 +323,8 @@ async def _live_frames(
             yield _sse_frame("ping", {"ts": _utc_now()})
             continue
         event, data = frame
+        if q.resync or (event, data) == _RESYNC:
+            continue
         if (event, data) == _OVERFLOW_CLOSE:
             # Backpressure overflow: close rather than silently drop. Under protocol 2
             # the client reconnects with ?since=<last id> and replays what it missed
@@ -251,3 +340,101 @@ async def _live_frames(
         yield _sse_frame(event, data, seq=seq)
         if event == "done":
             return
+
+
+async def workspace_event_stream(
+    pool,
+    workspace_id: str,
+    *,
+    principal: Principal,
+    read_scope: str = "own",
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> AsyncIterator[str]:
+    """Yield the workspace-level `text/event-stream` feed (GET /v1/events/stream).
+
+    Fleet PRD §3 G3 invariants:
+    - Pull-only SSE feed over run-event.schema.json vocabulary.
+    - Every frame carries run_id.
+    - Snapshot-based reconnect contract: per-connection seq, no replay, snapshot is authoritative.
+    - On connect: emits one snapshot frame for each non-terminal run in the workspace.
+    - Live tail: delivers events as they occur across runs in the workspace.
+    - Narrowed by caller's read_scope if service principal (only its own runs if 'own').
+    - Clean shutdown & backpressure handling.
+    """
+    q = _subscribe_workspace(workspace_id)
+    async with _state_lock:
+        _workspace_stream_count[workspace_id] = _workspace_stream_count.get(workspace_id, 0) + 1
+
+    conn_seq = 0
+    try:
+        yield "retry: 3000\n\n"
+
+        # Query all active/non-terminal runs in the workspace
+        async with workspace_scope(pool, workspace_id) as conn:
+            if principal.kind == "service" and read_scope != "workspace":
+                rows = await conn.fetch(
+                    """SELECT id::text, agent_id::text FROM runs
+                       WHERE workspace_id = $1::uuid
+                         AND status NOT IN ('ok', 'failed', 'rejected', 'canceled')
+                         AND agent_id = $2::uuid
+                       ORDER BY created_at ASC""",
+                    workspace_id,
+                    principal.agent_id,
+                )
+            else:
+                rows = await conn.fetch(
+                    """SELECT id::text, agent_id::text FROM runs
+                       WHERE workspace_id = $1::uuid
+                         AND status NOT IN ('ok', 'failed', 'rejected', 'canceled')
+                       ORDER BY created_at ASC""",
+                    workspace_id,
+                )
+            active_runs = [dict(r) for r in rows]
+
+        # Emit one snapshot per non-terminal run
+        for r_info in active_runs:
+            run_id = r_info["id"]
+            async with workspace_scope(pool, workspace_id) as conn:
+                opening = await _read_opening(conn, workspace_id, run_id, None)
+            if opening is not None:
+                conn_seq += 1
+                yield _sse_frame("snapshot", _snapshot_payload(opening), seq=conn_seq)
+
+        # Live tail
+        while True:
+            if await is_disconnected():
+                return
+            try:
+                frame = await asyncio.wait_for(q.get(), timeout=_STREAM_HEARTBEAT_S)
+            except TimeoutError:
+                yield _sse_frame("ping", {"ts": _utc_now()})
+                continue
+
+            event, data = frame
+            if (event, data) == _OVERFLOW_CLOSE:
+                return
+
+            # Check if this frame belongs to a run the principal is allowed to read
+            if principal.kind == "service" and read_scope != "workspace":
+                run_id = data.get("run_id")
+                if run_id:
+                    async with workspace_scope(pool, workspace_id) as conn:
+                        row = await conn.fetchrow(
+                            "SELECT agent_id::text FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid",
+                            run_id,
+                            workspace_id,
+                        )
+                    if row is None or row["agent_id"] != principal.agent_id:
+                        continue
+
+            conn_seq += 1
+            yield _sse_frame(event, data, seq=conn_seq)
+
+    finally:
+        _unsubscribe_workspace(workspace_id, q)
+        async with _state_lock:
+            remaining = _workspace_stream_count.get(workspace_id, 0) - 1
+            if remaining <= 0:
+                _workspace_stream_count.pop(workspace_id, None)
+            else:
+                _workspace_stream_count[workspace_id] = remaining

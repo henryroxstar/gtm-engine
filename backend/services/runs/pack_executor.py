@@ -4,7 +4,9 @@ attribution, and the Gate-2 dispatch — A10 for publish, A11 for email enrollme
 
 from __future__ import annotations
 
+import dataclasses
 import json
+from typing import Any
 
 from gtm_core.capabilities import Entitlement
 from gtm_core.metering import acheck_budget
@@ -15,7 +17,7 @@ from ...publish_dispatch import dispatch_backend_publish
 from .budget import _reserve_or_deny
 from .decisions import run_status
 from .events import _utc_now, publish_run_event
-from .gate_kinds import _GATE_PLAN_SENTINEL, dispatch_target, pack_gate_kind
+from .gate_kinds import _GATE_PLAN_SENTINEL, _GATE_PUBLISH_SENTINEL, dispatch_target, pack_gate_kind
 from .lifecycle import (
     CANCELLED,
     TIMED_OUT,
@@ -102,12 +104,13 @@ def _node_observer(pool, workspace_id: str, run_id: str, profile_name: str, prof
     async def _on_node(node_id: str, state: str, entry: dict) -> None:
         nonlocal tree_before
         wire_state = await _persist_node(pool, workspace_id, run_id, node_id, entry)
-        publish_run_event(
-            workspace_id,
-            run_id,
-            "node",
-            {"run_id": run_id, "node_id": node_id, "state": wire_state, "ts": _utc_now()},
-        )
+        node_data = {"run_id": run_id, "node_id": node_id, "state": wire_state, "ts": _utc_now()}
+        # ST-09: run_nodes.error was persisted but never surfaced on the wire — a client
+        # could show the run-level error but not attribute a failure to its node.
+        error = entry.get("error")
+        if wire_state == "failed" and error:
+            node_data["error"] = error
+        publish_run_event(workspace_id, run_id, "node", node_data)
         if wire_state not in ("completed", "failed", "skipped"):
             return
         text = entry.get("text") or ""
@@ -162,17 +165,74 @@ def _node_observer(pool, workspace_id: str, run_id: str, profile_name: str, prof
     return _on_node
 
 
-def _gate_draft_content(gate_actions, cfg, profile_name: str, gated: dict, *, run_id, enroll):
-    """Resolve the pending content for whichever gate just paused, which kind of draft (if
+def _gate_draft_content(
+    gate_actions,
+    cfg,
+    profile_name: str,
+    gated: dict,
+    *,
+    run_id: str | None = None,
+    enroll: bool = False,
+    publish: bool = False,
+) -> tuple[str, Any, str | None]:
+    """Resolve the draft content to present at this gate, which mechanism (if
     any) produced it, and that draft's path.
 
     Returns ``(pending_content, draft_path, draft_kind)`` — ``draft_kind`` is ``"plan"``,
-    ``"enroll"``, or ``None`` (a gate with no draft mechanism of its own — outreach,
+    ``"enroll"``, ``"publish"``, or ``None`` (a gate with no draft mechanism of its own — outreach,
     reply/triage, format-plan, capture, ...; A11 makes these pause too, so a stub is
     expected here, not an error). An enrollment gate (``enroll``) reads only THIS run's
     draft (client issue #245) and raises if it is missing or malformed: a PII-egress gate
     with nothing valid to approve fails the run at the pause instead of showing a stub.
     """
+    if publish:
+        assets_dir = cfg.content_root / profile_name / "assets"
+        assets = (
+            sorted(
+                assets_dir.glob("*.asset.json"),
+                key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            )
+            if assets_dir.is_dir()
+            else []
+        )
+        if assets:
+            newest = assets[-1]
+            try:
+                data = json.loads(newest.read_text(encoding="utf-8"))
+                body = data.get("body") or ""
+                hook = data.get("hook") or ""
+                if hook and body and not body.startswith(hook):
+                    post_text = f"{hook}\n\n{body}"
+                else:
+                    post_text = body or hook
+                if not post_text and "tweets" in data and isinstance(data["tweets"], list):
+                    post_text = "\n\n".join(data["tweets"])
+                if post_text:
+                    pending_content = f"⟦GATE:publish⟧\n⟦POST⟧\n{post_text}\n⟦/POST⟧"
+                    return pending_content, newest, "publish"
+            except (json.JSONDecodeError, OSError, TypeError, KeyError):
+                pass
+        return json.dumps({"node": gated.get("name"), "note": "awaiting approval"}), None, "publish"
+
+    text = gated.get("text") or ""
+
+    if "⟦GATE:reply⟧" in text or gated.get("skill") == "inbound-triage":
+        if "⟦GATE:reply⟧" not in text:
+            raise ValueError(
+                f"{gated.get('name')!r} produced no ⟦GATE:reply⟧ block for this run ({run_id})"
+            )
+        from agent.reply import parse_reply_block
+
+        draft = parse_reply_block(text)
+        if draft:
+            pending_content = f"⟦GATE:reply⟧\n⟦REPLY⟧\n{draft.body}\n⟦/REPLY⟧"
+            if getattr(draft, "thread_id", None):
+                pending_content += f"\n⟦THREAD⟧{draft.thread_id}⟦/THREAD⟧"
+            if getattr(draft, "to", None):
+                pending_content += f"\n⟦TO⟧{draft.to}⟦/TO⟧"
+            return pending_content, None, "review"
+        return text, None, "review"
+
     found = gate_actions.gate_draft(cfg, profile_name, run_id=run_id, enroll=enroll)
     if enroll and found is None:
         raise gate_actions.EnrollDraftError(
@@ -324,7 +384,12 @@ async def _dispatch_gate2(
         content=approved_bytes,
         dry_run=dry_run,
     )
-    return publish_refusal(outcome), None
+    refusal = publish_refusal(outcome)
+    if refusal is not None:
+        return refusal, None
+    if not outcome.ok or target_id == gated_node_id:
+        return None, None
+    return None, (target_id, outcome.operator_line())
 
 
 async def _complete_approved_gate(
@@ -411,6 +476,39 @@ async def _fail_from_outcome(
     await _fail_run(pool, workspace_id, run_id, first_error, error_code=code)
 
 
+def _apply_pack_inputs_and_context(
+    pack_graph: Any,
+    inputs: dict[str, str] | None,
+    context: dict[str, str] | None,
+) -> Any:
+    """Append operator-supplied inputs and §R5 untrusted caller data envelopes to prompt nodes."""
+    if inputs:
+        suffix = "\n\nRun inputs (operator-provided): " + json.dumps(inputs, sort_keys=True)
+        pack_graph = dataclasses.replace(
+            pack_graph,
+            nodes=tuple(
+                dataclasses.replace(n, prompt=n.prompt + suffix) if n.prompt else n
+                for n in pack_graph.nodes
+            ),
+        )
+    if context:
+        from ...callers.inlet_guard import DefaultInletGuard
+
+        guard = DefaultInletGuard()
+        context_blocks = [
+            guard.render_context_envelope(k, context[k]) for k in sorted(context.keys())
+        ]
+        context_suffix = "\n\n" + "\n\n".join(context_blocks)
+        pack_graph = dataclasses.replace(
+            pack_graph,
+            nodes=tuple(
+                dataclasses.replace(n, prompt=n.prompt + context_suffix) if n.prompt else n
+                for n in pack_graph.nodes
+            ),
+        )
+    return pack_graph
+
+
 async def _execute_pack_run(
     pool,
     repo_root,
@@ -426,6 +524,7 @@ async def _execute_pack_run(
     agent_budget_usd: float | None = None,
     language: str | None = None,
     dry_run: bool = False,
+    context: dict[str, str] | None = None,
 ) -> None:
     """Background task for pack mode: drive the graph runner with gates held OUTSIDE it.
 
@@ -467,9 +566,8 @@ async def _execute_pack_run(
                     pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached"
                 )
                 return
-            await start_run(pool, workspace_id, run_id)
-
-        import dataclasses
+            if not await start_run(pool, workspace_id, run_id):
+                return
 
         from agent import gate_actions
         from agent.config import Config
@@ -486,19 +584,7 @@ async def _execute_pack_run(
         cfg = _workspace_scoped_config(base_cfg, workspace_id, repo_root, credentials=creds)
         resolved = resolve_variant(repo_root, cfg.profiles_root, profile_name, pack, variant)
 
-        # v1 ask-inputs: appended to each prompted node as a suffix line. No inputs ⇒
-        # prompts stay byte-identical to the pack file (the golden-trajectory
-        # contract); the values are also in the runs.prompt audit column.
-        pack_graph = resolved.graph
-        if inputs:
-            suffix = "\n\nRun inputs (operator-provided): " + json.dumps(inputs, sort_keys=True)
-            pack_graph = dataclasses.replace(
-                pack_graph,
-                nodes=tuple(
-                    dataclasses.replace(n, prompt=n.prompt + suffix) if n.prompt else n
-                    for n in pack_graph.nodes
-                ),
-            )
+        pack_graph = _apply_pack_inputs_and_context(resolved.graph, inputs, context)
 
         allowed_skills = entitled_skills_for_profile(
             cfg.profiles_root, profile_name, repo_root / "packs", entitlement
@@ -559,6 +645,7 @@ async def _execute_pack_run(
             gated = next(s for s in manifest["stages"] if s.get("status") == AWAITING_APPROVAL)
             gated_node_id = gated.get("name", "")
             effect = _dispatch_target(runner, gated_node_id)[0]
+            is_publish = effect == "publish" or gated_node_id == "publish"
             pending_content, draft_path, draft_kind = _gate_draft_content(
                 gate_actions,
                 cfg,
@@ -566,13 +653,11 @@ async def _execute_pack_run(
                 gated,
                 run_id=run_id,
                 enroll=effect == "email_enroll",
+                publish=is_publish,
             )
             has_draft = draft_path is not None
-            # The run_gates.gate label (V022 CHECK: plan | publish | email_enroll | review) —
-            # "publish" never appears here (a node with external_effect="publish" always
-            # short-circuits to SKIPPED before reaching AWAITING_APPROVAL, so it can never be
-            # `gated`); "review" is the catch-all for a gate with no draft mechanism of its own.
             gate_kind = pack_gate_kind(draft_kind)
+            sentinel = _GATE_PUBLISH_SENTINEL if gate_kind == "publish" else _GATE_PLAN_SENTINEL
 
             # Durable: the run_gates row persists BOTH the wait and the decision, so a
             # decision posted while this runner was down is claimed on resume (and, being
@@ -581,7 +666,7 @@ async def _execute_pack_run(
                 pool,
                 workspace_id,
                 run_id,
-                sentinel=_GATE_PLAN_SENTINEL,
+                sentinel=sentinel,
                 gate=gate_kind,
                 pending_content=pending_content,
                 node_id=gated_node_id,
@@ -655,4 +740,4 @@ async def _execute_pack_run(
         try:
             await _fail_run(pool, workspace_id, run_id, str(exc), error_code="internal_error")
         except Exception:  # noqa: BLE001
-            pass  # nosec B110 — intentional best-effort swallow
+            pass  # nosec B110

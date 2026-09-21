@@ -21,11 +21,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.callers.rest import require_principal
 from backend.deps import WorkspaceCtx, require_auth
 from backend.errors import register_error_handlers
 from backend.routers import runs as runs_router
 from backend.services.runs import budget as budget_mod
-from tests.backend._protocol1 import BUDGET_MODULES, REPO, SCOPE_MODULES, patch_everywhere
+from tests.backend._protocol1 import (
+    BUDGET_MODULES,
+    DONE_PUSH_MODULES,
+    REPO,
+    SCOPE_MODULES,
+    patch_everywhere,
+    user_principal,
+)
 from tests.backend.test_packs_api import PROFILE, _provision
 
 WS_ID = "00000000-0000-0000-0000-000000000001"
@@ -102,6 +110,7 @@ def _drive(over_cap: bool):
         with (
             patch_everywhere(SCOPE_MODULES, "workspace_scope", _fake_scope_factory(conn)),
             patch_everywhere(BUDGET_MODULES, "acheck_budget", AsyncMock(return_value=not over_cap)),
+            patch_everywhere(DONE_PUSH_MODULES, "send_run_done_push", AsyncMock(return_value=0)),
         ):
             await runs_router._execute_run(
                 MagicMock(),  # pool
@@ -206,6 +215,8 @@ def _create_run_app(ws_id: str):
     app.state.cfg = MagicMock(repo_root=REPO)
     ctx = WorkspaceCtx(user_id=str(_uuid.uuid4()), workspace_id=ws_id, entitlement="pro_plus")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): create_run now depends on require_principal.
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     register_error_handlers(app)
     return app
 
@@ -301,7 +312,22 @@ class _IdempotentConn:
                 ]
             )
         if sql.strip().startswith("INSERT INTO runs"):
-            run_id, ws, profile, prompt, dry_run, agent_id, payload, client_request_id = args
+            # Fleet Phase A: principal_kind/principal_id are now inserted between
+            # payload and client_request_id (admission.py:insert_run_row).
+            # Fleet Phase B: external_ref is added after client_request_id.
+            (
+                run_id,
+                ws,
+                profile,
+                prompt,
+                dry_run,
+                agent_id,
+                payload,
+                principal_kind,
+                principal_id,
+                client_request_id,
+                *rest,
+            ) = args
             if client_request_id is not None:
                 clash = next(
                     (
@@ -327,6 +353,8 @@ class _IdempotentConn:
                 "agent_id": agent_id,
                 "payload": payload,
                 "created_at": None,
+                "principal_kind": principal_kind,
+                "principal_id": principal_id,
                 "client_request_id": client_request_id,
             }
             return run_id

@@ -28,10 +28,11 @@ os.environ.setdefault("BACKEND_REFRESH_EXPIRE_DAYS", "30")
 
 from datetime import UTC
 
-from backend.auth import create_access_token
+from backend.auth import create_access_token, create_refresh_token
 from backend.errors import register_error_handlers
 from backend.routers import account as account_router
 from backend.routers import api_keys as api_keys_router
+from backend.routers import auth as auth_router
 from backend.routers import runs as runs_router
 from backend.routers import workspaces as workspaces_router
 from tests.backend._protocol1 import (  # noqa: E402
@@ -65,6 +66,7 @@ def _make_app(*routers) -> FastAPI:
     for rtr in routers:
         app.include_router(rtr.router, prefix="/v1")
     app.state.pool = MagicMock()
+    register_error_handlers(app)
     return app
 
 
@@ -268,6 +270,34 @@ class TestCreateApiKey:
         assert body["raw_key"].startswith("sk-")
         assert body["entitlement"] == "pro"
         assert body["is_revoked"] is False
+        assert body["principal_kind"] == "tool"
+
+    def test_create_service_key_returns_service_principal(self, conn, client):
+        from datetime import datetime
+
+        agent_id = "00000000-0000-0000-0000-000000000030"
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro"},
+            {"status": "active"},
+            {
+                "id": KEY_ID,
+                "prefix": "sk-abc12",
+                "label": "svc-key",
+                "entitlement": "pro",
+                "last_used_at": None,
+                "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "revoked_at": None,
+                "agent_id": agent_id,
+            },
+        ]
+        resp = client.post(
+            "/v1/api-keys",
+            json={"label": "svc-key", "entitlement": "pro", "agent_id": agent_id},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["principal_kind"] == "service"
 
     def test_entitlement_capped_at_workspace_level(self, conn, client):
         from datetime import datetime
@@ -341,7 +371,28 @@ class TestListApiKeys:
         keys = resp.json()
         assert len(keys) == 1
         assert keys[0]["prefix"] == "sk-abc12"
+        assert keys[0]["principal_kind"] == "tool"
         assert "raw_key" not in keys[0]
+
+    def test_lists_service_keys(self, conn, client):
+        from datetime import datetime
+
+        conn.fetch.return_value = [
+            {
+                "id": KEY_ID,
+                "prefix": "sk-abc12",
+                "label": "svc-key",
+                "entitlement": "pro",
+                "last_used_at": None,
+                "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "revoked_at": None,
+                "agent_id": "00000000-0000-0000-0000-000000000030",
+            }
+        ]
+        resp = client.get("/v1/api-keys", headers=_auth_header())
+        assert resp.status_code == 200
+        keys = resp.json()
+        assert keys[0]["principal_kind"] == "service"
 
     def test_requires_auth(self, client):
         resp = client.get("/v1/api-keys")
@@ -403,6 +454,81 @@ class TestRevokeApiKey:
     def test_requires_auth(self, client):
         resp = client.delete(f"/v1/api-keys/{KEY_ID}")
         assert resp.status_code == 401
+
+
+# ── GET /v1/account ───────────────────────────────────────────────────────────
+
+
+class TestGetAccount:
+    @pytest.fixture()
+    def pool(self):
+        p = MagicMock()
+        conn = AsyncMock()
+        p.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
+        p.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        return p, conn
+
+    @pytest.fixture()
+    def client(self, pool):
+        p, conn = pool
+        app = _make_app(account_router)
+        app.state.pool = p
+
+        @asynccontextmanager
+        async def _scope(pool, workspace_id):
+            yield conn
+
+        with (
+            patch("backend.deps.workspace_scope", _scope),
+            patch("backend.routers.account.workspace_scope", _scope),
+        ):
+            with TestClient(app) as c:
+                yield c, conn
+
+    def test_get_account_success(self, client):
+        c, conn = client
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro"},  # require_auth
+            {"email": "user@example.com", "display_name": "Test User"},  # users query
+            {"role": "owner"},  # workspace_members query
+        ]
+        resp = c.get("/v1/account", headers=_auth_header())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == USER_ID
+        assert data["email"] == "user@example.com"
+        assert data["primary_workspace_id"] == WS_ID
+        assert data["tier"] == "pro"
+        assert data["role"] == "owner"
+        assert data["display_name"] == "Test User"
+
+    def test_get_account_custom_member_role(self, client):
+        c, conn = client
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro_plus"},  # require_auth
+            {"email": "admin@example.com", "display_name": "Admin User"},  # users query
+            {"role": "admin"},  # workspace_members query
+        ]
+        resp = c.get("/v1/account", headers=_auth_header())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["role"] == "admin"
+        assert data["tier"] == "pro_plus"
+
+    def test_get_account_unauthenticated(self, client):
+        c, _ = client
+        resp = c.get("/v1/account")
+        assert resp.status_code == 401
+
+    def test_get_account_user_not_found(self, client):
+        c, conn = client
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro"},  # require_auth
+            None,  # user row not found
+        ]
+        resp = c.get("/v1/account", headers=_auth_header())
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "user_not_found"
 
 
 # ── PATCH /v1/account ─────────────────────────────────────────────────────────
@@ -547,6 +673,7 @@ class TestDeleteAccount:
             "DELETE", "/v1/account", headers=_auth_header(), json={"current_password": "pw"}
         )
         assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "user_not_found"
 
     def test_requires_auth(self, client):
         c, _ = client
@@ -902,3 +1029,251 @@ class TestPatchCostCap:
         )
         assert resp.status_code == 403
         conn.execute.assert_not_called()
+
+    def test_cap_exceeding_plan_cap_rejected(self, conn, client):
+        # FL18 / M-04: user cannot set cost cap higher than billing-synced plan cap
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro"},
+            {"plan_cost_cap_usd": 100.0},
+        ]
+        resp = client.patch(
+            "/v1/workspace/cost-cap",
+            json={"monthly_cost_cap_usd": 150.0},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "cap_exceeds_plan"
+        conn.execute.assert_not_called()
+
+    def test_cap_within_plan_cap_succeeds(self, conn, client):
+        conn.fetchrow.side_effect = [
+            {"entitlement": "pro"},
+            {"plan_cost_cap_usd": 100.0},
+        ]
+        resp = client.patch(
+            "/v1/workspace/cost-cap",
+            json={"monthly_cost_cap_usd": 80.0},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["monthly_cost_cap_usd"] == 80.0
+        conn.execute.assert_called_once()
+
+
+# ── GET /v1/workspace ─────────────────────────────────────────────────────────
+
+
+class TestGetWorkspace:
+    @pytest.fixture()
+    def conn(self):
+        return AsyncMock()
+
+    @pytest.fixture()
+    def client(self, conn):
+        app = _make_app(workspaces_router)
+
+        @asynccontextmanager
+        async def _scope(pool, workspace_id):
+            yield conn
+
+        with (
+            patch("backend.routers.workspaces.workspace_scope", _scope),
+            patch("backend.deps.workspace_scope", _scope),
+        ):
+            with TestClient(app) as c:
+                yield c
+
+    def test_get_workspace_success_with_publish_settings(self, conn, client):
+        async def _fetchrow(query, *args):
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "slug": "test-ws",
+                "display_name": "Test Workspace",
+                "entitlement": "pro",
+                "monthly_cost_cap_usd": 50.0,
+                "publish_enabled": True,
+                "schedule_enabled": True,
+            }
+
+        conn.fetchrow.side_effect = _fetchrow
+        resp = client.get("/v1/workspace", headers=_auth_header())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["publish_enabled"] is True
+        assert data["schedule_enabled"] is True
+        assert data["entitlement"] == "pro"
+
+    def test_get_workspace_defaults_publish_settings_when_null(self, conn, client):
+        async def _fetchrow(query, *args):
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "slug": "test-ws",
+                "display_name": "Test Workspace",
+                "entitlement": "free",
+                "monthly_cost_cap_usd": 0.0,
+                "publish_enabled": None,
+                "schedule_enabled": None,
+            }
+
+        conn.fetchrow.side_effect = _fetchrow
+        resp = client.get("/v1/workspace", headers=_auth_header())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["publish_enabled"] is False
+        assert data["schedule_enabled"] is False
+
+
+# ── PATCH /v1/workspace ───────────────────────────────────────────────────────
+
+
+class TestPatchWorkspace:
+    @pytest.fixture()
+    def conn(self):
+        c = AsyncMock()
+
+        async def _fetchrow(query, *args):
+            if "UPDATE workspaces" in query:
+                return {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "slug": "test-ws",
+                    "display_name": args[0],
+                }
+            if "FROM subscriptions" in query:
+                return {"entitlement": "free", "monthly_cost_cap_usd": 0.0}
+            return None
+
+        c.fetchrow.side_effect = _fetchrow
+        return c
+
+    @pytest.fixture()
+    def client(self, conn):
+        app = _make_app(workspaces_router)
+
+        @asynccontextmanager
+        async def _scope(pool, workspace_id):
+            yield conn
+
+        with (
+            patch("backend.routers.workspaces.workspace_scope", _scope),
+            patch("backend.deps.workspace_scope", _scope),
+        ):
+            with TestClient(app) as c:
+                yield c
+
+    def test_update_display_name_success(self, client):
+        resp = client.patch(
+            "/v1/workspace",
+            json={"display_name": "Acme Robotics"},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["display_name"] == "Acme Robotics"
+        assert resp.json()["slug"] == "test-ws"
+
+    def test_empty_display_name_rejected(self, client):
+        resp = client.patch(
+            "/v1/workspace",
+            json={"display_name": "   "},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 422
+
+    def test_requires_auth(self, client):
+        resp = client.patch(
+            "/v1/workspace",
+            json={"display_name": "Acme Robotics"},
+        )
+        assert resp.status_code == 401
+
+    def test_workspace_not_found_returns_404(self, conn, client):
+        async def _not_found(query, *args):
+            return None
+
+        conn.fetchrow.side_effect = _not_found
+        resp = client.patch(
+            "/v1/workspace",
+            json={"display_name": "Acme Robotics"},
+            headers=_auth_header(),
+        )
+        assert resp.status_code == 404
+
+
+# ── POST /v1/auth/logout & session revocation ────────────────────────────────
+
+
+class TestLogoutAndSessionRevocation:
+    @pytest.fixture()
+    def pool(self):
+        p = MagicMock()
+        conn = AsyncMock()
+        p.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
+        p.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        return p, conn
+
+    @pytest.fixture()
+    def client(self, pool):
+        p, conn = pool
+        app = _make_app(auth_router)
+        app.state.pool = p
+
+        @asynccontextmanager
+        async def _scope(pool, workspace_id):
+            yield conn
+
+        with patch("backend.deps.workspace_scope", _scope):
+            with TestClient(app) as c:
+                yield c, conn
+
+    def test_logout_success(self, client):
+        c, conn = client
+        conn.fetchrow.return_value = {"entitlement": "pro"}  # require_auth
+        conn.execute.return_value = "UPDATE 1"
+        resp = c.post("/v1/auth/logout", headers=_auth_header())
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "logged_out"}
+        assert any("sessions_invalid_before" in str(call) for call in conn.execute.call_args_list)
+
+    def test_logout_requires_auth(self, client):
+        c, _ = client
+        resp = c.post("/v1/auth/logout")
+        assert resp.status_code == 401
+
+    def test_refresh_rejected_when_token_predates_logout(self, client):
+        from datetime import datetime, timedelta
+
+        c, conn = client
+        token = create_refresh_token(USER_ID, WS_ID)
+        logout_time = datetime.now(UTC) + timedelta(minutes=1)
+        conn.fetchrow.return_value = {
+            "password_changed_at": None,
+            "sessions_invalid_before": logout_time,
+        }
+        resp = c.post("/v1/auth/refresh", json={"refresh_token": token})
+        assert resp.status_code == 401
+        data = resp.json()
+        assert data["error"]["code"] == "token_revoked"
+        assert "logged out" in data["error"]["message"].lower()
+
+    def test_refresh_succeeds_when_token_postdates_logout(self, client):
+        from datetime import datetime, timedelta
+
+        c, conn = client
+        token = create_refresh_token(USER_ID, WS_ID)
+        past_logout = datetime.now(UTC) - timedelta(hours=1)
+        conn.fetchrow.return_value = {
+            "password_changed_at": None,
+            "sessions_invalid_before": past_logout,
+        }
+        resp = c.post("/v1/auth/refresh", json={"refresh_token": token})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert "refresh_token" in data
+
+    def test_refresh_rejected_when_user_deleted(self, client):
+        c, conn = client
+        token = create_refresh_token(USER_ID, WS_ID)
+        conn.fetchrow.return_value = None
+        resp = c.post("/v1/auth/refresh", json={"refresh_token": token})
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "token_revoked"

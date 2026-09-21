@@ -44,6 +44,20 @@ class TestBlocking:
         assert v["proceed"] is False
         assert "contacts" in v["blocking"]
 
+    def test_no_fallback_blocks_degraded(self):
+        """With --no-fallback, a degraded capability blocks execution."""
+        observed = {"vibe": "ok", "rocketreach": "absent", "apollo": "absent"}
+
+        # Normal behavior: degrades but proceeds
+        v1 = adjudicate(observed, ["contacts"], no_fallback=False)
+        assert v1["proceed"] is True
+        assert "contacts" in v1["degraded"]
+
+        # no_fallback behavior: degrades and blocks
+        v2 = adjudicate(observed, ["contacts"], no_fallback=True)
+        assert v2["proceed"] is False
+        assert "contacts" in v2["blocking"]
+
     def test_unrequested_capability_never_blocks(self):
         v = adjudicate({"vibe": "absent", "rocketreach": "absent"}, ["sequencing"])
         assert "contacts" not in v["blocking"]

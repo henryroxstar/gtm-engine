@@ -174,10 +174,6 @@
       "env": {
         "SYFTEN_API_KEY": "${SYFTEN_API_KEY}"
       }
-    },
-    "buffer": {
-      "type": "http",
-      "url": "https://mcp.buffer.com/mcp"
     }
   }
 }

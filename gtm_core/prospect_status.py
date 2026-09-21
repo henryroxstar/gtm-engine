@@ -25,6 +25,8 @@ silently mis-mapped) by this module.
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+
 #: Ordered ids an operator's six-way status can take. ``needs_address`` is not derived
 #: from a (lane, reason) pair at all — see :func:`needs_address` — but shares this
 #: vocabulary because it answers the same question ("where does this row stand").
@@ -81,6 +83,7 @@ _HOLD_TRIGGERS: frozenset[str] = frozenset(
         "untraceable-number",
         "tier-a-generic",
         "duplicate-contact",
+        "unattended-generic",
     }
 )
 
@@ -162,7 +165,9 @@ _RETIRED_LEDGER_STATUSES: frozenset[str] = frozenset(
 
 #: Stringified null/placeholder tokens from dirty CRM/export data that should not
 #: evaluate as real values for contact names or emails.
-_PSEUDO_VALUES: frozenset[str] = frozenset({"", "none", "null", "n/a", "undefined", "unknown"})
+_PSEUDO_VALUES: frozenset[str] = frozenset(
+    {"", "none", "null", "n/a", "undefined", "unknown", "unverified"}
+)
 
 
 def needs_address(item: dict) -> bool:
@@ -177,5 +182,213 @@ def needs_address(item: dict) -> bool:
     status = str(item.get("status") or "").strip()
 
     has_name = bool(name) and name.lower() not in _PSEUDO_VALUES
-    has_email = bool(email) and email.lower() not in _PSEUDO_VALUES
+    has_email = bool(email) and email.lower() not in _PSEUDO_VALUES and "@" in email
     return has_name and not has_email and status not in _RETIRED_LEDGER_STATUSES
+
+
+@dataclass
+class AttritionReceipt:
+    """Funnel conservation receipt across intake, filtering stages, hold, and ready."""
+
+    total_intake: int
+    failed_fit: int
+    failed_intent: int
+    failed_enrichment: int
+    held: int
+    ready: int
+
+    @property
+    def rejected(self) -> int:
+        return self.failed_fit + self.failed_intent + self.failed_enrichment
+
+    def to_dict(self) -> dict[str, int]:
+        return asdict(self)
+
+
+def verify_funnel_conservation(receipt: AttritionReceipt | dict[str, int]) -> bool:
+    """Verify strict conservation of accounts.
+
+    Total Intake == (Failed Fit + Failed Intent + Failed Enrichment + Held + Ready).
+    Raises ValueError if conservation is violated.
+    """
+    if isinstance(receipt, dict):
+        total = receipt.get("total_intake", 0)
+        failed_fit = receipt.get("failed_fit", 0)
+        failed_intent = receipt.get("failed_intent", 0)
+        failed_enrichment = receipt.get("failed_enrichment", 0)
+        held = receipt.get("held", 0)
+        ready = receipt.get("ready", 0)
+    else:
+        total = receipt.total_intake
+        failed_fit = receipt.failed_fit
+        failed_intent = receipt.failed_intent
+        failed_enrichment = receipt.failed_enrichment
+        held = receipt.held
+        ready = receipt.ready
+
+    expected_sum = failed_fit + failed_intent + failed_enrichment + held + ready
+    if total != expected_sum:
+        raise ValueError(
+            f"Funnel conservation violated: Total Intake ({total}) != "
+            f"Failed Fit ({failed_fit}) + Failed Intent ({failed_intent}) + "
+            f"Failed Enrichment ({failed_enrichment}) + Held ({held}) + Ready ({ready}) "
+            f"[Sum = {expected_sum}]"
+        )
+    return True
+
+
+def _canonical_account_key(item: dict) -> str:
+    import re
+
+    from .slugify import slug
+
+    company = str(
+        item.get("company")
+        or item.get("business_name")
+        or item.get("company_name")
+        or item.get("account")
+        or item.get("account_slug")
+        or item.get("slug")
+        or ""
+    ).strip()
+    if company:
+        return slug(company)
+    domain = str(item.get("domain") or item.get("company_domain") or "").strip().lower()
+    if domain:
+        clean_domain = re.sub(r"^https?://", "", domain).split("/")[0].removeprefix("www.")
+        return f"d:{clean_domain}"
+    cid = str(item.get("id") or item.get("account_id") or "").strip().lower()
+    if cid:
+        return f"id:{cid}"
+    return ""
+
+
+def _classify_account_stage(item: dict) -> str:
+    stage = str(item.get("stage") or "").strip().lower()
+    if stage in (
+        "failed_fit",
+        "failed_intent",
+        "failed_enrichment",
+        "enrichment_miss",
+        "held",
+        "ready",
+    ):
+        return "failed_enrichment" if stage == "enrichment_miss" else stage
+
+    status = str(item.get("status") or "").strip().lower()
+    lane = str(item.get("lane") or "").strip().lower()
+    verdict = str(item.get("verdict") or "").strip().lower()
+    relation = str(item.get("category_relation") or "").strip().lower()
+    tier = str(item.get("tier") or "").strip().upper()
+    reason = (
+        str(item.get("reason") or item.get("lane_reason") or item.get("verdict_reason") or "")
+        .strip()
+        .lower()
+    )
+
+    # 1. Fit / Disqualification Gate
+    if (
+        verdict == "drop"
+        or relation in ("competitor", "regulator")
+        or status
+        in ("disqualified", "off-icp", "failed_fit", "closed", "closed-lost", "do-not-contact")
+        or tier in ("C", "DROP")
+        or item.get("fit") is False
+        or (lane == "excluded" and reason != "already-enrolled")
+    ):
+        return "failed_fit"
+
+    # 2. Intent / Why-Now Signal Gate
+    if (
+        verdict == "re-angle"
+        or status in ("no-intent", "failed_intent")
+        or item.get("intent") is False
+    ):
+        return "failed_intent"
+
+    # 3. Held / Review Gate
+    if lane in ("hold", "repair") or status in (
+        "held",
+        "waiting_on_you",
+        "review",
+        "being_fixed",
+        "new",
+    ):
+        return "held"
+
+    # 4. Enrichment / Contact Gate
+    raw_email = str(item.get("contact_email") or item.get("email") or "").strip().lower()
+    has_email = bool(raw_email) and raw_email not in _PSEUDO_VALUES and "@" in raw_email
+    email_status = str(item.get("email_status") or "").strip().lower()
+    if (
+        not has_email
+        or email_status == "unverified"
+        or status
+        in ("contact-defective", "no-contact", "unverified", "failed_enrichment", "enrichment_miss")
+        or reason in ("needs-verification", "unverified")
+    ):
+        return "failed_enrichment"
+
+    # 5. Ready
+    if lane in ("personalised", "generic") or status in (
+        "ready",
+        "ready_to_send",
+        "contact-resolved",
+        "active",
+        "in_sending_tool",
+    ):
+        return "ready"
+
+    return "ready" if has_email else "failed_enrichment"
+
+
+def compute_attrition_receipt(accounts: list[dict]) -> AttritionReceipt:
+    """Compute deduplicated funnel attrition receipt across accounts."""
+    from collections import Counter
+
+    deduped: dict[str, dict] = {}
+    for item in accounts:
+        key = _canonical_account_key(item)
+        if not key:
+            key = f"anon:{id(item)}"
+        if key in deduped:
+            merged = dict(deduped[key])
+            merged.update(item)
+            deduped[key] = merged
+        else:
+            deduped[key] = dict(item)
+
+    counts = Counter(_classify_account_stage(acct) for acct in deduped.values())
+    receipt = AttritionReceipt(
+        total_intake=len(deduped),
+        failed_fit=counts["failed_fit"],
+        failed_intent=counts["failed_intent"],
+        failed_enrichment=counts["failed_enrichment"],
+        held=counts["held"],
+        ready=counts["ready"],
+    )
+    verify_funnel_conservation(receipt)
+    return receipt
+
+
+def format_attrition_receipt(receipt: AttritionReceipt) -> str:
+    """Format Attrition Receipt as a clean CLI waterfall."""
+    waterfall = (
+        f"[Total Intake: {receipt.total_intake}] → "
+        f"[Failed Fit: {receipt.failed_fit}] → "
+        f"[Failed Intent: {receipt.failed_intent}] → "
+        f"[Enrichment Miss: {receipt.failed_enrichment}] → "
+        f"[Held: {receipt.held}] → "
+        f"[Ready: {receipt.ready}]"
+    )
+    lines = [
+        "Attrition Receipt:",
+        f"  [Total Intake]    {receipt.total_intake:>5}",
+        f"  [Failed Fit]      {receipt.failed_fit:>5}",
+        f"  [Failed Intent]   {receipt.failed_intent:>5}",
+        f"  [Enrichment Miss] {receipt.failed_enrichment:>5}",
+        f"  [Held]            {receipt.held:>5}",
+        f"  [Ready]           {receipt.ready:>5}",
+        f"Waterfall: {waterfall}",
+    ]
+    return "\n".join(lines)

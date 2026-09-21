@@ -10,8 +10,15 @@ Launch surface (Phase E, plan fix #7 — no publish/PRODUCTION tools):
     draft_post       — first-draft LinkedIn post or carousel from a brief
     draft_outreach   — first-draft outreach message from a brief
 
+  TASK (Fleet Executor PRD §3 G9 — agent-facing execution surface):
+    describe         — enumerate available packs or describe a pack
+    dispatch         — queue a pack-mode run (with inputs, context, external_ref)
+    status           — check status and execution details of a run
+    artifacts        — list file deliverables produced by a run
+    cost             — cost and token usage breakdown for a run or agent rollup
+
 Auth: Authorization: Bearer sk-<key> on every request.
-      Falls back to MCP_API_KEY env var (local dev / testing).
+      Falls back to MCP_API_KEY env var (local dev / testing / stdio only).
 
 Cost cap: enforced before every PIPELINE call (§R2).
 Metering: every PIPELINE call is recorded in mcp_calls (V006).
@@ -27,6 +34,7 @@ Security invariants held:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import re
@@ -44,8 +52,13 @@ from gtm_core.db import assert_runtime_role_least_privilege
 from gtm_core.models import resolve_model
 from gtm_core.paths import PathConfig, _safe_segment, resolve_knowledge_file
 
-from .auth import ApiKeyCtx, validate_api_key
-from .meter import check_budget, meter_call
+from .auth import ApiKeyCtx, assert_workspace_profile, validate_api_key
+from .meter import (
+    InsufficientCreditsError,
+    check_budget,
+    reserve_credits,
+    settle_credits,
+)
 
 # ── module-level state (DB pool) ──────────────────────────────────────────────
 
@@ -139,9 +152,11 @@ async def _deepseek(
 async def _require_key(ctx: Context) -> ApiKeyCtx:
     """Extract and validate the API key from the request context or env."""
     raw = ""
+    is_http = False
     try:
         request = ctx.request_context.request
         if request is not None:
+            is_http = True
             auth = request.headers.get("authorization", "")
             raw = re.sub(r"^[Bb]earer\s+", "", auth).strip()
     except (ValueError, AttributeError):
@@ -149,6 +164,19 @@ async def _require_key(ctx: Context) -> ApiKeyCtx:
         # raises ValueError and a non-HTTP transport has no headers. Fall through to the
         # env key rather than swallowing every exception (§R1).
         raw = ""
+
+    if is_http:
+        # 1. Enforce Gateway Secret if configured
+        gateway_secret_env = os.getenv("MCP_GATEWAY_SECRET")
+        if gateway_secret_env:
+            gw_secret = request.headers.get("x-gateway-secret", "")
+            if not gw_secret or not hmac.compare_digest(gw_secret, gateway_secret_env):
+                raise ValueError(
+                    "Unauthorized gateway bypass: invalid or missing X-Gateway-Secret header"
+                )
+
+    if is_http and not raw:
+        raise ValueError("Missing Authorization header — header auth required on HTTP")
     if not raw:
         raw = os.getenv("MCP_API_KEY", "")
     if not raw:
@@ -167,6 +195,14 @@ async def _require_pipeline(ctx: Context) -> ApiKeyCtx:
             "PIPELINE tools require a Pro subscription. "
             "Free-tier keys can only call radar_check and profile_context."
         )
+    return key_ctx
+
+
+async def _require_profile(ctx: Context, profile: str, *, pipeline: bool = False) -> ApiKeyCtx:
+    """Require authentication, validate profile segment, and assert workspace profile binding."""
+    key_ctx = await _require_pipeline(ctx) if pipeline else await _require_key(ctx)
+    _safe_segment(profile, "profile")
+    await assert_workspace_profile(key_ctx.workspace_id, profile, _state.pool)
     return key_ctx
 
 
@@ -197,8 +233,7 @@ async def radar_check(
     Returns:
         {"seen": bool, "story_id": str | None}
     """
-    await _require_key(ctx)
-    _safe_segment(profile, "profile")
+    await _require_profile(ctx, profile)
 
     paths = PathConfig.from_env()
     history_path = paths.content_root / profile / "history.jsonl"
@@ -262,8 +297,7 @@ async def profile_context(
     Returns:
         File contents as a string (empty string if not found).
     """
-    await _require_key(ctx)
-    _safe_segment(profile, "profile")
+    await _require_profile(ctx, profile)
     _safe_segment(filename, "filename")
 
     paths = PathConfig.from_env()
@@ -304,11 +338,23 @@ async def draft_post(
     Returns:
         Draft copy as a string.
     """
-    key_ctx = await _require_pipeline(ctx)
-    _safe_segment(profile, "profile")
+    if len(brief) > 100_000:
+        raise ValueError(
+            f"Brief size ({len(brief)} chars) exceeds maximum allowed (100,000 chars) for prompt safety."
+        )
 
-    if not await check_budget(key_ctx.workspace_id, _state.pool):
-        raise ValueError("Monthly cost cap reached for this workspace.")
+    key_ctx = await _require_profile(ctx, profile, pipeline=True)
+
+    try:
+        if not await check_budget(key_ctx.workspace_id, _state.pool):
+            raise ValueError("Monthly cost cap reached for this workspace.")
+        res_id = await reserve_credits(
+            key_ctx.workspace_id, 10.0, pool=_state.pool, raise_on_error=True
+        )
+        if not res_id:
+            raise ValueError("Insufficient credits for pipeline execution.")
+    except InsufficientCreditsError as exc:
+        raise ValueError(str(exc)) from exc
 
     fmt_hint = {
         "linkedin-carousel": (
@@ -330,21 +376,29 @@ async def draft_post(
         {"role": "user", "content": f"{fmt_hint}\n\nBrief:\n{brief}"},
     ]
 
-    text, pt, ct, cost = await _deepseek(
-        messages, op="draft_post", max_tokens=1500, temperature=0.4
-    )
-
-    await meter_call(
-        workspace_id=key_ctx.workspace_id,
-        api_key_id=key_ctx.key_id,
-        tool_name="draft_post",
-        profile_name=profile,
-        model=_DS_MODEL,
-        prompt_tokens=pt,
-        completion_tokens=ct,
-        cost_usd=cost,
-        pool=_state.pool,
-    )
+    cost = 0.0
+    pt = 0
+    ct = 0
+    text = ""
+    try:
+        text, pt, ct, cost = await _deepseek(
+            messages, op="draft_post", max_tokens=1500, temperature=0.4
+        )
+    finally:
+        await settle_credits(
+            res_id,
+            actual_cost_credits=round(cost * 1000.0, 4),
+            pool=_state.pool,
+            workspace_id=key_ctx.workspace_id,
+            runtime="mcp",
+            tool_name="draft_post",
+            profile_name=profile,
+            model=_DS_MODEL,
+            prompt_tokens=pt,
+            completion_tokens=ct,
+            cost_usd=cost,
+            api_key_id=key_ctx.key_id,
+        )
 
     return text
 
@@ -371,11 +425,23 @@ async def draft_outreach(
     Returns:
         Draft outreach message as a string.
     """
-    key_ctx = await _require_pipeline(ctx)
-    _safe_segment(profile, "profile")
+    if len(brief) > 100_000:
+        raise ValueError(
+            f"Brief size ({len(brief)} chars) exceeds maximum allowed (100,000 chars) for prompt safety."
+        )
 
-    if not await check_budget(key_ctx.workspace_id, _state.pool):
-        raise ValueError("Monthly cost cap reached for this workspace.")
+    key_ctx = await _require_profile(ctx, profile, pipeline=True)
+
+    try:
+        if not await check_budget(key_ctx.workspace_id, _state.pool):
+            raise ValueError("Monthly cost cap reached for this workspace.")
+        res_id = await reserve_credits(
+            key_ctx.workspace_id, 10.0, pool=_state.pool, raise_on_error=True
+        )
+        if not res_id:
+            raise ValueError("Insufficient credits for pipeline execution.")
+    except InsufficientCreditsError as exc:
+        raise ValueError(str(exc)) from exc
 
     fmt_hint = {
         "email": "Draft a cold outreach email. Subject line + body. ≤150 words.",
@@ -394,20 +460,161 @@ async def draft_outreach(
         {"role": "user", "content": f"{fmt_hint}\n\nBrief:\n{brief}"},
     ]
 
-    text, pt, ct, cost = await _deepseek(
-        messages, op="draft_outreach", max_tokens=600, temperature=0.4
-    )
+    cost = 0.0
+    pt = 0
+    ct = 0
+    text = ""
+    try:
+        text, pt, ct, cost = await _deepseek(
+            messages, op="draft_outreach", max_tokens=600, temperature=0.4
+        )
+    finally:
+        await settle_credits(
+            res_id,
+            actual_cost_credits=round(cost * 1000.0, 4),
+            pool=_state.pool,
+            workspace_id=key_ctx.workspace_id,
+            runtime="mcp",
+            tool_name="draft_outreach",
+            profile_name=profile,
+            model=_DS_MODEL,
+            prompt_tokens=pt,
+            completion_tokens=ct,
+            cost_usd=cost,
+            api_key_id=key_ctx.key_id,
+        )
 
-    await meter_call(
-        workspace_id=key_ctx.workspace_id,
-        api_key_id=key_ctx.key_id,
-        tool_name="draft_outreach",
-        profile_name=profile,
-        model=_DS_MODEL,
-        prompt_tokens=pt,
-        completion_tokens=ct,
-        cost_usd=cost,
+    return text
+
+
+# ── TASK tools (Fleet Executor PRD §3 G9) ───────────────────────────────────
+
+from .tasks import (  # noqa: E402
+    artifacts_task,
+    cost_task,
+    describe_task,
+    dispatch_task,
+    status_task,
+)
+
+
+@mcp.tool()
+async def describe(pack: str | None = None, ctx: Context = None) -> dict:
+    """Enumerate available packs or describe a specific pack.
+
+    Args:
+        pack: Optional pack name to describe. If omitted, returns all available packs.
+    """
+    return await describe_task(pack=pack, ctx=ctx, pool=_state.pool)
+
+
+@mcp.tool()
+async def dispatch(
+    pack: str,
+    variant: str = "default",
+    inputs: dict | None = None,
+    context: dict | None = None,
+    external_ref: str | None = None,
+    client_request_id: str | None = None,
+    ctx: Context = None,
+) -> dict:
+    """Queue a pack-mode run with inputs, context, and external correlation ID.
+
+    Args:
+        pack: Target pack name (e.g. "prospect", "market-scan").
+        variant: Pack variant name (defaults to "default").
+        inputs: Parameter inputs defined by the pack.
+        context: Run-scoped caller-supplied context documents.
+        external_ref: Optional caller-supplied correlation ID.
+        client_request_id: Optional client-side UUID for idempotent replay.
+    """
+    return await dispatch_task(
+        pack=pack,
+        variant=variant,
+        inputs=inputs,
+        context=context,
+        external_ref=external_ref,
+        client_request_id=client_request_id,
+        ctx=ctx,
         pool=_state.pool,
     )
 
-    return text
+
+@mcp.tool()
+async def status(run_id: str, ctx: Context = None) -> dict:
+    """Check current status and execution details of a run.
+
+    Args:
+        run_id: UUID of the run to inspect.
+    """
+    return await status_task(run_id=run_id, ctx=ctx, pool=_state.pool)
+
+
+@mcp.tool()
+async def artifacts(run_id: str, ctx: Context = None) -> dict:
+    """List file deliverables generated by a completed or in-flight run.
+
+    Args:
+        run_id: UUID of the run whose artifacts to retrieve.
+    """
+    return await artifacts_task(run_id=run_id, ctx=ctx, pool=_state.pool)
+
+
+@mcp.tool()
+async def cost(run_id: str | None = None, ctx: Context = None) -> dict:
+    """Get cost and token usage breakdown for a specific run or caller rollup.
+
+    Args:
+        run_id: Optional UUID of a specific run. If omitted, returns aggregate spend.
+    """
+    return await cost_task(run_id=run_id, ctx=ctx, pool=_state.pool)
+
+
+# ── DATA tools (read database state directly) ─────────────────────────────────
+
+
+@mcp.tool()
+async def get_prospect_account(
+    account_id: str | None = None,
+    slug: str | None = None,
+    ctx: Context = None,
+) -> dict:
+    """Retrieve an account record from the workspace's PostgreSQL database."""
+    from .data import get_prospect_account_task
+
+    key_ctx = await _require_key(ctx)
+    return await get_prospect_account_task(
+        key_ctx=key_ctx, pool=_state.pool, account_id=account_id, slug=slug
+    )
+
+
+@mcp.tool()
+async def list_prospect_accounts(
+    status: str | None = None,
+    tier: str | None = None,
+    limit: int = 50,
+    ctx: Context = None,
+) -> list[dict]:
+    """List prospect accounts in the workspace's PostgreSQL database."""
+    from .data import list_prospect_accounts_task
+
+    key_ctx = await _require_key(ctx)
+    return await list_prospect_accounts_task(
+        key_ctx=key_ctx, pool=_state.pool, status=status, tier=tier, limit=limit
+    )
+
+
+@mcp.tool()
+async def check_suppression(
+    email: str | None = None,
+    name: str | None = None,
+    company_domain: str | None = None,
+    ctx: Context = None,
+) -> dict:
+    """Check if an email or person is on the workspace's suppression/DNC list."""
+    from .data import check_suppression_task
+
+    key_ctx = await _require_key(ctx)
+    return await check_suppression_task(
+        key_ctx=key_ctx, pool=_state.pool, email=email, name=name, company_domain=company_domain
+    )

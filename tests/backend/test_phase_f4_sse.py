@@ -28,7 +28,7 @@ os.environ.setdefault("BACKEND_JWT_EXPIRE_MINUTES", "60")
 os.environ.setdefault("BACKEND_REFRESH_EXPIRE_DAYS", "30")
 
 from backend.auth import create_access_token
-from backend.deps import WorkspaceCtx
+from backend.callers.principal import Principal
 from backend.routers import runs as runs_router
 from backend.services.runs import stream as runs_stream  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
@@ -90,8 +90,11 @@ class _FakeRequest:
         return self.disconnected
 
 
-def _ws() -> WorkspaceCtx:
-    return WorkspaceCtx(USER_ID, WS_ID, "pro")
+def _ws() -> Principal:
+    """Fleet Phase A (Task 3): stream_run's identity parameter is now a Principal (was
+    WorkspaceCtx). A kind="user" Principal is the byte-identical equivalent for every
+    assertion this protocol-0 regression suite pins — nothing here is relaxed."""
+    return Principal(kind="user", subject=USER_ID, workspace_id=WS_ID, entitlement="pro")
 
 
 def _parse_frames(text: str) -> list[tuple[str, dict]]:

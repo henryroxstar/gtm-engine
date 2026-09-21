@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,7 +12,13 @@ from ..cells import build_cells, intent_profile, supply_profile
 from ..outcomes import read_outcomes
 from ..paths import resolve_content_root
 from ..prospect_paths import evals_dir
-from ..prospect_status import STATUSES, UnmappedStatus, needs_address, status_of
+from ..prospect_status import (
+    STATUSES,
+    UnmappedStatus,
+    compute_attrition_receipt,
+    needs_address,
+    status_of,
+)
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
 from ..prospects_state import load_latest
@@ -420,6 +427,57 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         for src in cellmodel["sources"]
     ]
 
+    latest_items = load_latest(profile, content_root).get("items", [])
+    if latest_items:
+        attrition_receipt = compute_attrition_receipt(latest_items).to_dict()
+    else:
+        lane_records = _read_lane_state(profile, content_root)
+        items = (
+            [
+                {"company": r.get("email", ""), "lane": r.get("lane"), "status": r.get("lane")}
+                for r in lane_records
+            ]
+            if lane_records
+            else []
+        )
+        attrition_receipt = (
+            compute_attrition_receipt(items).to_dict()
+            if items
+            else {
+                "total_intake": 0,
+                "failed_fit": 0,
+                "failed_intent": 0,
+                "failed_enrichment": 0,
+                "held": 0,
+                "ready": 0,
+                "rejected": 0,
+            }
+        )
+
+    now, ttl_seconds, safe_downloads = time.time(), 7 * 86400, []
+    if seq_dir.exists():
+        for item in sorted(seq_dir.glob("ready-to-load*.csv")):
+            if item.is_file() and not item.name.startswith("."):
+                try:
+                    age_s = now - item.stat().st_mtime
+                    if age_s < ttl_seconds:
+                        rel = str(item.relative_to(_prospects_dir(profile, content_root).parent))
+                        safe_downloads.append(
+                            {"name": item.name, "path": rel, "age_days": round(age_s / 86400, 1)}
+                        )
+                except OSError:
+                    continue
+
+    active_seqs = [
+        s
+        for s in status.get("sequences", [])
+        if str(s.get("status", "")).lower() in ("active", "running")
+    ]
+    paused_seqs = [
+        s for s in status.get("sequences", []) if str(s.get("status", "")).lower() == "paused"
+    ]
+    go_live_status = "active" if active_seqs else ("paused" if paused_seqs else "staged")
+
     return {
         "profile": profile,
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
@@ -447,4 +505,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         # Profile-wide, like `market`/`supply`/`intent` above — the router's last route
         # is not scoped to one campaign, so `scope_to_campaign` leaves this key untouched.
         "prospect_status": prospect_status_model(profile, content_root),
+        "attrition_receipt": attrition_receipt,
+        "safe_downloads": safe_downloads,
+        "go_live_status": go_live_status,
     }

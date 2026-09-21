@@ -23,7 +23,9 @@ import argparse
 import csv
 import json
 import re
+import sys
 from pathlib import Path
+from typing import Any
 
 from gtm_core.ledgers import Ledgers
 from gtm_core.paths import PathConfig, resolve_content_root, resolve_profiles_root
@@ -270,6 +272,119 @@ def ingest(
     }
 
 
+CANONICAL_26_FIELDS: tuple[str, ...] = (
+    "id",
+    "company",
+    "segment",
+    "market",
+    "tier",
+    "score",
+    "why_now",
+    "qualification_path",
+    "contact_name",
+    "contact_title",
+    "status",
+    "priority",
+    "heat",
+    "intent_feeds",
+    "new_in_role",
+    "signal_source_url",
+    "signal_observed",
+    "signal_evidence",
+    "signal_subject",
+    "signal_agent_kind",
+    "category_relation",
+    "signal_column",
+    "hook_cell",
+    "verdict",
+    "verdict_reason",
+    "lane",
+    "lane_reason",
+)
+
+
+def build_standard_item(raw: dict[str, Any]) -> dict[str, Any]:
+    """Expand a minimal parsed finding into the full 26-field latest.json item shape.
+
+    Applies deterministic defaults safely so the LLM does not need to hand-roll
+    the complete 26-field structure in standard mode (PRD 2026-09-20).
+    """
+    company = str(raw.get("company") or raw.get("name") or "").strip()
+    score_val = raw.get("score") if raw.get("score") is not None else raw.get("fit_score", 0)
+    try:
+        score = int(score_val)
+    except (ValueError, TypeError):
+        score = 0
+
+    tier = str(raw.get("tier") or ("A" if score >= 8 else "B")).upper()
+    why_now = str(raw.get("why_now") or "").strip()
+    evidence = str(raw.get("signal_evidence") or raw.get("evidence") or "").strip()
+
+    verdict = raw.get("verdict")
+    if not verdict:
+        verdict = "send" if why_now else "re-angle"
+
+    verdict_reason = raw.get("verdict_reason")
+    if verdict_reason is None:
+        verdict_reason = "" if verdict == "send" else "no dated public why-now found this pass"
+
+    lane = raw.get("lane")
+    if not lane:
+        lane = "personalised" if verdict == "send" else "generic"
+
+    lane_reason = raw.get("lane_reason")
+    if lane_reason is None:
+        lane_reason = "" if lane == "personalised" else "generic fallback"
+
+    # Derive agent kind if not specified
+    agent_kind = raw.get("signal_agent_kind")
+    if not agent_kind:
+        text = (why_now + " " + evidence).lower()
+        agent_kind = "ai" if any(w in text for w in ("ai", "agent", "mcp", "llm")) else "none"
+
+    item: dict[str, Any] = {
+        "id": raw.get("id") or _slug(company),
+        "company": company,
+        "segment": (raw.get("segment") or "startup").lower(),
+        "market": raw.get("market", ""),
+        "tier": tier,
+        "score": score,
+        "why_now": why_now,
+        "qualification_path": raw.get("qualification_path", ""),
+        "contact_name": raw.get("contact_name", ""),
+        "contact_title": raw.get("contact_title", ""),
+        "status": raw.get("status", "new"),
+        "priority": raw.get("priority") or ("high" if tier == "A" else "medium"),
+        "heat": int(raw.get("heat", 0)),
+        "intent_feeds": list(raw.get("intent_feeds") or []),
+        "new_in_role": bool(raw.get("new_in_role", False)),
+        "signal_source_url": raw.get("signal_source_url", ""),
+        "signal_observed": raw.get("signal_observed", ""),
+        "signal_evidence": evidence,
+        "signal_subject": raw.get("signal_subject") or company,
+        "signal_agent_kind": agent_kind,
+        "category_relation": raw.get("category_relation", "prospect"),
+        "signal_column": raw.get("signal_column", ""),
+        "hook_cell": raw.get("hook_cell", ""),
+        "verdict": verdict,
+        "verdict_reason": verdict_reason,
+        "lane": lane,
+        "lane_reason": lane_reason,
+    }
+
+    # Pass through optional fields for HubSpot CSV export and enrichment
+    for k, v in raw.items():
+        if k not in item:
+            item[k] = v
+
+    return item
+
+
+def build_standard_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expand a list of minimal findings into canonical 26-field items."""
+    return [build_standard_item(it) for it in raw_items]
+
+
 def finalize(
     profile: str,
     scored_items: list[dict],
@@ -278,20 +393,28 @@ def finalize(
     *,
     run_date: str | None = None,
     rubric_version: str | None = None,
+    standard: bool = False,
 ) -> dict:
     """Merge already-scored items into latest.json (snapshot-safe, merge-only) and
     emit the run's HubSpot CSV. ``scored_items`` come from the skill's scoring pass.
 
+    If ``standard`` is True (or if items lack canonical fields), they are automatically
+    expanded into the 26-field shape via :func:`build_standard_items`.
+
     The CSV follows the exact column contract in
     ``references/hubspot-csv-map.md`` (the doc standard mode's Step 7 already writes
-    to by hand) — same header names/order/custom-property set, so bulk-mode output is
-    a drop-in HubSpot import identical in shape to a standard-mode run, not a
-    parallel, incompatible format.
+    to by hand) — same header names/order/custom-property set, so bulk-mode and standard-mode
+    outputs are drop-in HubSpot imports identical in shape.
     """
-    summary = upsert_latest(profile, scored_items, source_run, content_root=content_root)
+    if standard or any("id" not in it or "status" not in it for it in scored_items):
+        items_to_save = build_standard_items(scored_items)
+    else:
+        items_to_save = scored_items
+
+    summary = upsert_latest(profile, items_to_save, source_run, content_root=content_root)
     root = content_root or resolve_content_root()
     csv_path = root / profile / "prospects" / f"prospects-{source_run}-hubspot.csv"
-    _write_hubspot_csv(scored_items, csv_path, run_date=run_date, rubric_version=rubric_version)
+    _write_hubspot_csv(items_to_save, csv_path, run_date=run_date, rubric_version=rubric_version)
     summary["hubspot_csv"] = str(csv_path)
     return summary
 
@@ -440,6 +563,21 @@ def _cli(argv: list[str] | None = None) -> int:
     ing.add_argument("--source-run", required=True)
     ing.add_argument("--exclude", default=None, help="path to exclude-set JSON ({companies:[...]})")
 
+    stg = sub.add_parser(
+        "stage-standard",
+        help="expand minimal array of findings to full 26-field latest.json item shape",
+    )
+    stg.add_argument(
+        "--items",
+        required=True,
+        help="path to JSON array of minimal findings, or '-' for stdin",
+    )
+    stg.add_argument(
+        "--out",
+        default=None,
+        help="path to output full items JSON (defaults to stdout)",
+    )
+
     fin = sub.add_parser("finalize", help="merge scored items -> latest.json + hubspot csv")
     fin.add_argument("--profile", required=True)
     fin.add_argument("--items", required=True, help="path to a JSON array of scored item objects")
@@ -450,11 +588,29 @@ def _cli(argv: list[str] | None = None) -> int:
     fin.add_argument(
         "--rubric-version", default=None, help="for the HubSpot CSV's GTM_Rubric_Version column"
     )
+    fin.add_argument(
+        "--standard",
+        action="store_true",
+        help="inflate minimal standard-mode items into 26-field shape before merge",
+    )
 
     args = ap.parse_args(argv)
     if args.cmd == "ingest":
         summary = ingest(args.csv, args.profile, args.source_run, exclude_path=args.exclude)
         print(json.dumps(summary, indent=2))
+        return 0
+    if args.cmd == "stage-standard":
+        if args.items == "-":
+            raw_text = sys.stdin.read()
+        else:
+            raw_text = Path(args.items).read_text(encoding="utf-8")
+        raw_items = json.loads(raw_text)
+        expanded = build_standard_items(raw_items)
+        out_json = json.dumps(expanded, indent=2, ensure_ascii=False)
+        if args.out:
+            Path(args.out).write_text(out_json, encoding="utf-8")
+        else:
+            print(out_json)
         return 0
     if args.cmd == "finalize":
         items = json.loads(Path(args.items).read_text(encoding="utf-8"))
@@ -464,6 +620,7 @@ def _cli(argv: list[str] | None = None) -> int:
             args.source_run,
             run_date=args.run_date,
             rubric_version=args.rubric_version,
+            standard=args.standard,
         )
         print(json.dumps(summary, indent=2))
         return 0

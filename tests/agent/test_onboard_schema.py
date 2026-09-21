@@ -271,3 +271,160 @@ def test_buyer_journey_additional_property_fails(schema):
 
     doc = {**MINIMAL_VALID, "buyer_journey": {**_BUYER_JOURNEY, "unexpected": "x"}}
     assert validate(doc, schema), "Expected errors for an unknown buyer_journey key"
+
+
+# ── the schema reaches the code path that renders (issue #267) ────────────────
+#
+# Every test above validates a hand-written fixture against the schema file. That is exactly the
+# coverage staging had on 2026-09-17 when every real onboarding 500'd: `_parse_and_validate_draft`
+# never read this schema, so a model that returned `pillars` as a list of objects sailed through
+# to `render_profile.py`, where `", ".join(pillars)` raised `TypeError`. A schema only the test
+# tree checks is not enforcement. These tests pin the wiring, not the schema.
+
+
+def _draft_json(**overrides) -> str:
+    return json.dumps({**MINIMAL_VALID, **overrides})
+
+
+def test_the_extractor_coerces_the_draft_shape_that_crashed_staging():
+    """`pillars` as objects — the shape live models emit — is coerced to strings and accepted."""
+    from agent.onboard.extract import _parse_and_validate_draft
+
+    crashing = [
+        {"name": "DevOps", "description": "Shipping faster."},
+        {"name": "Platform engineering", "description": "Paved roads."},
+    ]
+    draft = _parse_and_validate_draft(_draft_json(pillars=crashing))
+    assert draft["pillars"] == ["DevOps", "Platform engineering"]
+
+
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("pillars", "not-a-list"),
+        ("gaps", [{"field": "pricing", "why": "no pricing page"}]),
+        ("company", {**MINIMAL_VALID["company"], "markets": [{"region": "United States"}]}),
+        (
+            "voice",
+            {**MINIMAL_VALID["voice"], "principles": [{"p": "Be brief."}, {"p": "Use data."}]},
+        ),
+        ("voice", {**MINIMAL_VALID["voice"], "ban_list": [{"word": "synergy"}]}),
+        ("voice", {**MINIMAL_VALID["voice"], "examples": [{"text": "A sample post."}]}),
+        (
+            "products",
+            [{**MINIMAL_VALID["products"][0], "capabilities": [{"name": "prospect"}]}],
+        ),
+    ],
+)
+def test_the_extractor_refuses_objects_in_every_list_the_renderer_joins(field, bad):
+    """`pillars` is coerced; these are the rest of `", ".join(...)`'s inputs in render_profile.py.
+    The schema check covers all of them."""
+    from agent.onboard.errors import OnboardingExtractError
+    from agent.onboard.extract import _parse_and_validate_draft
+
+    with pytest.raises(OnboardingExtractError):
+        _parse_and_validate_draft(_draft_json(**{field: bad}))
+
+
+def test_a_well_formed_draft_still_passes_the_extractor_unchanged():
+    """Negative control: the check discriminates. Without this, a validator that refused
+    everything would pass every test above (§R18)."""
+    from agent.onboard.extract import _parse_and_validate_draft
+
+    assert _parse_and_validate_draft(_draft_json()) == MINIMAL_VALID
+
+
+def test_a_well_formed_draft_survives_a_markdown_fence():
+    from agent.onboard.extract import _parse_and_validate_draft
+
+    assert _parse_and_validate_draft(f"```json\n{_draft_json()}\n```") == MINIMAL_VALID
+
+
+# ── the contract admits what the prompt asks for (issue #267) ─────────────────
+#
+# body_template.md's `### brand` section (commit c14698de, 2026-09-03) asks for ten fields and
+# defines `palette` as colour roles. That commit never touched this schema, so for two weeks the
+# contract refused the data the prompt requested — invisible while nothing validated, and a hard
+# 502 the moment something did. These tests are the pairing the drift got past.
+
+
+def test_the_brand_block_the_prompt_asks_for_is_accepted(schema):
+    from tests.contracts.minijsonschema import validate
+
+    doc = {
+        **MINIMAL_VALID,
+        "brand": {
+            "brand_document": None,
+            "palette": {"canvas": "#0B0B0C", "ink": "#F4F4F5", "primary": "#2F6FEB"},
+            "gradients": {"dusk": ["#2F6FEB", "#7C3AED"]},
+            "sub_brand_map": {"acme-deploy": "none, confirmed"},
+            "typography": {"display": "Unset", "body": "Unset"},
+            "logo_files": [],
+            "mode_default": "dark",
+            "imagery": {"house_look": "Plain workshop photography.", "hard_rejects": []},
+            "accessibility": {"contrast": "AA"},
+            "pronunciation": "AK-mee",
+            "assets_note": "No asset pack on the site.",
+        },
+    }
+    assert validate(doc, schema) == [], validate(doc, schema)
+
+
+def test_a_palette_of_hex_codes_is_still_accepted(schema):
+    """The older sampled-from-the-site form. Both shapes render; neither may be refused."""
+    from tests.contracts.minijsonschema import validate
+
+    doc = {**MINIMAL_VALID, "brand": {"palette": ["#000000", "#FFFFFF"]}}
+    assert validate(doc, schema) == []
+
+
+def test_a_brand_with_nothing_obtainable_is_accepted(schema):
+    """The prompt's standing rule is to leave what could not be obtained UNSET, not to invent it."""
+    from tests.contracts.minijsonschema import validate
+
+    assert validate({**MINIMAL_VALID, "brand": {}}, schema) == []
+    assert validate({**MINIMAL_VALID, "brand": {"palette": None}}, schema) == []
+
+
+def test_an_unrequested_brand_key_is_still_refused(schema):
+    """Negative control: the brand block was widened to what the prompt asks for, not opened."""
+    from tests.contracts.minijsonschema import validate
+
+    doc = {**MINIMAL_VALID, "brand": {"palette": [], "api_key": "should-never-be-here"}}
+    assert validate(doc, schema), "Expected an error for a brand key nobody asked for"
+
+
+@pytest.mark.parametrize(
+    "delta",
+    [
+        {"persona": "VP Eng", "notes": "Enters at Solution-aware."},
+        {"persona": "VP Eng", "entry_stage": "Solution-aware", "what_leads": "Proof."},
+        {"title": "VP Eng", "enters_at": "Solution-aware", "lead": "Proof."},
+    ],
+)
+def test_persona_deltas_accept_the_field_names_a_model_actually_picks(schema, delta):
+    """The prompt names four concepts and no field names, so live runs invented two different
+    sets. A schema cannot enforce names the prompt never gave; render_icp.py reads `persona` and
+    `notes` with defaults and degrades rather than crashing on the rest."""
+    from tests.contracts.minijsonschema import validate
+
+    doc = {**MINIMAL_VALID, "buyer_journey": {"persona_deltas": [delta]}}
+    assert validate(doc, schema) == [], validate(doc, schema)
+
+
+def test_a_market_the_source_never_stated_is_not_forced(schema):
+    from tests.contracts.minijsonschema import validate
+
+    doc = {
+        **MINIMAL_VALID,
+        "company": {**MINIMAL_VALID["company"], "markets": [], "social_handle": None},
+    }
+    assert validate(doc, schema) == []
+
+
+def test_pasted_text_is_a_source_type(schema):
+    """Both live runs returned 'paste'; `_source_label` already treats it as `text` does."""
+    from tests.contracts.minijsonschema import validate
+
+    doc = {**MINIMAL_VALID, "source": {"type": "paste", "value": "About us..."}}
+    assert validate(doc, schema) == []

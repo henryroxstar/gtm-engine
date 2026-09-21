@@ -16,15 +16,21 @@ the operator approves the exact bytes via this endpoint.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from ..callers.dependency import require_human
+from ..callers.limits import enforce_agent_daily_cap, enforce_principal_rate
+from ..callers.ports import Refusal
+from ..callers.principal import Principal
+from ..callers.rest import require_principal
 from ..database import workspace_scope
-from ..deps import WorkspaceCtx, require_auth
+from ..deps import require_auth  # noqa: F401 — still the dep for every route not in D14
 from ..ratelimit import limiter
-from ..schemas import GateRequest, RunRequest, RunResponse
+from ..schemas import ERROR_RESPONSES, GateRequest, RunRequest, RunResponse
 from ..services.runs.admission import (
     find_existing_run_id,
     insert_run_row,
@@ -32,12 +38,15 @@ from ..services.runs.admission import (
     resolve_pack_for_run,
 )
 from ..services.runs.budget import (  # noqa: F401
+    RESERVATION_ESTIMATE_CREDITS,
     RESERVATION_ESTIMATE_USD,
     _reservation_enabled,
     _reserve_or_deny,
     _settle_run_reservations,
     _track_run,
     admits,
+    reserve_credits,
+    settle_credits,
 )
 from ..services.runs.decisions import (
     cancel,
@@ -73,13 +82,20 @@ from ..services.runs.persistence import (  # noqa: F401
     _persist_node,
     _upsert_block,
 )
+from ..services.runs.principal_admission import (
+    admit_run_creation,
+    audit_service_refusal,
+    audit_service_refusal_from,
+    authorize_read,
+    read_scope_for_principal,
+)
 from ..services.runs.queries import (
-    attachment_headers,
     fetch_artifact,
     fetch_recent_runs,
+    fetch_run_agent_id,
     fetch_run_artifacts,
     fetch_run_detail,
-    resolve_artifact_path,
+    resolve_artifact_response,
 )
 from ..services.runs.queue import (  # noqa: F401
     LEASE_S,
@@ -117,15 +133,16 @@ from ..services.runs.state import (  # noqa: F401
 from ..services.runs.stream import run_event_stream
 from ..types import UuidStr
 
-router = APIRouter(prefix="/runs", tags=["runs"])
+router = APIRouter(prefix="/runs", tags=["runs"], responses=ERROR_RESPONSES)
 
 
 @router.post("", response_model=RunResponse, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("30/minute")
 async def create_run(
     body: RunRequest,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
 ) -> RunResponse:
     """Queue a pipeline run. Returns immediately; poll GET /runs/{id} for status.
 
@@ -147,55 +164,80 @@ async def create_run(
     simply returns the original run's current state. The actual concurrency-safety
     backstop for two requests racing at the same instant lives inside insert_run_row's own
     `ON CONFLICT` (this fast path can't close that window; the transaction can).
+
+    Fleet Phase A: a `kind="service"` principal may dispatch here too, narrowed by
+    `admit_run_creation` (binds/refuses `body.agent_id`, refuses prompt mode) BEFORE
+    `resolve_acting_agent` sees the body, and by `enforce_agent_daily_cap` after the
+    budget check. The idempotent-replay fast path is scoped like every other read.
     """
     pool = request.app.state.pool
+    ws = principal.workspace_id
     run_id = str(uuid.uuid4())
 
     if body.client_request_id is not None:
-        existing_id = await find_existing_run_id(pool, ws.workspace_id, body.client_request_id)
+        existing_id = await find_existing_run_id(pool, ws, body.client_request_id)
         if existing_id is not None:
-            detail = await fetch_run_detail(pool, ws.workspace_id, existing_id)
+            detail = await fetch_run_detail(pool, ws, existing_id)
             if detail is not None:
+                await authorize_read(request, principal, detail.get("agent_id"))
                 return RunResponse(**detail)
 
-    agent_row, profile_name = await resolve_acting_agent(pool, ws.workspace_id, body)
-    if body.pack is not None:
-        # Called for its refusals: an unknown/unactivated/unentitled/unconfigured/not-ready
-        # variant raises here, before any state is reserved. The resolved variant itself is
-        # re-derived inside the executor, under the workspace-scoped Config.
-        await resolve_pack_for_run(
-            request.app.state.cfg.repo_root,
-            ws.workspace_id,
-            ws.entitlement,
-            profile_name,
-            agent_row,
-            body,
-        )
+    try:
+        admit_run_creation(principal, body)
+    except Refusal as exc:
+        await audit_service_refusal_from(request.app.state.cfg, principal, request.url.path, exc)
+        raise
 
-    # RL-08/M-06: refuse an over-cap run synchronously, before any row is written or a
-    # concurrency slot is spent — the same fail-closed verdict the executor's own
-    # _budget_guard/_reserve_or_deny check before every dispatch batch (unchanged,
-    # defense-in-depth against a cap exhausted by other runs in the admission→dispatch
-    # gap). agent_budget_usd mirrors insert_run_row's own computation below so the two
-    # agree; the two-line duplication is cheaper than reordering insert_run_row's return.
+    try:
+        agent_row, profile_name = await resolve_acting_agent(pool, ws, body)
+        if body.pack is not None:
+            # Called for its refusals — see resolve_pack_for_run's own docstring for the
+            # full ordering; the resolved variant is re-derived in the executor.
+            await resolve_pack_for_run(
+                request.app.state.cfg.repo_root,
+                ws,
+                principal.entitlement,
+                profile_name,
+                agent_row,
+                body,
+            )
+        elif getattr(body, "context", None):
+            from ..callers.dependency import refusal_to_http
+            from ..callers.inlet_guard import DefaultInletGuard
+
+            try:
+                DefaultInletGuard().guard_context(body.context, ())
+            except Refusal as exc:
+                raise refusal_to_http(exc) from exc
+    except HTTPException as exc:
+        await audit_service_refusal(request.app.state.cfg, principal, request.url.path, exc)
+        raise
+
+    # RL-08/M-06: refuse an over-cap run before any row/slot is spent — mirrors the
+    # executor's own pre-dispatch check. agent_budget_usd mirrors insert_run_row's own
+    # computation below so the two agree.
     agent_id = agent_row["agent_id"] if agent_row is not None else None
     agent_budget_usd = (
         float(agent_row["monthly_budget_usd"])
         if agent_row is not None and agent_row["monthly_budget_usd"] is not None
         else None
     )
-    if not await admits(pool, ws.workspace_id, agent_id, agent_budget_usd):
+    if not await admits(pool, ws, agent_id, agent_budget_usd):
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             {"code": "cost_cap_reached", "message": "monthly cost cap reached"},
         )
 
+    # Fleet Phase A, Task 4: a per-agent daily dispatch ceiling — narrowing only, applies
+    # to every caller kind (the agent's own cap, not a service-only rule).
+    await enforce_agent_daily_cap(
+        pool, request.app.state.cfg, principal, agent_row, request.url.path
+    )
+
     # Writes the queued row + payload, and enforces the per-workspace concurrency cap
-    # (429 over it) in the SAME transaction, so a refusal leaves no row behind. RT-04:
-    # `existed` is True only when this exact instant lost an idempotency race — the
-    # fast-path check above already covers the (overwhelmingly common) sequential-retry
-    # case, so reaching `existed=True` here means two requests with the same
-    # client_request_id truly overlapped in time.
+    # (429 over it) in the SAME transaction. RT-04: `existed` is True only when this
+    # exact instant lost an idempotency race — the fast path above already covers the
+    # (overwhelmingly common) sequential-retry case.
     (
         effective_run_id,
         existed,
@@ -204,29 +246,38 @@ async def create_run(
         _run_language,
     ) = await insert_run_row(
         pool,
-        ws.workspace_id,
+        ws,
         run_id,
         profile_name=profile_name,
         agent_row=agent_row,
         body=body,
+        principal=principal,
     )
     if existed:
-        detail = await fetch_run_detail(pool, ws.workspace_id, effective_run_id)
+        detail = await fetch_run_detail(pool, ws, effective_run_id)
         if detail is not None:
+            await authorize_read(request, principal, detail.get("agent_id"))
             return RunResponse(**detail)
     return RunResponse(
         run_id=effective_run_id,
         status="queued",
         profile_name=profile_name,
         agent_id=run_agent_id,
+        pack=body.pack,
+        variant=body.variant,
+        created_at=datetime.now(UTC).isoformat(),
+        principal_kind=principal.kind,
+        principal_id=principal.subject,
+        external_ref=getattr(body, "external_ref", None),
     )
 
 
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: UuidStr,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
 ) -> RunResponse:
     """Poll a run for current status and output.
 
@@ -234,19 +285,26 @@ async def get_run(
     polling client rebuilds the same state a streaming client would. None on runs
     with no persisted node rows (prompt mode, pre-A2 rows).
     """
-    detail = await fetch_run_detail(request.app.state.pool, ws.workspace_id, run_id)
+    pool = request.app.state.pool
+    ws = principal.workspace_id
+    detail = await fetch_run_detail(pool, ws, run_id)
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    await authorize_read(request, principal, detail.get("agent_id"))
     return RunResponse(**detail)
 
 
 @router.get("", response_model=list[RunResponse])
 async def list_runs(
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     agent_id: UuidStr | None = None,
     status: str | None = None,
+    external_ref: Annotated[
+        str | None, Query(max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    ] = None,
 ) -> list[RunResponse]:
     """List the most recent runs for this workspace, optionally narrowed to one
     agent's (A4) and/or one status — e.g. ``?status=awaiting_approval`` to find every
@@ -254,13 +312,20 @@ async def list_runs(
     ``limit`` and out of view. A bare `str`, not an enum, for the same reason
     RunResponse.status is (see schemas.py) — an unrecognized value just matches zero
     rows rather than 422ing.
+
+    Fleet Phase A: a `kind="service"` principal whose bound agent's `read_scope` is
+    `"own"` (the default) is FORCED to `agent_id=<its own agent>` — any caller-supplied
+    filter is overridden, never merely checked. `read_scope="workspace"` leaves the
+    filter as supplied (unrestricted, like a user).
     """
+    pool = request.app.state.pool
+    ws = principal.workspace_id
+    if principal.kind == "service":
+        read_scope = await read_scope_for_principal(pool, ws, principal)
+        if read_scope != "workspace":
+            agent_id = principal.agent_id
     rows = await fetch_recent_runs(
-        request.app.state.pool,
-        ws.workspace_id,
-        limit=limit,
-        agent_id=agent_id,
-        status=status,
+        pool, ws, limit=limit, agent_id=agent_id, status=status, external_ref=external_ref
     )
     return [RunResponse(**r) for r in rows]
 
@@ -268,8 +333,9 @@ async def list_runs(
 @router.post("/{run_id}/cancel", status_code=status.HTTP_200_OK)
 async def cancel_run(
     run_id: UuidStr,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
 ) -> dict:
     """Cancel a pending, running, or gate-paused run.
 
@@ -280,9 +346,13 @@ async def cancel_run(
     woken so the background task exits cleanly. 409 if the run is already terminal.
     """
     pool = request.app.state.pool
-    current = await run_status(pool, ws.workspace_id, run_id)
+    ws = principal.workspace_id
+    current = await run_status(pool, ws, run_id)
     if current is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    if principal.kind == "service":
+        run_agent_id = await fetch_run_agent_id(pool, ws, run_id)
+        await authorize_read(request, principal, run_agent_id, write=True)
     if current in _TERMINAL_STATUSES:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -292,7 +362,7 @@ async def cancel_run(
                 "status": current,
             },
         )
-    await cancel(pool, ws.workspace_id, run_id)
+    await cancel(pool, ws, run_id)
     return {"run_id": run_id, "status": "canceled"}
 
 
@@ -300,7 +370,7 @@ async def cancel_run(
 async def decide_gate(
     run_id: UuidStr,
     body: GateRequest,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
 ) -> dict:
     """Approve, edit, or reject a gate.
@@ -308,9 +378,21 @@ async def decide_gate(
     The operator sees the exact pending content in GET /runs/{id} and POSTs
     their decision here. This is the backend equivalent of the Telegram approve
     button — publish.py makes the actual call only after this approves.
+
+    G4 (Fleet Phase A): resolves identity via `require_principal` (a service principal
+    CAN authenticate here) then IMMEDIATELY calls `require_human(principal)` — before
+    any gate-kind branching below — so a service principal is refused
+    `403 human_approval_required` at every gate kind uniformly. The gate admits
+    people only.
     """
+    try:
+        require_human(principal)
+    except Refusal as exc:
+        await audit_service_refusal_from(request.app.state.cfg, principal, request.url.path, exc)
+        raise
     pool = request.app.state.pool
-    row = await fetch_open_gate(pool, ws.workspace_id, run_id)
+    ws = principal.workspace_id
+    row = await fetch_open_gate(pool, ws, run_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
     if row["status"] != "awaiting_approval":
@@ -337,7 +419,33 @@ async def decide_gate(
             "This gate has no editable draft — edited content would not be applied. "
             "Approve or reject it.",
         )
-    if not await record_decision(pool, ws.workspace_id, run_id, body.decision, body.edited_content):
+
+    if body.decision == "edit" and row.get("gate_kind") == "publish":
+        profile_name = row.get("profile_name")
+        cfg = getattr(request.app.state, "cfg", None)
+        if profile_name and cfg is not None:
+            from agent.publish import (
+                candidate_disclosure_lines,
+                parse_publish_block,
+                validate_disclosure,
+            )
+
+            original_draft = parse_publish_block(row.get("pending_content") or "")
+            if original_draft and original_draft.identity_used:
+                from gtm_core.paths import workspace_profiles_root
+
+                profiles_root = workspace_profiles_root(ws, cfg.repo_root)
+                lines = tuple(candidate_disclosure_lines(profiles_root, profile_name))
+                reason = validate_disclosure(
+                    body.edited_content or "", original_draft.identity_used, lines
+                )
+                if reason:
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        {"code": "disclosure_missing", "message": reason},
+                    )
+
+    if not await record_decision(pool, ws, run_id, body.decision, body.edited_content):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {
@@ -345,17 +453,16 @@ async def decide_gate(
                 "message": "A decision has already been recorded for this gate",
             },
         )
-    publish_gate_resolved(
-        ws.workspace_id, run_id, body.decision, body.content_sha, body.edited_content
-    )
+    publish_gate_resolved(ws, run_id, body.decision, body.content_sha, body.edited_content)
     return {"run_id": run_id, "decision": body.decision}
 
 
 @router.get("/{run_id}/stream")
 async def stream_run(
     run_id: UuidStr,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
     chunks: bool = False,
     since: int | None = None,
 ) -> StreamingResponse:
@@ -363,27 +470,21 @@ async def stream_run(
 
     Additive to GET /runs/{id} polling, which is unchanged. On connect emits a
     `snapshot` of current state, then live `status` / `awaiting_approval` / `done`
-    events plus a ~15s `ping` heartbeat. The the billing-service client sends Authorization:
-    Bearer (CORS already allows it). Closing the stream never cancels the run —
+    events plus a ~15s `ping` heartbeat. Closing the stream never cancels the run —
     only POST /runs/{id}/cancel does that.
 
     `since` (protocol 2, opt-in) resumes from a durable event id — the server replays
-    exactly the events after it instead of emitting a snapshot. Omit it and the response
-    is byte-identical to protocol 1. It is a query parameter rather than the
-    `Last-Event-ID` header on purpose: a protocol-1 client's per-connection seq is
-    indistinguishable on the wire from a protocol-2 durable id, and a transport that
-    echoed the header automatically would opt a client into a shape it never asked for.
+    exactly the events after it instead of emitting a snapshot. Omit it and the
+    response is byte-identical to protocol 1 (`Last-Event-ID` is deliberately ignored —
+    see backend/services/runs/stream.py's module docstring).
     """
     pool = request.app.state.pool
+    ws = principal.workspace_id
 
-    # Per-workspace concurrent-stream cap. The asyncpg pool is small (max 10) and
-    # streams are long-lived; the stream itself holds no DB connection while idle
-    # (snapshot read below, then served from the in-memory queue).
-    # The counter is per PROCESS, not per workspace across the deployment: it guards THIS
-    # worker's pool, which is the resource at risk, and a stream is pinned to the worker
-    # holding its socket. At BACKEND_WORKERS > 1 the effective per-workspace ceiling is
-    # N x this — unlike the run cap, which counts in SQL because it bounds spend.
-    if _workspace_stream_count.get(ws.workspace_id, 0) >= _MAX_STREAMS_PER_WORKSPACE:
+    # Per-workspace concurrent-stream cap — per PROCESS, not per workspace across the
+    # deployment: it guards THIS worker's small asyncpg pool, and a stream is pinned to
+    # the worker holding its socket.
+    if _workspace_stream_count.get(ws, 0) >= _MAX_STREAMS_PER_WORKSPACE:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             {
@@ -393,24 +494,21 @@ async def stream_run(
             },
         )
 
-    # 404 fast (before opening a stream) if the run isn't visible to this workspace.
-    async with workspace_scope(pool, ws.workspace_id) as conn:
+    # 404 fast (before opening a stream). Unchanged shape for kind="user" (still one
+    # fetchrow call) — agent_id is only read for a service principal, right below.
+    async with workspace_scope(pool, ws) as conn:
         exists = await conn.fetchrow(
-            "SELECT 1 FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid",
-            run_id,
-            ws.workspace_id,
+            "SELECT 1 FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid", run_id, ws
         )
     if exists is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    if principal.kind == "service":
+        run_agent_id = await fetch_run_agent_id(pool, ws, run_id)
+        await authorize_read(request, principal, run_agent_id)
 
     return StreamingResponse(
         run_event_stream(
-            pool,
-            ws.workspace_id,
-            run_id,
-            is_disconnected=request.is_disconnected,
-            chunks=chunks,
-            since=since,
+            pool, ws, run_id, is_disconnected=request.is_disconnected, chunks=chunks, since=since
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -427,8 +525,9 @@ async def stream_run(
 @router.get("/{run_id}/artifacts")
 async def list_artifacts(
     run_id: UuidStr,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
 ) -> dict:
     """List the run's registered file deliverables (schemas/run-artifact.schema.json).
 
@@ -436,9 +535,14 @@ async def list_artifacts(
     reviewable at the gate. Unknown/cross-tenant run → 404 (scoped query finds
     nothing; no existence oracle).
     """
-    artifacts = await fetch_run_artifacts(request.app.state.pool, ws.workspace_id, run_id)
+    pool = request.app.state.pool
+    ws = principal.workspace_id
+    artifacts = await fetch_run_artifacts(pool, ws, run_id)
     if artifacts is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
+    if principal.kind == "service":
+        run_agent_id = await fetch_run_agent_id(pool, ws, run_id)
+        await authorize_read(request, principal, run_agent_id)
     return {"artifacts": artifacts}
 
 
@@ -447,28 +551,20 @@ async def list_artifacts(
 async def download_artifact(
     run_id: UuidStr,
     artifact_id: UuidStr,
-    ws: Annotated[WorkspaceCtx, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_principal)],
     request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
 ):
     """Serve one artifact's CURRENT bytes (pointer semantics), attachment-always."""
-    from fastapi.responses import FileResponse
-
-    from gtm_core.paths import workspace_content_root
-
-    row = await fetch_artifact(request.app.state.pool, ws.workspace_id, run_id, artifact_id)
+    pool = request.app.state.pool
+    ws = principal.workspace_id
+    row = await fetch_artifact(pool, ws, run_id, artifact_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+    if principal.kind == "service":
+        run_agent_id = await fetch_run_agent_id(pool, ws, run_id)
+        await authorize_read(request, principal, run_agent_id, "Artifact not found")
 
-    content_root = workspace_content_root(ws.workspace_id, request.app.state.cfg.repo_root)
-    path, reason = resolve_artifact_path(content_root, row["rel_path"])
-    if path is None:
-        if reason == "escaped":
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "artifact %s resolution escaped the workspace root — refused", artifact_id
-            )
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
-        raise HTTPException(status.HTTP_410_GONE, {"code": "artifact_gone"})
-
-    return FileResponse(path, media_type=row["media_type"], headers=attachment_headers(row["name"]))
+    return resolve_artifact_response(
+        row, ws, request.app.state.cfg.repo_root, artifact_id=artifact_id
+    )

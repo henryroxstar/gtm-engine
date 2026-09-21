@@ -361,7 +361,11 @@ quoted *inside* post text is promoted to a real one while the operator's preview
 
 `agent/session.py` must always use `permission_mode="default"` with a `can_use_tool` callback.
 `bypassPermissions` is a security regression (OWASP ASI02, ASI05; NIST AC-6) regardless of
-how headless the run is. The auto-PR template in `.github/workflows/auto-pr-claude-branches.yml`
+how headless the run is. The only other place that may build SDK options is the tool-less
+onboarding extraction (`agent/onboard/extract.py:_extraction_options`), and
+`tests/agent/test_onboard_extract_lockdown.py` fails if any other module imports or reaches
+`ClaudeAgentOptions`, `ClaudeSDKClient` or `query`. Those two build default options, the full
+toolset with no callback, when handed none. The auto-PR template in `.github/workflows/auto-pr-claude-branches.yml`
 includes a checklist item for this.
 
 ```python

@@ -21,7 +21,15 @@ from pathlib import Path
 
 from .lanes.model import HOLD_QUESTION, QUESTION_COPY
 from .prospect_paths import evals_dir
-from .prospect_status import LABELS, NEXT_STEP, STATUSES, needs_address, status_of
+from .prospect_status import (
+    LABELS,
+    NEXT_STEP,
+    STATUSES,
+    compute_attrition_receipt,
+    format_attrition_receipt,
+    needs_address,
+    status_of,
+)
 from .prospects_state import load_latest
 
 #: The five statuses `status_of` derives from a routed row's (lane, reason). `needs_address`
@@ -132,6 +140,28 @@ def main(argv: list[str] | None = None) -> int:
 
     status_counts = Counter(status_of(r.get("lane") or "", _row_reason(r)) for r in records)
     needs_count = sum(1 for item in _load_ledger_items(args.profile) if needs_address(item))
+
+    ledger_items = _load_ledger_items(args.profile)
+    if ledger_items:
+        receipt = compute_attrition_receipt(ledger_items)
+    else:
+        receipt = compute_attrition_receipt(
+            [
+                {"company": r.get("email", ""), "lane": r.get("lane"), "reason": _row_reason(r)}
+                for r in records
+            ]
+        )
+
+    held_count = max(status_counts.get("waiting_on_you", 0), receipt.held)
+    if held_count > 0:
+        plural = "s" if held_count != 1 else ""
+        require = "require" if held_count != 1 else "requires"
+        print(
+            f"> [!WARNING] ACTION REQUIRED: {held_count} account{plural} {require} routing decisions in the Review Sheet.\n"
+        )
+
+    print(format_attrition_receipt(receipt))
+    print("")
     print(_format_report(dict(status_counts), needs_count))
     return 0
 

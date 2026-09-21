@@ -44,11 +44,19 @@ async def create_pool(
     different Postgres roles: FORCE RLS (see V009) only constrains a role that is
     neither superuser nor table owner, so the runtime role must not be the owner.
     """
+    dsn_str = dsn or os.environ["DATABASE_URL"]
+    statement_cache_size = int(
+        os.environ.get(
+            "PG_STATEMENT_CACHE_SIZE",
+            "0" if ":6432" in dsn_str else "100",
+        )
+    )
     pool = await asyncpg.create_pool(
-        dsn or os.environ["DATABASE_URL"],
+        dsn_str,
         min_size=min_size,
         max_size=max_size,
         command_timeout=30,
+        statement_cache_size=statement_cache_size,
         server_settings={
             "application_name": application_name,
             "search_path": "public",

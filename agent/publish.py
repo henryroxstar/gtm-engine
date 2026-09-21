@@ -222,18 +222,6 @@ _MEDIA_RE = re.compile(r"⟦MEDIA⟧(.*?)⟦/MEDIA⟧", re.DOTALL)
 _SCHEDULE_RE = re.compile(r"⟦SCHEDULE⟧(.*?)⟦/SCHEDULE⟧", re.DOTALL)
 _IDENTITY_RE = re.compile(r"⟦IDENTITY⟧(.*?)⟦/IDENTITY⟧", re.DOTALL)
 _PUBLISH_GATE = "⟦GATE:publish⟧"
-#: The only values ⟦IDENTITY⟧ may carry — anything else is dropped, not merely
-#: ignored, so there is nothing for injected text to smuggle through this field.
-#:
-#: "generated" marks an AI-generated or AI-restyled asset with NO likeness/voice handle behind it —
-#: e.g. a Higgsfield restyle preset applied to real footage. Every render this repo produces is
-#: synthetic media under EU AI Act Art. 50, identity handle or not; before this addition
-#: `video-restyle` could only emit identity_used=() for such an asset, and an empty tuple reads as
-#: "nothing to disclose" to validate_disclosure below — a fail-open, not a choice.
-#: `soul`/`element`/`voice` continue to mark the additionally-reinforced
-#: deepfake-of-a-real-person duty; `generated` alone still triggers the same disclosure
-#: requirement.
-_KNOWN_IDENTITY_VALUES = frozenset({"soul", "element", "voice", "generated"})
 
 
 def parse_publish_block(raw: str) -> PublishDraft | None:
@@ -298,11 +286,7 @@ def parse_publish_block(raw: str) -> PublishDraft | None:
         raw_values = _CONTROL_SENTINEL_RE.sub("", im.group(1)).split(",")
         # dict.fromkeys dedupes while preserving first-seen order — ⟦IDENTITY⟧soul,soul⟧
         # should read the same as ⟦IDENTITY⟧soul⟧ to anything that counts/enumerates it.
-        identity_used = tuple(
-            dict.fromkeys(
-                v for v in (val.strip() for val in raw_values) if v in _KNOWN_IDENTITY_VALUES
-            )
-        )
+        identity_used = tuple(dict.fromkeys(v for v in (val.strip() for val in raw_values) if v))
 
     return PublishDraft(
         post=post, media_urls=tuple(media), scheduled_at=scheduled_at, identity_used=identity_used

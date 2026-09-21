@@ -39,6 +39,8 @@ _KNOWN_CODES = frozenset(
         # 401
         "federated_token_invalid",
         "invalid_credentials",
+        "invalid_key",
+        "invalid_signature",
         "refresh_token_expired",
         "service_auth_invalid",
         "token_expired",
@@ -53,6 +55,7 @@ _KNOWN_CODES = frozenset(
         "agent_paused",
         "already_exists",
         "api_key_already_revoked",
+        "cap_exceeds_plan",
         "content_sha_mismatch",
         "draft_not_staged",
         "gate_already_decided",
@@ -67,7 +70,15 @@ _KNOWN_CODES = frozenset(
 )
 
 #: (path relative to the repo, status) -> sites still carrying a string detail. Empty is the goal.
-_ALLOWLIST: dict[tuple[str, int | None], int] = {}
+#: backend/callers/dependency.py: `refusal_to_http` is a generic Refusal -> HTTPException adapter
+#: (backend/callers/ports.py's `Refusal` carries its own status/code, set at each raise site as a
+#: literal — e.g. `Refusal(404, "run_not_found", ...)` — and always renders a {"code": ...} dict,
+#: never a bare string). The adapter forwards `exc.status_code`/`exc.code` at runtime by design, so
+#: it can serve every future Refusal site without editing this function again; that's exactly what
+#: the AST census can't resolve statically. Every Refusal call site is still a literal int + a
+#: snake_case code, so the client-switches-on-error.code invariant this test protects holds — it's
+#: only the census's static reach that stops at the adapter boundary.
+_ALLOWLIST: dict[tuple[str, int | None], int] = {("backend/callers/dependency.py", None): 1}
 
 
 @dataclass(frozen=True)

@@ -32,11 +32,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from ..database import workspace_scope
 from ..deps import require_service_auth
-from ..schemas import EntitlementSyncRequest, EntitlementSyncResponse
+from ..schemas import (
+    ERROR_RESPONSES,
+    EntitlementSyncRequest,
+    EntitlementSyncResponse,
+)
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/entitlement", tags=["entitlement"])
+router = APIRouter(prefix="/entitlement", tags=["entitlement"], responses=ERROR_RESPONSES)
 
 # workspace_id is a UUID; reject anything else before it reaches the DB.
 _UUID_RE = re.compile(
@@ -102,6 +106,7 @@ async def _apply_sync(
                 UPDATE subscriptions
                    SET entitlement          = $1,
                        monthly_cost_cap_usd  = $2,
+                       plan_cost_cap_usd     = $2,
                        status                = COALESCE($3, status)
                  WHERE workspace_id          = $4
                 """,

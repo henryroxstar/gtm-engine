@@ -64,7 +64,8 @@ async def _execute_run(
         if not await _reserve_or_deny(pool, workspace_id, run_id):
             await _fail_run(pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached")
             return
-        await start_run(pool, workspace_id, run_id)
+        if not await start_run(pool, workspace_id, run_id):
+            return
 
         output_buf: list[str] = []
         handled_gates: set[str] = set()

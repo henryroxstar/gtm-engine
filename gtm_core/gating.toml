@@ -305,3 +305,13 @@ creator render and video planning lanes, market-watch intelligence brief, and \
 outcomes-loop sync ship their graph shapes with hosted-only private nodes.\
 """
 
+exclude_mechanics = [
+  "gtm_core/video_*",
+  "gtm_core/story_*",
+  "gtm_core/voc",
+  "gtm_core/elements",
+  "gtm_core/creator_brief.py",
+  "gtm_core/keyframe.py",
+  "gtm_core/render_prompt.py",
+  "gtm_core/storyboard.py"
+]

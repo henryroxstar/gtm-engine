@@ -24,11 +24,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from ..database import workspace_scope
 from ..deps import require_service_auth
-from ..schemas import PublishSettingsSyncRequest, PublishSettingsSyncResponse
+from ..schemas import (
+    ERROR_RESPONSES,
+    PublishSettingsSyncRequest,
+    PublishSettingsSyncResponse,
+)
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/publish-settings", tags=["publish-settings"])
+router = APIRouter(prefix="/publish-settings", tags=["publish-settings"], responses=ERROR_RESPONSES)
 
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE

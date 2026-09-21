@@ -56,6 +56,11 @@ def _cli(argv: list[str] | None = None) -> int:
         help="recompute conf_tier for every row already in master-list.csv from its own "
         "stored email_status/conf fields — no new source export needed",
     )
+    c.add_argument(
+        "--unattended",
+        action="store_true",
+        help="unattended mode: bypass warning prompts and default to safe actions",
+    )
 
     s = sub.add_parser("status", help="read-only pool status, no re-sweep")
     s.add_argument("--profile", required=True)
@@ -106,6 +111,7 @@ def _cli(argv: list[str] | None = None) -> int:
             reclassify=args.reclassify,
             allow_downgrade=args.allow_downgrade,
             rebuild_master=args.rebuild_master,
+            unattended=args.unattended,
         )
     elif args.cmd == "verify-batch":
         result = next_verification_batch(

@@ -12,6 +12,7 @@ Convention as elsewhere in tests/backend: no pytest-asyncio; each body runs unde
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import uuid
@@ -38,8 +39,18 @@ class EventsDb:
     """`runs` + the append-only `run_events` log, with the exact SQL the stream and the
     relay issue. Ids come from a counter, exactly as BIGSERIAL does."""
 
-    def __init__(self, status: str = "running") -> None:
+    def __init__(
+        self,
+        status: str = "running",
+        *,
+        gate_kind: str | None = None,
+        gate_node_id: str | None = None,
+        pending_content: str | None = None,
+    ) -> None:
         self.status = status
+        self.gate_kind = gate_kind
+        self.gate_node_id = gate_node_id
+        self.pending_content = pending_content
         self.events: list[dict] = []
         self._seq = 0
 
@@ -63,7 +74,10 @@ class EventsDb:
                 "output": None,
                 "error": None,
                 "pending_gate": None,
-                "pending_content": None,
+                "pending_content": self.pending_content,
+                # ST-01: the same open-run_gates subquery _RUN_DETAIL_SQL uses.
+                "gate_kind": self.gate_kind,
+                "gate_node_id": self.gate_node_id,
             }
         return None
 
@@ -182,6 +196,60 @@ def test_the_snapshot_advertises_protocol_2_and_the_watermark_it_was_taken_at():
     assert data["protocol"] == 2
     assert seq == 2, "the snapshot carries the watermark, not a per-connection zero"
     assert not validate_frame(event, data, seq)
+
+
+def test_snapshot_carries_the_open_gates_identity_st01():
+    """ST-01: before this fix _snapshot_frame carried only `pending_gate` (for pack runs
+    the constant '⟦GATE:plan⟧'), so a client landing here while a gate was open couldn't
+    tell WHICH kind or node without a supplementary GET. It now mirrors exactly what
+    awaiting_approval and GET /v1/runs/{id} already carry."""
+    draft = "the pending draft bytes"
+    db = EventsDb(
+        status="awaiting_approval",
+        gate_kind="plan",
+        gate_node_id="plan",
+        pending_content=draft,
+    )
+    _cleanup()
+
+    async def _go():
+        with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)):
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            chunks = await _drain(gen, 2)
+            await gen.aclose()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    _seq, event, data = frames[0]
+    assert event == "snapshot"
+    assert data["gate"] == "plan"
+    assert data["pending_node_id"] == "plan"
+    assert data["pending_content_sha"] == hashlib.sha256(draft.encode()).hexdigest()
+    assert not validate_frame(event, data, data.get("seq"))
+
+
+def test_snapshot_gate_fields_are_null_when_nothing_is_open():
+    """The additive fields must not invent a gate on an ordinary running snapshot."""
+    db = EventsDb(status="running")
+    _cleanup()
+
+    async def _go():
+        with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)):
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            chunks = await _drain(gen, 2)
+            await gen.aclose()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    _seq, event, data = frames[0]
+    assert event == "snapshot"
+    assert data["gate"] is None
+    assert data["pending_node_id"] is None
+    assert data["pending_content_sha"] is None
 
 
 def test_since_replays_exactly_the_missed_events_and_emits_no_snapshot():
@@ -342,3 +410,300 @@ def test_a_relayed_event_is_published_to_the_run_channel_with_its_origin():
     assert channel == f"gtm:run:{RUN_ID}"
     assert payload["worker"] == WORKER_ID
     assert (payload["event"], payload["seq"]) == ("status", 1)
+
+
+# ── ST-16: an event that gets no durable id resyncs the open stream in place ──
+
+
+class _FlakyDb(EventsDb):
+    """`run_events` INSERTs raise while ``insert_fails`` is set, and the next
+    ``read_fails`` `runs` reads raise too — the DB blip ST-16's finding names."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.insert_fails = False
+        self.read_fails = 0
+
+    async def fetchval(self, sql: str, *args):
+        if "INSERT INTO run_events" in sql and self.insert_fails:
+            raise RuntimeError("db blip")
+        return await super().fetchval(sql, *args)
+
+    async def fetchrow(self, sql: str, *args):
+        if "FROM runs" in sql and self.read_fails:
+            self.read_fails -= 1
+            raise RuntimeError("db blip")
+        return await super().fetchrow(sql, *args)
+
+
+_GATE_EVENT = {"run_id": RUN_ID, "pending_gate": "⟦GATE:plan⟧", "gate": "plan", "node_id": "plan"}
+
+
+def _open_gate(db: EventsDb) -> None:
+    """The gate's own writes landed (the runs row, the run_gates row); only its event is lost."""
+    db.status = "awaiting_approval"
+    db.gate_kind = "plan"
+    db.gate_node_id = "plan"
+    db.pending_content = "the pending draft bytes"
+
+
+def _node(state: str) -> dict:
+    return {"run_id": RUN_ID, "node_id": "plan", "state": state, "ts": "2026-09-16T00:00:00Z"}
+
+
+async def _next(gen) -> str:
+    return await asyncio.wait_for(anext(gen), timeout=5)
+
+
+async def _relay_idle() -> None:
+    await asyncio.wait_for(runs_events._relay_queue.join(), timeout=5)
+
+
+def _assert_valid(frames) -> None:
+    for seq, event, data in frames:
+        assert not validate_frame(event, data, seq), (event, data)
+
+
+def test_a_lost_event_resyncs_the_open_stream_with_a_fresh_snapshot():
+    """ST-16. The gate's writes land but its run_events INSERT fails, so awaiting_approval
+    has no durable id. Delivering it with no `id:` line leaves nothing to resume from, and
+    closing the stream instead was worse: the client resumed with ?since=, as the contract
+    says, and got only pings while the run sat at the gate. The open stream must send a
+    fresh snapshot carrying the gate — its id is the new resume point — and carry on."""
+    db = _FlakyDb()
+    _cleanup()
+
+    async def _go():
+        with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)):
+            runs_events.start_relay(MagicMock())
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            try:
+                chunks = await _drain(gen, 2)  # preamble, snapshot
+                runs_events.publish_run_event(WS_ID, RUN_ID, "node", _node("running"))
+                chunks.append(await _next(gen))
+                _open_gate(db)
+                db.insert_fails = True
+                runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                chunks.append(await _next(gen))
+                db.insert_fails = False
+                runs_events.publish_run_event(
+                    WS_ID, RUN_ID, "gate_resolved", {"run_id": RUN_ID, "decision": "approve"}
+                )
+                chunks.append(await _next(gen))
+            finally:
+                await gen.aclose()
+                await runs_events.stop_relay()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    assert [(seq, event) for seq, event, _ in frames] == [
+        (0, "snapshot"),
+        (1, "node"),
+        (1, "snapshot"),
+        (2, "gate_resolved"),
+    ]
+    resync = frames[2][2]
+    assert resync["status"] == "awaiting_approval"
+    assert (resync["gate"], resync["pending_node_id"]) == ("plan", "plan")
+    assert [e["event"] for e in db.events] == ["node", "gate_resolved"]
+    _assert_valid(frames)
+
+
+def test_a_saturated_relay_resyncs_the_open_stream_with_a_fresh_snapshot():
+    """The other trigger: the relay is running but its queue is full, so the event never
+    reaches run_events at all."""
+    from unittest.mock import patch
+
+    db = EventsDb()
+    _cleanup()
+    full: asyncio.Queue = asyncio.Queue(maxsize=1)
+    full.put_nowait((WS_ID, "some-other-run", "status", {}))
+
+    async def _go():
+        with patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)):
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            try:
+                chunks = await _drain(gen, 2)
+                _open_gate(db)
+                with patch.object(runs_events, "_relay_queue", full):
+                    runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                chunks.append(await _next(gen))
+            finally:
+                await gen.aclose()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    assert [event for _, event, _ in frames] == ["snapshot", "snapshot"]
+    assert frames[1][2]["gate"] == "plan"
+    assert db.events == [], "the event never reached the log — only the snapshot carries it"
+    _assert_valid(frames)
+
+
+def test_a_failed_resync_read_is_retried_and_no_later_frame_jumps_the_gap():
+    """The blip that lost the event can fail the resync read too. The resync must stay
+    pending — a later durable frame delivered first would move the client's resume point
+    past the lost event — and the next turn retries it."""
+    db = _FlakyDb()
+    _cleanup()
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)),
+            _patched_heartbeat(0.05),
+        ):
+            runs_events.start_relay(MagicMock())
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            try:
+                chunks = await _drain(gen, 2)
+                _open_gate(db)
+                db.insert_fails = True
+                db.read_fails = 1
+                runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                await _relay_idle()
+                db.insert_fails = False
+                runs_events.publish_run_event(WS_ID, RUN_ID, "node", _node("running"))
+                await _relay_idle()
+                chunks += [await _next(gen), await _next(gen)]
+            finally:
+                await gen.aclose()
+                await runs_events.stop_relay()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    assert [(seq, event) for seq, event, _ in frames] == [
+        (0, "snapshot"),
+        (1, "snapshot"),
+        (None, "ping"),
+    ], "the node frame (id 1) is folded into the snapshot, never delivered ahead of it"
+    assert frames[1][2]["gate"] == "plan"
+    assert db.read_fails == 0, "the failed read was retried"
+
+
+def test_a_subscriber_overflow_with_a_resync_pending_still_ends_on_a_snapshot():
+    """Backpressure and a lost event together. The overflow poison alone would close the
+    stream, and the client would resume with ?since= straight past the lost event; with a
+    resync pending the client gets the snapshot first, so that resume is correct."""
+    from unittest.mock import patch
+
+    db = EventsDb()
+    _cleanup()
+    full: asyncio.Queue = asyncio.Queue(maxsize=1)
+    full.put_nowait((WS_ID, "some-other-run", "status", {}))
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)),
+            patch.object(runs_events, "_STREAM_QUEUE_MAX", 2),
+        ):
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            ended = False
+            try:
+                chunks = await _drain(gen, 2)
+                for state in ("queued", "running"):  # fill the 2-slot subscriber queue
+                    seq = db.append("node", _node(state))
+                    runs_events._publish_event(RUN_ID, "node", _node(state), seq=seq)
+                _open_gate(db)
+                with patch.object(runs_events, "_relay_queue", full):
+                    runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                seq = db.append("node", _node("completed"))
+                runs_events._publish_event(RUN_ID, "node", _node("completed"), seq=seq)  # overflow
+                chunks.append(await _next(gen))
+                try:
+                    chunks.append(await _next(gen))
+                except StopAsyncIteration:
+                    ended = True
+            finally:
+                await gen.aclose()
+        return chunks, ended
+
+    chunks, ended = asyncio.run(_go())
+    frames = _parse(chunks)
+    assert [(seq, event) for seq, event, _ in frames] == [(0, "snapshot"), (3, "snapshot")]
+    assert ended, "the overflow still closes the stream — after the snapshot, not before it"
+
+
+def test_a_lost_event_asks_the_other_workers_to_resync_their_streams():
+    """A client streaming from a worker that is NOT running the run gets its frames over
+    the broker. A lost event publishes nothing there, so that worker must be told
+    explicitly — and must resync its own subscribers when it hears it."""
+    from backend.broker import WORKER_ID
+
+    db = _FlakyDb()
+    db.insert_fails = True
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)),
+            fake_broker() as broker,
+        ):
+            runs_events.start_relay(MagicMock())
+            try:
+                runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                for _ in range(50):
+                    if broker.published:
+                        break
+                    await asyncio.sleep(0.01)
+            finally:
+                await runs_events.stop_relay()
+            return broker.published
+
+    assert asyncio.run(_go()) == [(f"gtm:run:{RUN_ID}", {"worker": WORKER_ID, "resync": True})]
+
+    _cleanup()
+    q = runs_events._subscribe(RUN_ID)
+    try:
+        runs_events.on_broker_message(f"gtm:run:{RUN_ID}", {"worker": "worker-a", "resync": True})
+        assert q.resync is True
+        assert q.get_nowait() == runs_events._RESYNC
+    finally:
+        runs_events._unsubscribe(RUN_ID, q)
+
+
+def test_a_frame_dequeued_while_a_resync_is_pending_waits_behind_the_snapshot():
+    """The stream is already waiting on its queue when a stored event lands and, before it
+    runs, another event is lost. It dequeues the stored event with the resync pending; that
+    event must be folded into the snapshot, not delivered ahead of it."""
+    from unittest.mock import patch
+
+    db = EventsDb()
+    _cleanup()
+    full: asyncio.Queue = asyncio.Queue(maxsize=1)
+    full.put_nowait((WS_ID, "some-other-run", "status", {}))
+
+    async def _go():
+        with (
+            patch_everywhere(SCOPE_MODULES, "workspace_scope", _scope_for(db)),
+            _patched_heartbeat(0.05),
+        ):
+            gen = runs_stream.run_event_stream(
+                MagicMock(), WS_ID, RUN_ID, is_disconnected=_never_disconnected
+            )
+            try:
+                chunks = await _drain(gen, 2)
+                waiting = asyncio.ensure_future(_next(gen))
+                for _ in range(5):
+                    await asyncio.sleep(0)  # the stream is now blocked on its empty queue
+                seq = db.append("node", _node("running"))
+                runs_events._publish_event(RUN_ID, "node", _node("running"), seq=seq)
+                _open_gate(db)
+                with patch.object(runs_events, "_relay_queue", full):
+                    runs_events.publish_run_event(WS_ID, RUN_ID, "awaiting_approval", _GATE_EVENT)
+                chunks += [await waiting, await _next(gen)]
+            finally:
+                await gen.aclose()
+        return chunks
+
+    frames = _parse(asyncio.run(_go()))
+    assert [(seq, event) for seq, event, _ in frames] == [
+        (0, "snapshot"),
+        (1, "snapshot"),
+        (None, "ping"),
+    ], "the node frame (id 1) is folded into the snapshot, never delivered ahead of it"

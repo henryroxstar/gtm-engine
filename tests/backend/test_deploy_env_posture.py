@@ -88,6 +88,48 @@ def test_cors_wildcard_is_still_allowed_on_a_laptop():
     assert check_cors_origins("*", "development") == ["*"]
 
 
+def test_cors_dev_multiport_origins():
+    """LD-08: multi-port dev origins resolve cleanly to a list of allowed web origins."""
+    from backend.main import check_cors_origins
+
+    raw = (
+        "http://localhost:3000, http://localhost:5173, http://localhost:8081, "
+        "http://localhost:19006, http://127.0.0.1:3000, http://127.0.0.1:5173"
+    )
+    resolved = check_cors_origins(raw, "development")
+    assert "http://localhost:3000" in resolved
+    assert "http://localhost:5173" in resolved
+    assert "http://localhost:8081" in resolved
+    assert "http://localhost:19006" in resolved
+    assert "http://127.0.0.1:3000" in resolved
+    assert "http://127.0.0.1:5173" in resolved
+    assert len(resolved) == 6
+
+
+def test_cors_allows_client_custom_headers():
+    """RT-10: CORS preflight allows custom idempotency, correlation, and SSE resume headers."""
+    from fastapi.testclient import TestClient
+
+    from backend.main import CORS_ALLOW_HEADERS, create_app
+
+    app = create_app()
+    client = TestClient(app)
+
+    headers = {
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": (
+            "Idempotency-Key, X-Client-Request-Id, X-Request-ID, Last-Event-ID, Content-Type, Authorization"
+        ),
+    }
+    resp = client.options("/v1/runs", headers=headers)
+    assert resp.status_code == 200
+    allow_headers = resp.headers.get("access-control-allow-headers", "").lower()
+    for h in ("idempotency-key", "x-client-request-id", "x-request-id", "last-event-id"):
+        assert h in allow_headers
+        assert any(c.lower() == h for c in CORS_ALLOW_HEADERS)
+
+
 def test_migration_dsn_requirement_now_covers_staging(monkeypatch):
     """`is_prod` gates POSTGRES_MIGRATION_URL and POSTGRES_GTMAPI_PASSWORD. It reads the
     process ENV, so assert through the resolver it now calls."""

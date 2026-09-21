@@ -75,6 +75,22 @@ _PG_TABLES: dict[str, dict[str, Any]] = {
             "cost_usd",
         ),
     },
+    "unified_metering_log": {
+        "ts_col": "recorded_at",
+        "columns": (
+            "workspace_id",
+            "runtime",
+            "tool_name",
+            "cost_credits",
+            "profile_name",
+            "model",
+            "prompt_tokens",
+            "completion_tokens",
+            "cost_usd",
+            "run_id",
+            "api_key_id",
+        ),
+    },
 }
 
 
@@ -97,6 +113,7 @@ class CostRecord:
     runtime: str  # "vps" | "backend" | "mcp"
     source: str  # "brain" | "deepseek" | "vision" | "higgsfield" | "elevenlabs" | ...
     cost_usd: float
+    cost_credits: float | None = None
     model_or_sku: str | None = None
     op: str | None = None
     # scope
@@ -288,6 +305,39 @@ class PgSink:
                 rec.output_tokens,
                 cost,
                 rec.agent_id,
+            )
+        if self._table == "unified_metering_log":
+            cost_credits = (
+                float(rec.cost_credits) if rec.cost_credits is not None else round(cost * 1000.0, 4)
+            )
+            run_uuid = None
+            if rec.run_id:
+                import uuid as _u
+
+                try:
+                    run_uuid = _u.UUID(rec.run_id)
+                except Exception:
+                    run_uuid = None
+            api_key_uuid = None
+            if rec.api_key_id:
+                import uuid as _u
+
+                try:
+                    api_key_uuid = _u.UUID(rec.api_key_id)
+                except Exception:
+                    api_key_uuid = None
+            return (
+                rec.workspace_id,
+                rec.runtime,
+                rec.op or rec.source,
+                cost_credits,
+                rec.profile or "",
+                rec.model_or_sku,
+                rec.input_tokens,
+                rec.output_tokens,
+                cost,
+                run_uuid,
+                api_key_uuid,
             )
         # mcp_calls
         return (
@@ -569,3 +619,242 @@ async def areserve_budget(
         # Paid route is fail-closed: a DB error on the reserve path denies (the SDK
         # per-run cap backstops). Never raise — a metering hiccup must not 500 a run.
         return None
+
+
+# --------------------------------------------------------------------------- #
+# Credit-based atomic reservations (PRD 2026-09-19)                            #
+# --------------------------------------------------------------------------- #
+
+
+class InsufficientCreditsError(ValueError):
+    """Raised when workspace has insufficient credits for execution."""
+
+    def __init__(
+        self,
+        message: str = "402 Payment Required: Insufficient credits. Please top up your balance.",
+    ) -> None:
+        super().__init__(message)
+
+
+async def reserve_credits(
+    target: Any,
+    arg2: Any = None,
+    estimated_credits: float | None = None,
+    *,
+    conn: Any = None,
+    pool: Any = None,
+    run_id: str | None = None,
+    fail_closed: bool = True,
+    raise_on_error: bool = False,
+) -> str | None:
+    """Atomically reserve credits for a metered execution.
+
+    Takes a ``SELECT balance_credits FROM workspace_wallets WHERE workspace_id = $1 FOR UPDATE``
+    row-level lock to eliminate TOCTOU race conditions under high concurrency.
+
+    Fails closed (returns None, or raises InsufficientCreditsError if raise_on_error=True) if:
+        balance_credits - sum(open_reservations) < estimated_credits or <= 0.
+
+    Supports both calling conventions:
+        - reserve_credits(conn, workspace_id, estimated_credits, ...)
+        - reserve_credits(workspace_id, estimated_credits, conn=..., pool=...)
+    """
+    effective_conn = conn
+    if isinstance(target, str):
+        workspace_id = target
+        estimate = float(arg2) if arg2 is not None else float(estimated_credits or 0.0)
+    else:
+        effective_conn = target
+        workspace_id = str(arg2)
+        estimate = float(estimated_credits) if estimated_credits is not None else 0.0
+
+    if estimate < 0:
+        raise ValueError(f"estimated_credits must be >= 0, got {estimate}")
+
+    async def _do_reserve(c: Any) -> str | None:
+        try:
+            # 1. Row lock on workspace_wallets serializes concurrent reserves for THIS workspace
+            wallet_row = await c.fetchrow(
+                "SELECT balance_credits, balance_usd FROM workspace_wallets WHERE workspace_id = $1::uuid FOR UPDATE",
+                workspace_id,
+            )
+            if wallet_row is None:
+                await c.execute(
+                    "INSERT INTO workspace_wallets (workspace_id, balance_credits, balance_usd) "
+                    "VALUES ($1::uuid, 0.0000, 0.000000) ON CONFLICT (workspace_id) DO NOTHING",
+                    workspace_id,
+                )
+                balance_credits = 0.0
+            else:
+                balance_credits = (
+                    float(wallet_row["balance_credits"])
+                    if wallet_row["balance_credits"] is not None
+                    else (float(wallet_row.get("balance_usd") or 0.0) * 1000.0)
+                )
+
+            # 2. Sum current open reservations for this workspace
+            open_sum = await c.fetchval(
+                "SELECT COALESCE(SUM(estimated_credits), 0) FROM cost_reservations "
+                "WHERE workspace_id = $1::uuid AND state = 'open'",
+                workspace_id,
+            )
+            open_credits = float(open_sum or 0.0)
+            available = balance_credits - open_credits
+
+            # Fail closed if available balance cannot satisfy the reservation or is <= 0
+            if available <= 0.0 or available < estimate:
+                if raise_on_error:
+                    raise InsufficientCreditsError(
+                        f"402 Payment Required: Insufficient credits. Available: {available:.4f}, Required: {estimate:.4f}"
+                    )
+                return None
+
+            # 3. Insert open reservation
+            res_id = await c.fetchval(
+                "INSERT INTO cost_reservations(workspace_id, run_id, estimated_credits, estimated_usd, state) "
+                "VALUES($1::uuid, $2::uuid, $3, $4, 'open') RETURNING id::text",
+                workspace_id,
+                run_id,
+                estimate,
+                round(estimate / 1000.0, 6),
+            )
+            return str(res_id)
+        except InsufficientCreditsError:
+            raise
+        except Exception:
+            if fail_closed:
+                if raise_on_error:
+                    raise InsufficientCreditsError(
+                        "402 Payment Required: Credit reservation failed."
+                    ) from None
+                return None
+            return None
+
+    if effective_conn is not None:
+        return await _do_reserve(effective_conn)
+    elif pool is not None:
+        from gtm_core.db import workspace_scope
+
+        async with workspace_scope(pool, workspace_id) as c:
+            return await _do_reserve(c)
+    else:
+        raise ValueError("Either conn or pool must be provided to reserve_credits")
+
+
+async def settle_credits(
+    target: Any,
+    arg2: Any = None,
+    actual_cost_credits: float | None = None,
+    *,
+    conn: Any = None,
+    pool: Any = None,
+    workspace_id: str | None = None,
+    runtime: str = "backend",
+    tool_name: str = "inference",
+    profile_name: str | None = None,
+    model: str | None = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cost_usd: float | None = None,
+    api_key_id: str | None = None,
+    run_id: str | None = None,
+) -> bool:
+    """Settle an atomic cost reservation, deduct credits from workspace_wallets,
+    and append an immutable audit record to unified_metering_log.
+    """
+    effective_conn = conn
+    if isinstance(target, str):
+        reservation_id = target
+        actual = float(arg2) if arg2 is not None else float(actual_cost_credits or 0.0)
+    else:
+        effective_conn = target
+        reservation_id = str(arg2) if arg2 is not None else ""
+        actual = float(actual_cost_credits) if actual_cost_credits is not None else 0.0
+
+    actual = max(0.0, actual)
+    calculated_cost_usd = cost_usd if cost_usd is not None else round(actual / 1000.0, 6)
+
+    async def _do_settle(c: Any) -> bool:
+        ws_id = workspace_id
+        r_id = run_id
+        try:
+            if reservation_id:
+                res_row = await c.fetchrow(
+                    "SELECT workspace_id, run_id, estimated_credits, state FROM cost_reservations "
+                    "WHERE id = $1::uuid FOR UPDATE",
+                    reservation_id,
+                )
+                if res_row is not None:
+                    ws_id = str(res_row["workspace_id"])
+                    if res_row["run_id"]:
+                        r_id = str(res_row["run_id"])
+                    await c.execute(
+                        "UPDATE cost_reservations SET state = 'settled', closed_at = now() WHERE id = $1::uuid",
+                        reservation_id,
+                    )
+
+            if ws_id:
+                # Deduct actual credits from wallet
+                await c.execute(
+                    """
+                    UPDATE workspace_wallets
+                       SET balance_credits = balance_credits - $1,
+                           balance_usd = balance_usd - ($1 / 1000.0),
+                           updated_at = now()
+                     WHERE workspace_id = $2::uuid
+                    """,
+                    actual,
+                    ws_id,
+                )
+
+                # Insert immutable audit row into unified_metering_log
+                await c.execute(
+                    """
+                    INSERT INTO unified_metering_log (
+                        workspace_id,
+                        runtime,
+                        tool_name,
+                        cost_credits,
+                        profile_name,
+                        model,
+                        prompt_tokens,
+                        completion_tokens,
+                        cost_usd,
+                        run_id,
+                        api_key_id,
+                        recorded_at
+                    ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid, $11::uuid, now())
+                    """,
+                    ws_id,
+                    runtime,
+                    tool_name,
+                    actual,
+                    profile_name or "",
+                    model,
+                    prompt_tokens,
+                    completion_tokens,
+                    calculated_cost_usd,
+                    r_id,
+                    api_key_id,
+                )
+            return True
+        except Exception:
+            return False
+
+    if effective_conn is not None:
+        return await _do_settle(effective_conn)
+    elif pool is not None and (workspace_id or reservation_id):
+        from gtm_core.db import workspace_scope
+
+        ws = workspace_id
+        if not ws and reservation_id:
+            async with pool.acquire() as raw_conn:
+                ws = await raw_conn.fetchval(
+                    "SELECT workspace_id::text FROM cost_reservations WHERE id = $1::uuid",
+                    reservation_id,
+                )
+        if ws:
+            async with workspace_scope(pool, ws) as c:
+                return await _do_settle(c)
+        return False
+    return False

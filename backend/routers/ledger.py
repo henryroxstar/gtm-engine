@@ -5,19 +5,26 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from ..callers.limits import enforce_principal_rate
+from ..callers.principal import Principal
+from ..callers.rest import require_principal
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
 from ..schemas import (
+    ERROR_RESPONSES,
+    AgentCostRollupItem,
+    AgentCostRollupResponse,
     CostSummaryResponse,
     HistoryResponse,
     RunCostRollupResponse,
     UsageResponse,
 )
+from ..services.runs.principal_admission import read_scope_for_principal
 from ..types import UuidStr
 
-router = APIRouter(prefix="/ledger", tags=["ledger"])
+router = APIRouter(prefix="/ledger", tags=["ledger"], responses=ERROR_RESPONSES)
 
 
 @router.get("/costs", response_model=CostSummaryResponse)
@@ -115,6 +122,111 @@ async def get_run_rollup(
         total_usd=round(total, 6),
         breakdown=[dict(r) for r in rows],
     )
+
+
+@router.get("/agents", response_model=AgentCostRollupResponse)
+async def get_agents_rollup(
+    principal: Annotated[Principal, Depends(require_principal)],
+    request: Request,
+    _rate: Annotated[None, Depends(enforce_principal_rate)] = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    agent_id: UuidStr | None = None,
+) -> AgentCostRollupResponse:
+    """Workspace-scoped cost rollup grouped by agent_id and principal (Fleet PRD §3 G6).
+
+    Aggregates spend across cost_records joined with runs.
+    - If caller is a service principal and read_scope != 'workspace', agent_id is forced
+      to its own agent_id.
+    - from_date and to_date filter recorded_at.
+    """
+    from datetime import datetime
+
+    pool = request.app.state.pool
+    ws = principal.workspace_id
+
+    if principal.kind == "service":
+        read_scope = await read_scope_for_principal(pool, ws, principal)
+        if read_scope != "workspace":
+            agent_id = principal.agent_id
+
+    from_dt = None
+    if from_date is not None:
+        try:
+            from_dt = datetime.fromisoformat(from_date)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"code": "invalid_from_date", "message": "from_date must be an ISO-8601 string"},
+            ) from exc
+
+    to_dt = None
+    if to_date is not None:
+        try:
+            to_dt = datetime.fromisoformat(to_date)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"code": "invalid_to_date", "message": "to_date must be an ISO-8601 string"},
+            ) from exc
+
+    if from_dt is not None and to_dt is not None and from_dt > to_dt:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"code": "invalid_date_range", "message": "from_date cannot be after to_date"},
+        )
+
+    query = """
+        SELECT c.agent_id::text                    AS agent_id,
+               r.principal_kind,
+               r.principal_id,
+               COUNT(DISTINCT c.run_id)            AS runs,
+               COUNT(*)                            AS calls,
+               COALESCE(SUM(c.cost_usd), 0)::float AS cost_usd,
+               COALESCE(SUM(c.input_tokens), 0)    AS input_tokens,
+               COALESCE(SUM(c.output_tokens), 0)   AS output_tokens
+        FROM cost_records c
+        LEFT JOIN runs r ON r.id = c.run_id AND r.workspace_id = c.workspace_id
+        WHERE c.workspace_id = $1::uuid
+    """
+    args: list[object] = [ws]
+    idx = 2
+
+    if agent_id is not None:
+        query += f" AND c.agent_id = ${idx}::uuid"
+        args.append(agent_id)
+        idx += 1
+
+    if from_date is not None:
+        query += f" AND c.recorded_at >= ${idx}::timestamptz"
+        args.append(from_date)
+        idx += 1
+
+    if to_date is not None:
+        query += f" AND c.recorded_at <= ${idx}::timestamptz"
+        args.append(to_date)
+        idx += 1
+
+    query += " GROUP BY c.agent_id, r.principal_kind, r.principal_id ORDER BY cost_usd DESC"
+
+    async with workspace_scope(pool, ws) as conn:
+        rows = await conn.fetch(query, *args)
+
+    items = [
+        AgentCostRollupItem(
+            agent_id=r["agent_id"],
+            principal_kind=r["principal_kind"],
+            principal_id=r["principal_id"],
+            runs=r["runs"],
+            calls=r["calls"],
+            cost_usd=round(r["cost_usd"], 6),
+            input_tokens=r["input_tokens"],
+            output_tokens=r["output_tokens"],
+        )
+        for r in rows
+    ]
+    total = sum(item.cost_usd for item in items)
+    return AgentCostRollupResponse(total_usd=round(total, 6), items=items)
 
 
 @router.get("/usage", response_model=UsageResponse)

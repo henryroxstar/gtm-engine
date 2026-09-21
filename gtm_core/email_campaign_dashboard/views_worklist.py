@@ -194,7 +194,18 @@ def _verified(row: dict) -> str:
 def _row_html(m: dict, row: dict, group: str, candidates: dict[str, dict]) -> str:
     tier = f' <span class="pill">{_e(row["tier"])}</span>' if row.get("tier") else ""
     contact = _e(row["seat"]) if row.get("seat") else '<span class="muted">no named seat</span>'
-    email = _e(row["email"]) if row["email"] else '<span class="muted">none</span>'
+    status = str(row.get("email_status") or "").strip().lower()
+    conf = str(row.get("conf_tier") or "").strip().lower()
+    if (
+        status == "unverified"
+        or conf in ("unknown", "unverified")
+        or row.get("email") == "unverified"
+    ):
+        email = '<span class="muted">unverified</span>'
+    elif row.get("email"):
+        email = _e(row["email"])
+    else:
+        email = '<span class="muted">none</span>'
     verdict = _e(row["verdict"]) if row.get("verdict") else '<span class="muted">—</span>'
     return (
         # `data-row` is the CANONICAL roster index, not this table's display position: the

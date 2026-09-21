@@ -11,8 +11,11 @@ echoed, or logged (§R6). The cost cap is checked BEFORE the paid crawl call (§
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+import httpx
 
 
 @runtime_checkable
@@ -29,7 +32,22 @@ class UrlIngestUnavailableError(RuntimeError):
 
 
 class UrlIngestFailedError(ValueError):
-    """The crawl provider answered with a body that is not the JSON it documents."""
+    """The crawl provider answered with a body that is not the JSON it documents, or reported
+    the crawl itself as failed."""
+
+
+class UrlIngestInvalidUrlError(ValueError):
+    """The crawl provider rejected the requested URL as invalid (e.g. HTTP 400/422)."""
+
+
+class UrlIngestTimeoutError(RuntimeError):
+    """The crawl did not finish within :data:`CRAWL_DEADLINE_S`."""
+
+
+#: Wall-clock budget for one crawl, polls included. Onboarding runs as a background job
+#: (issue #259), so this bounds provider latency, not an HTTP request.
+CRAWL_DEADLINE_S = 150.0
+CRAWL_POLL_INTERVAL_S = 2.0
 
 
 class OnboardingCapReachedError(RuntimeError):
@@ -75,6 +93,42 @@ def _json_body(response) -> dict:
         raise UrlIngestFailedError(f"Firecrawl returned a non-JSON response: {exc}") from exc
 
 
+def _poll_crawl_pages(crawl_id: str, headers: dict) -> list[str]:
+    """Poll Firecrawl until the crawl completes, returning all markdown pages."""
+    deadline = time.monotonic() + CRAWL_DEADLINE_S
+    with httpx.Client(timeout=30.0) as client:
+        while True:
+            try:
+                result = client.get(
+                    f"https://api.firecrawl.dev/v1/crawl/{crawl_id}",
+                    headers=headers,
+                )
+                result.raise_for_status()
+                result_data = _json_body(result)
+            except httpx.HTTPStatusError as exc:
+                raise UrlIngestFailedError(
+                    f"Firecrawl poll failed with status {exc.response.status_code}"
+                ) from exc
+            except httpx.RequestError as exc:
+                raise UrlIngestFailedError(f"Firecrawl poll connection failed: {exc}") from exc
+
+            crawl_status = result_data.get("status")
+            if crawl_status == "completed":
+                pages: list[str] = []
+                for item in result_data.get("data", []):
+                    content = item.get("markdown") or item.get("content") or ""
+                    if content.strip():
+                        pages.append(content)
+                return pages
+            if crawl_status in ("failed", "cancelled"):
+                raise UrlIngestFailedError(f"Firecrawl crawl ended as {crawl_status!r}")
+            if time.monotonic() + CRAWL_POLL_INTERVAL_S >= deadline:
+                raise UrlIngestTimeoutError(
+                    f"Firecrawl crawl not completed within {CRAWL_DEADLINE_S:.0f}s"
+                )
+            time.sleep(CRAWL_POLL_INTERVAL_S)
+
+
 def _ingest_url(url: str, cfg: IngestConfig) -> str:
     """Crawl a URL via the Firecrawl REST API and return the combined markdown.
 
@@ -82,8 +136,6 @@ def _ingest_url(url: str, cfg: IngestConfig) -> str:
     or when onboarding_cap_usd has been reached (§R2 cost cap, checked BEFORE the
     paid crawl).
     """
-    import httpx
-
     if not cfg.firecrawl_api_key:
         raise UrlIngestUnavailableError(
             "URL ingestion requires FIRECRAWL_API_KEY — set it in Doppler or .env"
@@ -108,32 +160,26 @@ def _ingest_url(url: str, cfg: IngestConfig) -> str:
         "scrapeOptions": {"formats": ["markdown"]},
     }
 
-    with httpx.Client(timeout=60.0) as client:
-        resp = client.post("https://api.firecrawl.dev/v1/crawl", headers=headers, json=payload)
-        resp.raise_for_status()
-        data = _json_body(resp)
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.post("https://api.firecrawl.dev/v1/crawl", headers=headers, json=payload)
+            resp.raise_for_status()
+            data = _json_body(resp)
+    except httpx.HTTPStatusError as exc:
+        if 400 <= exc.response.status_code < 500:
+            detail = exc.response.text.strip() or f"status {exc.response.status_code}"
+            raise UrlIngestInvalidUrlError(f"Firecrawl rejected URL {url!r}: {detail}") from exc
+        raise UrlIngestFailedError(
+            f"Firecrawl crawl failed with status {exc.response.status_code}"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise UrlIngestFailedError(f"Firecrawl connection failed: {exc}") from exc
 
-    pages: list[str] = []
     crawl_id = data.get("id")
     if crawl_id:
-        import time
-
-        with httpx.Client(timeout=30.0) as client:
-            for _ in range(30):
-                result = client.get(
-                    f"https://api.firecrawl.dev/v1/crawl/{crawl_id}",
-                    headers=headers,
-                )
-                result.raise_for_status()
-                result_data = _json_body(result)
-                if result_data.get("status") == "completed":
-                    for item in result_data.get("data", []):
-                        content = item.get("markdown") or item.get("content") or ""
-                        if content.strip():
-                            pages.append(content)
-                    break
-                time.sleep(2)
+        pages = _poll_crawl_pages(crawl_id, headers)
     else:
+        pages = []
         content = data.get("markdown") or data.get("content") or ""
         if content.strip():
             pages.append(content)

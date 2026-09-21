@@ -109,12 +109,24 @@ a pasted-on mouth (verified 2026-08-18). This is architectural, not a version de
 re-test a new version hoping for a different answer. See identity/henry/IDENTITY.toml
 [render_behaviour].post_hoc_lipsync."""
 
+[engines.higgsfield_motion_control]
+provider          = "higgsfield"
+model             = "motion_control"
+output            = "video"
+identity_faithful = false
+lip_sync          = "none"
+performance_transfer = true
+available         = false           # Planned probe target; not yet active
+verified_on       = "2026-09-09"
+notes             = "Planned probe target for performance transfer from a driving video without adding a new egress host."
+
 [engines.heygen_avatar]
 provider          = "heygen"
 model             = "avatar_iv"         # server default; avatar_v is opt-in, see notes
 output            = "video"
 identity_faithful = true
 lip_sync          = "native"
+performance_transfer = false            # prompt-only avatar; cannot transfer performance from driving clip
 available         = true
 requires_disclosure = true              # DISCLOSED renders only; undisclosed stays W4-panel-gated
 verified_on       = "2026-08-20"        # live MCP schema read, recorded below
@@ -135,7 +147,7 @@ So the gate now sits where it bites: `requires_disclosure = true` means this eng
 for a render that has declared disclosure. An UNDISCLOSED synthetic presenter still resolves
 nothing and still waits on the panel — which is the case the panel was pre-registered to decide. A
 KILL closes the undisclosed lane permanently. This is a NARROWING of what the boolean gated, not a
-bypass of it: nothing reaches an audience un-labelled that could not before.
+bypass of it: nothing reaches an audience un-labelled that could not before. It answers indistinguishability and naturalness, never impact — a natural, undetectable, inert film passes it.
 
 CAPABILITIES VERIFIED AGAINST THE LIVE MCP SCHEMA 2026-08-20 — all three better than this PRD
 assumed when it was written:

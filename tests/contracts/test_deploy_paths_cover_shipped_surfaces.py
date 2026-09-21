@@ -373,10 +373,10 @@ def test_the_deploy_job_binds_to_the_environment_holding_its_secrets(workflow: P
     ]
     if not uses_env_secrets:
         pytest.skip(f"{workflow.relative_to(REPO)} consumes no environment-scoped secret")
-    assert "environment: production" in text, (
+    assert "environment: production" in text or "environment: staging" in text, (
         f"{workflow.relative_to(REPO)} reads {sorted(uses_env_secrets)}, which live on the "
-        "`production` GitHub Environment, but the job never declares "
-        "`environment: production` — so every one of them resolves to an empty string and "
+        "`production` or `staging` GitHub Environment, but the job never declares "
+        "`environment: production` or `environment: staging` — so every one of them resolves to an empty string and "
         "the deploy fails with an error that names no secret."
     )
 

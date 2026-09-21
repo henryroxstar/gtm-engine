@@ -13,7 +13,7 @@ so it runs in the minimal pytest+asyncpg CI job.
 Lens coverage:
   - the pre-tenant bootstrap: resolve_api_key resolves only the presented key (V012)
   - post-auth queries run RLS-subject: a metered call is visible only under its scope
-  - WITH CHECK blocks a forged cross-workspace mcp_calls insert
+  - WITH CHECK blocks a forged cross-workspace unified_metering_log insert
   - the boot guard fires when connected as the owner role
 """
 
@@ -115,7 +115,7 @@ def test_resolve_api_key_isolates_and_bumps_last_used(clean_db):
 
 
 def test_metered_call_is_rls_scoped(clean_db):
-    """A metered call writes an mcp_calls row visible ONLY under its own workspace scope."""
+    """A metered call writes a unified_metering_log row visible ONLY under its own workspace scope."""
 
     async def body():
         from backend.database import create_pool
@@ -142,11 +142,11 @@ def test_metered_call_is_rls_scoped(clean_db):
 
             # Visible under A's scope, invisible under B's (RLS), 1 row total (admin).
             async with workspace_scope(api, wa) as c:
-                assert await c.fetchval("SELECT count(*) FROM mcp_calls") == 1
+                assert await c.fetchval("SELECT count(*) FROM unified_metering_log") == 1
             async with workspace_scope(api, wb) as c:
-                assert await c.fetchval("SELECT count(*) FROM mcp_calls") == 0
+                assert await c.fetchval("SELECT count(*) FROM unified_metering_log") == 0
             async with admin.acquire() as c:
-                assert await c.fetchval("SELECT count(*) FROM mcp_calls") == 1
+                assert await c.fetchval("SELECT count(*) FROM unified_metering_log") == 1
         finally:
             await api.close()
             await admin.close()
@@ -155,7 +155,7 @@ def test_metered_call_is_rls_scoped(clean_db):
 
 
 def test_with_check_blocks_cross_workspace_mcp_insert(clean_db):
-    """Scope A cannot forge an mcp_calls row tagged for workspace B (WITH CHECK)."""
+    """Scope A cannot forge an unified_metering_log row tagged for workspace B (WITH CHECK)."""
 
     async def body():
         from backend.database import create_pool
@@ -171,9 +171,9 @@ def test_with_check_blocks_cross_workspace_mcp_insert(clean_db):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 async with workspace_scope(api, wa) as c:
                     await c.execute(
-                        "INSERT INTO mcp_calls(workspace_id, api_key_id, tool_name, "
-                        "profile_name, model, prompt_tokens, completion_tokens, cost_usd) "
-                        "VALUES($1::uuid, $2::uuid, 'draft_post', 'acme', 'm', 1, 1, 0.01)",
+                        "INSERT INTO unified_metering_log(workspace_id, api_key_id, runtime, tool_name, "
+                        "cost_credits, profile_name, model, prompt_tokens, completion_tokens, cost_usd) "
+                        "VALUES($1::uuid, $2::uuid, 'mcp', 'draft_post', 10, 'acme', 'm', 1, 1, 0.01)",
                         wb,  # forge B's workspace while scoped to A
                         key_b,
                     )

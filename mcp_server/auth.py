@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Any
 
 from gtm_core.capabilities import Entitlement
 
@@ -46,3 +47,22 @@ async def validate_api_key(raw_key: str, pool) -> ApiKeyCtx | None:
         entitlement=Entitlement(row["entitlement"]),
         key_id=str(row["key_id"]),
     )
+
+
+async def assert_workspace_profile(workspace_id: str, profile: str, pool: Any) -> None:
+    """Ensure that the given profile is bound to the caller's workspace.
+
+    Prevents cross-tenant profile snooping and unauthorized drafting on public MCP.
+    """
+    if pool is None:
+        return
+    from backend.database import workspace_scope
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM profiles WHERE workspace_id = $1::uuid AND profile_name = $2",
+            workspace_id,
+            profile,
+        )
+    if not row:
+        raise ValueError(f"Profile '{profile}' is not bound to caller workspace")

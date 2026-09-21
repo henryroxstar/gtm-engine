@@ -8,6 +8,8 @@ Security invariants enforced here:
   - slugify() rejects reserved names and validates through _safe_segment (PRD §4a)
   - All staging writes stay inside cfg.profiles_root / ".staging" / slug (no path traversal)
   - Source text is UNTRUSTED INPUT (RULES.md §R5): passed as data to the brain, never executed
+  - The brain that reads it has no tools, no MCP servers and no saved transcript
+    (extract._extraction_options; tests/agent/test_onboard_extract_lockdown.py)
   - onboarding_cap_usd checked before any paid call (RULES.md §R2, cfg.onboarding_cap_usd)
   - promote() raises ValueError if profile already exists — never overwrites a live tenant
   - URL ingestion (httpx / Firecrawl REST) lives in gtm_core/ingest.py outside the §R6 boundary
@@ -17,11 +19,10 @@ from __future__ import annotations
 
 from .errors import OnboardingExtractError, OnboardingInputError  # noqa: F401
 from .extract import (  # noqa: F401
-    _REQUIRED_DRAFT_FIELDS,
-    _VALID_CONFIDENCE,
     _parse_and_validate_draft,
     _run_brain_query,
     _strip_fence,
+    _validate_draft,
     extract,
     extract_product,
 )

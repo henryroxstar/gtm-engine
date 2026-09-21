@@ -95,7 +95,7 @@ async def fetch_open_gate(pool, workspace_id: str, run_id: str):
     run — the open durable gate's kind (``gate_kind``; NULL for a prompt run)."""
     async with workspace_scope(pool, workspace_id) as conn:
         return await conn.fetchrow(
-            "SELECT r.status, r.pending_gate, r.pending_content, "
+            "SELECT r.status, r.pending_gate, r.pending_content, r.profile_name, "
             "(SELECT g.gate FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open' "
             " ORDER BY g.opened_at DESC LIMIT 1) AS gate_kind "
             "FROM runs r WHERE r.id = $1::uuid AND r.workspace_id = $2::uuid",

@@ -183,7 +183,20 @@ PLACEHOLDER_RE = re.compile(r"\[(INSERT|TBD|TODO|PLACEHOLDER|LINK|ONE LINK)", re
 #: Words that are never a given name, checked per TOKEN so "name unconfirmed" is refused
 #: whole and "Hui Jie" is not.
 _NON_NAMES = frozenset(
-    {"name", "first", "firstname", "there", "team", "unconfirmed", "unknown", "tbd", "none"}
+    {
+        "name",
+        "first",
+        "firstname",
+        "there",
+        "team",
+        "unconfirmed",
+        "unknown",
+        "tbd",
+        "none",
+        "todo",
+        "placeholder",
+        "insert",
+    }
 )
 _NAME_TOKEN_RE = re.compile(r"^[^\W\d_][\w'\-.]*$", re.IGNORECASE | re.UNICODE)
 

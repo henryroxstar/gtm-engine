@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 from . import prospects_state as ps
 from .cells import load_cell_map
-from .paths import resolve_content_root
+from .paths import _safe_segment, resolve_content_root
 from .prospects_consolidate.paths import _pool_dir, _sequences_dir, ready_to_load_path
 from .prospects_state import (
     ACCOUNT_ID_FIELD,
@@ -95,7 +95,7 @@ def _collect_csv_paths(profile: str, content_root: Path | None) -> list[Path]:
         src_csv = src.get("csv")
         if not src_csv:
             continue
-        p = seq_dir / src_csv if not Path(src_csv).is_absolute() else Path(src_csv)
+        p = seq_dir / _safe_segment(src_csv, "csv")
         if p.is_file() and p not in csv_paths:
             csv_paths.append(p)
     return csv_paths

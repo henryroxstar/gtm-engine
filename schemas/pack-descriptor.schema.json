@@ -26,7 +26,7 @@
             "type": "object",
             "required": ["kind", "name", "status"],
             "properties": {
-              "kind": { "type": "string", "enum": ["setting", "knowledge"], "description": "Which input class the item belongs to. Open-world." },
+              "kind": { "type": "string", "enum": ["setting", "knowledge", "context"], "description": "Which input class the item belongs to. Open-world." },
               "name": { "type": "string", "description": "Settings key or knowledge topic (matches inputs.settings[].key / inputs.knowledge[].topic)." },
               "status": { "type": "string", "enum": ["ready", "degraded", "blocked"], "description": "Open-world." },
               "reason": { "type": "string", "description": "Optional human-readable sentence; never an absolute path." }
@@ -81,6 +81,18 @@
               "topic": { "type": "string", "description": "Knowledge-corpus topic, e.g. 'company', 'voice', 'icp-personas'." },
               "required": { "type": "boolean", "default": false },
               "freshness": { "type": "string", "description": "How stale this topic may be before a run should re-verify it. Current values: 'evergreen' | '90d'. Open-world — treat unknown values as opaque." }
+            }
+          }
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "description": "Context input name, bare segment." },
+              "required": { "type": "boolean", "default": false },
+              "max_bytes": { "type": "integer", "description": "Per-item byte cap; absent = global default." }
             }
           }
         }

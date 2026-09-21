@@ -27,6 +27,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend import agents as agents_mod  # noqa: E402
+from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.errors import register_error_handlers  # noqa: E402
 from backend.routers import agents as agents_router  # noqa: E402
@@ -38,6 +39,7 @@ from backend.routers import runs as runs_router  # noqa: E402
 from tests.backend._protocol1 import (  # noqa: E402
     REPO,  # noqa: E402
     SCOPE_MODULES,
+    user_principal,
 )
 from tests.backend.test_packs_api import PROFILE, _provision  # noqa: E402
 
@@ -72,6 +74,8 @@ class AgentsDb:
             "monthly_budget_usd": None,
             "status": "active",
             "is_default": False,
+            "read_scope": "own",
+            "daily_dispatch_cap": None,
             "created_at": f"2026-08-09T00:00:0{self._seq % 10}+00:00",
             "updated_at": "2026-08-09T00:00:00+00:00",
         }
@@ -119,8 +123,11 @@ class AgentsDb:
         raise AssertionError(f"unexpected fetchval: {sql}")
 
     def _find_run_by_client_request_id(self, ws, client_request_id):
+        # Fleet Phase A: client_request_id is now the LAST column (principal_kind/
+        # principal_id were inserted before it, admission.py:insert_run_row), so this
+        # reads the last element rather than a now-stale fixed index 7.
         return next(
-            (r for r in self.runs if str(r[1]) == str(ws) and r[7] == client_request_id),
+            (r for r in self.runs if str(r[1]) == str(ws) and r[-1] == client_request_id),
             None,
         )
 
@@ -156,7 +163,7 @@ class AgentsDb:
         if "monthly_cost_cap_usd" in sql and "subscriptions" in sql:
             return {"monthly_cost_cap_usd": self.cap} if self.cap is not None else None
         if sql.strip().startswith("INSERT INTO agents"):
-            ws, name, profile, packs, language, budget = args
+            ws, name, profile, packs, language, budget, read_scope, daily_cap = args
             return self.add_agent(
                 workspace_id=ws,
                 name=name,
@@ -164,6 +171,8 @@ class AgentsDb:
                 packs=list(packs) if packs is not None else None,
                 language=language,
                 monthly_budget_usd=budget,
+                read_scope=read_scope,
+                daily_dispatch_cap=daily_cap,
             )
         if "FROM agents WHERE id" in sql:
             row = self.agents.get(args[0])
@@ -241,6 +250,11 @@ def _client(ws_id: str, db: AgentsDb):
     # marketing is now gated at pro_plus (gtm_core/gating.toml).
     ctx = WorkspaceCtx(user_id=str(uuid.uuid4()), workspace_id=ws_id, entitlement="pro_plus")
     app.dependency_overrides[require_auth] = lambda: ctx
+    # Fleet Phase A (Task 3): runs/packs routes now depend on require_principal, not
+    # require_auth — this companion override keeps every existing user-JWT-shaped test
+    # here byte-identical (require_principal's admission primitives no-op/pass through
+    # unchanged for kind="user").
+    app.dependency_overrides[require_principal] = lambda: user_principal(ctx)
     return TestClient(app, raise_server_exceptions=True)
 
 
@@ -793,6 +807,7 @@ def test_path_id_reaches_the_query_as_the_canonical_string(ws_env, db):
         ("post", "/v1/runs", _run_json(agent_id=_BAD), ["body", "agent_id"]),
         ("delete", f"/v1/api-keys/{_BAD}", None, ["path", "key_id"]),
         ("get", f"/v1/onboard/{_BAD}/diff", None, ["path", "draft_id"]),
+        ("get", f"/v1/onboard/jobs/{_BAD}", None, ["path", "job_id"]),
         ("delete", f"/v1/onboard/{_BAD}", None, ["path", "draft_id"]),
         (
             "post",
@@ -855,6 +870,12 @@ def test_run_list_agent_id_reaches_the_query_as_the_canonical_string(ws_env, db)
 
 
 def test_onboard_draft_id_is_looked_up_as_the_canonical_string(ws_env, db, monkeypatch):
+    # The draft lookup takes the workspace-scoped config (its disk fallback searches that
+    # tree); the harness's MagicMock app cfg cannot be scoped, so hand it the ws_env roots.
+    async def _cfg(request, ws):
+        return MagicMock(profiles_root=ws_env.profiles_root, content_root=ws_env.content_root)
+
+    monkeypatch.setattr(onboard_router, "_get_cfg", _cfg)
     monkeypatch.setitem(
         onboard_router._drafts,
         _OK,

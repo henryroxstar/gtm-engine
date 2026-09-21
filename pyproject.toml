@@ -65,13 +65,14 @@ dependencies = [
   # resolved in uv.lock via matplotlib; declaring it explicitly changes no resolution, adds no
   # wheel. captions.py is the ONLY gtm_core module permitted to import PIL.
   "pillow>=12.3",
+  "boto3>=1.43.98",
 ]
 
 [project.optional-dependencies]
 # Dev/test only. The unit tests under tests/agent/ are SDK-independent and run on
 # pure stdlib + pytest — they never import claude_agent_sdk, so `pytest` is the
 # only dev dependency needed to exercise them.
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-cov>=5.0", "hypothesis>=6.100"]
 # Static-analysis toolchain (Ruff lint+format, Bandit security, Semgrep, the
 # pre-commit runner). Install with `uv sync --extra lint`. Kept out of the
 # runtime deps so the production image stays lean. Pins are mirrored in
@@ -149,6 +150,7 @@ packages = [
   "agent.onboard",
   "agent.mcp.worker",
   "backend",
+  "backend.callers",
   "backend.routers",
   "backend.services",
   "backend.services.runs",
@@ -161,20 +163,16 @@ packages = [
     "gtm_core.brief_lint",
     "gtm_core.content_quality",
     "gtm_core.deck_lint",
-    "gtm_core.elements",
     "gtm_core.email_campaign_dashboard",
     "gtm_core.hook_coverage",
     "gtm_core.lanes",
     "gtm_core.merge_hygiene",
     "gtm_core.prospects_consolidate",
     "gtm_core.screen_ui",
-    "gtm_core.video_finish",
-    "gtm_core.video_lint",
     "gtm_core.screen_ui.scenes",
     "gtm_core.shots_lint",
   "gtm_core.prospects",
   "gtm_core.skills",
-  "gtm_core.voc",
   "mcp_server",
 ]
 
@@ -335,3 +333,28 @@ exclude_dirs = ["tests", ".venv", "content", "n8n"]
 # B101 (assert_used): asserts outside tests are used as invariants, not control
 # flow. Subprocess use is reviewed in agent/permissions.py (deny-list classifier).
 skips = ["B101"]
+
+# ── Coverage (pytest-cov) ───────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["agent", "backend", "cockpit", "gtm_core", "mcp_server"]
+branch = true
+omit = [
+  "tests/*",
+  ".venv/*",
+  "*/__pycache__/*",
+  "profiles/*",
+  "content/*",
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "pass",
+  "\\.\\.\\.",
+]

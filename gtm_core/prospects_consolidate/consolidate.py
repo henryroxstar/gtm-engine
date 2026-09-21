@@ -136,6 +136,7 @@ def consolidate(
     reclassify: bool = False,
     allow_downgrade: bool = False,
     rebuild_master: bool = False,
+    unattended: bool = False,
 ) -> dict:
     """Sweep every ``prospects-*-hubspot.csv`` export, fold net-new emails into
     the canonical ``sequences/master-list.csv``, gate by deliverability
@@ -238,10 +239,11 @@ def consolidate(
 
     all_rows = list(by_email.values())
     if not allow_shrink and master_path is not None and len(all_rows) < len(existing):
-        raise ValueError(
-            f"refusing to shrink master list: {len(existing)} -> {len(all_rows)} rows; "
-            "pass allow_shrink=True to override"
-        )
+        msg = f"refusing to shrink master list: {len(existing)} -> {len(all_rows)} rows; pass allow_shrink=True to override"
+        if unattended:
+            print(f"UNATTENDED MODE: {msg}. Aborting consolidation safely.", file=sys.stderr)
+            return {"status": "aborted", "reason": "shrink_prevented"}
+        raise ValueError(msg)
 
     # Stamp identity before anything downstream reads it. Both ids are assigned once and
     # never reassigned — a join key that changes under a row is worse than none.
@@ -294,8 +296,10 @@ def consolidate(
             # most 11 of 1,171 rows per column.
             filled = False
             for col, value in record.items():
-                if col == "verdict":
-                    authoritative = _verdict_at_least_as_strict(row.get(col, ""), value)
+                if col in ("verdict", "verdict_reason"):
+                    authoritative = _verdict_at_least_as_strict(
+                        row.get("verdict", ""), record.get("verdict", "")
+                    )
                 else:
                     authoritative = col in _AUTHORITATIVE_RECORD_COLUMNS
                 if authoritative or not str(row.get(col) or "").strip():
@@ -477,14 +481,16 @@ def consolidate(
         "needs_verification_path": str(needs_verification_path(profile, content_root)),
     }
     _print_banner(result)
-    # Refresh the operator-facing status page on every sweep so it can never go
-    # stale. Best-effort: a dashboard error must never break consolidation.
-    # One page, one refresh. Two pages fed by one hand-dropped snapshot is how they
-    # drifted apart; the retired URLs are rewritten as redirects so links survive.
     try:
-        from gtm_core.email_campaign_dashboard import render_dashboard as _render_gtm
+        from ..retention_sweep import sweep_stale_pii
+
+        sweep_stale_pii(profile, ttl_days=7, content_root=content_root)
+    except Exception as exc:  # noqa: BLE001
+        print(f"retention sweep skipped: {exc}", file=sys.stderr)
+    try:
+        from ..email_campaign_dashboard import render_dashboard as _render_gtm
 
         _render_gtm(profile, content_root)
-    except Exception as exc:  # noqa: BLE001 - dashboard is non-critical
+    except Exception as exc:  # noqa: BLE001
         print(f"dashboard refresh skipped: {exc}", file=sys.stderr)
     return result

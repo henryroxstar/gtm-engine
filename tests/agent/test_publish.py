@@ -385,20 +385,20 @@ def test_identity_marker_tolerates_whitespace_around_commas():
     assert draft.identity_used == ("soul", "element")
 
 
-def test_identity_marker_drops_unknown_values_rather_than_erroring():
-    """Garbage in the field is silently dropped — nothing for injected text to
-    smuggle through this field, and no forged value can leak into the post."""
+def test_identity_marker_retains_unknown_values_to_fail_closed():
+    """Garbage in the field is no longer silently dropped — unknown tokens fall through
+    to validate_disclosure so they can fail closed."""
     raw = "⟦GATE:publish⟧\n⟦POST⟧\nhello\n⟦/POST⟧\n⟦IDENTITY⟧soul,attacker_value,voice⟦/IDENTITY⟧"
     draft = parse_publish_block(raw)
     assert draft is not None
-    assert draft.identity_used == ("soul", "voice")
+    assert draft.identity_used == ("soul", "attacker_value", "voice")
 
 
-def test_identity_marker_all_garbage_is_empty_not_an_error():
+def test_identity_marker_all_garbage_is_retained():
     raw = "⟦GATE:publish⟧\n⟦POST⟧\nhello\n⟦/POST⟧\n⟦IDENTITY⟧nonsense,more_nonsense⟦/IDENTITY⟧"
     draft = parse_publish_block(raw)
     assert draft is not None
-    assert draft.identity_used == ()
+    assert draft.identity_used == ("nonsense", "more_nonsense")
 
 
 def test_identity_marker_parses_generated_alongside_the_handle_values():
@@ -770,3 +770,21 @@ def test_idempotency_is_over_content_so_the_same_post_cannot_be_scheduled_twice(
     assert first.ok and first.status == "scheduled"
     assert not second.ok and second.status == "duplicate"
     assert len(t.calls) == 1
+
+
+def test_validate_disclosure_fails_closed_on_unknown_tokens():
+    """Mocked Egress / Dry-Run: Test the updated validate_disclosure in agent/publish.py
+    using dummy identity tokens (⟦IDENTITY⟧fake_deepfake⟦/IDENTITY⟧).
+    """
+    from agent.publish import parse_publish_block, validate_disclosure
+
+    raw = "⟦GATE:publish⟧\n⟦POST⟧\nThis is a post\n⟦/POST⟧\n⟦IDENTITY⟧fake_deepfake⟦/IDENTITY⟧\n"
+    draft = parse_publish_block(raw)
+
+    # Should parse it through as a dummy token
+    assert "fake_deepfake" in draft.identity_used
+
+    # And validation should fail because we don't have a matching disclosure line
+    err = validate_disclosure(draft.post, draft.identity_used, [])
+    assert err is not None
+    assert "synthetic likeness/voice used but no disclosure line is configured" in err

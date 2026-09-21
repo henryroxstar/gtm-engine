@@ -9,13 +9,15 @@ they mirror, so a schema change touches one package.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 from ...database import workspace_scope
 from .gates import _content_sha
 
 _RUN_DETAIL_SQL = """SELECT r.id::text, r.status, r.profile_name, r.output, r.error, r.error_code,
           r.pending_gate, r.pending_content, r.agent_id::text AS agent_id, r.payload,
-          r.created_at,
+          r.created_at, r.principal_kind, r.principal_id, r.external_ref,
           (SELECT g.gate FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open'
            ORDER BY g.opened_at DESC LIMIT 1) AS gate_kind,
           (SELECT g.node_id FROM run_gates g WHERE g.run_id = r.id AND g.state = 'open'
@@ -23,7 +25,7 @@ _RUN_DETAIL_SQL = """SELECT r.id::text, r.status, r.profile_name, r.output, r.er
    FROM runs r WHERE r.id = $1::uuid AND r.workspace_id = $2::uuid"""
 
 _RUN_LIST_SQL = """SELECT id::text, status, profile_name, agent_id::text AS agent_id,
-          payload, created_at, pending_gate,
+          payload, created_at, pending_gate, principal_kind, principal_id, external_ref,
           (SELECT g.gate FROM run_gates g WHERE g.run_id = runs.id AND g.state = 'open'
            ORDER BY g.opened_at DESC LIMIT 1) AS gate_kind,
           (SELECT g.node_id FROM run_gates g WHERE g.run_id = runs.id AND g.state = 'open'
@@ -31,7 +33,7 @@ _RUN_LIST_SQL = """SELECT id::text, status, profile_name, agent_id::text AS agen
    FROM runs WHERE workspace_id = $1::uuid"""
 
 _NODES_SQL = (
-    "SELECT node_id, state FROM run_nodes "
+    "SELECT node_id, state, error FROM run_nodes "
     "WHERE run_id = $1::uuid AND workspace_id = $2::uuid ORDER BY node_id"
 )
 _BLOCKS_SQL = (
@@ -42,6 +44,18 @@ _BLOCKS_SQL = (
 def _blocks(rows) -> list[dict]:
     """A run_blocks row's `block` is jsonb; a fake conn may already hand back a dict."""
     return [b["block"] if isinstance(b["block"], dict) else json.loads(b["block"]) for b in rows]
+
+
+def _wire_node(r) -> dict:
+    """One nodes[] entry — for GET /v1/runs/{id} and the SSE snapshot alike: `{id, state}`,
+    plus `error` (ST-09) only when the node failed and has one, as the `node` event does.
+    run_nodes.error was persisted but never exposed before — a client could show the
+    run-level error but not attribute it to a node."""
+    node = {"id": r["node_id"], "state": r["state"]}
+    error = r.get("error")
+    if r["state"] == "failed" and error:
+        node["error"] = error
+    return node
 
 
 def _payload(row) -> dict:
@@ -84,6 +98,7 @@ async def fetch_run_detail(pool, workspace_id: str, run_id: str) -> dict | None:
         "agent_id": row.get("agent_id"),
         "pack": payload.get("pack"),
         "variant": payload.get("variant"),
+        "inputs": payload.get("inputs"),
         "created_at": _isoformat(row.get("created_at")),
         "stages": [
             {
@@ -103,15 +118,24 @@ async def fetch_run_detail(pool, workspace_id: str, run_id: str) -> dict | None:
         "gate": row.get("gate_kind"),
         "pending_node_id": row.get("gate_node_id"),
         # None (not []) on runs with no persisted rows — prompt mode, and pre-A2 rows.
-        "nodes": (
-            [{"id": r["node_id"], "state": r["state"]} for r in node_rows] if node_rows else None
-        ),
+        "nodes": ([_wire_node(r) for r in node_rows] if node_rows else None),
         "content": _blocks(block_rows) if block_rows else None,
+        # Fleet Phase A (V026): who started this run. .get: tolerate fakes/fixtures
+        # that model only the pre-Fleet-Phase-A columns.
+        "principal_kind": row.get("principal_kind"),
+        "principal_id": row.get("principal_id"),
+        "external_ref": row.get("external_ref"),
     }
 
 
 async def fetch_recent_runs(
-    pool, workspace_id: str, *, limit: int, agent_id: str | None, status: str | None = None
+    pool,
+    workspace_id: str,
+    *,
+    limit: int,
+    agent_id: str | None,
+    status: str | None = None,
+    external_ref: str | None = None,
 ) -> list[dict]:
     """The workspace's most recent runs, newest first, optionally narrowed to one
     agent's (A4) and/or one status — e.g. status=awaiting_approval to find every run
@@ -128,6 +152,9 @@ async def fetch_recent_runs(
     if status:
         args.append(status)
         sql += f" AND status = ${len(args)}"
+    if external_ref:
+        args.append(external_ref)
+        sql += f" AND external_ref = ${len(args)}"
     args.append(limit)
     sql += f" ORDER BY created_at DESC LIMIT ${len(args)}"
     async with workspace_scope(pool, workspace_id) as conn:
@@ -140,15 +167,35 @@ async def fetch_recent_runs(
             "agent_id": r.get("agent_id"),
             "pack": _payload(r).get("pack"),
             "variant": _payload(r).get("variant"),
+            "inputs": _payload(r).get("inputs"),
             "created_at": _isoformat(r.get("created_at")),
             "pending_gate": r.get("pending_gate"),
             # The open gate's parsed kind + node id (same fields _RUN_DETAIL_SQL
             # exposes) — None once the gate is decided or on a run never gated.
             "gate": r.get("gate_kind"),
             "pending_node_id": r.get("gate_node_id"),
+            "principal_kind": r.get("principal_kind"),
+            "principal_id": r.get("principal_id"),
+            "external_ref": r.get("external_ref"),
         }
         for r in rows
     ]
+
+
+async def fetch_run_agent_id(pool, workspace_id: str, run_id: str) -> str | None:
+    """The run's bound ``agent_id`` alone — for a route that needs to scope a service
+    principal's read (Fleet Phase A) but doesn't already have the run's full detail in
+    hand (cancel/stream/artifacts read their own narrower row shape). Returns None for
+    both "not found" and "found with no bound agent" — callers that need to
+    distinguish those already checked existence first."""
+    async with workspace_scope(pool, workspace_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT agent_id::text AS agent_id FROM runs "
+            "WHERE id = $1::uuid AND workspace_id = $2::uuid",
+            run_id,
+            workspace_id,
+        )
+    return row["agent_id"] if row else None
 
 
 async def fetch_run_artifacts(pool, workspace_id: str, run_id: str) -> list[dict] | None:
@@ -231,3 +278,39 @@ def attachment_headers(name: str) -> dict[str, str]:
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-store",
     }
+
+
+def resolve_artifact_response(row: Any, ws: str, repo_root: Path, artifact_id: str | None = None):
+    """Serve an artifact row, redirecting to presigned Cloudflare R2 URL when configured,
+    or falling back to local FileResponse."""
+    from gtm_core import r2_client
+
+    if r2_client.is_configured():
+        key = f"{ws}/content/{row['rel_path']}"
+        try:
+            url = r2_client.generate_presigned_url(key)
+            from fastapi.responses import RedirectResponse
+
+            return RedirectResponse(url, status_code=307)
+        except Exception:  # noqa: BLE001 # nosec B110
+            pass
+
+    import logging
+
+    from fastapi import HTTPException, status
+    from fastapi.responses import FileResponse
+
+    from gtm_core.paths import workspace_content_root
+
+    content_root = workspace_content_root(ws, repo_root)
+    path, reason = resolve_artifact_path(content_root, row["rel_path"])
+    if path is None:
+        if reason == "escaped":
+            aid = artifact_id or (row["id"] if "id" in row else "unknown")
+            logging.getLogger(__name__).warning(
+                "artifact %s resolution escaped the workspace root — refused", aid
+            )
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+        raise HTTPException(status.HTTP_410_GONE, {"code": "artifact_gone"})
+
+    return FileResponse(path, media_type=row["media_type"], headers=attachment_headers(row["name"]))

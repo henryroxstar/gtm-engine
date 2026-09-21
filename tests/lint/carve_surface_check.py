@@ -117,7 +117,10 @@ def parse_surface(root: Path, *, stubbed: Iterable[str] = ()) -> Surface:
     dirs += _one(script, r'rsync -a[^\n]*"\$ROOT/(oss/github)/"', "the oss/github rsync")
     files = list(_array(script, "ALLOW_FILES"))
     files += [f"docs/{d}" for d in _array(script, "SHIPPING_DOCS")]
-    files += _one(script, r'"\$ROOT/(scripts/[A-Za-z0-9_.-]+\.sh)"', "the bootstrap.sh copy")
+    scripts_block = re.search(r'cp\s+(.*?)\s+"\$DEST/scripts/"', script, re.S)
+    if not scripts_block:
+        raise SystemExit(f"✗ {SCRIPT_REL}: could not find the scripts copy — re-anchor this lint")
+    files += re.findall(r'"\$ROOT/(scripts/[^"]+)"', scripts_block.group(1))
     files += _one(script, r'"\$ROOT/(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)"', "the CI copies")
     gov = _one(
         script, r'^for f in ([^;]+); do\s*\n\s*cp "\$ROOT/oss/\$f"', "the governance copy loop"
@@ -127,14 +130,32 @@ def parse_surface(root: Path, *, stubbed: Iterable[str] = ()) -> Surface:
         script, r'rsync -a[^\n]*"\$ROOT/(oss/overlays)/" "\$DEST/"', "the overlay rsync"
     )
     (markers,) = _one(script, r"^MARKERS='([^'\n]+)'$", "the MARKERS regex")
-    excludes = tuple(dict.fromkeys(re.findall(r"--exclude='([^']+)'", script)))
+    excludes = list(dict.fromkeys(re.findall(r"--exclude='([^']+)'", script)))
+
+    # Mechanics excludes are fetched dynamically in the bash script. We replicate that here.
+    import gtm_core.gating as gating
+
+    toml_path = root / "gtm_core/gating.toml"
+    if not toml_path.exists():
+        toml_path = Path(__file__).parent.parent.parent / "gtm_core/gating.toml"
+
+    policy = gating.load_policy(toml_path)
+    for exc in policy.carve_exclude_mechanics:
+        if "/" in exc:
+            # We anchor it for our fnmatch. The bash script strips the directory prefix and anchors
+            # it to the transfer root. Since `_excluded` matches on `rel.parts` OR `rel.as_posix()`,
+            # we can just use the full relative path from the repo root to match here.
+            excludes.append(exc)
+        else:
+            excludes.append(exc)
+
     doc_ref_allow = frozenset(
         tuple(pair.split(":", 1)) for pair in _quoted_array(script, "DOC_REF_ALLOW")
     )
     return Surface(
         dirs=tuple(dict.fromkeys(dirs)),
         files=tuple(dict.fromkeys(files)),
-        exclude_globs=excludes,
+        exclude_globs=tuple(excludes),
         overlay_root=overlay_root,
         markers=markers,
         stubbed_skill_dirs=tuple(f"plugin/skills/{name}" for name in sorted(stubbed)),
@@ -143,7 +164,10 @@ def parse_surface(root: Path, *, stubbed: Iterable[str] = ()) -> Surface:
 
 
 def _excluded(rel: Path, globs: tuple[str, ...]) -> bool:
-    return any(fnmatch.fnmatch(part, g) for part in rel.parts for g in globs)
+    rel_str = rel.as_posix()
+    return any(fnmatch.fnmatch(part, g) for part in rel.parts for g in globs) or any(
+        fnmatch.fnmatch(rel_str, g) or fnmatch.fnmatch(rel_str, f"{g}/*") for g in globs
+    )
 
 
 def shipped_files(root: Path, surface: Surface) -> list[Path]:

@@ -163,16 +163,21 @@ def _github_slug(heading: str) -> str:
 
 
 def test_readme_internal_anchors_resolve() -> None:
-    text = (REPO / "README.md").read_text(encoding="utf-8")
-    headings = {
-        _github_slug(line.lstrip("#").strip())
-        for line in text.splitlines()
-        if re.match(r"#{1,6} \S", line)
-    }
-    dead = sorted({a for a in re.findall(r"\]\(#([^)]+)\)", text) if a not in headings})
-    assert not dead, (
-        f"README.md links to headings that do not exist: {dead}. Known anchors: {sorted(headings)}"
-    )
+    readme_files = sorted(REPO.glob("README*.md"))
+    assert len(readme_files) >= 6, f"Expected at least 6 README files, found: {readme_files}"
+    for path in readme_files:
+        text = path.read_text(encoding="utf-8")
+        headings = {
+            _github_slug(line.lstrip("#").strip())
+            for line in text.splitlines()
+            if re.match(r"#{1,6} \S", line)
+        }
+        md_anchors = re.findall(r"\]\(#([^)]+)\)", text)
+        html_anchors = re.findall(r"<a\s+href=\"#([^\"]+)\"", text)
+        dead = sorted({a for a in (md_anchors + html_anchors) if a not in headings})
+        assert not dead, (
+            f"{path.name} links to headings that do not exist: {dead}. Known anchors: {sorted(headings)}"
+        )
 
 
 # ── 2. Documented schema range vs. backend/schema/ ──────────────────────────────

@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field
 
 from ..database import workspace_scope
 from ..deps import WorkspaceCtx, require_auth
+from ..schemas import ERROR_RESPONSES
 from ..services.integrations import upsert_credential
+from ..vault import decrypt, get_kek
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
+router = APIRouter(prefix="/integrations", tags=["integrations"], responses=ERROR_RESPONSES)
 
 
 class IntegrationPayload(BaseModel):
@@ -39,7 +41,7 @@ async def list_integrations(
     async with workspace_scope(pool, ws.workspace_id) as conn:
         rows = await conn.fetch(
             """
-            SELECT provider, account_ref, created_at, rotated_at
+            SELECT provider, account_ref, created_at, rotated_at, encrypted_data, wrapped_dek, iv, tag, key_version
             FROM encrypted_credentials
             WHERE workspace_id = $1::uuid
             ORDER BY created_at DESC
@@ -47,15 +49,28 @@ async def list_integrations(
             ws.workspace_id,
         )
 
-    return [
-        {
-            "provider": r["provider"],
-            "account_ref": r["account_ref"],
-            "created_at": r["created_at"].isoformat(),
-            "rotated_at": r["rotated_at"].isoformat() if r["rotated_at"] else None,
-        }
-        for r in rows
-    ]
+    kek = get_kek()
+    results = []
+    for r in rows:
+        status = "configured"
+        if not kek:
+            status = "unreadable"
+        else:
+            try:
+                decrypt(dict(r), kek)
+            except Exception:
+                status = "unreadable"
+
+        results.append(
+            {
+                "provider": r["provider"],
+                "account_ref": r["account_ref"],
+                "created_at": r["created_at"].isoformat(),
+                "rotated_at": r["rotated_at"].isoformat() if r["rotated_at"] else None,
+                "status": status,
+            }
+        )
+    return results
 
 
 @router.put("/{provider}", status_code=status.HTTP_200_OK)

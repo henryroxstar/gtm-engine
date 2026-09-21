@@ -1,22 +1,35 @@
 # GTM Engine
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg)](https://www.python.org/)
-[![Built with Claude Agent SDK](https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg)](https://docs.anthropic.com/en/api/agent-sdk/overview)
-[![MCP-first](https://img.shields.io/badge/connectivity-MCP--first-6E56CF.svg)](https://modelcontextprotocol.io/)
+<p align="center">
+  <strong>Language:</strong>
+  <strong>English</strong> |
+  <a href="README.zh-CN.md">简体中文</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.es.md">Español</a> |
+  <a href="README.de.md">Deutsch</a> |
+  <a href="README.ko.md">한국어</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
+  <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/connectivity-MCP--first-6E56CF.svg" alt="MCP-first" /></a>
+  <a href="#why-its-built-this-way"><img src="https://img.shields.io/badge/human%20gates-non--bypassable-2ea44f.svg" alt="Human Gates" /></a>
+  <a href="#profiles-multi-company"><img src="https://img.shields.io/badge/tenants-isolated%20profiles-blueviolet.svg" alt="Tenant Isolation" /></a>
+  <a href="#workspace--harness-support"><img src="https://img.shields.io/badge/workspaces-Claude%20%7C%20Antigravity%20%7C%20Cursor%20%7C%20Codex-orange.svg" alt="Harness Support" /></a>
+</p>
+
+![GTM Content OS & Outbound Pipeline](docs/assets/gtm-pipeline-flow.png)
 
 *The open-source Go-To-Market agent harness for B2B software startups. Built to 10x early-stage startups across their sales, pre-sales, and field-marketing activities.*
 
-```
-      .-"""-.
-     /  o o  \        one brain, many careful hands —
-     \   ^   /            you approve every reach
-      )-----(
-     / /| |\ \
-    ( ( | | ) )
-     \_/ | \_/
-        `-`
-```
+<p align="center">
+  <img src="docs/assets/hero-demo.gif" alt="GTM Engine Demo" width="750" />
+</p>
+<p align="center"><em>From zero setup to staged outbound in 30 seconds — you approve every reach</em></p>
 
 ### You're the founder. You're also the entire Go-To-Market (GTM) team.
 
@@ -28,8 +41,8 @@ ago — without dragging an engineer into every call. And every week the market 
 you're testing new messaging, reading the signals, and shipping content to pull the right buyers
 toward you.
 
-That's five jobs. The playbook says hire five people. You have a laptop, a Claude subscription, and
-this week.
+That's five jobs. The playbook says hire five people. You have a laptop, your existing AI workspace
+(Claude, Google Antigravity, Cursor, or Codex), and this week.
 
 **gtm-engine is the harness that runs those five jobs with you.** Cold prospecting, call prep, account
 plans, decks, market scans, and on-brand multi-platform content (LinkedIn posts, blog articles,
@@ -42,6 +55,16 @@ data stays isolated in its own profile, and the agent has no raw HTTP or shell a
 frameworks ask you to trust broad permissions; this one is built so there's nothing broad to trust.
 (The [how and why](#why-its-built-this-way) is spelled out further down.)
 
+### Why gtm-engine? (The Architectural Contrast)
+
+| Capability | Black-Box "AI SDR" Platforms | Raw Prompts (ChatGPT / Claude) | Generic Agent Frameworks | **gtm-engine** |
+|---|---|---|---|---|
+| **Cost** | \$500–\$3,000 / mo | \$20 / mo (heavy manual copy-paste) | Token spend + hosting fees | **\$0 base** (runs on your existing workspace — Claude, Antigravity, Cursor, or Codex) |
+| **Outbound Safety** | Auto-sends cold emails (reputation risk) | Manual review | Broad tool permissions | **Non-bypassable human gates** (cannot auto-send) |
+| **Company Context** | Rigid scraping | Re-pasting context every prompt | Custom vector DB plumbing | **Profile Second Brain** (onboard once, inherits everywhere) |
+| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **63 skills & 10 packs** (video, decks, posts, SDR) |
+| **Data Privacy** | Third-party cloud vendor lock-in | Shared training data | Varies | **100% Local / Gitignored** (data stays on your machine) |
+
 **You onboard once.** Say `"set me up"` and point it at your website; it reads your site and drafts
 your whole company profile (brand, ICP, voice, competitors, products), so every skill after that
 already knows who you are and you never paste your company into a prompt again.
@@ -50,15 +73,32 @@ already knows who you are and you never paste your company into a prompt again.
 > [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) is the same setup written for someone who
 > sells rather than ships — install to first output, in plain English.
 
-**Then you run it one of two ways** — **Cowork mode** (the default: open this folder in your AI
-workspace — Claude desktop, Google Antigravity, Cursor, or Codex — and type prompts in chat,
-everything local) or an **advanced self-hosted agent**
-(autonomous, 24/7, pausing only at the two human gates). [Two ways to run](#two-ways-to-run) has the
+**Then choose how you want to run it** — **Chat mode** (the default: open this folder in your AI
+workspace — Claude Desktop, Google Antigravity, Cursor, or Codex — and type prompts in chat,
+everything local), a **24/7 self-hosted agent**, a **local REST API**, or as an **inbound MCP server**
+for external agents. [Four ways to run & integrate](#four-ways-to-run-and-integrate) has the
 full comparison. But first, the fun part:
 
 > **Reading the code?** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the technical companion to
 > this README — the layering, the four runtimes, the data contracts, and the invariants the system
 > is built to hold.
+
+![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
+
+---
+
+### 30-Second Quickstart
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
+
+# 2. Open this folder in your AI workspace (Claude Desktop, Google Antigravity, Cursor, or Codex)
+
+# 3. Type in chat:
+"set me up" --site yourcompany.com
+```
+*Zero Docker, zero background servers, zero API keys required for your first run.*
 
 ---
 
@@ -67,67 +107,16 @@ full comparison. But first, the fun part:
 No install command, no config file to fill out first. You open the folder and type one sentence.
 Watch what a Monday-morning "I should really post something" turns into:
 
-```
-You:     "draft my LinkedIn post about [today's news item]"
-
-Engine:  reads the real story → checks it against your content pillars and where
-         your buyers sit in their journey → scores the angle (is it arguable? is
-         attention still rising, or already peaked?) → engineers the emotional
-         triggers that actually get a post shared → pulls 3 hooks from a library
-         of 9 archetypes → drafts in YOUR voice → lints the format before you look
-
-Gate 1:  you pick 1 of the 3 hook angles. Nothing is written until you do.
-Gate 2:  you read the exact post and approve. Only then does it go out.
-```
+![The GTM Engine Workflows](docs/assets/see-it-work-workflows.png)
 
 Sixty seconds ago you had a blank feed and a nagging to-do. Now you have a post that sounds like you
 wrote it on a good day, backed by real research, and you signed off on every word before it left your
 machine.
 
 That same one-sentence move runs your whole week. Or run it as a routine schedule. Every run quietly
-does the work of an analyst, a researcher, and a copywriter before it ever hands you anything:
+does the work of an analyst, a researcher, and a copywriter before it ever hands you anything.
 
-```
-You:     "find prospects in [market]"
-Engine:  discovers ICP-fit accounts → scores each against YOUR rubric for fit and
-         against live buyer-intent for timing, not a generic list → runs a dated
-         "why now" check on each, drawing on your industry + regulatory knowledge
-         → skips accounts you worked recently or whose signal has gone stale →
-         resolves the named buyer's verified email and phone.
-Result:  a scored brief, a HubSpot CSV, and for each hottest account an outreach
-         pack: a pre-drafted 5-touch email + LinkedIn sequence in your voice,
-         threading the buying committee, not just one inbox. Nothing sends.
-         Buyer-intent times the touch and picks the angle; it never hits the copy.
-
-You:     "prep me for my call with [account]"
-Engine:  builds an account + buyer dossier (firmographics, funding, leadership,
-         regulatory backdrop, your matched proof stories) → then arms you with
-         discovery questions, objection rebuttals, and a closing ask, all sequenced
-         by an evidence-based, deal-phase method: SPIN, Gong call data, and
-         peer-reviewed research, not sales-guru folklore.
-Result:  a five-minute brief that assumes you know nothing going in, so you walk in
-         cold and sound like you did the homework. Same method every call, so your
-         sales motion gets consistent instead of improvised.
-
-You:     "design the solution for [account]"  /  "build a deck for [account]"
-Engine:  turns the use case into a customer-facing solution overview → problem,
-         current → target architecture, the V1/V2 cut → then a branded deck.
-Result:  documents only; nothing leaves your machine.
-
-You:     "build an email sequence from that outreach pack"
-Engine:  reuses the account's dossier facts, borrows your industry angle and
-         vocabulary, opens on a real dated signal, matches a proof story by shape,
-         and keeps it to one clear ask → then stages the whole cadence PAUSED in
-         your sequencer, enrolling only clean, verified leads (Bad/Risky and
-         do-not-contact addresses filtered out first).
-Result:  steps, A/B variants, and a schedule, all built. It never hits send. You
-         flip it live yourself, when you're ready.
-
-You:     "run the voice-of-customer brief"
-Engine:  reads the field data every run above already generated → separates what
-         the market is asking for from where you're aiming sales.
-Result:  the raw material your product team needs to find PMF.
-```
+*No black boxes, no silent failures, and no output leaves the system without a human opening the gate.*
 
 Here's the part that compounds: these aren't isolated tricks. The dossier you generate becomes the
 context for the email. Your industry and regulatory knowledge feed both. The signal that sparked a
@@ -145,23 +134,23 @@ every run gets.
 | You are… | Go to | Roughly |
 |---|---|---|
 | **Not technical** — you sell, you don't ship | [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) — install to first output with **no terminal and no commands**, plus a [Sales FAQ](docs/onboarding/SALES-FAQ.md) | 30 min |
-| **Comfortable in a repo** — you'll drive it yourself | [Getting started](#getting-started-cowork-mode), just below | 10 min |
+| **Comfortable in a repo** — you'll drive it yourself | [Getting started](#getting-started-chat-mode), just below | 10 min |
 | **Evaluating it** — architecture, control flow, security posture | [How it works](#how-it-works) → [For a technical evaluator](#for-a-technical-evaluator) | 10 min |
 
 **The questions everyone asks first:**
 
 | | |
 |---|---|
-| **What do I need?** | A Claude subscription. That is the whole requirement — every external tool is optional and falls back to keyless web search |
-| **What will it cost me?** | Nothing beyond your Claude plan until *you* connect a metered data provider. You set a monthly and per-run cap during setup, and every paid call is checked against it **before** it runs |
+| **What do I need?** | An active AI workspace (Claude Desktop, Google Antigravity, Cursor, or Codex). That is the whole requirement — every external tool is optional and falls back to keyless web search |
+| **What will it cost me?** | Nothing beyond your existing workspace plan until *you* connect a metered data provider. You set a monthly and per-run cap during setup, and every paid call is checked against it **before** it runs |
 | **Can it email or post without me?** | No — and not as a setting you could flip. Sending and publishing are not in the agent's tool surface at all; a human approves the exact bytes. [Why it's built this way](#why-its-built-this-way) |
-| **Do I need Docker or background servers?** | No. If you're using Claude, Antigravity, Cursor, or Codex (Cowork mode), you need zero infrastructure — no Docker, no databases, no servers. Local services are only for developers building client apps against the REST API |
+| **Do I need Docker or background servers?** | No. If you're using Claude, Antigravity, Cursor, or Codex (Chat mode), you need zero infrastructure — no Docker, no databases, no servers. Local services are only for developers building client apps against the REST API |
 | **Do I re-explain my company every time?** | No. You onboard once (`"set me up"`, pointed at your website) and every skill reads that profile from then on |
 | **What can it actually do?** | [What it does out of the box](#what-it-does-out-of-the-box) for the workflows, [`docs/SKILLS.md`](docs/SKILLS.md) for the generated, always-current list of every skill |
 | **Where does my data live?** | On your machine, in your profile. Runtime state is gitignored and never leaves except through a gate you approve |
 
-**Contents** — [See it work](#see-it-work) · [Two ways to run](#two-ways-to-run) ·
-[Getting started](#getting-started-cowork-mode) · [Tools & keys](#tools--keys) ·
+**Contents** — [See it work](#see-it-work) · [Four ways to run & integrate](#four-ways-to-run-and-integrate) ·
+[Getting started](#getting-started-chat-mode) · [Workspace support](#workspace--harness-support) · [Tools & keys](#tools--keys) ·
 [What it does out of the box](#what-it-does-out-of-the-box) ·
 [GTM skill suite](#gtm-skill-suite-63-skills--all-profile-driven) ·
 [Profiles](#profiles-multi-company) ·
@@ -171,33 +160,62 @@ every run gets.
 
 ---
 
-## Two ways to run
+## Four ways to run and integrate
 
-**1 · Cowork mode (default — no infrastructure).**
-Download this repo and open the folder in your workspace of choice — the **Claude desktop app**
-(Claude Code / Cowork), **Google Antigravity**, **Cursor**, or **Codex** — then say `"set me up"`. All
+gtm-engine exposes one shared core engine (`gtm_core`) across four primary integration surfaces:
+
+**1 · Chat mode (default — zero infrastructure).**
+Download this repo and open the folder in your workspace of choice — the **Claude Desktop app**,
+**Google Antigravity**, **Cursor**, or **Codex** — then say `"set me up"`. All
 the GTM skills run locally, against your profile, in your voice, driven by ad hoc prompts you type
 turn by turn. No VPS, no Docker, no database, and no standing agent — you're the one calling each
-skill. This is what most people want. → [Getting started](#getting-started-cowork-mode)
+skill. This is what most people want. → [Getting started](#getting-started-chat-mode)
 
-**2 · Advanced mode — self-hosted AI agent.**
+**2 · Autonomous self-hosted agent.**
 Deploy the self-hosted **Claude Agent SDK** runtime — locally or on your own **VPS** — that runs the
 workflow graph on your behalf: it works news → plan → research → studio → publish 24/7 as
 containerized services, pausing only at the two human approval gates in Telegram. Needs Docker and a
 secret manager. → [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
-Mode 1 runs entirely on your machine and never talks to a deployed server — you drive every run.
-Mode 2 is an independent self-hosting path where an agent drives the run unattended, on your behalf.
+**3 · Client REST API development.**
+Spin up the local FastAPI backend (`./scripts/stack.sh start` on `:8000`) with Postgres and Redis.
+Built for engineers developing custom frontends, web dashboards, or mobile clients
+against standard OpenAPI routes (`/v1/runs`, `/v1/packs`, `/v1/gates`). → [Local Backend Stack](#local-backend-stack-fastapi--postgres--redis--mcp)
+
+**4 · Inbound GTM MCP server.**
+Expose curated GTM Engine tools over streamable-HTTP FastMCP (`deploy/Dockerfile.mcp` on `:8001`) with
+API-key authentication (`sk-...`). Lets third-party external agents (such as external Claude instances,
+LangChain, AutoGen, or CrewAI fleets) connect directly to GTM Engine as a remote tool provider. For
+public deployments, an edge MCP Gateway (`deploy/mcp-gateway/`) runs on Cloudflare Workers with
+RevenueCat subscription checks and Cloudflare Workers KV caching.
+
+### Pick your path (do not mix them)
+
+| Path | Who it's for | How you run it | What NOT to do |
+|---|---|---|---|
+| **Chat Mode (Default)** | Founders, sales, and marketers driving from chat | Open repo in your AI workspace $\rightarrow$ say `"set me up"` | **Do not** start Docker, run `./scripts/stack.sh`, or deploy a VPS. Zero background servers required. |
+| **Self-Hosted Agent** | Teams wanting 24/7 background graph execution | Deploy Docker Compose + Doppler via [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Do not** expect ad-hoc chat in this mode; it runs unattended behind Telegram gates. |
+| **Client API Dev** | Engineers building a custom frontend against the FastAPI REST API | Run `./scripts/stack.sh start` to spin up local Postgres + Redis + API | **Do not** run this if you just want to use the GTM skills in chat; Chat mode is completely serverless. |
+| **Inbound MCP Server** | Connecting 3rd-party external agents to GTM tools | Deploy FastMCP container on port 8001 with API key auth (or front with `deploy/mcp-gateway/` for public RevenueCat monetization) | **Do not** expose this publicly without API key auth (`sk-...`), budget caps, or edge gateway rate-limiting. |
+
+### Workspace & harness support
+
+| Workspace / Harness | Support Level | How skills load | Notes |
+|---|---|---|---|
+| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 63 skills, MCPs, and interactive gates |
+| **Google Antigravity** | Native | Auto-discovered via `.agents/` | Multi-agent workflows, native `run_command` and file tools |
+| **Cursor / Codex** | Supported | `.agents/AGENTS.md` + `.cursor/` rules | Interactive chat mode; skills invoke via prompt conventions |
+| **Headless VPS (Agent SDK)** | Dedicated Runtime | Containerized agent loop | 24/7 autonomous graph execution behind Telegram human gates |
 
 ---
 
-## Getting started (Cowork mode)
+## Getting started (Chat mode)
 
 > **This page assumes you're comfortable in a repo.** If you're not — no terminal, no commands —
 > follow [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) instead. Same destination, ~30 minutes
 > including the install and handing over your materials.
 
-**Prerequisites:** Python 3.11+ and [`uv`](https://docs.astral.sh/uv/). In Cowork the agent installs
+**Prerequisites:** Python 3.11+ and [`uv`](https://docs.astral.sh/uv/). In Chat mode the agent installs
 these for you in Step 1 — you don't run anything by hand.
 
 **See onboarding work first** — the `"set me up"` run itself takes about two minutes, mostly the
@@ -247,7 +265,20 @@ step, and it's where most of the value comes from. Decide which tools your work 
 - **Set your budget caps.** `setup` records a monthly and per-run cap so a metered tool can never
   quietly overspend — every paid call is checked against the cap *before* it runs.
 
-Verify everything resolved with `uv run python -m gtm_core.check_env`.
+#### Environment Doctor (`check_env`)
+
+Run the built-in diagnostic doctor check to verify that your active profile, connectors, keys, and spend caps are resolved before running skills:
+
+```bash
+uv run python -m gtm_core.check_env
+```
+
+| Doctor Check | What it validates | If unconfigured |
+|---|---|---|
+| **Active Profile** | Confirms `profiles/<active>/` bundle, knowledge corpus, and `PROFILE.md` syntax | Warns if profile is missing; prompts to run `"set me up"` |
+| **Metered Connectors** | Checks Vibe, RocketReach, and Apollo connector readiness | Gracefully falls back to keyless web search |
+| **Spend Caps** | Verifies monthly and per-run ceilings are recorded in profile | Protects budget; blocks paid API calls until declared |
+| **Model Registry** | Validates `gtm_core/models.toml` role mappings and endpoint availability | Defaults to workspace native model |
 
 **Step 3 — Use the skills.**
 `"run my prospecting"` · `"prep me for my call with [company]"` · `"run a market scan"` ·
@@ -262,8 +293,8 @@ Verify everything resolved with `uv run python -m gtm_core.check_env`.
 > distribution: it cites internal backlog and retrospective docs that are deliberately excluded,
 > so shipping it would mean shipping a guide whose links all dead-end.
 
-> **What works with just a Claude plan:** every skill runs on your Claude subscription alone (Cowork
-> auth — no `ANTHROPIC_API_KEY` needed). Every external tool is *optional with a keyless fallback*,
+> **What works with just your workspace plan:** every skill runs on your existing workspace subscription alone (Chat /
+> workspace auth — no external API keys needed). Every external tool is *optional with a keyless fallback*,
 > but Step 2 is what turns "runs" into "runs well" — connect the tools your skills actually depend on.
 
 ---
@@ -275,8 +306,8 @@ work depends on is what makes the output strong. Setup handles the connection; n
 
 | Tool | Powers | What it needs | Needed for | If you skip it |
 |---|---|---|---|---|
-| **Claude plan** | the brain — orchestration, judgement, review, all skills | your Claude subscription (Cowork auth) | **Mode 1** (Cowork) | — required for Mode 1 |
-| `ANTHROPIC_API_KEY` | the self-hosted agent's headless pipeline runs | API key in `.env` | **Mode 2** (advanced) | not needed for Cowork mode |
+| **Workspace AI plan** (Claude, Antigravity, Cursor, Codex) | the brain — orchestration, judgement, review, all skills | your workspace subscription / native model (workspace auth) | **Mode 1** (Chat) | required for Mode 1 |
+| `ANTHROPIC_API_KEY` | the self-hosted agent's headless pipeline runs | API key in `.env` | **Mode 2** (advanced) | not needed for Chat mode |
 | **Vibe Prospecting** | cold ICP company discovery, firmographics, company-level buyer-intent + events (`prospect`, `market-scan`, `events-tracker`) | OAuth connector (credit packs) — no key stored | Both | web search discovers instead |
 | **RocketReach** | verified contact email/phone, news & hiring triggers, job-change timing, company intent (`prospect`, `call-prep`, `draft-outreach`) | `ROCKETREACH_API_KEY` (Doppler-injected; never in a file) | Both | Vibe enrichment → Apollo → public web (unverified) |
 | **Apollo** | last-resort contact backstop (verified email, never phone), company buying-intent, job-posting signals (`prospect`) | OAuth connector (or `APOLLO_API_KEY` for the local tool). **Needs a PAID Apollo plan** — you can connect on free, but Apollo returns `API_INACCESSIBLE` for every data endpoint until you upgrade (verified 2026-07-27) | Both | falls back to public web (unverified) |
@@ -374,6 +405,20 @@ pause that guards something.
 Every skill is **company and product agnostic** — brand, voice, ICP, markets, and product all load
 from the active profile bundle. Zero hardcoded company strings (CI-gated by `debrand_check.sh`).
 
+### What are you doing today? (Quick start)
+
+Start with your immediate task rather than memorizing the catalog:
+
+| What you want to do | What to say in chat | Primary skills | Deliverable / Output |
+|---|---|---|---|
+| **Find ICP accounts & buyers** | `"find prospects in [market/vertical]"` | `prospect`, `draft-outreach` | Scored brief, HubSpot CSV, verified contact emails |
+| **Prep for a high-stakes call** | `"prep me for my call with [company]"` | `call-prep`, `account-dossier` | 5-min briefing doc, SPIN discovery questions, matched case study |
+| **Post something timely on LinkedIn** | `"draft my LinkedIn post about [news/topic]"` | `content-radar`, `content-studio` | 3 hook archetypes (Gate 1) $\rightarrow$ on-brand copy (Gate 2) |
+| **Engage on Reddit or LinkedIn** | `"reply to this post: [URL]"` | `linkedin-reply`, `reddit-reply` | Value-first, non-promotional response staged for review |
+| **Design an enterprise solution** | `"design the solution for [company]"` | `solution-discovery`, `solution-design` | Architecture SAD doc, problem $\rightarrow$ target diagrams |
+| **Build a strategic account plan** | `"build an account plan for [company]"` | `account-plan` | Buying influence map, MEDDPICC scorecard, 5-step action plan |
+| **Check environment health** | `"run environment check"` | `check_env` CLI | Readiness audit of keys, profile, and spend caps |
+
 > The full, always-current inventory is generated at [`docs/SKILLS.md`](docs/SKILLS.md) (one row per skill; CI fails if it drifts). The table below is a curated, categorized view.
 
 | Category | Skills |
@@ -432,6 +477,9 @@ An AI that writes "on-brand" text is table stakes. What actually determines whet
 opened, read, and shared is a set of specific, opinionated techniques — refined over real usage and
 enforced as hard gates, not just prompted for and hoped:
 
+<details>
+<summary><strong>View the 10 rules of GTM Content Craft</strong></summary>
+
 - **Virality engineering — write for what's *felt*, not just what's useful.** Every post is composed
   against an explicit **emotional-trigger system** ([`docs/virality-engineering.md`](docs/virality-engineering.md)):
   six triggers (identity validation, status signal, tribal belonging, productive discomfort,
@@ -442,13 +490,37 @@ enforced as hard gates, not just prompted for and hoped:
   *Why it matters:* almost no AI writing tool does this — most optimize for *informative*, which is
   exactly why it scrolls past. Engineering the *feeling*, on a B2B buyer, without sounding like a
   hype-merchant, is the hard part.
-- **Hook optimization.** Every opening line is drawn from a named library of **9 hook archetypes**
-  (a shipped artifact, a counterintuitive decision, a named number, a status-quo fault-line, and
-  others) — never a generic template — and must be **zero-context self-contained** and traceable to a
-  real fact in that run's research. At the plan gate you're offered **3 candidates from 3 different
-  archetypes**, so you're choosing the angle, not just approving a single draft. Most AI content
-  reads the same because it starts from a generic prompt instead of a considered rhetorical
-  structure — and the hook is what earns the first three seconds.
+- **Hook optimization.** Every opening line is drawn from a named library of **10 hook archetypes**
+  ([`docs/hook-craft.md`](docs/hook-craft.md) — a shipped artifact, a counterintuitive decision, a
+  named number, a status-quo fault-line, reveal the ending, and others) — never a generic template —
+  and must be **zero-context self-contained** and traceable to a real fact in that run's research. At
+  the plan gate you're offered **3 candidates from 3 different archetypes**, so you're choosing the
+  angle, not just approving a single draft. Most AI content reads the same because it starts from a
+  generic prompt instead of a considered rhetorical structure — and the hook is what earns the first
+  three seconds.
+- **Anti-AI prose craft & voice de-slop.** Beyond character limits, every draft runs through a linter
+  and judgment pass ([`docs/prose-craft.md`](docs/prose-craft.md)) hunting the syntactic tells that make
+  readers discount AI copy: borrowed model vocabulary (*delve, leverage, tapestry, seamless, pivotal*),
+  em-dash pause addiction, empty intensifiers, and antithetical parallelism (*"It's not X, it's Y"*).
+  Output is grounded in concrete trade-offs: a decision and its cost, a real number, and honest
+  concessions.
+- **True storytelling — narrative tension, not founder bragging.** When an asset carries a protagonist
+  or founder/builder journey, it bypasses generic accomplishment formulas in favor of a theory-derived
+  **9-beat story graph**.
+  Every true story anchors on a core value paired against its seductive counterfeit (never just
+  absence), features a first decision that was wrong for sound reasons, and escalates conflict inward
+  (room → face → hands) toward a genuine moment of doubt. Automated checks catch "story-washing" and
+  unearned bragging before production.
+- **The performance lexicon — directing emotion small enough to be believed.** AI video generation
+  regularly fails in two directions: under-directed faces look numb, while over-directed faces grimace
+  in stock-photo melodrama. The engine enforces a strict **prompt grammar for human expression**:
+  capping active facial regions to 1–2, mandating micro-magnitude qualifiers (*a fraction, a beat too
+  long, barely*), prescribing positive stillness, and keeping facial expression distinct from body motion
+  and vocal delivery.
+- **Direct-response desire frameworks.** When the goal is conversion (moving the audience off-platform
+  to tools, waitlists, or private DMs) rather than top-of-funnel brand affinity, drafts follow 5
+  B2B-calibrated desire frameworks
+  that diagnose structural bottlenecks without resorting to cheap consumer-influencer comment-bait.
 - **Content quality & structure enforcement.** Every draft is checked by an automated linter against
   exact, per-format rules **before you ever see it** — a LinkedIn post needs a ≤140-character hook and
   a 1,300–2,500-character body; an X thread needs 5–9 tweets with the first standing alone, no link;
@@ -471,6 +543,8 @@ enforced as hard gates, not just prompted for and hoped:
   proven sequence structure (a real signal as the hook, a matched case study, one clear ask) rather
   than a generic cold-email template.
 
+</details>
+
 ---
 
 ## How it works
@@ -487,11 +561,11 @@ engine, declarative domain workflows on top, and your company data underneath.
                Gate 1                             Gate 2
           you approve the plan         you approve the exact bytes
 
-  HOW EACH NODE RUNS
+   HOW EACH NODE RUNS
 
-      your profile ──▶ [ Claude — the brain ] ──▶ [ MCP servers — the hands ]
-     (brand·ICP·voice)   plans · reviews             the ONLY path outside
-                         every node                  (web · scrape · render · publish)
+      your profile ──▶ [ AI model — the brain ] ──▶ [ MCP servers — the hands ]
+     (brand·ICP·voice)   plans · reviews              the ONLY path outside
+                         every node                   (web · scrape · render · publish)
 ```
 
 **The three layers**:
@@ -524,7 +598,7 @@ engine, declarative domain workflows on top, and your company data underneath.
    layer (row-level security); the single-operator local/VPS path keeps automated writes in-lane the
    same way but is not a sandbox against the agent itself, and shared external connector accounts
    (Syften, HubSpot, etc.) aren't yet scoped per tenant. *Why:* the same engine serves many companies without their data silently mixing.
-3. **Claude is the brain; MCP servers are the only hands.** The agent never makes a raw HTTP call —
+3. **The model is the brain; MCP servers are the only hands.** The agent never makes a raw HTTP call —
    every scrape, lookup, render, and publish goes through an MCP tool. *Why:* least privilege by
    construction. Credentials live with the tools, not in the model's context, so a bad instruction
    in a scraped page can't exfiltrate a key or reach an endpoint the tool surface doesn't expose.
@@ -548,8 +622,9 @@ engine, declarative domain workflows on top, and your company data underneath.
 **In advanced mode** (the self-hosted agent), a cheap worker model (DeepSeek) handles bulk first
 drafts to keep costs down, but **Claude always reviews** anything before it's shown or shipped, and
 every gate-critical or PII-handling node stays on Claude by construction. Model choice resolves
-through a committed registry (`gtm_core/models.toml`). Cowork mode always talks to Claude directly —
-this tiering only applies when a self-hosted agent is running the workflow unattended.
+through a committed registry (`gtm_core/models.toml`). Chat mode talks directly to your workspace's
+native model (Claude, Gemini, etc.) — this tiering only applies when a self-hosted agent is running
+the workflow unattended.
 
 ### For a technical evaluator
 
@@ -612,7 +687,7 @@ Runtime state (`content/<profile>/…`, ledgers) is **gitignored** and lives whe
 
 ## Self-hosting & publishing (advanced mode)
 
-Everything in this section is **Mode 2 / advanced mode** — not needed for Cowork mode. The
+Everything in this section is **Mode 2 / advanced mode** — not needed for Chat mode. The
 autonomous pipeline, Docker Compose stack, secret management, Telegram cockpit, and the LinkedIn
 publish gate (Gate 2) are documented in **[`docs/DEPLOY.md`](docs/DEPLOY.md)**.
 
@@ -638,7 +713,7 @@ under the project's Apache-2.0 license (below).
 
 > [!NOTE]
 > **Who is this for?**
-> You only need this stack if you are developing or testing your own client application against the FastAPI REST API. If you are interacting with GTM Engine through **Claude Desktop, Google Antigravity, Cursor, or Codex** (Cowork mode), you do **not** need Docker or this stack — all skills run directly in your workspace with zero infrastructure.
+> You only need this stack if you are developing or testing your own client application against the FastAPI REST API. If you are interacting with GTM Engine through **Claude Desktop, Google Antigravity, Cursor, or Codex** (Chat mode), you do **not** need Docker or this stack — all skills run directly in your workspace with zero infrastructure.
 
 To run the local backend server for client application development:
 ```bash
@@ -648,6 +723,12 @@ To run the local backend server for client application development:
 ./scripts/stack.sh stop        # shutdown cleanly (data preserved)
 ```
 Zero external credentials needed (runs hermetically with fake run execution and local dev secrets).
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=henryroxstar/gtm-engine&type=Date)](https://star-history.com/#henryroxstar/gtm-engine&Date)
 
 ---
 

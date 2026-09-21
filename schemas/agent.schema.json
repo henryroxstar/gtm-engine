@@ -19,6 +19,8 @@
     "monthly_budget_usd": { "type": "number", "minimum": 0, "description": "Optional per-agent monthly spend budget. Effective cap for this agent's runs = min(current workspace cap, this value), re-derived at every spend check; absent = the workspace cap alone. Never grants spend beyond the workspace cap." },
     "status": { "type": "string", "enum": ["active", "paused", "archived"], "description": "paused = new runs refused, existing runs unaffected, still listed. archived = the DELETE end-state: new runs refused, excluded from default listings, resolvable by id forever (immutable ledger attribution). Open-world: clients tolerate unknown values." },
     "is_default": { "type": "boolean", "default": false, "description": "The workspace's default agent — used when a run request names no agent. Exactly one per workspace (partial unique index)." },
+    "read_scope": { "type": "string", "enum": ["own", "workspace"], "default": "own", "description": "Which runs an API key bound to this agent (a service principal) may read back through the API: 'own' (only this agent's runs) or 'workspace' (every run in the workspace — the coordinator-agent case). Reads only: a key may cancel only its own agent's runs either way. Has no effect on a signed-in person. Defaults to 'own', the least-privilege choice." },
+    "daily_dispatch_cap": { "type": ["integer", "null"], "minimum": 0, "description": "Optional per-agent ceiling on how many runs it may START per UTC day. Absent/null = no agent-specific cap (the workspace/entitlement caps still apply)." },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" }
   }

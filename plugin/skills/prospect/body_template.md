@@ -1,8 +1,8 @@
 
 # Prospect
 
-> Resolve the **active profile** (the agent provides it; PROFILE + company knowledge load from
-> `profiles/<active>/`, never `plugin/`). The lead product is the active company's `default_product`
+> Read the **active profile** from your system instructions, which bind your session to one tenant.
+> PROFILE + company knowledge load from `profiles/<active>/`, never `plugin/`. The lead product is the active company's `default_product`
 > from `PROFILE.md` → `products[]` — use its real name throughout, never a hardcoded one.
 
 Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) scored against the ICP rubric, each with named personas, a dated "why now" signal, a matched case study, and a recommended hook — plus a Tier-A outreach pack per 🔥 account and a HubSpot CSV for manual import. **No live CRM** (the CSV is the handoff).
@@ -86,14 +86,9 @@ this preflight having passed has produced a list, not a qualified list.
 
 **Fix on the operator's machine** (Windows is where this bites — `winget install Python…` alone
 often does not fix it, because the WindowsApps alias still shadows the real interpreter on PATH):
-
-```bash
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-then, in a **new** shell from the repo root, `uv sync` and re-run the probe as `uv run python -m
-gtm_core.paths`. `uv` provisions its own Python 3.11+, so the alias never gets a vote. `scripts/bootstrap.ps1`
-does all of this in one step. Everywhere else: `bash scripts/bootstrap.sh`.
+run `scripts/bootstrap.ps1` (Windows) or `bash scripts/bootstrap.sh` (mac/Linux) from the repo root.
+In a **new** shell, re-run the probe as `uv run python -m gtm_core.paths`. `uv` provisions its own
+Python 3.11+, so the alias never gets a vote.
 
 **Step 1 — Init, mode, & exclude set.** Read the current state; do not sweep yet. The consolidation
 sweep runs **once per run, at Step 10**. It is cumulative over *every* `prospects-*-hubspot.csv` on
@@ -153,7 +148,7 @@ It maps connectors → capabilities (`discovery`, `intent`, `double_intent`, `co
 
 and repeat any degradation in the final report. **On exit 2, stop and tell the operator what to connect** — do not spend and then apologise. `--need` must list what this run actually promises: a run that will produce outreach needs `contacts`; a re-score needs only `intent`.
 
-Distinguish the two Apollo failure modes (they look alike, mean opposites): no Apollo tools at all ⇒ genuinely absent; tools present but `error_code: API_INACCESSIBLE` ⇒ connected on a plan without API access — record `api_inaccessible`, do not retry, do not report it as an outage. **A missing MCP server is not a broken API**: RocketReach was reported "not working" on 2026-08-11 when in fact the server simply was not loaded in that session; `account` later showed 1,285 premium lookups remaining and every rate limit healthy. Check `claude mcp list` before concluding a provider is down.
+Distinguish the two Apollo failure modes (they look alike, mean opposites): no Apollo tools at all ⇒ genuinely absent; tools present but `error_code: API_INACCESSIBLE` ⇒ connected on a plan without API access — record `api_inaccessible`, do not retry, do not report it as an outage. **A missing MCP server is not a broken API**: RocketReach was reported "not working" on 2026-08-11 when in fact the server simply was not loaded in that session; `account` later showed 1,285 premium lookups remaining and every rate limit healthy. Consult your available tools or MCP resources list before concluding a provider is down.
 
 **Step 3 — Budget pre-check (only if using a metered source).** Read budget caps. Before any fetch/lookup, estimate spend across **all connected metered sources** — Vibe `estimate-cost` / credit balance, the RocketReach metered-unit count against its plan quota, **and**, if Apollo is connected, its remaining credit allowance from the Apollo preflight tool — and show it. The monthly cap and what it covers come from PROFILE (Claude Max is a flat brain seat, not metered here; RocketReach and Apollo signal/person **searches** are credit-free — only enrichment and Apollo company search spend); if the run would breach `per_run_cap_usd` or the remaining monthly budget, trim (drop optional signal layers, then enrichment depth) or fall back to the web path — never silently overspend. If Vibe balance < ~200 credits, RocketReach is near its plan quota, or Apollo's remaining allowance is low, tell the user before spending — never auto-purchase.
 
@@ -205,7 +200,19 @@ the row, **321 already had a dossier on disk** — 159 of them with a source URL
 those is paying twice for a fact already bought. Verify the join per row before promoting: a URL in
 the dossier is not automatically the source for *this* clause.
 
-Then run the fixed 6-source web sweep per candidate — the intent/trigger feeds pre-flag, the sweep **confirms and dates** (the 🔥 cites the public source, never the feed). Tag each hit `[type | date | URL | H/M/L]`. Keep the strongest as the 🔥 signal; it must map to an ICP "why now" trigger **and pass both
+Then run the standardized 6-source web sweep per candidate — the intent/trigger feeds pre-flag, the sweep **confirms and dates** (the 🔥 cites the public source, never the feed). Offload query generation and hit normalization to `gtm_core.web_sweep` to eliminate unstructured search thrashing:
+
+Generate deterministic queries across the 6 sources:
+```bash
+uv run python -m gtm_core.web_sweep queries --company "<company>" [--domain <domain>]
+```
+
+Execute these queries using your available search tools. Then pass raw hits to the normalizer to validate HTTPS URLs, reject search engines, verify freshness windows (<90d enterprise, <18m startup funding, ≤210d general), and extract the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
+```bash
+uv run python -m gtm_core.web_sweep normalize --hits '<hits_json>'
+```
+
+If no fresh signal passes, the CLI outputs `verdict: "re-angle"` with an empty `why_now`, ensuring negative prose never pollutes the field. The top signal must map to an ICP "why now" trigger **and pass both
 tests in Step 7 — sendable and sellable — before you stop looking.** A fact that fails either one
 is not a why-now you can use, and finding that out at staging means the research spend is already
 gone: measured 2026-08-29 on the live pool, **74% of rows carrying a researched fact reduce to a
@@ -361,7 +368,15 @@ source does not contain, a subject that is not the recipient — checked determi
 
 > **Verify attribution before a feed event becomes a why-now.** Vibe's `fetch-businesses-events` is a cheap way to batch this sweep (`match-business` → `fetch-businesses-events`, ~1 credit/row, far cheaper than one web search per account) — but its events are attributed loosely, and on 2026-08-12 **more than half of the candidates it returned were wrong or unverifiable**. Three failure modes, all seen in one run: a **name collision** (a health system drew a release from a *credit union* that shares one word of its name; a hospital operator drew a *similarly-named automation vendor*; a company drew news from its own *separately-listed spin-off*), a **partner's or vendor's news** filed under the account (one account drew its AI vendor's own product announcement), and a **product that does not exist** (a "launch" no primary source corroborates). Checking whether the account's name appears in the event text is necessary but **never sufficient** — substring matching is precisely what lets a same-word stranger pass as the account. Open the source for every why-now that will reach copy, and record the outcome as `VERIFIED`, `VERIFIED-CORRECTED`, or killed-with-reason. An unverified event is not a why-now; leave it out rather than quoting it.
 
-**Step 8 — Gate & score.** Apply the **profile's** segment gates, then its rubric (from `icp-personas.md` / its linked scoring file). Drop anything below the profile's publish threshold (default ≥6; the profile may set its own per-segment threshold + ceiling). **Heat axis:** after the rubric, add **+2** for a topic-intent **score ≥75** on any feed — Vibe row scores are inline (`business_business_intent_topics`); for RocketReach/Intentsify read the optional weekly snapshot `content/<active>/prospects/intent/rr-intentsify-latest.json` when present and <10 days old, else use the credit-free `intent`-facet filter hit; for Apollo, a company-search hit against a tracked buying-intent topic (Apollo Settings → Buying Intent must have tracked topics configured first, or treat the feed as absent — see `discovery-and-budget.md`) — and **+1 more** when **two or more** feeds converge (**double-intent**); a score 60–74 is elevated but earns no points. Cap at the rubric ceiling (`gates-and-scoring.md` §Heat axis). Record `heat` and `intent_feeds`. Select the run mix across markets per `segment_mix`; order the Tier-A queue by heat → 🆕 new-in-role → signal recency. Aim ≥3 Tier-A; if short, note "broaden next run."
+> **Interactive Chat Modals (`ask_question`) Restriction:** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g., credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-by-row or contact-level reviews. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
+
+**Step 8 — Gate & score.** Offload scoring and ranking to `gtm_core.score_prospects` to prevent hallucinated math or manual sorting errors. Save candidate records with their extracted signals and raw feed metrics into a JSON file, then run:
+
+```bash
+uv run python -m gtm_core.score_prospects --profile <active> --items <candidates.json> --out <scored.json>
+```
+
+This deterministically applies the profile's segment gates and rubric (from `icp-personas.md` / its linked scoring file), drops anything below the publish threshold (default ≥6), applies the **Heat axis** (+2 for topic-intent score ≥75 on any feed, +1 more for double-intent convergence across 2+ feeds; 60–74 flagged elevated with 0 pts, capped at ceiling), assigns `tier` (`A` vs `B`), and deterministically ranks finalists (Tier A → Heat → New-in-Role → Recency → Score). Aim ≥3 Tier-A; if short, note "broaden next run."
 
 **Every finalist leaves research with a verdict — `send`, `re-angle`, or `drop` — plus a
 `verdict_reason` for anything that is not `send`.** "Not sendable" has to be a representable output
@@ -419,15 +434,15 @@ for truthfulness. Sending a thin-research personalised body makes the opposite t
 this: `tier` means "rubric score band" and overloading it breaks cross-segment conversion analysis.
 Lane is the axis; tier stays what it is.
 
-**Then ask the operator once for the whole group — never once per account.** Same interaction shape
-as Step 11's dossier sweep and the hold sheet's per-question grouping (PS12): one question, in the
-operator's own words, naming the count and a few example companies, stating the tradeoff in one
-line, and waiting.
+**Then ask the operator once for the whole group via `ask_question` — never once per account.** This batch routing decision is a **global, binary pipeline state** (Yes/No to routing all no-signal accounts to the generic lane vs holding them for more research). Use the `ask_question` modal tool to present this batch choice to the operator:
 
-<!-- operator -->
-> "N accounts are a good fit but we found no story specific to them. Send the standard email, or
-> hold them for more research?"
-<!-- /operator -->
+Use `ask_question`:
+- **question**: "N accounts are a good fit but we found no story specific to them. Send the standard email, or hold them for more research?"
+- **options**:
+  - "(Recommended) Send the standard email (route to generic lane)"
+  - "Hold them for more research (route to hold)"
+
+The `ask_question` modal tool is explicitly intended for this batch approval. Do not ask per account; row-by-row triage in chat modals remains strictly forbidden. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
 
 **Respect the share cap before you ask.** `generic_lane_share_cap` in
 `content/<active>/settings.json` (default 0.5) bounds generic as a fraction of the run's enrollable
@@ -490,16 +505,18 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   ```
   This parses every pack under `content/<active>/accounts/*/prospects-*outreach-*.md` (this run's and all prior ones) and rewrites `content/<active>/prospects/outreach-log.md` + `.csv` — date, account, tier, persona, verified email, subject, channels, path back to the full pack. Idempotent and cheap (0 credits, no LLM call); safe to run even if this run produced zero Tier-A packs.
 - If appending to a local tracker spreadsheet, add the run's rows now.
-- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file.** Build a JSON array of this run's item objects (shape below) and merge it through the safe writer, which snapshots the current file first, upserts by company (keeping existing `status`/operator fields), and writes atomically — merge-only, so it can never shrink the cumulative file:
+- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file or hand-roll 26-field objects.** Instead of manually constructing the full 26-field object per item, pass your minimal parsed items (containing core fields like `company`, `segment`, `market`, `score`, `tier`, `contact_name`, `contact_title`, signals, and verdicts) to `gtm_core.prospects_import finalize --standard`:
   ```bash
-  python -m gtm_core.prospects_state merge --profile <active> \
-    --items <path-to-this-run-items.json> --source-run <run-id>
+  python -m gtm_core.prospects_import finalize --profile <active> \
+    --items <path-to-minimal-items.json> --source-run <run-id> --standard
   ```
+  Or stage them first via `python -m gtm_core.prospects_import stage-standard --items <minimal.json> --out <staged.json>` before merging. `prospects_import` automatically populates the canonical 26-field structure with sensible defaults, derives the canonical slug `id`, and ensures all required fields are present before atomic merging into `latest.json` and emitting `prospects-<run-id>-hubspot.csv`.
+
   **Bulk mode:** run `python -m gtm_core.prospects_import finalize --profile <active> --items
   <scored-items.json> --source-run <run-id>` instead — it calls the exact same safe merge-only writer
   under the hood and additionally emits `prospects-<run-id>-hubspot.csv` in one step, so bulk mode
   doesn't need a separate CSV-writing pass.
-  Each item object:
+  Each canonical item object (populated automatically by `--standard`):
   ```json
   {
     "id": "<company-slug>",
@@ -596,14 +613,16 @@ against every existing legacy folder name, so an already-covered account is neve
 re-generated under a second, duplicate folder.
 
 - If the candidate list is empty, say so in one line and move on — nothing to do.
-- Otherwise, **ask the operator once**, naming the count and a few example companies, before
-  generating anything (same pattern as the email-sequence skill's hold-queue auto-drain approval —
-  a batch operation with real per-account cost gets exactly one confirmation, not per-account nagging
+- Otherwise, **ask the operator once via `ask_question`**, naming the count and a few example companies, before
+  generating anything. This batch operation is a **global, binary pipeline state** (Yes/No to generating dossiers for the batch; same pattern as the email-sequence skill's hold-queue auto-drain approval —
+  a batch operation with real per-account cost gets exactly one confirmation via `ask_question`, not per-account nagging
   and not silent execution):
 
-<!-- operator -->
-> "N accounts have no research file yet. Research them now?"
-<!-- /operator -->
+  Use `ask_question`:
+  - **question**: "N accounts have no research file yet. Research them now?"
+  - **options**:
+    - "(Recommended) Yes, research them now"
+    - "No, skip dossier generation for this run"
 
   At bulk scale, name the cost tradeoff too: a **Tier-A** candidate gets the
   full prospecting-brief pass below; every other candidate defaults to the cheaper **research-pack**
@@ -729,5 +748,6 @@ A grouping key is a claim about identity — prove it before you group on it.
 - **Identity is stamped, not re-derived.** `latest.json` is the ledger of record and assigns each account an immutable `account_id`; the consolidate sweep stamps `pool_row_id` per person-row and joins the two. Quote those ids when referring to a row or an account across files, rather than re-deriving a key from a company name that six other places normalise differently. The pooled CSVs are **derived views** — never hand-edit one and expect the edit to survive a rebuild; change the ledger, or the suppression ledger, instead.
 - **The last wave has to have been read before the next one is staged.** `email-sequence` refuses to stage without a `positive_reply_rate` reading on file (`gtm_core.prospects wave-gate check`). This skill does not send, but it is what fills the next wave — a list built while the previous one is unmeasured is a list nobody can learn from.
 - **Drafts only:** outreach is never sent from this skill.
+- **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced via the CLI / dashboard `ACTION REQUIRED` alerts.
 - **Portable & private:** no live CRM; outputs are local files; no secret is read from or written to any file.
 - **Market-aware:** everything keys off PROFILE `target_markets` — never hardcode geographies.

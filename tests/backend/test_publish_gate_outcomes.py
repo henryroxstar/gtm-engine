@@ -142,3 +142,114 @@ def test_published_success_does_not_fail_the_run(ws_env):
     conn, fail_run_mock = _run_gate2(ws_env, outcome)
     fail_run_mock.assert_not_awaited()
     assert _reached_ok(conn)
+
+
+def test_publish_dispatched_at_predecessor_gate_and_marks_successor_completed(ws_env):
+    """The RL-01 fix for backend Gate 2 publish: when a node preceding `publish` (e.g. `studio`)
+    is gated, approving it dispatches `publish` inline and marks `publish` completed with an
+    outcome block so the resumed runner does not execute it again."""
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    run_id = str(uuid.uuid4())
+    recorded: list[str] = []
+    conn = AsyncMock()
+    executor = fake_executor(recorded, awaiting_on="studio")
+    outcome = DispatchOutcome(
+        ok=True,
+        status="published",
+        result=PublishResult(ok=True, status="published", post_id="urn:li:share:456"),
+    )
+    dispatch_mock = AsyncMock(return_value=outcome)
+    fail_run_mock = AsyncMock()
+
+    async def _go():
+        task = asyncio.create_task(
+            runs_router._execute_pack_run(
+                MagicMock(),
+                REPO,
+                ws_env.ws_id,
+                run_id,
+                PROFILE,
+                "marketing",
+                "linkedin-post",
+                {},
+                entitlement="pro_plus",
+            )
+        )
+        await drive_gate(run_id, "approve", edited_content="Approved post text.")
+        await asyncio.wait_for(task, timeout=10)
+
+    with (
+        pack_run_harness(conn, executor),
+        patch.object(runs_pack_executor, "dispatch_backend_publish", dispatch_mock),
+        patch.object(runs_pack_executor, "_fail_run", fail_run_mock),
+    ):
+        asyncio.run(_go())
+
+    fail_run_mock.assert_not_awaited()
+    dispatch_mock.assert_awaited_once()
+    assert "publish" not in recorded
+    sqls = [(c.args[0], c.args[1:]) for c in conn.execute.call_args_list]
+    assert any(
+        "INSERT INTO run_nodes" in sql and args[2] == "publish" and args[3] == "completed"
+        for sql, args in sqls
+    )
+    assert any(
+        "INSERT INTO run_blocks" in sql and args[3] == "publish" and "published" in args[4].lower()
+        for sql, args in sqls
+    )
+    assert _reached_ok(conn)
+
+
+def test_publish_gate_loads_newest_asset_as_draft(ws_env):
+    """When the upstream studio node created a .asset.json in content/<profile>/assets/,
+    the publish gate discovers it and formats it into ⟦GATE:publish⟧ ⟦POST⟧...⟦/POST⟧."""
+    import json
+
+    _provision(ws_env.profiles_root, packs_toml='active = ["marketing"]\n')
+    assets_dir = ws_env.content_root / PROFILE / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "2026-09-17-post.asset.json").write_text(
+        json.dumps({"hook": "Hook Line", "body": "Hook Line\n\nBody content."}),
+        encoding="utf-8",
+    )
+
+    run_id = str(uuid.uuid4())
+    conn = AsyncMock()
+    executor = fake_executor([], awaiting_on="studio")
+    outcome = DispatchOutcome(
+        ok=True,
+        status="published",
+        result=PublishResult(ok=True, status="published", post_id="urn:li:share:789"),
+    )
+    dispatch_mock = AsyncMock(return_value=outcome)
+    fail_run_mock = AsyncMock()
+
+    async def _go():
+        task = asyncio.create_task(
+            runs_router._execute_pack_run(
+                MagicMock(),
+                REPO,
+                ws_env.ws_id,
+                run_id,
+                PROFILE,
+                "marketing",
+                "linkedin-post",
+                {},
+                entitlement="pro_plus",
+            )
+        )
+        # Approve without edited_content: should pick up draft content from the asset!
+        await drive_gate(run_id, "approve")
+        await asyncio.wait_for(task, timeout=10)
+
+    with (
+        pack_run_harness(conn, executor),
+        patch.object(runs_pack_executor, "dispatch_backend_publish", dispatch_mock),
+        patch.object(runs_pack_executor, "_fail_run", fail_run_mock),
+    ):
+        asyncio.run(_go())
+
+    fail_run_mock.assert_not_awaited()
+    dispatch_mock.assert_awaited_once()
+    assert "Hook Line\n\nBody content." in dispatch_mock.await_args.kwargs["content"]
+    assert _reached_ok(conn)

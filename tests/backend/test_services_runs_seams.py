@@ -98,6 +98,7 @@ def test_the_harness_patches_every_binding_of_every_faked_collaborator():
         ("workspace_scope", "SCOPE_MODULES"),
         ("acheck_budget", "BUDGET_MODULES"),
         ("send_gate_push", "PUSH_MODULES"),
+        ("send_run_done_push", "DONE_PUSH_MODULES"),
     ):
         binders = {m.__name__ for m in mods if hasattr(m, attr)}
         patched = {m.__name__ for m in getattr(_protocol1, tuple_name)}
