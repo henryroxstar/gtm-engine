@@ -166,6 +166,20 @@ over 200 words
 The through-line: if an exec has to scroll, you've lost. Cut every sentence that doesn't carry
 structural weight.
 
+**Reading grade: aim for grade 6–7, and measure it rather than judging it.** Word count is the
+famous constraint and the weaker one — a 60-word email can still be unreadable. Run the body through
+any standard readability score (Flesch-Kincaid grade is fine) with merge tags stripped. Grade creep is
+rarely a vocabulary problem; it is almost always a **symptom of abstraction**. An argument pitched at
+"when an agent sends a request over a protocol…" has no concrete situation in it, which forces
+nominalisation, which raises the grade — and, in the same move, leaves nowhere to put the word *you*.
+So the three things worth counting are correlated, and one cause moves all of them:
+
+| Count | Healthy | What a bad number is really telling you |
+|---|---|---|
+| Reading grade | 6–7 | the argument went abstract |
+| `you` / `your` | ≥2 per body | there is no concrete situation to attach them to |
+| Named, dated referents | ≥1 in the first two sentences | the opener is describing a category, not a fact |
+
 **One CTA only.** A second ask measurably cuts replies — it adds decision friction. Pick the single
 most valuable next step and ask only for that.
 
@@ -183,6 +197,57 @@ questions pull materially more replies than statements.
 from spam. If you can't name a real, specific reason you're writing to *this* person *now*, the message
 isn't ready — a generic "we help companies like yours" opener is the fastest way to the archive. (See §6
 for doing this at scale without faking it.)
+
+### 3.1 When you have no signal about *them*
+
+Sometimes you legitimately have nothing recipient-specific: a generic lane, an unresearched segment, a
+list where claiming a fact about the company would be a guess. The rule "make no claim about the
+recipient's company" is correct. It is also the single most common way a sequence goes bad, because it
+gets implemented as **"make no concrete claim at all"** — and then the opener has to be an abstraction.
+
+The way out is that the referent does not have to be a fact about *them*. Open on a **category fact**:
+named, dated, external, and true of the whole segment. An industry standard published on a date, two
+vendors shipping the same capability, a protocol reaching a milestone. It is free per row — you verify
+it once per segment, not once per recipient — and it survives the "don't claim things about their
+company" rule untouched, because it claims nothing about their company.
+
+**Source the date; never recall it.** A dated referent is a claim made to a named person, and a wrong
+date costs more credibility than the abstraction you were avoiding. Look it up in your own knowledge
+base at the moment you write it and cite where you got it. The failure mode here is specific and
+sneaky: once you start *counting* dated referents as a quality signal, the count goes up while the
+facts quietly go wrong, and every gate you have will report the email as improved.
+
+**Watch the anchor budget when you correct a fact.** Replacing a wrong named referent with a vaguer but
+accurate one ("a peer-reviewed analysis in 2026") removes the proper nouns that made the opener
+concrete. Correcting a fact and re-checking concreteness belong in the same edit, not in sequence.
+
+### 3.2 Altitude — argue the consequence, name the mechanism only as evidence
+
+This is the `[BRIDGE]` beat's hardest failure, and it passes every mechanical check. The test is not
+vocabulary. It is: **would this person recognise the sentence as their problem, or as a description of
+a system they delegate?**
+
+- ❌ "When an agent sends a request over the protocol, the transport credential names the company."
+- ✅ "The first enterprise security review asks who authorised each action, and the answer gets rebuilt
+  per integration."
+
+Both name the same gap. The second is what stalls a deal; the first is how it works. A protocol detail
+is what makes a consequence credible — it is never the consequence. Three checks, all of which a senior
+reader applies in about two seconds:
+
+1. **Do not make a standard the reader may not know carry the argument.** Name it at most once, as
+   evidence for a consequence already stated in plain words — never as the gap itself, and never in the
+   ask. If they have to look up your noun, you have spent their attention on your vocabulary.
+2. **Check the premise is load-bearing.** An argument scoped to one emerging standard is only as strong
+   as that standard's adoption *in this segment*. If the same consequence holds without it, say it
+   without it.
+3. **Check the buyer actually has the buyer you invoke.** "Your enterprise buyers will run this through
+   a security review" is a premise about *their customers*, not about them. It is false for anyone
+   selling to consumers, and the seat will read as correctly targeted while the whole frame is wrong.
+
+A checkable proxy, if you want one: the seat's own stake should appear in the **problem** sentence, not
+only in the opener or the ask. A body that carries the vocabulary somewhere but argues a mechanism in
+the middle is the exact shape this section exists to catch.
 
 ---
 
@@ -223,9 +288,18 @@ the exact multiplier as marketing; the direction is well supported. Practical ru
 - **LinkedIn first, then email** — a connection/visit before the email reads as genuine; two cold
   emails *then* a LinkedIn request reads as pressure.
 - **Don't stack two channels on the same day** — space them so each lands.
-- **Use conditional logic, not a fixed drip** — if they reply, the sequence **stops**; if they accept
-  the LinkedIn request, the next email becomes a LinkedIn message
+- **Use conditional logic, not a fixed drip** — a reply should stop the sequence, and if they accept
+  the LinkedIn request the next email becomes a LinkedIn message
   ([SalesTarget, multichannel LinkedIn+email playbook, 2025 — salestarget.ai](https://salestarget.ai/blogs/multichannel-outreach-linkedin-email-b2b-reply-playbook)).
+  **"A reply stops the sequence" is a SETTING, not a property of sequencers.** In Saleshandy's v3
+  app it is *Sequence → Settings → Safety Settings → **Stop sending follow-ups, if the reply is
+  received*** (the help centre still calls it *Consider the Prospect as Finished if a Reply is
+  Received* — same switch, older wording), and the vendor is explicit that with it off "the system
+  [will] send follow-ups to prospects even after they reply". It is asserted per sequence before
+  staging (`gtm_core.sequencers` + `gtm_core.email_compliance`), never assumed — this line used to
+  state it as a fact about the category, which is how a workspace-level toggle came to be believed
+  rather than read. Since 2026-09-22 the assertion is a live READ, not an attestation: the setting
+  is code 3 in `get_sequence_settings`, established by toggling it and diffing the payload.
 - Add **phone** later in the sequence for engaged/high-value prospects, not as a cold opener.
 
 **When to stop / re-engage.** Stop the active sequence at ~4 touches. Log the reason. Then:
@@ -272,6 +346,23 @@ see this?" wastes the touch and nudges the reader toward the spam button. Each f
   *not* replying easy (which, paradoxically, pulls replies).
 
 Keep every follow-up as short as touch 1, still one CTA, still no time-ask until they've engaged.
+
+**"Adds something new" has a checkable form, and it is worth checking.** The rule above is easy to
+agree with and easy to fail, because a sequence is usually written one touch at a time while the
+recipient reads it as one thread. Two counts catch most of it, and neither is visible to anyone
+reading a single email:
+
+- **No sentence repeats across touches that land in the same thread.** A follow-up with no subject
+  line is a reply to the previous one; the reader sees your earlier text directly above the new text.
+  A sentence you reused reads as a form letter at exactly the moment you were claiming to add
+  something.
+- **Rotate the offer.** Count the distinct artifacts you actually offer across the sequence. If every
+  touch offers a variant of one thing, the follow-ups are bumps wearing different words, whatever new
+  angle the prose in between claims.
+
+Related: a touch that **opens a new thread** (it has its own subject line) must not open with `re:` or
+`fwd:`. It is a fake-familiarity trick, readers recognise it immediately, and it is the cheapest
+possible way to spend the trust the rest of the sequence is trying to build.
 
 ---
 
@@ -565,6 +656,23 @@ with the quoted reply, and a human taps add-to-DNC. This mirrors every other irr
 this repo (publish, schedule) — detection speed was the actual gap, not the confirm step. For a
 profile without the timer wired (or before its `agent/mcp/saleshandy` inbox endpoints are confirmed
 live — they carry a `# VERIFY:` marker), fall back to sweeping replies by hand every send window.
+
+**Since SC9 (2026-09-21) there is a route from detection to the provider's list, and it is still a
+human's.** An `optout_detected` / `optout_unreadable` row now also raises a `suppress_on_provider`
+signal, which runs the one-pack `inbound/optout-suppress` graph: its first node drafts the addresses
+with their dated ledger evidence and stops at a gate; its second carries
+`external_effect = "dnc_add"` and is dispatched by Python (`agent/dnc_dispatch.py`) only after the
+operator approves. It is **add-only** — no removal path exists anywhere in that vertical — the
+dispatcher refuses any address with no open ledger row, resolves the DNC list id itself, and records
+nothing until a read-back confirms the entry. `GTM_DNC_ADD_ENABLED` is closed by default.
+Separately, `gtm-dnc-sync.timer` refreshes the DNC mirror the send path blocks on and reconciles
+`suppression.csv`'s `dnc-optout` rows against the live list, alerting once on divergence.
+
+**Known coverage gap, stated rather than hidden.** Every opt-out pattern in `gtm_core.optout_watch`
+is English. A reply in another SCRIPT is detected as unreadable, escalated as an ambiguous opt-out
+and never auto-drafted to (SC6) — but a non-English opt-out written in LATIN script ("désinscrire",
+"abmelden") still misses the matcher and is routed as an ordinary reply. Per-language patterns are
+not built.
 
 ---
 

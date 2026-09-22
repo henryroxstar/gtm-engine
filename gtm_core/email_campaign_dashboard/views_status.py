@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from ..prospect_status import LABELS, NEXT_STEP, STATUSES
+from ..prospect_status import (
+    LABELS,
+    NEXT_STEP,
+    STATUSES,
+    UNRECOGNISED_LABEL,
+    UNRECOGNISED_NEXT_STEP,
+)
 from .aggregate import _ceiling_sub, _planned_sub, _scope_figures
 from .config import BENCHMARKS, PRIMARY_BENCHMARK
 from .filters import sub_counts
@@ -51,19 +57,23 @@ def _prospect_status_block(m: dict) -> str:
     scope_note = _pool_scope_note(m, "The prospect pool")
 
     if available:
+        # The terminal prints a record it cannot map as its own "Unrecognised" row, counted in
+        # its total; the same label and count get a tile here, outside the five that sum.
+        shown = [(s, LABELS[s], NEXT_STEP[s], counts.get(s, 0)) for s in _LANE_STATUSES]
+        if unmapped:
+            shown.append(("unrecognised", UNRECOGNISED_LABEL, UNRECOGNISED_NEXT_STEP, unmapped))
         tiles = "".join(
-            _stat(
-                counts.get(s, 0),
-                LABELS[s],
-                NEXT_STEP[s],
-                raw={"value": counts.get(s, 0)},
-                src=f"status:{s}",
-            )
-            for s in _LANE_STATUSES
+            _stat(n, label, step, raw={"value": n}, src=f"status:{s}")
+            for s, label, step, n in shown
+        )
+        everyone = (
+            "every person in the current list"
+            if not unmapped
+            else f"with the {unmapped:,} unrecognised, <strong>{total + unmapped:,}</strong> "
+            "people in the current list"
         )
         total_line = (
-            f'<p class="note">These five sum to <strong>{total:,}</strong> — every person '
-            "in the current list.</p>"
+            f'<p class="note">These five sum to <strong>{total:,}</strong> — {everyone}.</p>'
         )
     else:
         tiles = "".join(
@@ -77,13 +87,6 @@ def _prospect_status_block(m: dict) -> str:
             for s in _LANE_STATUSES
         )
         total_line = '<p class="note">Nothing to show yet — run your prospecting first.</p>'
-    unmapped_line = (
-        f'<p class="note">{unmapped:,} more row(s) carry a state this page does not '
-        "recognise. Held out of the total above rather than guessed at — that is a gap in "
-        "the status mapping, not a real status.</p>"
-        if unmapped
-        else ""
-    )
     needs_tile = _stat(
         needs,
         LABELS["needs_address"],
@@ -94,11 +97,10 @@ def _prospect_status_block(m: dict) -> str:
     diff_note = f"not part of the {total:,} above" if available else "not part of the routed list"
     return f"""
       <div class="card">
-        <h2>Where the current list stands</h2>
+        <h2>Contacts — by status (people, not companies)</h2>
         {scope_note}
         <div class="stats">{tiles}</div>
         {total_line}
-        {unmapped_line}
       </div>
       <div class="card">
         <h2>Needs an address</h2>
@@ -199,6 +201,87 @@ def _roster_stats(m: dict) -> str:
                 "enrolled": "sum:sequences.loaded",
             },
         )
+        + "</div>"
+    )
+
+
+def _inbound_health_block(m: dict) -> str:
+    """The inbound lane's own status: was the sequencer's contract asserted, is the DNC
+    mirror current, and how many replies could this system not read.
+
+    THE SAME OBJECT the terminal preflight and the gate preview render. The capability
+    lines come from `gtm_core.sequencers.render_summary` over
+    `gtm_core.capability_preflight.capability_rows`, so the three surfaces cannot disagree
+    about a capability's status — the failure test plan §4.5 exists to prevent.
+    """
+    from gtm_core.capability_preflight import capability_rows
+    from gtm_core.sequencers import render_summary
+
+    health = m.get("inbound") or {}
+    cap = health.get("capability")
+    dnc = health.get("dnc")
+
+    if cap:
+        provider = str(cap.get("provider") or "")
+        asserted = (
+            f"<p><b>{_e(provider)}</b> capability contract last asserted "
+            f"<span class='tech'>{_e((cap.get('ts') or '')[:10])}</span> for sequence "
+            f"<span class='tech'>{_e(str(cap.get('sequence_id') or '—'))}</span> — "
+            f"<span class='pill {'bad' if cap.get('status') == 'FAIL' else 'warn' if cap.get('status') == 'WARN' else 'good'}'>"
+            f"{_e(str(cap.get('status') or '—'))}</span></p>"
+        )
+        try:
+            rows = capability_rows(provider) if provider else []
+        except Exception:  # noqa: BLE001 — a page must render even if the registry cannot load
+            rows = []
+        asserted += f"<div class='tech'>{render_summary(rows, fmt='html')}</div>" if rows else ""
+    else:
+        asserted = (
+            "<p class='warn'>No <code>capability_asserted</code> row on this profile — the "
+            "sequencer's contract has never been checked here. Run "
+            "<code>python -m gtm_core.email_compliance preflight --profile &lt;p&gt; "
+            "--provider &lt;tool&gt; --sequence-id &lt;id&gt;</code>.</p>"
+        )
+
+    if dnc and dnc.get("event") == "dnc_reconciled":
+        findings = dnc.get("findings") or []
+        dnc_line = (
+            f"<p>DNC mirror reconciled <span class='tech'>{_e((dnc.get('ts') or '')[:10])}</span>: "
+            f"{_i(dnc.get('provider_emails'))} provider address(es), "
+            f"<span class='pill {'bad' if findings else 'good'}'>{len(findings)} divergence(s)</span>"
+            f" · {_i(dnc.get('provider_only'))} provider-only entr(y/ies), which are hand-added "
+            "exclusions and are never written to <code>suppression.csv</code>.</p>"
+        )
+    elif dnc:
+        dnc_line = (
+            f"<p class='warn'>Last DNC sync <span class='tech'>{_e(str(dnc.get('event')))}</span> "
+            f"on <span class='tech'>{_e((dnc.get('ts') or '')[:10])}</span> — "
+            f"{_e(str(dnc.get('reason') or ''))}. The mirror the send path blocks on may be stale.</p>"
+        )
+    else:
+        dnc_line = (
+            "<p class='warn'>No DNC sync has ever run on this profile — the mirror the send "
+            "path blocks on is not being refreshed (<code>gtm-dnc-sync.timer</code>).</p>"
+        )
+
+    unreadable = int(health.get("unreadable") or 0)
+    if unreadable:
+        recent = ", ".join(
+            f"{_e(r['email'])} ({_e(r['ts'])})" for r in health.get("unreadable_recent") or []
+        )
+        unread_line = (
+            f"<p><span class='pill warn'>{unreadable}</span> inbound repl(y/ies) this system "
+            "could not read — the opt-out matcher is English-only, so these were escalated as "
+            f"ambiguous opt-outs and nothing was drafted to them. Most recent: {recent}.</p>"
+        )
+    else:
+        unread_line = "<p class='tech'>No unreadable inbound replies recorded.</p>"
+
+    return (
+        "<div class='card'><h3>Inbound lane health</h3>"
+        + asserted
+        + dnc_line
+        + unread_line
         + "</div>"
     )
 
@@ -482,4 +565,6 @@ def _status_view(m: dict) -> str:
 
       {bench_html}
 
-      {runs_card or runs_full}"""
+      {runs_card or runs_full}
+
+      {_inbound_health_block(m)}"""

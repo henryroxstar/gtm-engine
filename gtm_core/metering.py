@@ -781,7 +781,7 @@ async def settle_credits(
             if reservation_id:
                 res_row = await c.fetchrow(
                     "SELECT workspace_id, run_id, estimated_credits, state FROM cost_reservations "
-                    "WHERE id = $1::uuid FOR UPDATE",
+                    "WHERE id = $1::uuid AND state = 'open' FOR UPDATE",
                     reservation_id,
                 )
                 if res_row is not None:

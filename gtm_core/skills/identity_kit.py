@@ -1,19 +1,10 @@
 # gtm_core/skills/identity_kit.py
 """Canonical manifest for the `identity-kit` skill.
 
-Prompt body: plugin/skills/identity-kit/body_template.md (verbatim).
-SKILL.md is generated from this manifest by gtm_core.skills.codegen.
-
-Onboarding-family, like `profile-onboard` (Tier.CORE, phase="onboard"): the family
-allowed to write under profiles/<active>/. Pipeline skills (video-render, video-score,
-...) stay read-only there. Unlike profile-onboard (which emits a ProfileDraft that
-Python then writes), identity-kit writes directly — but ONLY through
-`python -m gtm_core.brandkit --set identity.<key>` (gtm_core/brandkit.py), which
-keeps _safe_segment in the loop and verifies every write before it lands. The skill
-itself never Edits/Writes the BRAND.toml file.
-
-phase="8" rather than "onboard":
-this runs any time after initial onboarding, on request, not once at profile creation.
+Design notes, build history and provider measurements for this skill are part of the
+hosted product and are not included in this distribution. The declared interface is the
+``GTMSkill(...)`` call below, and the prompt interface is the generated
+``plugin/skills/identity-kit/SKILL.md``.
 """
 
 from __future__ import annotations

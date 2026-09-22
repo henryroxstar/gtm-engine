@@ -3,7 +3,7 @@
 How GTM Engine is put together, for someone reading the code. The [README](../README.md) is
 orientation — start there. This document is the deeper technical companion: the layering, the
 runtimes, the data contracts, and the invariants the whole system is built to hold. The enforced
-Python rules (§R1–§R18) referenced throughout live in [`docs/RULES.md`](RULES.md).
+Python rules (§R1–§R19) referenced throughout live in [`docs/RULES.md`](RULES.md).
 
 The one-line version: **the model is the brain, a deterministic Python runner is the skeleton, and
 your company data is swapped in at runtime.** Everything below is a consequence of taking those three

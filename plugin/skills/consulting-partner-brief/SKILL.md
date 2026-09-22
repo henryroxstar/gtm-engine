@@ -229,6 +229,20 @@ framework's author is worse than having no graphic. Structure renders as **real 
 generated imagery is **abstract only** — no letters, numbers, logos or faces in the prompt, and say
 so in the prompt.
 
+**When the structure needs to be a picture rather than a table, draw it deterministically.** Write
+the layers as Mermaid and render:
+
+```
+uv run python -m gtm_core.diagrams render --input <layers.mmd> --out <layers.svg> \
+    --format svg --profile <active> --title "<how to read this>" --desc "<one sentence>"
+```
+
+Every label is real text, so it is selectable, searchable and correctable; the palette comes from
+the profile's `BRAND.toml` through `gtm_core.brandkit` instead of a prompt; and a wrong layer name
+is a one-line edit rather than a second paid call. This is the positive half of the rule above —
+"not a generative model" is only actionable if something else draws it. Invoke the `diagram-design`
+skill for a type the architecture/layers/sequence set does not cover.
+
 - `get_cost` preflight before every call; stop at the PROFILE budget cap.
 - Each band should carry the page's *idea* abstractly — a chain degrading across nodes, a containment
   boundary with one point escaping, a hub holding fragments of one ring, sealed identical documents.

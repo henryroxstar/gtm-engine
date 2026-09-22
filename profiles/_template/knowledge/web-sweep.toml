@@ -1,0 +1,25 @@
+# Search-term vocabulary for gtm_core.web_sweep's Step 6 signal hunt (`queries` subcommand).
+#
+# This file is entirely OPTIONAL. With no web-sweep.toml (or with this template unmodified but
+# absent from a real profile), `web_sweep queries` falls back to a neutral, tenant-agnostic
+# vocabulary hardcoded in the module — the six lines below just mirror those defaults so a
+# tenant can see the shape before customizing it.
+#
+# Each key under [queries] is a search-term GROUP, not an instruction: it is the parenthesised
+# OR-group of terms that follows `"{company}"` in a generated query string, e.g. the `newsroom`
+# query becomes `"Acme Robotics" (launch OR announces OR partnership OR expansion)`. Values are
+# concatenated into a query string, never `str.format`-ed — do not put curly braces or newlines
+# in a value; both are refused.
+#
+# Six keys are recognized: newsroom, hiring, eng, regulatory, funding, incident. An unknown key
+# is ignored (with a note). `hiring_site` is an optional seventh key: the `site:` suffix appended
+# after the hiring group (default "linkedin.com/jobs").
+
+[queries]
+newsroom = '(launch OR announces OR partnership OR expansion)'
+hiring = '("head of" OR director OR "vice president")'
+hiring_site = "linkedin.com/jobs"
+eng = '("engineering blog" OR github OR "open source")'
+regulatory = '(regulator OR compliance OR standards OR "earnings call")'
+funding = '(raised OR "Series")'
+incident = '(breach OR audit OR incident OR outage)'

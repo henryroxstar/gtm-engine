@@ -234,6 +234,29 @@ Note honestly while scoping: identity-at-birth, scoped-VC, least privilege, and 
 are **enforced** on v0.3.x; gateway-side MCP per-tool RBAC and identity-binding VP are **design-
 target** — so don't let a discovery question promise per-tool RBAC as a live gateway control.
 
+**Then the four the design cannot infer.** These are not identity questions and they are not
+optional: nobody can derive them later from a stack profile, and the design will state them as
+assumptions if the call does not answer them — assumptions a customer's architect can disprove on
+the first read. Measured 2026-09-22: EVERY real solution design in this workspace carried no
+quality requirements at all, and that gap starts here.
+
+- **Numbers, not adjectives** (`solution-design` A9 Quality requirements) — "What is the
+  availability target, and over what window?" · "What latency, at which percentile?" — ask for a
+  percentile and say why: an average is satisfied by a system that is unusable one call in twenty.
+  · "What sustained throughput, and what burst must it survive?" · "How much data may you lose, and
+  how long may it be down?" — **RPO and RTO are two questions**, routinely answered as one. An
+  answer of "fast" or "highly available" is not an answer; write down that it is still open.
+- **Constraints, separately from assumptions** (A8) — "What is fixed here that we do not get to
+  choose?" Systems that stay, the change window, the regulator, licence or seat limits. Then the
+  one that makes it useful: **"who could lift that, if anyone?"** — a constraint the customer can
+  lift is a negotiation; one we imposed is a roadmap item.
+- **Where it runs, and what may not move** (A10 Deployment topology) — "Whose tenancy, which
+  region, and is there data that may not cross a border?" This is the first question their security
+  function asks and the last one a design usually answers.
+- **What they have already ruled out** (A7 decision records) — "What have you already tried or
+  decided against here, and why?" An alternative they rejected for a reason we do not know is the
+  one we will propose.
+
 ### Mode B — bespoke
 
 Produce a focused question list for the deep-dive, organised by the workflow profiling gaps:
@@ -297,6 +320,29 @@ without opening the file. Mode A: also paste the integration-surface map. Mode B
 agent-loop summary. Close by offering the next step: `solution-design` once the deep-dive answers are
 back, **or** `solution-scope-check` now to turn this question bank into a customer-facing 2-page scope
 worksheet the buyer confirms *before* you invest in the design (its pre-design mode).
+
+### Before delivering — check the bank against the design's coverage taxonomy
+
+```
+uv run python -m gtm_core.design_lint --dimensions
+```
+
+Read-only; it lints nothing and prints the twelve questions a solution design is held to, with the
+section of the design's structure that answers each. Four of them **can only be sourced on a
+discovery call** — nobody can infer them later from the stack profile:
+
+| Dimension | What the design needs from you |
+|---|---|
+| **COV-02 Constraints** | what is fixed and not ours to choose — stated *apart* from what we merely assume |
+| **COV-07 Deployment** | whose tenancy, which region, which boundaries data may not cross |
+| **COV-09 Decisions** | which alternatives they have already ruled in or out, and why |
+| **COV-10 Quality requirements** | availability, latency, throughput, RTO/RPO — the numbers, not "fast" |
+
+If the must-ask bank does not ask for one of these, **add the question before you deliver**. The
+design that reads them out of an empty brief will state them as assumptions instead, and an
+assumption a customer's architect can disprove on the first call costs more than the question would
+have. Measured 2026-09-22: EVERY real solution design in this workspace carried no quality
+requirements at all — that gap starts here, not in the design.
 
 **On a revision (v2+):** append a short **Version log** as the last section (`v · date · section ·
 what changed · why`) so a detailed reviewer can trace each edit; bump the header to `v2 · revised <date>`.

@@ -1,0 +1,36 @@
+COV-01  Goals and the problem  [error] (arc42 §1)
+    asks:      What outcome is this for, and whose problem does it solve?
+    answered:  Executive summary, and the 'what we heard' recap
+COV-02  Constraints  [warn] (arc42 §2)
+    asks:      What is fixed and not ours to choose — and is that stated apart from what we merely assume?
+    answered:  A constraints block, distinct from the assumptions list
+COV-03  Context and scope  [error] (arc42 §3)
+    asks:      What sits outside the boundary, and where does the boundary run?
+    answered:  Tier 1 architecture, current-state diagram
+COV-04  Solution strategy  [error] (arc42 §4)
+    asks:      What is the shape of the answer, and why this shape rather than another?
+    answered:  Tier 1 solution, and the architecture selection
+COV-05  Building blocks  [error] (arc42 §5)
+    asks:      What gets configured or built, component by component?
+    answered:  A3 Component inventory
+COV-06  Runtime behaviour  [error] (arc42 §6)
+    asks:      What actually happens on one request, end to end?
+    answered:  Tier 1 how-it-works, request-sequence diagram
+COV-07  Deployment  [warn] (arc42 §7)
+    asks:      Where does it run, in whose tenancy, and across which boundaries?
+    answered:  A deployment topology section or diagram
+COV-08  Crosscutting concerns  [warn] (arc42 §8)
+    asks:      What holds across every component — identity, policy, logging, error handling?
+    answered:  A4 Identity, policy and data flow
+COV-09  Decisions  [warn] (arc42 §9)
+    asks:      Which choices were made, when, and what did each one cost us?
+    answered:  A trade-offs section carrying a decision record per material choice
+COV-10  Quality requirements  [warn] (arc42 §10)
+    asks:      What must be true of it in production — availability, latency, throughput, recovery?
+    answered:  A quality-requirements section with a figure per attribute
+COV-11  Risks and open questions  [error] (arc42 §11)
+    asks:      What could still go wrong, and what is genuinely undecided?
+    answered:  A2 Open questions and dependencies, plus the V1/V2 cut
+COV-12  Glossary  [warn] (arc42 §12)
+    asks:      Which terms mean something specific here, and does the reader share that meaning?
+    answered:  A glossary section

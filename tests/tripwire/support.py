@@ -27,7 +27,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 HELP_DIR = HERE / "help"
 CLI_DIR = HERE / "cli"
-LINTERS = ("deck_lint", "brief_lint", "video_lint", "shots_lint", "content_quality")
+LINTERS = ("deck_lint", "brief_lint", "video_lint", "shots_lint", "content_quality", "design_lint")
 REGENERATE = "regenerate with `uv run python tests/tripwire/support.py --write`"
 
 #: A fabricated ffprobe payload: the 2026-08-15 defect shape (720x1280 @ 25fps, audio present).
@@ -168,6 +168,19 @@ CASES: dict[str, tuple[CliCase, ...]] = {
             "shots_lint",
             0,
         ),
+    ),
+    "design_lint": (
+        CliCase("design-clean", "design_lint", ("clean.md",), "design_lint", 0),
+        CliCase("design-dirty", "design_lint", ("dirty.md",), "design_lint", 1),
+        CliCase(
+            "design-skill",
+            "design_lint",
+            ("--skill", "skill-contradiction.md", "--skill", "skill-clean.md"),
+            "design_lint",
+            1,
+        ),
+        CliCase("design-json", "design_lint", ("dirty.md", "--json"), "design_lint", 1),
+        CliCase("design-dimensions", "design_lint", ("--dimensions",), "design_lint", 0),
     ),
     "content_quality": (
         _cq("cq-pre-clean", "pre", "acme", "text-clean", 0),

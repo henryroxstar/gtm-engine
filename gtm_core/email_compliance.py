@@ -816,6 +816,15 @@ def check_markets(
     return Result("markets", status, detail)
 
 
+# --------------------------------------------------------------------------- capabilities
+#
+# SC2/SC4 live in `gtm_core.capability_preflight`: judging what the PROVIDER does and what
+# this workspace switched on is a different question from judging what this SEQUENCE
+# carries. That module imports `Result`/`extract_settings` from HERE, so this one imports
+# it lazily inside the CLI paths that need it — one direction at import time, no cycle.
+# The capability Result still joins `_preflight`'s single list and single exit status: a
+# second gate is a gate somebody runs separately, which is to say occasionally.
+
 # --------------------------------------------------------------------------- report
 
 
@@ -835,6 +844,68 @@ def render(results: list[Result], *, markdown: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _resolve_provider(args) -> str | None:
+    """The sequencer to assert against: ``--provider``, else the profile's ``email_tool``.
+
+    Returns None when neither is available (no provider named, nothing to assert) and for the
+    ``manual`` tool, which is a human with an inbox — it has no capabilities to read.
+    """
+    from .capability_preflight import read_email_tool
+
+    provider = getattr(args, "provider", None)
+    if not provider and getattr(args, "profile", None):
+        try:
+            provider = read_email_tool(args.profile)
+        except (FileNotFoundError, ValueError):
+            return None
+    if not provider or provider == "manual":
+        return None
+    return provider
+
+
+def _record_autoset(args) -> int:
+    """Record an auto-set that has already been applied, AFTER verifying the re-read shows it.
+
+    The verification is the point: an auto-set the provider accepted but did not apply is the
+    2026-08-11 shape (`modifiedAt` moved, the value did not). A `capability_autoset` row is
+    written only when the after-payload actually shows the flipped value, and it carries both
+    values so the row alone is enough to reverse the change (test plan §3.E).
+    """
+    from .capability_preflight import _SETTING_ON, AUTOSET_ALLOWLIST
+
+    before = extract_settings(_load_json(args.before_json))
+    after = extract_settings(_load_json(args.after_json))
+    was = before.get(args.code)
+    now = after.get(args.code)
+    if now not in _SETTING_ON:
+        print(
+            f"refusing to record: setting code {args.code} reads {now!r} after the write, not on "
+            f"— the provider accepted the call without applying it, or the wrong code was sent",
+            file=sys.stderr,
+        )
+        return 1
+    if args.code not in AUTOSET_ALLOWLIST:
+        print(
+            f"refusing to record: setting code {args.code} is not on AUTOSET_ALLOWLIST "
+            f"({sorted(AUTOSET_ALLOWLIST)}) — an auto-set outside the allowlist is a manual "
+            "change and must be recorded as one",
+            file=sys.stderr,
+        )
+        return 1
+    from gtm_core.capability_ledger import record_autoset
+
+    record_autoset(
+        args.profile,
+        provider=args.provider,
+        capability=args.capability,
+        setting_code=args.code,
+        value_before=was,
+        value_after=now,
+    )
+    print(f"recorded capability_autoset: {args.provider}/{args.capability} code {args.code}")
+    return 0
+
+
 def _preflight(args) -> int:
     results: list[Result] = []
 
@@ -842,6 +913,21 @@ def _preflight(args) -> int:
         results.append(check_addresses(extract_signatures(_load_json(args.accounts_json))))
     if args.settings_json:
         results.append(check_optout(extract_settings(_load_json(args.settings_json))))
+
+    provider = _resolve_provider(args)
+    capability_result: Result | None = None
+    if provider:
+        from .capability_preflight import autoset_enabled, check_capabilities
+
+        settings_payload = _load_json(args.settings_json) if args.settings_json else None
+        capability_result = check_capabilities(
+            provider,
+            settings_payload,
+            attested=frozenset(args.attest or ()),
+            autoset_enabled=autoset_enabled(),
+        )
+        results.append(capability_result)
+
     if args.leads_csv:
         with open(args.leads_csv, newline="", encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
@@ -864,6 +950,22 @@ def _preflight(args) -> int:
 
     print(render(results, markdown=args.markdown))
     failed = [r for r in results if r.failed]
+
+    # "Was this sequence checked, and when?" must be answerable from the ledger with no provider
+    # call (test plan §3.E). Written for a FAIL too: a refused staging attempt is exactly the
+    # event somebody will later want to find.
+    if getattr(args, "sequence_id", None) and getattr(args, "profile", None) and capability_result:
+        from gtm_core.capability_ledger import record_asserted
+
+        record_asserted(
+            args.profile,
+            provider=provider,
+            sequence_id=args.sequence_id,
+            status=capability_result.status,
+            attested=list(args.attest or ()),
+            detail=capability_result.detail,
+        )
+
     print()
     if failed:
         print(f"DO NOT LOAD — {len(failed)} check(s) failed: {', '.join(r.name for r in failed)}")
@@ -899,7 +1001,39 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument(
         "--markdown", action="store_true", help="emit the markdown table for the sequence spec"
     )
+    pf.add_argument(
+        "--provider",
+        help="sequencer to assert capabilities against (default: the profile's email_tool)",
+    )
+    pf.add_argument(
+        "--attest",
+        action="append",
+        default=[],
+        help="capability the operator confirmed in the provider UI THIS RUN (repeatable). "
+        "Accepted only where the registry says the setting cannot be read back; it is never "
+        "carried into a later run.",
+    )
+    pf.add_argument(
+        "--sequence-id",
+        help="record a `capability_asserted` history row for this sequence (needs --profile)",
+    )
     pf.set_defaults(func=_preflight)
+
+    ra = sub.add_parser(
+        "record-autoset",
+        help="record an auto-set that has ALREADY been applied and verified in the provider",
+    )
+    ra.add_argument("--profile", required=True, help="active profile (the ledger to write)")
+    ra.add_argument("--provider", required=True, help="sequencer the setting belongs to")
+    ra.add_argument("--capability", required=True, help="capability the setting implements")
+    ra.add_argument("--code", required=True, type=int, help="provider setting code that changed")
+    ra.add_argument(
+        "--before-json", required=True, type=Path, help="settings payload read BEFORE the write"
+    )
+    ra.add_argument(
+        "--after-json", required=True, type=Path, help="settings payload re-read AFTER the write"
+    )
+    ra.set_defaults(func=_record_autoset)
 
     args = parser.parse_args(argv)
     return args.func(args)

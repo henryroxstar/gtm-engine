@@ -23,6 +23,14 @@ _HOOK_CELL_RE = re.compile(
 _ARGUMENT_ID_RE = re.compile(r"^argument_id:\s*(?P<value>.+?)\s*$", re.MULTILINE | re.IGNORECASE)
 _PREMISE_RE = re.compile(r"^premise:\s*(?P<value>.+?)\s*$", re.MULTILINE | re.IGNORECASE)
 _STAKES_RE = re.compile(r"^stakes:\s*(?P<value>.+?)\s*$", re.MULTILINE | re.IGNORECASE)
+# Which signal CATEGORY this spec's beat 2 was written to depend on (2026-09-22, EC7). Beat 2
+# has to read as wrong — not merely generic — under a fact from a different category, and no
+# single fixed sentence can do that for a list mixing several. Declaring the category is what
+# makes "is beat 2 load-bearing?" a checkable question instead of a style note. Same one-line
+# front-block read as every field above; a second parser is how two fields drift apart.
+_SIGNAL_COLUMN_RE = re.compile(
+    r"^\**signal[_ ]column\**:\**\s*(?P<value>.+?)\s*$", re.MULTILINE | re.IGNORECASE
+)
 # Sequence specs declare `capability: identity` in a fenced front block; 1:1 outreach
 # packs declare `**Capability:** identity` in a markdown header. One field, two
 # surfaces, one parser -- a second regex is how the two drift apart.

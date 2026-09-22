@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..ledgers import Ledgers
@@ -12,8 +13,6 @@ from .sources import _repo_root
 
 def _month_budget_remaining(ledgers: Ledgers, budget: float | None) -> tuple[bool, float]:
     """Return (under_or_at_budget, spent_usd). ``budget`` ``None`` means no cap."""
-    from datetime import UTC, datetime
-
     month = datetime.now(UTC).strftime("%Y-%m")
     spent = ledgers.month_cost_total(month)
     if budget is None:

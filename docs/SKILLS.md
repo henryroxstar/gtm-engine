@@ -4,13 +4,14 @@
 
 # Skill index
 
-**63 skills**, generated from the manifests in `gtm_core/skills/`. This is the single source of truth for the skill inventory — other docs link here rather than restate it.
+**78 skills**, generated from the manifests in `gtm_core/skills/`. This is the single source of truth for the skill inventory — other docs link here rather than restate it.
 
 | Skill | Tier | Requires product capability | What it does |
 |---|---|---|---|
 | [`account-dossier`](../plugin/skills/account-dossier/SKILL.md) | core | — | Generate an on-brand executive or seller account dossier and meeting-prep brief as a Word docx or markdown research… |
 | [`account-plan`](../plugin/skills/account-plan/SKILL.md) | core | — | Build a strategic CRO-grade account plan with MEDDPICC scorecard, buying influence map, value hypothesis, and… |
 | [`airq-scan`](../plugin/skills/airq-scan/SKILL.md) | production | gateway | Run an AIRQ-aligned agent-security assessment of a target company's AI agent product, producing two LinkedIn-ready… |
+| [`battlecard`](../plugin/skills/battlecard/SKILL.md) | core | — | Build a competitor battlecard from the profile's competitive-positioning pack: where we win, where they win, and… |
 | [`build-deck`](../plugin/skills/build-deck/SKILL.md) | core | — | Build an on-brand sales deck, one-pager, POC proposal, or partner brief for the active company. Trigger when the… |
 | [`builder-evidence`](../plugin/skills/builder-evidence/SKILL.md) | core | — | Assemble a primary-source evidence pack from git commits, diffs, and design docs for a builder-story moment.… |
 | [`builder-radar`](../plugin/skills/builder-radar/SKILL.md) | core | — | Scan repo git history and project design docs to surface story-worthy build milestones and generate dated digests… |
@@ -31,8 +32,12 @@
 | [`content-research`](../plugin/skills/content-research/SKILL.md) | core | — | Research a planned content item into verifiable facts, quotes, counterpoints, and claims to avoid using web and… |
 | [`content-studio`](../plugin/skills/content-studio/SKILL.md) | core | — | Draft platform-native social copy across LinkedIn, X, and Instagram matching company voice and approved content… |
 | [`creator-brief`](../plugin/skills/creator-brief/SKILL.md) | pipeline | — | Plan a short-form video concept into an approved brief.json, creative brief, and beat sheet before script… |
+| [`crm-hygiene-check`](../plugin/skills/crm-hygiene-check/SKILL.md) | core | — | Perform a read-only audit of CRM opportunities to flag missing MEDDPICC fields, stale close dates, inactive stages… |
+| [`deal-slip-scenario`](../plugin/skills/deal-slip-scenario/SKILL.md) | core | — | Model the financial impact on quota if a specific high-value deal slips to next quarter, shrinks, or is lost… |
 | [`deck-research`](../plugin/skills/deck-research/SKILL.md) | core | — | Research a target account into a structured deck dossier with persona slot-fills to feed presentation generation.… |
 | [`demo-capture`](../plugin/skills/demo-capture/SKILL.md) | production | — | Transform local product screen recordings or phone footage into polished short-form demo clips via Reap. Trigger… |
+| [`demo-narrative`](../plugin/skills/demo-narrative/SKILL.md) | core | — | Design the demo flow — the last thing first, the moments that earn the meeting, and what is real versus staged.… |
+| [`diagram-design`](../plugin/skills/diagram-design/SKILL.md) | core | — | Create publication-grade, on-brand architectural SVGs, flowcharts, MEDDPICC scorecards, quadrant matrices, and HTML… |
 | [`draft-outreach`](../plugin/skills/draft-outreach/SKILL.md) | core | — | Draft personalized cold emails, LinkedIn DMs, and follow-ups in the company voice using signals, hook matrices, and… |
 | [`email-quality`](../plugin/skills/email-quality/SKILL.md) | pipeline | — | Evaluate and score outbound email drafts against voice, spam triggers, length constraints, and relevance rubrics.… |
 | [`email-sequence`](../plugin/skills/email-sequence/SKILL.md) | core | — | Build structured multi-step email sequences staged in sequencer platforms in a paused state for human activation.… |
@@ -50,15 +55,25 @@
 | [`market-harvest`](../plugin/skills/market-harvest/SKILL.md) | core | — | Continuously harvest competitor, ecosystem, customer, and regulatory market signals into structured knowledge… |
 | [`market-intelligence`](../plugin/skills/market-intelligence/SKILL.md) | core | — | Turn field data into an educational intelligence brief for product and engineering teams, synthesizing customer… |
 | [`market-scan`](../plugin/skills/market-scan/SKILL.md) | core | — | Sweep weekly news, competitor moves, and standards to produce a dated market signal brief, post drafts, and… |
+| [`metrics-review`](../plugin/skills/metrics-review/SKILL.md) | core | — | Analyze product analytics telemetry (WAU, feature adoption, onboarding funnels) to generate an executive product… |
 | [`outcomes-sync`](../plugin/skills/outcomes-sync/SKILL.md) | pipeline | — | Sync campaign outreach results and publish engagement into outcome ledgers, distilling learnings to promote into… |
+| [`poc-plan`](../plugin/skills/poc-plan/SKILL.md) | core | — | Turn a proposed solution into a time-boxed proof of concept with pass/fail criteria, a named verifier per… |
 | [`product-partner-brief`](../plugin/skills/product-partner-brief/SKILL.md) | core | — | Draft a strategic product integration and tech-partner co-selling brief outlining mutual architecture and… |
 | [`profile-onboard`](../plugin/skills/profile-onboard/SKILL.md) | core | — | Extract structured profile drafts from company websites, PDFs, or source text to stage new tenant bundles for… |
 | [`prospect`](../plugin/skills/prospect/SKILL.md) | core | — | Discover, score, and qualify high-fit target accounts and buyers against ICP criteria using research waterfalls.… |
 | [`reddit-reply`](../plugin/skills/reddit-reply/SKILL.md) | core | — | Draft helpful, non-promotional Reddit comments that directly address technical questions while subtly citing… |
+| [`security-review`](../plugin/skills/security-review/SKILL.md) | core | — | Answer a customer security questionnaire or vendor assessment from the profile's evidence pack, refusing any… |
+| [`seo-audit`](../plugin/skills/seo-audit/SKILL.md) | core | — | Audit a target domain, investigate technical crawl issues, analyze ranking pages, evaluate search intent, and… |
+| [`seo-competitor-analysis`](../plugin/skills/seo-competitor-analysis/SKILL.md) | core | — | Analyze one competitor's organic footprint, ranking keywords, content themes, backlinks, and search gaps using… |
+| [`seo-keyword-clustering`](../plugin/skills/seo-keyword-clustering/SKILL.md) | core | — | Cluster keywords by search intent, detect cannibalization, and map them to existing or proposed URL architectures… |
+| [`seo-keyword-research`](../plugin/skills/seo-keyword-research/SKILL.md) | core | — | Discover high-intent keyword opportunities, evaluate difficulty and volume metrics, inspect live SERPs, and save… |
 | [`setup`](../plugin/skills/setup/SKILL.md) | core | — | Guided onboarding for the GTM engine, learning company context, configuring optional integrations, and generating a… |
 | [`solution-design`](../plugin/skills/solution-design/SKILL.md) | core | solution-architecture | Turn technical requirements into an executive solution overview and architecture specification across Markdown and… |
 | [`solution-discovery`](../plugin/skills/solution-discovery/SKILL.md) | core | technical-discovery | Profile an account's engineering stack and requirements to produce a discovery brief and decision-mapped question… |
 | [`solution-scope-check`](../plugin/skills/solution-scope-check/SKILL.md) | core | — | Evaluate project technical scope, feasibility, resource requirements, and risk boundaries before commercial… |
+| [`synthesize-research`](../plugin/skills/synthesize-research/SKILL.md) | core | — | Synthesize qualitative customer feedback, interview transcripts, and support issues into structured product… |
+| [`team-pipeline`](../plugin/skills/team-pipeline/SKILL.md) | core | — | Produce a sales leadership view of team pipeline aggregated by rep, stage, and risk profile, highlighting coaching… |
+| [`value-case`](../plugin/skills/value-case/SKILL.md) | core | — | Build the quantified business case for a deal: the cost of the status quo, the modelled delta, and the assumption… |
 | [`video-avatar`](../plugin/skills/video-avatar/SKILL.md) | production | — | Render speaking presenter beats as synthetic talking heads on HeyGen with approved avatar looks, voices, and… |
 | [`video-clip`](../plugin/skills/video-clip/SKILL.md) | production | — | Repurpose long-form video into engaging short-form clips with branded captions, reframing, and highlight detection… |
 | [`video-finish`](../plugin/skills/video-finish/SKILL.md) | pipeline | — | Stitch rendered video beats, burn timed captions, mix audio beds, and apply transitions to produce ready-to-publish… |

@@ -784,6 +784,23 @@ _DECLARED_DRAFTS = {
             }
         ),
     ),
+    # SC9. Named after its run for the same reason the enroll draft is: the profile lock
+    # is released while a run waits at its gate, so `.pending` can hold another run's.
+    "dnc": (
+        "prospects/sequences/.pending/{run_id}.dnc-draft.json",
+        json.dumps(
+            {
+                "addresses": ["pat.example@example.com"],
+                "evidence": {
+                    "pat.example@example.com": {
+                        "event": "optout_detected",
+                        "thread_id": "thread-parity",
+                        "ts": "2026-09-21T10:00:00Z",
+                    }
+                },
+            }
+        ),
+    ),
 }
 
 
@@ -797,6 +814,8 @@ def _declared_draft(skill: str | None) -> str | None:
         return "plan"
     if ".enroll-draft.json" in body:
         return "enroll"
+    if ".dnc-draft.json" in body:
+        return "dnc"
     return None
 
 
@@ -888,7 +907,10 @@ def test_every_fake_pack_gate_reports_the_kind_a_real_run_holds_there(ws_env):
         if diverging != rl01:
             mismatches[f"{graph_path.parts[-3]}/{graph_path.stem}"] = diverging
     assert mismatches == {}
-    assert real_kinds == {"plan", "email_enroll", "review"}  # every kind was exercised
+    # Every kind was exercised. `dnc_add` joined the set on 2026-09-21 (SC9) — the third
+    # member of the engine's closed `external_effect` vocabulary, and the third gate kind
+    # a real pack run can hold.
+    assert real_kinds == {"plan", "email_enroll", "dnc_add", "review"}
 
 
 def _real_prospecting_frames(ws_env) -> list[tuple[str, dict]]:

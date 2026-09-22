@@ -8,18 +8,28 @@
 > `buyer-intent-signals.md`). Resolve that path with
 > `python -m gtm_core.resolve_knowledge icp-personas.md --profile <active> [--product <slug>]`.
 >
+> A profile may also ship **`knowledge/scorecard.toml`** — the same rubric in declarative form, so
+> the machinery below is computed rather than judged. Where it exists it is the one the run scores
+> against, and the prose file is what a human maintains and the card cites. See § "Scored vs
+> categorised".
+>
 > If the profile defines its own gates + rubric, **they win** over anything illustrated here. A
 > worked example (an agentic-infrastructure tenant) is kept at the bottom purely to show the shape.
 
 ## Order of operations (every tenant)
 
 1. **Gate** the candidate for its **segment** — it must clear all gates or it's dropped.
-2. **Score** it on that segment's rubric (fit — *who they are*).
-3. **Add heat** (intent — *when*) after the rubric, capped at the rubric ceiling.
-4. **Tier** it against the publish / Tier-A thresholds.
-5. Select the run mix per the profile's `segment_mix`, then order the Tier-A queue.
+2. **Check sufficiency** — is every input the rubric reads actually *on the row*? A row missing one
+   gets a **category naming the unlock** and leaves the ranking. It is never scored low for it.
+3. **Score** it on that segment's rubric (fit — *who they are*).
+4. **Add heat** (intent — *when*) after the rubric, capped at the rubric ceiling.
+5. **Tier** it against the publish / Tier-A thresholds.
+6. Select the run mix per the profile's `segment_mix`, then order the Tier-A queue.
 
 Only publish accounts at or above the publish threshold. Flag Tier A with 🔥.
+
+Step 2 is the step that is cheap to skip and expensive to have skipped — § "Scored vs categorised"
+is why it is a step of its own and not a zero on the rubric.
 
 ## Gate structure (the pattern — fill criteria from the profile)
 
@@ -46,6 +56,53 @@ it, and the profile may set them explicitly; absent an override, use these **def
 
 State the ceiling per segment (the profile's rubric defines how many points are available). Keep the
 publish threshold stable across segments so cross-segment conversion analysis stays comparable.
+
+**A line-item may not award points for our own research coverage.** The litmus: *would this change
+if we researched harder, without the company changing?* If yes it is a coverage proxy — dossier
+length, whether an evidence URL turned up, how many colleagues have listed the account, how long
+the description is — and it cannot be a rubric line-item. On 2026-09-21 an ICP-fit line-item was in
+effect "the description is long enough", and that run's mean score tracked how many sales teams had
+listed a company rather than anything about the company; every arithmetic check was green. The same
+facts are legitimate — required, in fact — as **sufficiency** inputs (next section): thin research
+must decide *whether* a row is scorable, and must never decide *how well* it scores. Enforced at
+load time for a declarative card, and written up as `docs/RULES.md` §R19.
+
+## Scored vs categorised (the sufficiency gate — every tenant)
+
+A rubric can only read what the row carries. When a required input is absent, the honest answer is
+**not a low score** — it is a **category naming what to do next**: classify the ICP, research the
+account, probe intent. The two outcomes are exclusive: a row comes back either with a score and a
+tier, or with a category and the name of the input it is waiting on. Never a blend.
+
+Why this is a step and not a zero: a zero is a *finding about the account*, and it ranks alongside
+real findings. "Nobody has researched this one yet" is a fact about **our effort** — score it as a
+weak account and the difference between an unworked account and a rejected one is gone, with no way
+to recover it afterwards. That is the same failure § "Gates vs. research thinness" describes for
+the *angle*, one level up: there it costs you a personalised opening, here it costs you the account.
+
+- A categorised row carries **`tier: "unscored"`** and **no `score` key at all** — not `score:
+  null`, which is a number-shaped hole that downstream readers trip over.
+- `unscored` is **not a fit level below the bottom tier.** It means *not answerable yet*. Do not
+  rank it, do not count it among the scored, and do not report it as dropped — a dropped row is one
+  we judged and declined, which is a completely different sentence to say about an account.
+- The category **is** the deliverable: a categorised row is a work queue, and its category names
+  which queue. Report the counts per category, not one lump of "unscored".
+
+**Every scored row must name the rubric it was scored against** — `rubric_source` and
+`rubric_version`, carried on the row, not recalled in prose. Without them a later reply-rate change
+cannot be attributed to a rubric change rather than to noise, and `prospects_import finalize`
+refuses a scored row that lacks them.
+
+Where the profile ships `knowledge/scorecard.toml`, all of the above is computed and the engine
+refuses to emit a number when an input is missing:
+
+```bash
+uv run python -m gtm_core.scorecard score --profile <active> --items <rows.json>
+```
+
+It prints `scored N · categorised C · rubric <source>@<version>` plus the tier spread, and returns
+each row's outcome with the provenance attached. A profile without a card runs this same order of
+operations by hand — the sufficiency step is not optional because it is manual.
 
 ## Heat axis (intent add-on — applied after the rubric, identical for every tenant)
 
@@ -147,6 +204,11 @@ Two consequences worth stating here:
   understates a run by the whole Tier-B population. The publish and Tier-A numbers themselves are
   the **active profile's**, they differ per segment, and they are not repeated here: read them from
   `knowledge/icp-personas.md` § "Gates, scoring rubric & thresholds" at the start of every run.
+- **Thinness has two answers, at two different levels.** No usable *signal* downgrades the
+  **angle**: the account still scores, and routes to the `generic` lane as above. A missing rubric
+  **input** is the stronger case — the account cannot be scored at all, and becomes `unscored` with
+  a category (§ "Scored vs categorised"). Both protect the distinction this section exists for;
+  they differ in whether a number was ever earned.
 - **Tier and lane are orthogonal.** A Tier-A account can be `generic` (high fit, no clause) and a
   Tier-B account can be `personalised` (modest fit, excellent signal). Do not collapse them into
   one axis, and do not add a "Tier C" for the generic population — it would make tier mean two

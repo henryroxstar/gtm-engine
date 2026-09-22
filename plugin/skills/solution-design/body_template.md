@@ -380,9 +380,29 @@ A6. **Shared responsibility** — a three-column table (**Product does / Custome
     `standards-crosswalk.md`: state the active company's real certs accurately (per
     `profiles/<active>/knowledge/company.md`) as a trust signal, **never assert the company lacks a
     certification**, and don't self-undermine.
-A7. **Trade-offs & alternatives considered** — for each material choice (managed vs self-hosted;
+A7. **Trade-offs & alternatives considered** — written as a **decision record** per material
+    choice, four lines rather than a pros/cons blob: **Decision** · **Date** · **Alternatives** ·
+    **What it cost us**. The last line earns the section — a trade-off with no named cost is a
+    recommendation wearing a trade-off's heading. For each material choice (managed vs self-hosted;
     policy-in-product vs app-code; build vs buy; phased vs full), honest pros/cons and the recommendation.
-A8. **Internal appendix (omit from customer copy)** — persona mapping + codes (A5, persona #), ICP
+A8. **Constraints** — what is fixed and not ours to choose, separately from A1's assumptions:
+    systems that stay, the regulator and jurisdiction, the change window, licence or seat limits,
+    data that may not leave a boundary, and any beta limitation of our own product. One line each,
+    with **who owns it** — a constraint the customer can lift is a negotiation, and one we imposed
+    is a roadmap item. An assumption is ours to be wrong about; a constraint never moves.
+A9. **Quality requirements** — the numbers the design is accountable for: **availability** (a
+    percentage over a stated window), **latency** (a percentile, never a mean — "average 200 ms" is
+    satisfied by a system unusable one call in twenty), **throughput** (sustained, and the burst it
+    must survive), **recovery** (RPO and RTO, separately), and **residency** where data may not
+    cross a border. A figure, or "not yet agreed" and an A2 open question — never "fast", "highly
+    available" or "scalable", each of which is a placeholder that reads as a commitment.
+A10. **Deployment topology** — where each component runs and in whose tenancy: our side, their
+    side, region, and every boundary a request or record crosses. Not optional: "where does it run"
+    is the first question security asks and the last one a design usually answers.
+A11. **Glossary** — every term that means something specific here, in one line. Include the ones
+    both sides think they share. A reader who guesses a definition disagrees with the design
+    without knowing it, and that surfaces at implementation rather than at review.
+A12. **Internal appendix (omit from customer copy)** — persona mapping + codes (A5, persona #), ICP
     score, deal context. As a bulleted list, kept entirely out of the customer-facing body.
 
 **Formatting:** use real bullet lists (blank line before the list) and short paragraphs — never run
@@ -424,7 +444,14 @@ A2. **Open questions & dependencies** — what the customer must confirm before 
 A3. **Feature / feasibility assessment** — the full feasibility table from Step 2.
 A4. **Tech choices** — the stack recommendation with brief rationale.
 A5. **Trade-offs & alternatives considered** — honest pros/cons for each material choice.
-A6. **Internal appendix (omit from customer copy)** — deal context, ICP, persona notes.
+A6. **Constraints** — fixed and not ours to choose, separately from A1's assumptions, each with
+    who could lift it.
+A7. **Quality requirements** — availability, latency at a percentile, throughput, RPO and RTO
+    separately, residency. A figure or "not yet agreed"; never an adjective.
+A8. **Deployment topology** — where each component runs, in whose tenancy, and every boundary
+    crossed.
+A9. **Glossary** — every term that means something specific here, in one line.
+A10. **Internal appendix (omit from customer copy)** — deal context, ICP, persona notes.
 
 ---
 
@@ -468,6 +495,52 @@ Use the real resolved absolute paths.
 - **Mode A** — `build-deck` for slides, the docx skill for a formal Word SAD, `gateway-runbook` for
   setup steps.
 - **Mode B** — `build-deck` for a customer-facing deck.
+
+## Step 6b — Definition of Done (two gates; neither of them is "it reads well")
+
+A design is not done because it saved. Run both, in order, and report the results.
+
+**1 · Lint — deterministic, runs everywhere, including headless.**
+
+```
+uv run python -m gtm_core.design_lint <the saved design>.md
+```
+
+**SD1** the three-tier read is present and in order · **SD2** every coverage dimension has a
+section that answers it · **SD3** service levels are stated here, not only in the commercial
+proposal · **SD4** a glossary exists · **SD12** a stated count matches the list it introduces ·
+**SD13** every diagram ships with a walkthrough.
+
+**Three severities, and the third one is not for you to clear.** Errors block delivery. Warnings do
+not, but they are graded — read them, then either fix or say why not; a rule genuinely wrong about
+one document can be suppressed with `<!-- lint-ok SD4: reason -->` in the section it fires on (a
+document-level finding may be suppressed from anywhere in the file), and naming the tier **and the
+reason** is the price of the exemption — a bare suppression is not one.
+
+Judgement calls, printed under their own heading and marked `~`, are the claim checks: **SD6** a
+capability matrix row that leaves its own Status column blank · **SD7** a design-target written in
+the present tense while the matrix labels it ahead of the build · **SD8** a claim that writes to
+something the design's own Constraints section froze · **SD9** one action attributed both to the
+operator and to the principal.
+
+Do not suppress these and do not try: there is no `lint-ok SD6`, `--strict` does not promote them,
+and they never block. **Report them to the operator verbatim, as their own list, and let them
+decide.** All four reason about what the design claims rather than how it is shaped, and on a claim
+the operator is the more current source — a capability that was a design target when these patterns
+were written may have shipped since, and a beta constraint may have lifted. A linter comment inside
+a document the customer reads, recording that our tooling is out of date, is the wrong artefact;
+the report is where that disagreement belongs.
+
+The run also prints a **coverage line** — how many of the twelve dimensions the document answers,
+and which it does not. Nothing there is necessarily wrong. It prints every time because coverage is
+the one thing a reader cannot see by scrolling: a design reads complete right up until the
+architect asks the question it never answered. `--dimensions` prints the whole taxonomy with the
+question each one asks.
+
+**2 · A read-through against the questions a demanding architect asks** — whose identity is on each
+action, whose system of record holds each output, what is enforced versus a design target, and
+whether any body claim contradicts a constraint you documented. Judgement, not mechanism; the
+linter cannot ask any of them.
 
 ## Guardrails
 

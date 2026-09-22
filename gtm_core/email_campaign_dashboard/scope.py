@@ -111,10 +111,14 @@ def resolve(mode: str, campaign: str | None, campaigns: list[dict]) -> Scope:
     )
     if not live:
         listed = "; ".join(f"{s} ({why})" for s, why in excluded) or "no manifests found"
+        # Every option is a command the reader can run as written; editing the manifest is
+        # the LAST one, because the person reading this is usually not the one who owns it.
         raise SystemExit(
-            f"--scope open matched no campaign — {listed}. `open` reads the manifest's "
-            f"top-level `status`, which must be one of {', '.join(sorted(OPEN_STATUSES))}. "
-            "Set it in content/<profile>/plans/campaigns/<slug>.campaign.toml, or name the "
-            "campaigns explicitly with --scope campaign --campaign <slug>."
+            f"--scope open matched no campaign — {listed}. `open` shows only campaigns marked "
+            f"as running: a manifest whose top-level `status` is one of "
+            f"{', '.join(sorted(OPEN_STATUSES))}. To see everything now, re-run with "
+            "--scope all. To show one campaign, use --scope campaign --campaign <slug>. To "
+            'mark a campaign as running, set status = "active" in '
+            "content/<profile>/plans/campaigns/<slug>.campaign.toml."
         )
     return Scope("open", live, ",".join(live), _stem("open", live), _label("open", live), excluded)

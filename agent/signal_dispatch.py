@@ -115,6 +115,13 @@ ACTION_DISPATCH: dict[str, PackTarget | NotifyTarget | None] = {
     # Buyer intent, a pricing question. Drafting a reply to these on a timer is worse
     # than saying nothing; wake someone.
     "escalate_to_operator": NotifyTarget(_notify_signal),
+    # SC9. An opt-out to mirror onto the provider's Do Not Contact list. The pack's first
+    # node drafts the address list from the ledger's own evidence and stops at a gate; its
+    # second node carries `external_effect = "dnc_add"` and is dispatched by Python
+    # (agent/dnc_dispatch.py) only after a human approves. Same shape as publish and
+    # enroll — a PackTarget with no destination field, because a signal is untrusted data
+    # (§R5) and must never be able to choose who gets suppressed.
+    "suppress_on_provider": PackTarget("inbound", "optout-suppress"),
     # Recorded, deduped, and deliberately not acted on. An explicit no-op rather than a
     # missing key, so T9 can tell "decided against" from "forgotten".
     "review": None,

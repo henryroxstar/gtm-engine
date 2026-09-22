@@ -892,3 +892,487 @@ def test_mutate_account(tmp_path):
     )
     assert summary2["status"] == "not_found"
     assert summary2["changed"] is False
+
+
+# --- field-wise merge: a re-emit never destroys what research wrote (PSK-013) --------- #
+
+_RESEARCHED = {
+    "id": "contoso-freight",
+    "company": "Contoso Freight",
+    "domain": "contosofreight.example",
+    "score": 9,
+    "heat": 2,
+    "intent_feeds": ["vibe-topic"],
+    "why_now": "Contoso Freight opened its agent platform to partner organisations.",
+    "signal_source_url": "https://contosofreight.example/news/partner-agents",
+    "contact_email": "rowan.pike@contosofreight.example",
+    "verdict": "send",
+    "verdict_reason": "",
+    "status": "new",
+}
+
+
+def _only_item(root, profile="acme"):
+    items = ps.load_latest(profile, content_root=root)["items"]
+    assert len(items) == 1, [i.get("company") for i in items]
+    return items[0]
+
+
+def test_a_field_the_caller_left_out_never_erases_a_populated_one(tmp_path):
+    _write_latest(tmp_path, "acme", [dict(_RESEARCHED)])
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso Freight", "contact_name": "Rowan Pike"}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    after = _only_item(tmp_path)
+    for field, value in _RESEARCHED.items():
+        assert after[field] == value, f"{field} was erased by an item that never mentioned it"
+    assert after["contact_name"] == "Rowan Pike"  # and what it DID supply still lands
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None, []])
+def test_a_blank_incoming_value_never_overwrites_a_populated_one(tmp_path, blank):
+    _write_latest(tmp_path, "acme", [dict(_RESEARCHED)])
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso Freight", "why_now": blank, "intent_feeds": blank, "domain": blank}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    after = _only_item(tmp_path)
+    assert after["why_now"] == _RESEARCHED["why_now"]
+    assert after["intent_feeds"] == ["vibe-topic"]
+    assert after["domain"] == "contosofreight.example"
+
+
+def test_a_supplied_zero_is_a_value_not_a_blank(tmp_path):
+    """Heat decays: a run that measured 0 must be able to say so."""
+    _write_latest(tmp_path, "acme", [dict(_RESEARCHED)])
+    ps.upsert_latest(
+        "acme", [{"company": "Contoso Freight", "heat": 0}], "run-2", content_root=tmp_path
+    )
+    assert _only_item(tmp_path)["heat"] == 0
+
+
+def test_two_rows_for_one_account_in_one_batch_keep_the_union(tmp_path):
+    """The export is one row per CONTACT, so one account arrives several times per batch."""
+    _write_latest(tmp_path, "acme", [])
+    summary = ps.upsert_latest(
+        "acme",
+        [
+            {
+                "company": "Contoso Freight",
+                "domain": "contosofreight.example",
+                "why_now": "Contoso Freight opened its agent platform.",
+                "contact_name": "Rowan Pike",
+            },
+            {"company": "Contoso Freight", "contact_name": "Dana Holt", "contact_title": "CTO"},
+        ],
+        "run-1",
+        content_root=tmp_path,
+    )
+    assert (summary["added"], summary["updated"]) == (1, 1)
+    after = _only_item(tmp_path)
+    assert after["why_now"] == "Contoso Freight opened its agent platform."
+    assert after["domain"] == "contosofreight.example"
+    assert after["contact_title"] == "CTO"
+
+
+def test_the_verdict_is_untouched_by_an_item_that_supplies_none(tmp_path):
+    _write_latest(tmp_path, "acme", [dict(_RESEARCHED)])
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso Freight", "verdict": "", "verdict_reason": "no why-now this pass"}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    after = _only_item(tmp_path)
+    assert (after["verdict"], after["verdict_reason"]) == ("send", "")
+
+
+def test_a_supplied_verdict_replaces_the_pair_not_half_of_it(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{**_RESEARCHED, "verdict": "drop", "verdict_reason": "recorded as a competitor"}],
+    )
+    ps.upsert_latest(
+        "acme", [{"company": "Contoso Freight", "verdict": "send"}], "run-2", content_root=tmp_path
+    )
+    after = _only_item(tmp_path)
+    assert (after["verdict"], after["verdict_reason"]) == ("send", ""), (
+        "a changed verdict kept the OLD verdict's reason"
+    )
+
+
+def test_a_restated_verdict_keeps_its_reason(tmp_path):
+    _write_latest(
+        tmp_path, "acme", [{**_RESEARCHED, "verdict": "re-angle", "verdict_reason": "stale clause"}]
+    )
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso Freight", "verdict": "re-angle"}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    assert _only_item(tmp_path)["verdict_reason"] == "stale clause"
+
+
+def test_new_account_defaults_reach_a_new_account_and_never_an_existing_one(tmp_path):
+    _write_latest(tmp_path, "acme", [dict(_RESEARCHED)])
+
+    def defaults(item):
+        return {"score": 0, "segment": "startup", **item}
+
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso Freight"}, {"company": "Northwind Robotics"}],
+        "run-2",
+        content_root=tmp_path,
+        new_account_defaults=defaults,
+    )
+    by_company = {i["company"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert by_company["Northwind Robotics"]["segment"] == "startup"
+    assert by_company["Contoso Freight"]["score"] == 9
+    assert "segment" not in by_company["Contoso Freight"]
+
+
+def test_an_existing_accounts_id_is_not_rewritten_by_a_later_run(tmp_path):
+    """A pre-slugify ledger id names an account folder; a re-derived slug must not orphan it."""
+    _write_latest(tmp_path, "acme", [{"id": "contoso-frt", "company": "Contoso Freight"}])
+    ps.upsert_latest(
+        "acme",
+        [{"id": "contoso-freight", "company": "Contoso Freight", "score": 7}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    after = _only_item(tmp_path)
+    assert (after["id"], after["score"]) == ("contoso-frt", 7)
+
+
+# --- a name variant is the same account (duplicate-account defect) -------------------- #
+
+
+def test_a_suffix_variant_of_the_name_merges_into_the_existing_account(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {
+                "id": "northwind-robotics-inc",
+                "company": "Northwind Robotics, Inc.",
+                "status": "do-not-contact",
+                "why_now": "Northwind Robotics shipped a fleet agent.",
+            }
+        ],
+    )
+    summary = ps.upsert_latest(
+        "acme",
+        [{"id": "northwind-robotics", "company": "Northwind Robotics", "score": 8}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    assert (summary["added"], summary["updated"]) == (0, 1)
+    after = _only_item(tmp_path)
+    assert after["status"] == "do-not-contact", "the operator's exclusion sat on an orphan"
+    assert after["score"] == 8
+    # Older pooled rows join on the exact name: a lossy match recognises, never renames.
+    assert after["company"] == "Northwind Robotics, Inc."
+
+
+def test_a_name_variant_in_the_same_batch_is_one_account(tmp_path):
+    _write_latest(tmp_path, "acme", [])
+    ps.upsert_latest(
+        "acme",
+        [{"company": "Northwind Robotics, Inc."}, {"company": "Northwind Robotics"}],
+        "run-1",
+        content_root=tmp_path,
+    )
+    _only_item(tmp_path)
+
+
+def test_a_name_variant_never_merges_across_two_different_domains(tmp_path):
+    """The lossy key may only ever ADD a match the precise keys missed — a differing
+    domain is proof of a different company, and outranks a suffix-stripped name."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"company": "Northwind Inc", "domain": "northwind.example", "status": "customer"}],
+    )
+    summary = ps.upsert_latest(
+        "acme",
+        [{"company": "Northwind LLC", "domain": "northwind-llc.example"}],
+        "run-2",
+        content_root=tmp_path,
+    )
+    assert (summary["added"], summary["updated"]) == (1, 0)
+
+
+def test_an_ambiguous_name_variant_is_appended_not_guessed(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {"company": "Northwind Inc", "domain": "northwind.example"},
+            {"company": "Northwind LLC", "domain": "northwind-llc.example"},
+        ],
+    )
+    summary = ps.upsert_latest("acme", [{"company": "Northwind"}], "run-2", content_root=tmp_path)
+    assert (summary["added"], summary["updated"]) == (1, 0)
+
+
+def test_names_that_normalise_to_nothing_are_never_the_same_account(tmp_path):
+    """A pure non-ASCII name strips to an empty lossy key; empty must match nothing."""
+    _write_latest(tmp_path, "acme", [{"company": "山田商事株式会社", "domain": "yamada.example"}])
+    summary = ps.upsert_latest("acme", [{"company": "宏遠"}], "run-2", content_root=tmp_path)
+    assert (summary["added"], summary["updated"]) == (1, 0)
+
+
+# --- the name fallback looks past a LEGAL FORM, never past a word that names a company - #
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Zephyrine Holdings", "Zephyrine Group"),
+        ("Zephyrine Holdings", "Zephyrine Co"),
+        ("Zephyrine Company", "Zephyrine"),
+        ("Zephyrine Group Ltd", "Zephyrine Ltd"),
+    ],
+)
+def test_names_that_differ_by_more_than_a_legal_form_are_two_accounts(tmp_path, first, second):
+    """A thin re-discovery carries no domain, so the domain veto cannot save it: "Holdings"
+    and "Group" merged, and one company carried the other's contact, why-now and score."""
+    summary = ps.upsert_latest(
+        "acme",
+        [
+            {
+                "company": first,
+                "domain": "zephyrine-holdings.example",
+                "score": 9,
+                "contact_email": "ada.quill@zephyrine-holdings.example",
+                "why_now": "raised a round",
+                "verdict": "send",
+            },
+            {
+                "company": second,
+                "score": 6,
+                "contact_email": "bo.marsh@zephyrine-group.example",
+                "why_now": "opened an office",
+            },
+        ],
+        "run-1",
+        content_root=tmp_path,
+    )
+    assert (summary["added"], summary["updated"]) == (2, 0)
+    by_company = {i["company"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert by_company[first]["contact_email"] == "ada.quill@zephyrine-holdings.example"
+    assert (by_company[first]["why_now"], by_company[first]["score"]) == ("raised a round", 9)
+    assert "domain" not in by_company[second] or not by_company[second]["domain"]
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "Contoso Freight",
+        "contoso freight inc",
+        "Contoso Freight Incorporated",
+        "CONTOSO FREIGHT LLC",
+        "Contoso Freight Pte. Ltd.",
+        "Contoso Freight GmbH",
+        "Contoso Freight S.A.",
+        "Contoso Freight B.V.",
+        "Contoso Freight Pty Limited",
+    ],
+)
+def test_a_legal_form_variant_is_still_the_same_account(tmp_path, variant):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"company": "Contoso Freight, Inc.", "domain": "contosofreight.example"}],
+    )
+    summary = ps.upsert_latest("acme", [{"company": variant}], "run-2", content_root=tmp_path)
+    assert (summary["added"], summary["updated"]) == (0, 1)
+    assert _only_item(tmp_path)["company"] == "Contoso Freight, Inc."
+
+
+# --- on_merged: the caller learns which account each item landed on, BEFORE the write -- #
+
+
+def test_on_merged_hands_back_the_ledger_row_each_item_landed_on(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {
+                "company": "Contoso Freight, Inc.",
+                "domain": "contosofreight.example",
+                "status": "do-not-contact",
+                "account_id": "a-0000000001",
+            }
+        ],
+    )
+    seen: list[list[dict]] = []
+    items = [
+        {"company": "Contoso Freight", "contact_email": "ines.vale@contosofreight.example"},
+        {"company": "Northwind Robotics", "domain": "northwind.example"},
+    ]
+    ps.upsert_latest("acme", items, "run-2", content_root=tmp_path, on_merged=seen.append)
+
+    (landed,) = seen
+    assert len(landed) == len(items)
+    assert landed[0]["company"] == "Contoso Freight, Inc."
+    assert landed[0]["domain"] == "contosofreight.example"
+    assert landed[0]["status"] == "do-not-contact"
+    assert landed[0]["account_id"] == "a-0000000001"
+    assert landed[1]["company"] == "Northwind Robotics"
+    assert landed[1]["account_id"], "a new account's id is stamped before the caller sees it"
+    written = {i["company"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert written["Northwind Robotics"]["account_id"] == landed[1]["account_id"]
+
+
+def test_on_merged_raising_leaves_the_ledger_untouched(tmp_path):
+    path = _write_latest(tmp_path, "acme", [{"company": "Contoso Freight"}])
+    before = path.read_bytes()
+
+    def refuse(_landed):
+        raise ValueError("the export cannot be built")
+
+    with pytest.raises(ValueError, match="export cannot be built"):
+        ps.upsert_latest(
+            "acme", [{"company": "Northwind Robotics"}], "run-2", content_root=tmp_path,
+            on_merged=refuse,
+        )  # fmt: skip
+    assert path.read_bytes() == before
+    assert not (path.parent / ps.SNAPSHOT_DIRNAME).exists()
+
+
+# --- every read-modify-write of the ledger is serialised ------------------------------- #
+
+
+def _hold_ledger_lock(ledger: str, ready, release) -> None:
+    from pathlib import Path
+
+    from gtm_core.prospects_lock import ledger_lock
+
+    with ledger_lock(Path(ledger), create=True):
+        ready.set()
+        release.wait(timeout=10)
+
+
+def test_a_status_write_landing_mid_merge_is_not_lost(tmp_path, monkeypatch):
+    """The lost update: writer A reads, the operator's do-not-contact lands, A writes the
+    file it computed from the stale read. Serialised, the status write waits for A."""
+    import threading
+
+    _write_latest(tmp_path, "acme", [{"company": "Contoso Freight", "domain": "contoso.example"}])
+    a_has_read, b_done = threading.Event(), threading.Event()
+    real_load = ps.load_latest
+
+    def slow_load(profile, content_root=None):
+        data = real_load(profile, content_root)
+        if threading.current_thread().name == "writer-a":
+            a_has_read.set()
+            b_done.wait(timeout=1.0)  # unserialised, B finishes inside this window
+        return data
+
+    monkeypatch.setattr(ps, "load_latest", slow_load)
+
+    def writer_a():
+        ps.upsert_latest(
+            "acme", [{"company": "Northwind Robotics"}], "run-2", content_root=tmp_path
+        )
+
+    def writer_b():
+        a_has_read.wait(timeout=5)
+        ps.set_status("acme", {"d:contoso.example": "do-not-contact"}, content_root=tmp_path)
+        b_done.set()
+
+    threads = [
+        threading.Thread(target=writer_a, name="writer-a"),
+        threading.Thread(target=writer_b, name="writer-b"),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+        assert not t.is_alive(), "a ledger writer deadlocked"
+
+    items = {i["company"]: i for i in real_load("acme", tmp_path)["items"]}
+    assert set(items) == {"Contoso Freight", "Northwind Robotics"}
+    assert items["Contoso Freight"]["status"] == "do-not-contact", "the status write was lost"
+
+
+def test_the_ledger_lock_is_reentrant_on_one_path_and_nested_writers_do_not_deadlock(tmp_path):
+    import threading
+
+    from gtm_core.prospects_lock import ledger_lock
+
+    def nested():
+        with ledger_lock(ps.latest_path("acme", tmp_path), create=True):
+            ps.upsert_latest("acme", [{"company": "Contoso Freight"}], "r1", content_root=tmp_path)
+            ps.set_status("acme", {"c:contoso freight": "replied"}, content_root=tmp_path)
+            ps.mutate_account("acme", "Contoso Freight", {"notes": "x"}, content_root=tmp_path)
+
+    t = threading.Thread(target=nested)
+    t.start()
+    t.join(timeout=15)
+    assert not t.is_alive(), "a nested ledger write blocked on its own lock"
+    assert _only_item(tmp_path)["status"] == "replied"
+
+
+def test_the_ledger_lock_excludes_a_writer_in_another_process(tmp_path):
+    import multiprocessing
+    import threading
+
+    _write_latest(tmp_path, "acme", [{"company": "Contoso Freight", "domain": "contoso.example"}])
+    ctx = multiprocessing.get_context("spawn")
+    ready, release = ctx.Event(), ctx.Event()
+    holder = ctx.Process(
+        target=_hold_ledger_lock, args=(str(ps.latest_path("acme", tmp_path)), ready, release)
+    )
+    holder.start()
+    try:
+        assert ready.wait(timeout=20)
+        done = threading.Event()
+
+        def write():
+            ps.set_status("acme", {"d:contoso.example": "replied"}, content_root=tmp_path)
+            done.set()
+
+        t = threading.Thread(target=write)
+        t.start()
+        assert not done.wait(timeout=0.5), "the write went through a lock another process held"
+        release.set()
+        assert done.wait(timeout=15), "the write never ran once the lock was released"
+        t.join(timeout=5)
+    finally:
+        release.set()
+        holder.join(timeout=10)
+        if holder.is_alive():
+            holder.terminate()
+    assert _only_item(tmp_path)["status"] == "replied"
+
+
+def test_a_status_write_on_a_tenant_with_no_ledger_invents_no_folder(tmp_path):
+    summary = ps.set_status("acme", {"d:contoso.example": "replied"}, content_root=tmp_path)
+    assert summary["unmatched"] == ["d:contoso.example"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_scorer_drop_is_lifted_when_the_row_later_scores_into_a_published_tier(tmp_path):
+    from gtm_core.prospects_merge import merge_onto
+
+    dropped = {"company": "Northwind Robotics", "tier": "drop", "verdict": "drop",
+               "verdict_reason": "below publish threshold", "lane": "excluded"}  # fmt: skip
+    lifted = merge_onto(dropped, {"company": "Northwind Robotics", "tier": "A", "score": 9})
+    assert (lifted["verdict"], lifted["verdict_reason"], lifted["lane"]) == ("", "", "")
+
+    researcher = {**dropped, "verdict_reason": "direct competitor"}
+    kept = merge_onto(researcher, {"company": "Northwind Robotics", "tier": "A", "score": 9})
+    assert (kept["verdict"], kept["verdict_reason"]) == ("drop", "direct competitor")
+
+    still_low = merge_onto(dropped, {"company": "Northwind Robotics", "tier": "drop", "score": 2})
+    assert still_low["verdict"] == "drop"

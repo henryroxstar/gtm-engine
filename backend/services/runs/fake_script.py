@@ -114,10 +114,38 @@ def _enroll_stub(node_id: str) -> str:
     )
 
 
+def _dnc_stub(node_id: str) -> str:
+    """What a real ``review`` node leaves at an SC9 DNC gate: a dnc-draft in the
+    ``agent/gate_actions.py`` shape — addresses plus the ledger evidence for each.
+
+    The addresses are FICTIONAL and, in a fake run, are also refused at dispatch: the
+    shared dispatcher intersects them with the profile's own opt-out ledger, and a fake
+    run has none. So approving this gate suppresses nobody twice over — the kill switch is
+    closed and the evidence check would refuse it anyway."""
+    return json.dumps(
+        {
+            "note": f"FAKE RUN — gate at node '{node_id}': scripted by GTM_FAKE_RUNS; "
+            "approving it suppresses nobody.",
+            "addresses": ["dana@acme.example"],
+            "evidence": {
+                "dana@acme.example": {
+                    "event": "optout_detected",
+                    "thread_id": "fake-thread-1",
+                    "ts": "2026-09-21T10:00:00Z",
+                }
+            },
+        },
+        ensure_ascii=False,
+    )
+
+
 def _gate_pending(node_id: str, kind: str, text: str) -> tuple[str, str]:
     """The bytes the gate holds, and the text an approval without an edit carries on."""
     if kind == "email_enroll":
         stub = _enroll_stub(node_id)
+        return stub, stub
+    if kind == "dnc_add":
+        stub = _dnc_stub(node_id)
         return stub, stub
     return _gate_content(node_id, text), text
 
@@ -203,6 +231,8 @@ def _gate_kinds(nodes) -> dict[str, str]:
             kinds[node.id] = "publish"
         elif effect == "email_enroll":
             kinds[node.id] = pack_gate_kind("enroll")
+        elif effect == "dnc_add":
+            kinds[node.id] = pack_gate_kind("dnc")
         else:
             kinds[node.id] = pack_gate_kind("plan" if node.skill == _PLAN_DRAFT_SKILL else None)
     return kinds

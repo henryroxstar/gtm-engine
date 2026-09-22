@@ -598,3 +598,160 @@ def test_migrate_cli_reports_counts(tmp_path, capsys):
     rc = suppression.main(["migrate", "--ledger", str(led), "--source", str(src)])
     assert rc == 0
     assert "1/1 row(s) now carry a person key" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# reconcile_dnc — the provider read-back the module docstring promised and, until
+# 2026-09-21, did not have. Three real opt-outs sat on a live provider's DNC list for
+# six weeks with no `dnc-optout` row in the ledger; nothing could have reported it.
+#
+# Every refusal below carries a paired negative control: a check that fires on a clean
+# input is not a check (docs/RULES.md §R18).
+# ---------------------------------------------------------------------------
+
+_DNC_LEDGER = [
+    {"email": "dana@northwind.example", "reason": "dnc-optout", "date": "2026-09-01"},
+    {"email": "kit@harbourline.example", "reason": "dnc-optout", "date": "2026-09-01"},
+    # A local-only exclusion: NOT a provider-DNC reason, so its absence upstream is correct.
+    {"email": "sam@meridian.example", "reason": "out-of-market", "date": "2026-09-01"},
+]
+
+
+def test_reconcile_dnc_passes_when_every_optout_is_on_the_provider(tmp_path):
+    led = load(_ledger_with(tmp_path, _DNC_LEDGER))
+    findings = suppression.reconcile_dnc(led, ["dana@northwind.example", "kit@harbourline.example"])
+    assert findings == []
+
+
+def test_reconcile_dnc_catches_an_optout_missing_upstream(tmp_path):
+    """The negative control for the test above: drop one, it must be named."""
+    led = load(_ledger_with(tmp_path, _DNC_LEDGER))
+    findings = suppression.reconcile_dnc(led, ["dana@northwind.example"])
+    assert len(findings) == 1
+    assert "kit@harbourline.example" in findings[0]
+    assert "dnc-optout-not-on-provider" in findings[0]
+
+
+def test_reconcile_dnc_ignores_local_only_reasons(tmp_path):
+    """`out-of-market` is OUR judgment, not theirs — it must never be expected upstream.
+
+    Pushing it there would forfeit the account forever on a list with no removal tool.
+    """
+    led = load(_ledger_with(tmp_path, _DNC_LEDGER))
+    findings = suppression.reconcile_dnc(led, ["dana@northwind.example", "kit@harbourline.example"])
+    assert not any("sam@meridian.example" in f for f in findings)
+
+
+def test_reconcile_dnc_accepts_a_domain_level_entry(tmp_path):
+    """A whole-domain DNC covers its addresses; demanding the exact address would be noise."""
+    led = load(_ledger_with(tmp_path, _DNC_LEDGER))
+    findings = suppression.reconcile_dnc(led, ["dana@northwind.example"], ["harbourline.example"])
+    assert findings == []
+
+
+def test_reconcile_dnc_refuses_an_empty_payload_rather_than_reporting_clean(tmp_path):
+    """An unparsed payload and a genuinely empty DNC list are indistinguishable here.
+
+    Reading "no entries" as "nothing to check" would turn a broken pipe into a PASS —
+    the shape of the 2026-08-11 unfed-sink failure, one layer up.
+    """
+    led = load(_ledger_with(tmp_path, _DNC_LEDGER))
+    findings = suppression.reconcile_dnc(led, [])
+    assert len(findings) == 1
+    assert "provider-dnc-empty" in findings[0]
+
+
+def test_reconcile_dnc_empty_payload_is_fine_when_nothing_is_claimed(tmp_path):
+    """Negative control for the refusal above: no claims, nothing to prove."""
+    led = load(_ledger_with(tmp_path, [_DNC_LEDGER[2]]))
+    assert suppression.reconcile_dnc(led, []) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            {
+                "payload": {
+                    "dncListDetails": [
+                        {"value": "Dana@Northwind.Example", "type": "email"},
+                        {"value": "kit@harbourline.example", "type": "email"},
+                    ]
+                }
+            },
+            id="get_dnc_items_by_id",
+        ),
+        pytest.param(
+            {
+                "emails": ["dana@northwind.example", "KIT@harbourline.example"],
+                "domains": [],
+                "fetched_at": "2026-09-21T00:00:00Z",
+            },
+            id="consolidate-cache",
+        ),
+        pytest.param(
+            ["dana@northwind.example", "kit@harbourline.example"],
+            id="legacy-bare-list",
+        ),
+    ],
+)
+def test_normalize_dnc_payload_reads_every_real_shape(payload):
+    """All three shapes exist in this repo; casing must not decide a suppression."""
+    emails, _domains = suppression.normalize_dnc_payload(payload)
+    assert emails == {"dana@northwind.example", "kit@harbourline.example"}
+
+
+def test_normalize_dnc_payload_separates_domains_from_emails():
+    emails, domains = suppression.normalize_dnc_payload(
+        {"payload": {"dncListDetails": [{"value": "@harbourline.example", "type": "domain"}]}}
+    )
+    assert emails == set()
+    assert domains == {"harbourline.example"}
+
+
+def test_normalize_dnc_payload_survives_an_unreadable_shape():
+    assert suppression.normalize_dnc_payload("not a payload") == (set(), set())
+    assert suppression.normalize_dnc_payload(None) == (set(), set())
+
+
+def test_reconcile_dnc_cli_exits_nonzero_on_a_finding(tmp_path, monkeypatch, capsys):
+    import io
+
+    led = _ledger_with(tmp_path, _DNC_LEDGER)
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO('{"emails": ["dana@northwind.example"], "domains": []}')
+    )
+    rc = suppression.main(["reconcile-dnc", "--ledger", str(led)])
+    assert rc == 1
+    assert "kit@harbourline.example" in capsys.readouterr().out
+
+
+def test_reconcile_dnc_cli_exits_zero_when_reconciled(tmp_path, monkeypatch, capsys):
+    """Negative control for the CLI test above."""
+    import io
+
+    led = _ledger_with(tmp_path, _DNC_LEDGER)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            '{"emails": ["dana@northwind.example", "kit@harbourline.example"], "domains": []}'
+        ),
+    )
+    rc = suppression.main(["reconcile-dnc", "--ledger", str(led)])
+    assert rc == 0
+    assert "PASS" in capsys.readouterr().out
+
+
+def test_reconcile_dnc_cli_refuses_an_empty_stdin(tmp_path, monkeypatch):
+    """No payload must not read as a clean reconciliation."""
+    import io
+
+    led = _ledger_with(tmp_path, _DNC_LEDGER)
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    assert suppression.main(["reconcile-dnc", "--ledger", str(led)]) == 2
+
+
+def test_provider_dnc_reasons_is_the_single_source_of_truth():
+    """reconcile_dnc must key off the constant, not a hardcoded 'dnc-optout'."""
+    assert "dnc-optout" in PROVIDER_DNC_REASONS
+    assert suppression.EVAL_DISQUALIFIED not in PROVIDER_DNC_REASONS

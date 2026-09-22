@@ -304,7 +304,104 @@ def _mutate_text(rule: str, fn, donor_ok=lambda row: True):
     return {"rule": rule, "kind": "text", "fn": fn, "donor_ok": donor_ok}
 
 
+#: Positional edits on a rendered body, used by the copy recipes below. A body is one
+#: sentence per line: greeting, blank, prose paragraphs, blank, sign-off.
+#:
+#: These are POSITIONAL on purpose. The recipes that went stale did so because they matched
+#: a phrase ("Tell me if you've got this covered") that the copy later stopped using, and a
+#: recipe that silently no-ops records a clean row as carrying a planted defect. "The line
+#: before the sign-off" and "the paragraph after the greeting" survive a rewrite of the
+#: words; a quoted sentence does not. See PENDING.md EC8.
+
+
+def _prose_lines(body: str) -> list[int]:
+    return [i for i, line in enumerate(body.split("\n")) if line.strip()]
+
+
+def _insert_sentence(body: str, sentence: str, *, after: int) -> str:
+    """Insert ``sentence`` as its own paragraph after the ``after``-th non-empty line."""
+    lines = body.split("\n")
+    idx = _prose_lines(body)
+    if len(idx) <= after:
+        return body
+    return "\n".join(lines[: idx[after] + 1] + ["", sentence] + lines[idx[after] + 1 :])
+
+
+def _replace_offer(body: str, sentence: str) -> str:
+    """Replace the last prose line — the ask — leaving the sign-off in place."""
+    lines = body.split("\n")
+    idx = _prose_lines(body)
+    if len(idx) < 2:
+        return body
+    lines[idx[-2]] = sentence
+    return "\n".join(lines)
+
+
 INJECTION_RECIPES = [
+    # --- COPY recipes (2026-09-22, PENDING.md EC8) ---------------------------------
+    #
+    # The four rules `merge_render_linter`'s catalogue gained on 2026-09-22 had no recipe,
+    # so `rule_lifecycle_report` scored them "zero fires, no injected-label evidence" =
+    # delete-candidate, on the live corpus, for the rule the operator had just asked for.
+    #
+    # All four are TEXT recipes, against the general preference for `_mutate_row`. That
+    # preference exists because a row mutation survives a copy rewrite — but these rules
+    # judge the TEMPLATE's prose, and no value in the row dict can put a credit verdict or
+    # a disconnected ask into it. Positional edits (above) are the available substitute.
+    #
+    # Each was checked against 40 live donors: fires its own rule on 40/40, and the
+    # unmutated render of every one of those donors is clean. The `cta-omits-gap` sentence
+    # is deliberately ~16 words because a short one drops 4 of the 40 bodies under
+    # `WORDS_HARD_MIN`, planting a second defect the label could not be attributed to.
+    _mutate_text(
+        "credit-is-verdict",
+        # Grades the reader's competence in the opener. `CREDIT_OPENER_SENTENCES = 2`, and
+        # `_sentences` glues the greeting onto the first sentence, so this has to land in
+        # the paragraph straight after the greeting to be inside the scope.
+        lambda subject, body: (
+            subject,
+            _insert_sentence(body, "You have the hard part done already.", after=0),
+        ),
+    ),
+    _mutate_text(
+        "problem-asserts-internals",
+        # States an architecture as fact about this reader. Goes in the MIDDLE: the rule
+        # reads `sentences[1:-1]`, and the greeting-glued first sentence is outside it.
+        lambda subject, body: (
+            subject,
+            _insert_sentence(
+                body,
+                "Your gateway sits between every agent and the payment rail.",
+                after=1,
+            ),
+        ),
+    ),
+    _mutate_text(
+        "cta-omits-gap",
+        # An ask that shares no vocabulary with the problem above it and carries no
+        # back-reference — it would read the same under any body.
+        lambda subject, body: (
+            subject,
+            _replace_offer(
+                body,
+                "Would fifteen minutes on Thursday or Friday be useful, or would the "
+                "following week suit better?",
+            ),
+        ),
+    ),
+    _mutate_text(
+        "offer-not-a-solution-overview",
+        # An offer that names an inspection of THEIR build rather than an approach a class
+        # of company could use. Keeps a content word ("agent") so `cta-omits-gap` does not
+        # also fire and confound the label.
+        lambda subject, body: (
+            subject,
+            _replace_offer(
+                body,
+                "Would it be helpful if I mapped your agent stack against section 2.1.2?",
+            ),
+        ),
+    ),
     # --- AIM recipes (2026-08-21) --------------------------------------------------
     #
     # Every recipe below this block mutates row HYGIENE or copy SURFACE — a broken name, a
@@ -559,6 +656,30 @@ def build_injected_golden_rows(
     the linter directly and does not care whether a human could see the defect.)
     """
     ranked = sorted(pool, key=_row_key)
+
+    def _changed(recipe: dict, row: dict) -> tuple[str, str] | None:
+        """The mutated ``(subject, body)`` when this recipe visibly changes this donor's
+        render, else ``None``. One implementation, so the viability sweep below and the
+        emission sweep cannot disagree about what "visible" means."""
+        if not recipe["donor_ok"](row):
+            return None
+        touches = touches_by_spec.get(row["__spec"], [])
+        t1 = next((t for t in touches if t.number == 1), None)
+        if t1 is None:
+            return None
+        clean_subject = render(t1.subject, row) or t1.subject
+        clean_body = render(t1.body, row)
+        if recipe["kind"] == "row":
+            mutated_row = recipe["fn"](row)
+            subject = render(t1.subject, mutated_row) or t1.subject
+            body = render(t1.body, mutated_row)
+        else:
+            subject, body = recipe["fn"](clean_subject, clean_body)
+        # The load-bearing check: did the labeler's view actually change?
+        if (subject, body) == (clean_subject, clean_body):
+            return None
+        return subject, body
+
     out: list[GoldenRow] = []
     used_rows: set[str] = set()
     applied: set[str] = set()
@@ -570,27 +691,12 @@ def build_injected_golden_rows(
         i += 1
         for row in ranked:
             key = _row_key(row)
-            if key in used_rows or not recipe["donor_ok"](row):
+            if key in used_rows:
                 continue
-            touches = touches_by_spec.get(row["__spec"], [])
-            t1 = next((t for t in touches if t.number == 1), None)
-            if t1 is None:
+            mutated = _changed(recipe, row)
+            if mutated is None:
                 continue
-
-            clean_subject = render(t1.subject, row) or t1.subject
-            clean_body = render(t1.body, row)
-
-            if recipe["kind"] == "row":
-                mutated_row = recipe["fn"](row)
-                subject = render(t1.subject, mutated_row) or t1.subject
-                body = render(t1.body, mutated_row)
-            else:
-                subject, body = recipe["fn"](clean_subject, clean_body)
-
-            # The load-bearing check: did the labeler's view actually change?
-            if (subject, body) == (clean_subject, clean_body):
-                continue
-
+            subject, body = mutated
             used_rows.add(key)
             applied.add(recipe["rule"])
             out.append(
@@ -611,7 +717,22 @@ def build_injected_golden_rows(
                 )
             )
             break
-    unusable = sorted({r["rule"] for r in recipes} - applied)
+    # Viability is a property of the RECIPE and the COPY, never of ``n_injected``. Deriving
+    # it from `applied` alone made it a property of the budget: the emission sweep stops at
+    # `n_injected` successes, so every recipe the rotation had not yet reached was reported
+    # as "its defect never became visible". Measured on a live tenant corpus 2026-09-22,
+    # same recipes and same copy: 11 unusable at `--n-injected 12`, 7 at 16, 5 at 18, 3 at
+    # 20. That number is fed to `eval_calibration --not-human-visible`, where it means "no
+    # human could see this defect, so absence of a penalty is meaningless" — a claim about
+    # the sheet that silently became a claim about the operator's budget, hiding working
+    # rules from the only report that can retire them. `applied` short-circuits the walk, so
+    # a recipe that already produced a row costs nothing here.
+    viable = {
+        r["rule"]
+        for r in recipes
+        if r["rule"] in applied or any(_changed(r, row) for row in ranked)
+    }
+    unusable = sorted({r["rule"] for r in recipes} - viable)
     return out, unusable
 
 

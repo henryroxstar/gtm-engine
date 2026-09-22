@@ -1,4 +1,4 @@
-"""Integration tests for gtm_core.prospects_import standard mode (26-field item expansion)."""
+"""Integration tests for gtm_core.prospects_import standard mode (canonical item expansion)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from gtm_core import prospects_import as pi
 from gtm_core import prospects_state as ps
 
 
-def test_build_standard_item_fills_all_26_fields():
+def test_build_standard_item_fills_every_canonical_field():
     minimal = {
         "company": "Apex Analytics, Inc.",
         "score": 9,
@@ -23,7 +23,7 @@ def test_build_standard_item_fills_all_26_fields():
 
     full = pi.build_standard_item(minimal)
 
-    for field in pi.CANONICAL_26_FIELDS:
+    for field in pi.CANONICAL_FIELDS:
         assert field in full, f"Missing canonical field: {field}"
 
     assert full["id"] == "apex-analytics-inc"
@@ -35,18 +35,24 @@ def test_build_standard_item_fills_all_26_fields():
     assert full["heat"] == 0
     assert full["intent_feeds"] == []
     assert full["new_in_role"] is False
-    assert full["signal_subject"] == "Apex Analytics, Inc."
-    assert full["signal_agent_kind"] == "ai"
-    assert full["category_relation"] == "prospect"
-    assert full["verdict"] == "send"
+    # PSK-012: the four fail-closed record fields are research conclusions. The caller
+    # supplied none, so none is invented — `check_record` must still BLOCK on each. The
+    # clause even says "agent"; the kind is classified by a researcher, never by substring.
+    assert full["signal_subject"] == ""
+    assert full["signal_agent_kind"] == ""
+    assert full["category_relation"] == ""
+    assert full["verdict"] == ""
     assert full["verdict_reason"] == ""
-    assert full["lane"] == "personalised"
+    # `lanes route` is the only thing that stamps a lane.
+    assert full["lane"] == ""
     assert full["lane_reason"] == ""
     # Optional fields preserved for HubSpot
     assert full["domain"] == "apexanalytics.example"
 
 
-def test_build_standard_item_without_why_now_routes_to_reangle():
+def test_build_standard_item_without_why_now_invents_no_verdict():
+    """It used to write `re-angle` + "no dated public why-now found this pass" — a
+    research finding, stamped by an expander that ran no research pass."""
     minimal = {
         "company": "Quiet Tech Labs",
         "score": 6,
@@ -57,10 +63,10 @@ def test_build_standard_item_without_why_now_routes_to_reangle():
     assert full["id"] == "quiet-tech-labs"
     assert full["tier"] == "B"
     assert full["priority"] == "medium"
-    assert full["verdict"] == "re-angle"
-    assert full["verdict_reason"] == "no dated public why-now found this pass"
-    assert full["lane"] == "generic"
-    assert full["lane_reason"] == "generic fallback"
+    assert full["verdict"] == ""
+    assert full["verdict_reason"] == ""
+    assert full["lane"] == ""
+    assert full["lane_reason"] == ""
 
 
 def test_stage_standard_cli(tmp_path: Path):
@@ -79,7 +85,7 @@ def test_stage_standard_cli(tmp_path: Path):
     staged = json.loads(out_file.read_text(encoding="utf-8"))
     assert len(staged) == 2
     for item in staged:
-        for field in pi.CANONICAL_26_FIELDS:
+        for field in pi.CANONICAL_FIELDS:
             assert field in item
 
 
@@ -113,6 +119,11 @@ def test_finalize_with_standard_mode(tmp_path: Path):
             "contact_title": "Head of AI",
             "domain": "deltaai.example",
             "market": "United States",
+            # A row carrying a SCORE must name the rubric that produced it, or `finalize`
+            # refuses before writing anything (`prospects_import.require_rubric_provenance`).
+            # "minimal" here is about the research fields, not the provenance.
+            "rubric_source": "knowledge/fixture.md#rubric",
+            "rubric_version": "2026-01-01",
         }
     ]
 
@@ -132,13 +143,13 @@ def test_finalize_with_standard_mode(tmp_path: Path):
     old = next(i for i in data["items"] if i["id"] == "existing-co")
     assert old["status"] == "contact-resolved"
 
-    # New item has all 26 canonical fields
+    # New item has every canonical field
     new_item = next(i for i in data["items"] if i["id"] == "delta-ai-systems")
-    for f in pi.CANONICAL_26_FIELDS:
+    for f in pi.CANONICAL_FIELDS:
         assert f in new_item
     assert new_item["status"] == "new"
     assert new_item["tier"] == "A"
-    assert new_item["verdict"] == "send"
+    assert new_item["verdict"] == ""  # none supplied, so none recorded (PSK-012)
 
     # Verify HubSpot CSV
     csv_path = Path(summary["hubspot_csv"])

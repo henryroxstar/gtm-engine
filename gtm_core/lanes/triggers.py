@@ -55,7 +55,12 @@ def already_enrolled(row: dict, ctx: RouterContext) -> Hit:
 
 
 def competitor_direct(row: dict, ctx: RouterContext) -> Hit:
-    hit = competitor_match(row.get("company", ""), row.get("company_domain", ""), ctx.competitors)
+    hit = competitor_match(
+        row.get("company", ""),
+        row.get("company_domain", ""),
+        ctx.competitors,
+        email=row.get("email", ""),
+    )
     return ("competitor-direct", hit.summary) if hit and hit.direct else None
 
 
@@ -66,7 +71,12 @@ EXCLUDES = (suppressed, optout, already_enrolled, competitor_direct)
 
 
 def competitor_adjacent(row: dict, ctx: RouterContext, judge: Adjudication | None) -> Hit:
-    hit = competitor_match(row.get("company", ""), row.get("company_domain", ""), ctx.competitors)
+    hit = competitor_match(
+        row.get("company", ""),
+        row.get("company_domain", ""),
+        ctx.competitors,
+        email=row.get("email", ""),
+    )
     return ("competitor-adjacent", hit.summary) if hit and not hit.direct else None
 
 

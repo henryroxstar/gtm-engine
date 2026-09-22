@@ -128,20 +128,30 @@ async def meter_call(
         except Exception:  # nosec B110  # noqa: BLE001
             pass
 
-        await ameter(
-            CostRecord(
-                runtime="mcp",
-                source=tool_name,
-                cost_usd=cost_usd,
-                cost_credits=credits,
-                op=tool_name,
-                model_or_sku=model,
-                profile=profile_name,
-                workspace_id=workspace_id,
-                api_key_id=api_key_id,
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            ),
-            sink=PgSink(pool, "unified_metering_log"),
-            conn=conn,
-        )
+        try:
+            await ameter(
+                CostRecord(
+                    runtime="mcp",
+                    source=tool_name,
+                    cost_usd=cost_usd,
+                    cost_credits=credits,
+                    op=tool_name,
+                    model_or_sku=model,
+                    profile=profile_name,
+                    workspace_id=workspace_id,
+                    api_key_id=api_key_id,
+                    input_tokens=prompt_tokens,
+                    output_tokens=completion_tokens,
+                ),
+                sink=PgSink(pool, "unified_metering_log"),
+                conn=conn,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "meter_call: ameter audit insert failed after wallet UPDATE for workspace %s; "
+                "credits deducted but audit row missing — reconcile manually",
+                workspace_id,
+                exc_info=True,
+            )

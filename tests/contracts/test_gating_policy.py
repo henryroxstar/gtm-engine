@@ -294,6 +294,7 @@ def test_stub_list_matches_the_expected_ten_skill_roster():
             "content-outcomes-sync",
             "market-harvest",
             "market-intelligence",
+            "identity-kit",
         }
     )
 

@@ -17,7 +17,12 @@ from merge_render_linter import (
     RULES_VERSION,
     Touch,
     Violation,
+    _anchor_report,
+    _company_invisible,
+    _craft_report,
     _is_data_borne,
+    _selftest,
+    _syllables,
     capacity_note,
     lint_article_collision,
     lint_empty_merge_tags,
@@ -29,9 +34,11 @@ from merge_render_linter import (
     lint_signal_relevance,
     lint_touch_personalisation,
     lint_unused_signal_columns,
+    main,
     parse_spec,
     render,
 )
+from outreach_pack_linter import MIN_ANCHORS, SOFT_ANCHORS
 
 SPEC = """
 **Step 1 — Day 1** · Subject: `your agents in production`
@@ -597,13 +604,19 @@ def test_persona_mismatch_sourced_from_merged_data_is_not_the_copys_fault():
     # creator commerce attribution") tripped the seat-lead rule on copy that led on
     # nothing of the sort.
     v = Violation("ERROR", "a@x.com", "persona-lead-mismatch", "exec seat led on (attribution) x")
-    assert _is_data_borne(v, "sparklink raises a series b to expand creatoros for attribution")
-    assert not _is_data_borne(v, "relay ships an agentic ai claims assistant")
+    # Third argument (2026-09-22): the unrendered TEMPLATE. Here it does not carry the
+    # borrowed term, which is the case these two were always about - the term arrived with
+    # the row. Their verdicts are unchanged.
+    copy_without_it = "Hi {{First Name}}, agents now act for customers.\n\nHenry"
+    assert _is_data_borne(
+        v, "sparklink raises a series b to expand creatoros for attribution", copy_without_it
+    )
+    assert not _is_data_borne(v, "relay ships an agentic ai claims assistant", copy_without_it)
 
 
 def test_data_borne_filter_never_suppresses_a_mechanical_rule():
     v = Violation("ERROR", "a@x.com", "word-count", "104 words (hard 50-99)")
-    assert not _is_data_borne(v, "104 words")
+    assert not _is_data_borne(v, "104 words", "Hi {{First Name}},\n\nHenry")
 
 
 def test_a_digit_inside_the_company_name_is_not_a_stray_digit():
@@ -632,3 +645,359 @@ def test_a_date_or_metric_in_the_clause_is_still_an_error():
     v = lint_signal_relevance([_signal_touch()], rows)
     hits = [x for x in v if x.rule == "signal-stray-digit"]
     assert len(hits) == 1 and "45" in hits[0].detail
+
+
+# --- --craft-report (added 2026-09-22) -------------------------------------------
+#
+# The report modes had no coverage at all before this: `--anchor-report` still has none,
+# which is a pre-existing gap worth closing separately. A report that silently stops
+# printing is indistinguishable from a report nobody read.
+
+
+def test_craft_report_runs_and_always_exits_zero(capsys):
+    """Same contract as `--anchor-report`: read-only, never fails a run. A report that
+    could fail would just become another gate, and the point is to be consulted before
+    the edit rather than after it."""
+    assert _craft_report(parse_spec(SPEC)) == 0
+    out = capsys.readouterr().out
+    assert "craft report" in out
+    for col in ("words", "grade", "you", "I/we", "flat-2p"):
+        assert col in out
+
+
+def test_craft_report_separates_the_two_copy_styles(capsys):
+    """The report has to discriminate or it is decoration (§R18).
+
+    An abstract body ("When an agent sends a request over A2A...") and a concrete
+    second-person one carry the same word count and the same structure; what differs is
+    reading grade and whether the reader appears. Both fixtures are invented (docs/RULES.md
+    R9) and neither names a real company.
+    """
+    abstract = Touch(
+        number=1,
+        day=1,
+        subject="what the call carries",
+        body=(
+            "Hi {{First Name}},\n\nWhen an agent transmits a request across an "
+            "organisational boundary, the transport credential identifies the "
+            "originating organisation. An authorisation token conveys organisational "
+            "attestation, not which agent acted under what delegated authority.\n\nHenry"
+        ),
+    )
+    concrete = Touch(
+        number=2,
+        day=3,
+        subject="the second merchant",
+        body=(
+            "Hi {{First Name}},\n\nYou shipped agent checkout in March. When your agent "
+            "pays for a customer, the bank sees your company, not the agent. You rebuild "
+            "that answer for each new merchant.\n\nHenry"
+        ),
+    )
+    _craft_report([abstract, concrete])
+
+    # Parse only well-formed data rows: five numeric columns. A looser test (`first char is
+    # a digit`) silently swallowed a footnote line beginning "2026-09-22 ..." and read a
+    # date as a touch number — a parser that cannot tell data from prose will happily
+    # compare the wrong things and still pass one day.
+    rows = []
+    for ln in capsys.readouterr().out.splitlines():
+        parts = ln.split()
+        if len(parts) == _CRAFT_COLUMNS and all(p.replace(".", "", 1).isdigit() for p in parts):
+            rows.append(parts)
+    assert len(rows) == 2, f"expected one data row per touch, parsed {rows}"
+    grades = {int(r[0]): float(r[2]) for r in rows}
+    yous = {int(r[0]): int(r[3]) for r in rows}
+    assert grades[1] > grades[2], f"abstract body did not read harder: {grades}"
+    assert yous[1] < yous[2], f"second-person count did not separate: {yous}"
+
+
+# --- 2026-09-22 adversarial-regression-hunt: what the craft report was not asserting ------
+#
+# Scoped mutation testing over `_craft_report` found five survivors against the suite as it
+# stood: dropping merge-tag stripping, dropping the greeting strip, either Flesch-Kincaid
+# coefficient, the silent-e syllable correction, and unwiring `--craft-report` from `main`
+# altogether. The two tests above assert the report RUNS and that it ORDERS two bodies
+# correctly; neither pins a number, and an ordering assertion survives any monotone error in
+# the formula. A report whose numbers can be wrong by an arbitrary amount while the suite
+# stays green is decoration with a table around it — the §R18 failure, one level up from the
+# one those tests already close.
+#
+# The fixture body is invented and names no real company (§R9). Its arithmetic is written
+# out in the test rather than recomputed from the implementation, so the expected grade is
+# an independent oracle and not a restatement of the code under test.
+
+_CRAFT_BODY = (
+    "Hi {{First Name}},\n\nThe {{Company}} policy runs before code ships. A human signs it off.\n"
+)
+#: words=11, sentences=2, syllables=15 (policy 3, before 2, human 2, the other eight 1 each)
+#: grade = 0.39*(11/2) + 11.8*(15/11) - 15.59 = 2.145 + 16.0909... - 15.59 = 2.6459 -> "2.6"
+_CRAFT_WORDS = 11
+_CRAFT_GRADE = 2.6
+
+
+#: touch, words, grade, you, I/we, flat-2p, dated
+_CRAFT_COLUMNS = 7
+
+
+def _craft_rows(out: str) -> list[list[str]]:
+    """Data rows only: every column parses as a number. `float` rather than `isdigit` so a
+    negative grade is still read as data — a parser that drops the rows a mutation produces
+    would report "no rows" instead of "wrong number". The width is asserted, not assumed, so
+    adding a column cannot silently shift every index in the tests below."""
+    rows = []
+    for ln in out.splitlines():
+        parts = ln.split()
+        if len(parts) != _CRAFT_COLUMNS:
+            continue
+        try:
+            [float(p) for p in parts]
+        except ValueError:
+            continue
+        rows.append(parts)
+    return rows
+
+
+def test_craft_report_grade_is_the_flesch_kincaid_arithmetic(capsys):
+    """Pin the number, not the ordering. Kills either coefficient and the constant."""
+    _craft_report([Touch(number=1, day=1, subject="s", body=_CRAFT_BODY)])
+    rows = _craft_rows(capsys.readouterr().out)
+    assert len(rows) == 1, f"expected one data row, parsed {rows}"
+    assert float(rows[0][2]) == _CRAFT_GRADE, f"grade drifted from hand arithmetic: {rows[0]}"
+
+
+def test_craft_report_measures_the_template_with_merge_tags_stripped(capsys):
+    """ "merge tags stripped" is the report's headline claim and the reason it is defensible
+    at template time at all (`outreach_pack_linter` rejects per-row Flesch-Kincaid because
+    the rendered company name dominates the syllable term). Left unstripped, `{{First Name}}`
+    and `{{Company}}` contribute four words of tag syntax to every body."""
+    _craft_report([Touch(number=1, day=1, subject="s", body=_CRAFT_BODY)])
+    rows = _craft_rows(capsys.readouterr().out)
+    assert int(rows[0][1]) == _CRAFT_WORDS, f"merge-tag words leaked into the count: {rows[0]}"
+
+
+def test_craft_report_does_not_count_the_greeting(capsys):
+    """The greeting is boilerplate every body shares, so counting it flattens exactly the
+    difference the report exists to show. `Hi {{First Name}},` survives tag-stripping as
+    `Hi ,`, which is why the strip runs second and matches the residue."""
+    _craft_report([Touch(number=1, day=1, subject="s", body=_CRAFT_BODY)])
+    rows = _craft_rows(capsys.readouterr().out)
+    assert int(rows[0][1]) == _CRAFT_WORDS, f"greeting counted as body words: {rows[0]}"
+
+
+def test_syllables_matches_real_english_on_silent_e():
+    """The oracle here is English, not the implementation: `make` and `code` are one
+    syllable and the vowel-run count says two. Without the silent-e correction every
+    e-final word inflates the syllable term, which is 11.8/1 of the grade."""
+    for word, count in (("make", 1), ("code", 1), ("before", 2), ("policy", 3), ("human", 2)):
+        assert _syllables(word) == count, f"{word!r} -> {_syllables(word)}, expected {count}"
+
+
+def test_the_craft_report_flag_reaches_the_report(tmp_path, capsys):
+    """`--craft-report` is the only way an operator reaches this code, and every test above
+    calls `_craft_report` directly — so the flag could be unwired and all of them would still
+    pass. This is the `--anchor-report`-shaped gap: a documented command nobody runs."""
+    spec = tmp_path / "spec.md"
+    spec.write_text(SPEC, encoding="utf-8")
+    csv_path = tmp_path / "rows.csv"
+    csv_path.write_text("First Name,Company\n", encoding="utf-8")
+
+    assert main([str(spec), "--csv", str(csv_path), "--craft-report"]) == 0
+    out = capsys.readouterr().out
+    assert "craft report" in out, "--craft-report did not reach _craft_report"
+    assert _craft_rows(out), "--craft-report printed no data rows"
+
+
+# --- `_is_data_borne`: the suppression that decides whether a copy defect is reported -----
+#
+# Coverage over the whole linter suite shows the `borrowed`/`all(...)` decision never
+# executes: every existing test stops at the `not terms` guard. It is the one predicate that
+# can DELETE a finding, and it reads text the prospect's scraped `signal_clause` supplies,
+# which is untrusted input (CLAUDE.md, §R5).
+
+
+def _mismatch(detail_terms: str) -> Violation:
+    return Violation(
+        "ERROR",
+        "r1",
+        "persona-lead-mismatch",
+        f"engineering seat led on security-seat pain ({detail_terms}) with none of its own "
+        "— see voice.md persona-axis table",
+    )
+
+
+def test_data_borne_suppression_requires_every_borrowed_term():
+    """`all`, never `any`. The detail joins the terms the copy led on; one of them turning up
+    in a prospect's own clause does not make the finding an artifact of the merge, and
+    suppressing on a partial hit hands whoever wrote the scraped text a way to delete a real
+    finding one word at a time."""
+    v = _mismatch("attribution, audit trail")
+    partial = "influenceos for creator commerce attribution"
+    copy = "Hi {{First Name}}, agents now act for customers.\n\nHenry"
+    assert _is_data_borne(v, partial, copy) is False
+    assert _is_data_borne(v, partial + " and audit trail tooling", copy) is True
+
+
+def test_data_borne_suppression_does_not_fire_when_the_copy_carries_the_term():
+    """FIXED 2026-09-22 (a strict xfail for part of that day).
+
+    The comment above `_DATA_BORNE_ELIGIBLE` always stated the narrowing as "only when the
+    term is absent from the template itself"; the code took no template and checked only
+    that the row supplied it. A term the copy genuinely led on was therefore suppressed
+    whenever the prospect's own scraped clause reused the vocabulary.
+
+    It was left unfixed at first on the reasoning that repairing it would fire on live
+    specs that pass today. Measuring said otherwise: zero live renders raise
+    `persona-lead-mismatch` at all, so the repair widens nothing on the current corpus - it
+    removes a wrong suppression before there is one to remove.
+    """
+    v = _mismatch("attribution, audit trail")
+    row_text = "we sell attribution and audit trail tooling"
+    led_on_it = (
+        "Hi {{First Name}}, your attribution story is fine; the audit trail is the gap.\n\nHenry"
+    )
+    did_not = "Hi {{First Name}}, agents now act for customers.\n\nHenry"
+    assert _is_data_borne(v, row_text, led_on_it) is False, "suppressed a term the COPY led on"
+    assert _is_data_borne(v, row_text, did_not) is True, "the row-only case must still suppress"
+
+
+def test_the_linter_selftest_actually_runs(capsys):
+    """`_selftest()` asserts a good row produces zero ERRORs and is the home the 2026-09-22
+    craft plan picks for the reference copy (the linters' first positive control). Nothing
+    invoked it: not CI, not pre-commit, not `email-sequence`'s gate step, and no test — 21
+    statements, zero coverage. A positive control written into a function nobody calls is a
+    positive control that has never once run."""
+    assert _selftest() == 0
+    assert "selftest OK" in capsys.readouterr().out
+
+
+# --- EC9: `--anchor-report` had no test at all -------------------------------------------
+#
+# The sibling of `--craft-report`, and the older of the two. Its own docstring says a report
+# that disagreed with the gate would be "a second, driftable opinion about the same property
+# — the exact failure this repo keeps finding between a checker and its dashboard", and
+# nothing was holding it to that. The numbers an author consults before editing a template
+# could all be wrong and every test stayed green.
+
+
+def _anchor_rows(out: str) -> dict[str, list[str]]:
+    """`{touch: [min, med, max, headroom, at-floor, exempt]}` from the report's data rows.
+    Keyed on the `T<n>` label so a footnote line can never be read as data (the mistake the
+    craft-report parser made once already)."""
+    rows = {}
+    for ln in out.splitlines():
+        parts = ln.split()
+        if len(parts) == 7 and parts[0].startswith("T") and parts[0][1:].isdigit():
+            rows[parts[0]] = parts[1:]
+    return rows
+
+
+def _anchor_row(company: str, first: str) -> dict:
+    """`_company_invisible` also requires a non-empty `signal_clause`, so a row without one
+    can never be exempt and the exempt column would read 0 for the wrong reason."""
+    return {
+        "company": company,
+        "first": first,
+        "signal_clause": f"{company} opened an agent governance program in March",
+    }
+
+
+_ANCHOR_TOUCH = Touch(
+    number=1,
+    day=1,
+    subject="a note",
+    body="Hi {{First Name}},\n\nThe {{Company}} rollout in March met the Dover review.\n\nAlex",
+)
+
+
+def test_anchor_report_runs_and_always_exits_zero(capsys):
+    """Read-only, never fails a run — the same contract `--craft-report` carries."""
+    rows = [_anchor_row("Northwind Systems", "Jordan")]
+    assert _anchor_report([_ANCHOR_TOUCH], rows) == 0
+    out = capsys.readouterr().out
+    assert "anchor report" in out
+    assert f"MIN_ANCHORS={MIN_ANCHORS}" in out and f"SOFT_ANCHORS={SOFT_ANCHORS}" in out
+
+
+def test_anchor_report_headroom_is_measured_from_the_worst_enforced_row(capsys):
+    """Headroom is `min(enforced) - MIN_ANCHORS`, and it must key off the WORST enforced row,
+    not the median and not the worst overall. The gate fails on that row, so a median with
+    slack is not slack — a report that averaged it away would tell an author they can afford
+    to delete a capitalised token when they cannot.
+
+    Two rows, one deliberately thinner than the other. Both companies are invented (§R9)."""
+    rich = _anchor_row("Northwind Systems", "Jordan")
+    thin = _anchor_row("Ardal", "Sam")
+    assert _anchor_report([_ANCHOR_TOUCH], [rich, thin]) == 0
+    row = _anchor_rows(capsys.readouterr().out)["T1"]
+    lo, _med, hi, headroom = int(row[0]), row[1], int(row[2]), int(row[3])
+    assert lo <= hi, f"min above max: {row}"
+    assert headroom == lo - MIN_ANCHORS, (
+        f"headroom {headroom} is not min(enforced) - MIN_ANCHORS ({lo} - {MIN_ANCHORS}): {row}"
+    )
+
+
+def test_anchor_report_excludes_the_rows_the_gate_cannot_fail(capsys):
+    """The report's closing line promises "the gate cannot ERROR on those, so nor does this".
+    A lowercase brand is invisible to the anchor proxy, so `_company_invisible` exempts it and
+    the gate skips its specificity ERROR; counting it as at-floor would overstate the risk of
+    an edit and train the reader to ignore the report."""
+    lowercase_brand = _anchor_row("medipath", "Sam")
+    assert _company_invisible(lowercase_brand, render(_ANCHOR_TOUCH.body, lowercase_brand))
+    assert _anchor_report([_ANCHOR_TOUCH], [lowercase_brand]) == 0
+    row = _anchor_rows(capsys.readouterr().out)["T1"]
+    assert int(row[5]) == 1, f"the exempt row was not counted as exempt: {row}"
+    assert row[3] == "n/a", f"headroom over zero enforced rows must be n/a, got {row[3]!r}"
+
+
+def test_craft_report_counts_a_sentence_initial_sender(capsys):
+    """`I/we` answers "is a person visibly sending this?". The `you` count was
+    case-insensitive and this one was not, so a body opening "My read: ..." reported zero —
+    found 2026-09-22 while measuring the EC7 recut, on copy that plainly had a sender.
+
+    Lowercase `i` stays excluded on purpose: it is not the pronoun, and matching it would
+    count every "i" in a hyphenated token."""
+    body = "Hi {{First Name}},\n\nMy read: we both know our logs disagree.\n\nHenry"
+    _craft_report([Touch(number=1, day=1, subject="s", body=body)])
+    row = _craft_rows(capsys.readouterr().out)[0]
+    # My + we + our = 3. Under the old case-sensitive pattern the capitalised "My"
+    # was invisible and this read 2, which is the discrimination.
+    assert int(row[4]) == 3, f"sentence-initial sender token not counted: {row}"
+
+
+def test_craft_report_counts_dated_referents(capsys):
+    """The `dated` column is EC5's intent delivered as a measurement rather than a gate: a
+    year or month name in the body, which is the checkable half of the "named, dated,
+    external referent" `body_template.md` now asks touch 1 to open on.
+
+    It is a column and not a rule because zero of 596 live touch-1 openers carried one on
+    2026-09-22 — a gate would fail the whole corpus, and it does not separate the two batches
+    either. It DOES separate the old shape from the new: measured on the proof spec, 0/0/0
+    before and 2/1/2 after."""
+    undated = Touch(
+        number=1,
+        day=1,
+        subject="s",
+        body="Hi {{First Name}},\n\nAgents now act for customers.\n\nHenry",
+    )
+    dated = Touch(
+        number=2,
+        day=3,
+        subject="s",
+        body="Hi {{First Name}},\n\nEntra Agent ID shipped in April 2026.\n\nHenry",
+    )
+    _craft_report([undated, dated])
+    rows = {r[0]: r for r in _craft_rows(capsys.readouterr().out)}
+    assert int(rows["1"][6]) == 0, f"undated body reported a dated referent: {rows['1']}"
+    assert int(rows["2"][6]) == 2, f"'April' and '2026' should both count: {rows['2']}"
+
+
+def test_craft_report_runs_without_a_send_list(tmp_path, capsys):
+    """`--craft-report` reads the TEMPLATE only. Requiring `--csv` made the one mode an author
+    runs BEFORE editing the copy the one mode that needed the send list — and on a spec being
+    drafted there may not be one yet. `--anchor-report` still requires it: it scores every
+    render, so rows are its input, not decoration."""
+    spec = tmp_path / "spec.md"
+    spec.write_text(SPEC, encoding="utf-8")
+    assert main([str(spec), "--craft-report"]) == 0
+    assert _craft_rows(capsys.readouterr().out), "no data rows without a CSV"

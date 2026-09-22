@@ -12,14 +12,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 SKILL_DIR = REPO / "plugin" / "skills" / "identity-kit"
+BODY = SKILL_DIR / "body_template.md"
+
+# identity-kit is `oss = "private"` (gtm_core/gating.toml, 2026-09-22) — the OSS carve stubs
+# its body_template.md (and strips the consent language from the generated SKILL.md), so the
+# five tests below have nothing to check in that distribution. Same pattern as
+# test_avatar_look_approval_contract.py's _avatar_stubbed/_router_stubbed.
+_stubbed = pytest.mark.skipif(
+    not BODY.exists(), reason="identity-kit body_template.md not present (paid-tier stub)"
+)
 
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@_stubbed
 def test_body_template_references_the_brandkit_write_cli():
     body = _text(SKILL_DIR / "body_template.md")
     assert "gtm_core.brandkit" in body
@@ -27,6 +39,7 @@ def test_body_template_references_the_brandkit_write_cli():
     assert "--create" in body
 
 
+@_stubbed
 def test_body_template_carries_the_consent_hard_guardrail():
     body = _text(SKILL_DIR / "body_template.md")
     assert "consent_note" in body
@@ -34,6 +47,7 @@ def test_body_template_carries_the_consent_hard_guardrail():
     assert "Article 50" in body
 
 
+@_stubbed
 def test_body_template_carries_the_soul_craft_guardrails():
     body = _text(SKILL_DIR / "body_template.md")
     for phrase in (
@@ -46,12 +60,14 @@ def test_body_template_carries_the_soul_craft_guardrails():
         assert phrase in body, f"identity-kit body lost its mention of {phrase!r}"
 
 
+@_stubbed
 def test_body_template_forbids_direct_toml_edits():
     body = _text(SKILL_DIR / "body_template.md")
     assert "never by editing the TOML" in body
     assert "Only the `gtm_core.brandkit` CLI writes" in body
 
 
+@_stubbed
 def test_skill_md_is_in_sync_with_the_consent_gate():
     # SKILL.md is codegen-derived (tests/lint/skill_codegen_sync.sh is the byte-level sync
     # gate); this confirms the consent language actually made it through codegen into what

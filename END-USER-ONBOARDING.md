@@ -198,9 +198,11 @@ Just say these in plain English:
 - *"Draft outreach to [name] at [company]"*
 - *"Reply to this LinkedIn post"* (paste it in)
 
-**Create content**
+**Create content & diagrams**
 - *"Draft my LinkedIn post about [topic]"*
 - *"Build a carousel about [topic]"* · *"add visuals to my carousel"*
+- *"Draw an architecture diagram for [product]"*
+- *"Audit our SEO for [domain]"* · *"find keyword clusters for [topic]"*
 - *"Make a one-pager for [account]"*
 
 **Make a short video**
@@ -212,8 +214,17 @@ Just say these in plain English:
 - You approve the **storyboard** before anything renders — rendering is the part that costs money, so it never happens on a guess. The **cover** comes with it: where there is more than one candidate you get them side by side on a single sheet and pick by looking, because the cover is a different picture from the first frame and has a different job. One gets tapped, the other starts the film. If the video uses an AI presenter or a cloned voice, it must carry your disclosure line before it can be staged; that's a legal requirement, not a preference
 - *"I'll film this one myself"* — the engine writes it as a **shoot list** instead of a render list, and hands you a page you can read on your phone on the day: how to set up each shot, whether the camera has to stay still, which part of the frame to leave empty for captions, how many takes to get, and what to keep the same between shots so the edit works. It is the difference between one filming session and two. This lane has no storyboard and no animatic, because nothing is being generated to preview. It waits for you instead, and when you come back it asks you to approve the exact file before it uploads anything
 
+**Win a technical deal**
+- *"Prep me for the technical deep-dive with [company]"* — the questions to ask, each tagged with the decision it unlocks
+- *"Design the solution for [company]"* — a three-part document: half a page for the exec, an overview for the buyer, and a technical appendix their architects read. It ships as three files on purpose, so the customer copy can drop the appendix whole
+- Before it hands the design over, it **checks it mechanically**: is every part there, in order, and does the document answer the twelve questions a solution design is expected to answer. Errors stop it; warnings come to you with the reason, to fix or to wave through. The thing it most often finds is that nobody wrote down the numbers — how available, how fast, how much data you can afford to lose — which is the first thing the customer's own architect asks
+- *"Turn that into a two-page scope check"* — the worksheet the buyer marks up before anyone builds anything
+- *"Answer this security questionnaire"* — it answers **only** from the security answers you have written down. Anything you have not, it refuses and hands back as a short list of who needs to write it. That refusal is the feature: a plausible answer to a security questionnaire is a promise somebody signs
+- *"Build the value case"* · *"plan a POC"* · *"plan the demo"* · *"battlecard for [competitor]"*
+
 **Plan & stay current**
 - *"Run my market scan"* — this week's signals in your space
+- *"Check CRM hygiene"* · *"review team pipeline"*
 - *"Build a deck for [company]"*
 - *"Plan my quarter"*
 - *"Schedule my weekly market scan and prospecting"* — runs automatically each Monday

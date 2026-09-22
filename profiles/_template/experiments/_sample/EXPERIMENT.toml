@@ -1,0 +1,67 @@
+# Targeting overlay manifest — copy this directory to start an experiment.
+#
+#   cp -r profiles/_template/experiments/_sample profiles/<tenant>/experiments/<your-slug>
+#
+# An overlay replaces tenant knowledge files for the length of ONE run. It exists so a
+# different ICP, hook matrix or argument set can be tried for a week without mutating the
+# live one — and without cloning the profile, which would fork `content/` and therefore the
+# suppression ledger, and re-contact people who already said no.
+#
+# Enable overlays on the box first (they are OFF by default):
+#
+#   export GTM_EXPERIMENT_OVERLAY_ENABLED=1
+#   python -m gtm_core.experiments --profile <tenant> --overlay <your-slug>
+#
+# Then pass `--overlay <your-slug>` to the run. It is an argument, never an environment
+# variable, on purpose: an experiment that could be bound ambiently would outlive the run
+# that asked for it, and a week of work would quietly be done against targeting nobody chose.
+
+# Must equal this directory's name. They are one identity; a mismatch means one of them is
+# attributing results somewhere else.
+slug = "_sample"
+
+# Who to ask when this is found still running. Not decoration — it is the field that makes a
+# stale experiment answerable six weeks from now.
+owner = "strategy"
+
+# What this run is for, in one sentence. Write the QUESTION, not the hypothesis you hope is
+# true: "does the agent-factory cohort answer a cost argument?" survives a null result.
+question = "Replace with the question this experiment answers."
+
+created = "2026-09-21"
+
+# REQUIRED, and ENFORCED. Past this date `--overlay <slug>` is REFUSED — not warned, and it
+# does NOT fall back to the base profile.
+#
+# The guarded failure is specific: a "temporary" ICP performs well enough that nobody
+# revisits it, and six months later it is the tenant's ICP with no one who decided that. A
+# `review:` date is a note; a refusal is a decision, and renewing it is a diff somebody reads.
+# Two to four weeks is the usual shape. Renew by editing this line.
+expires = "2026-10-05"
+
+# --- what you may put in this directory --------------------------------------------------
+#
+# ONLY these files. Anything else is a load error NAMING the file — never silently ignored,
+# because a silently ignored `voice-bans.txt` here reads as "this experiment relaxed the ban
+# list", and that is wrong in the dangerous direction.
+#
+#   icp-personas.md        who we target
+#   icp-scoring.toml       how we rank them for spend
+#   hook-matrix.md         the persona x signal vocabulary
+#   hooks.toml             the feed hook bank
+#   market-scan-config.md  which phrases the sweep searches
+#   case-studies.md        which proof maps to which cohort
+#   premise-vocab.toml     the premise vocabulary
+#   role-vocabulary.toml   the persona/seat vocabulary
+#   industry/<vertical>.md the per-vertical overlay
+#
+# Include ONLY the files that differ. Anything you leave out falls through to the product,
+# then to the profile — so an overlay that changes the rubric and nothing else is one file.
+#
+# REFUSED, each for a reason you can read in `gtm_core/experiments.py`:
+#   PROFILE.md (target_markets is a legal decision), lane-policy.toml, competitors.toml,
+#   domain-aliases.toml, voice-bans.txt, outreach-banned-stems.txt, shared-phrases.txt,
+#   voice.md, BRAND.toml, packs.toml, funnel-yields.toml
+#
+# The line those draw: an experiment changes WHAT WE ARGUE. It never changes what we are not
+# allowed to say, who we are not allowed to contact, or where we are allowed to send.

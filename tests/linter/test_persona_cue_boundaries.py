@@ -179,7 +179,7 @@ _COMPOUND_TITLES = (
     ("Co-Founder & Chief Product Officer", "cpo"),
     # RANK is not a seat either — a functional chief can also hold the band.
     ("Group CISO Managing Director", "ciso"),
-    ("Senior Managing Director, Chief Information Officer", "cloud-architect"),
+    ("Senior Managing Director, Chief Information Officer", "cio"),
     # The ordering rules the file already documents, unchanged by the fix.
     ("Senior Vice President, Chief Technology Officer", "cto"),
     ("Executive Vice President, Engineering", None),

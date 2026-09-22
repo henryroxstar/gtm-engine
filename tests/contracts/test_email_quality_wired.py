@@ -16,6 +16,7 @@ annoying to delete.
 from __future__ import annotations
 
 import csv
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -780,3 +781,85 @@ def test_email_quality_regenerate_cites_fresh_session_and_never_worker_draft():
         and "require-qa" in section
     )
     assert "not the old body" in section
+
+
+def test_the_email_linters_are_measurable_by_the_repo_coverage_config():
+    """EC13. `tests/linter/` holds four PRODUCTION linters — the gates that decide whether
+    outbound copy ships — beside their own tests. A blanket `tests/*` omit kept them out of
+    every coverage run this repo takes, so "which lines of the email gate have never run"
+    was a question the repo could not answer about itself. Two defects sat behind that blind
+    spot until 2026-09-22: a refusal path in the enrollment gate that had never executed,
+    and a `_selftest()` nothing called.
+
+    This pins the config, not a coverage number. A threshold would rot; the property that
+    matters is that the modules are measurable at all.
+    """
+    import tomllib
+
+    cfg = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    run = cfg["tool"]["coverage"]["run"]
+    assert "tests/linter" in run["source"], (
+        "tests/linter is not in coverage `source`, so the email gates are unmeasured: "
+        f"{run['source']}"
+    )
+    # An omit pattern wins over `source`, so a blanket tests/ omit silently undoes the above.
+    for pattern in run["omit"]:
+        assert not fnmatch("tests/linter/merge_render_linter.py", pattern), (
+            f"coverage omit {pattern!r} hides the merge-render gate again"
+        )
+        assert not fnmatch("tests/linter/outreach_pack_linter.py", pattern), (
+            f"coverage omit {pattern!r} hides the outreach copy gate again"
+        )
+    # ...while the linters' own tests stay out of the measurement.
+    assert any(fnmatch("tests/linter/test_merge_render_linter.py", p) for p in run["omit"]), (
+        "the linters' own tests are being counted as covered production code"
+    )
+
+
+def test_the_rule_inventory_command_emits_the_whole_catalogue(tmp_path):
+    """`--list-rules` writes the inventory `gtm_core.adjudication novel` reads to tell a
+    defect class that needs a NEW rule from one an existing rule should already have caught.
+
+    The inventory lives under gitignored `content/`, so a stale copy is invisible to CI — and
+    on 2026-09-22 the live one was stale by exactly the seven rules added that day, meaning
+    every one of them would have read as "novel". CI cannot check the tenant's file, but it
+    CAN check that the command emits the full catalogue, which is the half that can rot in a
+    way a reviewer would not see.
+    """
+    import subprocess
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests" / "linter"))
+    from merge_render_linter import RULE_CATALOGUE
+
+    out = tmp_path / "rules.txt"
+    rc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tests" / "linter" / "merge_render_linter.py"),
+            "--list-rules",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert rc.returncode == 0, rc.stderr
+    written = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert sorted(written) == sorted(RULE_CATALOGUE), (
+        "the inventory and the catalogue disagree — `adjudication novel` would misjudge "
+        f"{sorted(set(RULE_CATALOGUE) ^ set(written))}"
+    )
+
+
+def test_the_qa_record_denominator_covers_the_sequence_wide_rules():
+    """`checks_run` is the denominator `rule_lifecycle_report` divides by, and it is built
+    from `RULE_CATALOGUE`. The 2026-09-22 thread rules are SPEC-scoped, which is exactly the
+    shape that went uncatalogued for months (EC1): they emit against the sequence rather than
+    a recipient, so no per-row artifact carries them and nothing else would notice."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests" / "linter"))
+    from merge_render_linter import RULE_CATALOGUE
+
+    for rule in ("thread-sentence-repeat", "thread-reply-prefix", "signal-column-undeclared"):
+        assert rule in RULE_CATALOGUE, f"{rule} emits but has no denominator"

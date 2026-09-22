@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import tomllib
 from datetime import date
 from pathlib import Path
 
@@ -26,11 +27,34 @@ from .paths import PathConfig, resolve_content_root, resolve_profiles_root
 
 _STAGING_DIRNAME = "knowledge-staging"
 
+#: Extensions a staged topic may carry. **Closed on purpose**: ``.md`` is the prose corpus and
+#: ``.toml`` the machine-readable targeting files (the ICP rubric, the hook bank, the persona
+#: vocabulary). A topic carrying any OTHER extension is REFUSED, never coerced — appending ``.md``
+#: to ``icp-scoring.toml`` is exactly the defect this allowlist closes, and it left those three
+#: files with no staged-review path at all. Widening this set means answering, for the new
+#: extension, what ``promote`` must verify before it may overwrite a live file.
+_ALLOWED_SUFFIXES = frozenset({".md", ".toml"})
+
+#: Prefix of the provenance comment a ``.toml`` promote stamps (see ``_stamp_toml_provenance``).
+_TOML_PROVENANCE_PREFIX = "# refreshed:"
+
 
 def _safe_topic_relpath(topic: str) -> Path:
     """A staged topic path, guarded against traversal (mirrors paths._safe_segment per segment).
-    ``topic`` may be a subdir path like ``guidance/01-nist`` but never absolute, ``..`` or NUL."""
-    rel = topic if topic.endswith(".md") else f"{topic}.md"
+    ``topic`` may be a subdir path like ``guidance/01-nist`` but never absolute, ``..`` or NUL.
+
+    A topic with no extension defaults to ``.md``; one carrying an allowed extension keeps it; any
+    other extension raises rather than being silently renamed (``_ALLOWED_SUFFIXES``)."""
+    suffix = Path(topic).suffix
+    if not suffix:
+        rel = f"{topic}.md"
+    elif suffix in _ALLOWED_SUFFIXES:
+        rel = topic
+    else:
+        raise ValueError(
+            f"unsupported topic extension {suffix!r} in {topic!r} "
+            f"(allowed: {', '.join(sorted(_ALLOWED_SUFFIXES))})"
+        )
     parts = Path(rel).parts
     for seg in parts:
         if seg in ("", ".", "..") or "\x00" in seg or seg.startswith("/"):
@@ -71,15 +95,20 @@ def stage(content_root: Path, profile: str, topic: str, candidate_text: str) -> 
 
 
 def list_staged(content_root: Path, profile: str) -> list[str]:
-    """Topic relpaths (extension stripped) currently staged for ``profile``, sorted."""
+    """Topic relpaths currently staged for ``profile``, sorted.
+
+    A ``.md`` topic comes back BARE (``company``) — the vocabulary every skill, ledger row and
+    ``knowledge_status`` row already uses. Any other allowed extension comes back WITH it, because
+    that is what ``_safe_topic_relpath`` needs to resolve the same file again."""
     root = staging_dir(content_root, profile)
     if not root.is_dir():
         return []
     out = []
-    for path in sorted(root.rglob("*.md")):
-        rel = path.relative_to(root).as_posix()
-        out.append(rel[:-3])
-    return out
+    for suffix in _ALLOWED_SUFFIXES:
+        for path in root.rglob(f"*{suffix}"):
+            rel = path.relative_to(root).as_posix()
+            out.append(rel[: -len(suffix)] if suffix == ".md" else rel)
+    return sorted(out)
 
 
 def diff(profiles_root: Path, content_root: Path, profile: str, topic: str) -> str:
@@ -100,6 +129,40 @@ def diff(profiles_root: Path, content_root: Path, profile: str, topic: str) -> s
     )
 
 
+def _require_parsable_toml(text: str, topic: str) -> None:
+    """The ``.toml`` promote gate: refuse a candidate that cannot safely replace a live file.
+
+    ``promote`` is the only writer of ``profiles/``, so a malformed rubric promoted over a working
+    one does not degrade gracefully — the next ``load_rubric`` raises and the prospecting pipeline
+    stops. An EMPTY parse is refused for the same reason: a zero-byte or comment-only file is
+    *valid* TOML, so a bare parse would wave through the one candidate that silently blanks the
+    targeting file it replaces."""
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"staged candidate for {topic!r} is not valid TOML: {exc}") from exc
+    if not parsed:
+        raise ValueError(
+            f"staged candidate for {topic!r} parses as empty TOML "
+            "(no keys) — refusing to blank the live file"
+        )
+
+
+def _stamp_toml_provenance(text: str, *, today: date, source: str | None) -> str:
+    """Prepend the ``.toml`` analogue of the ``refreshed:`` frontmatter re-stamp.
+
+    ``km.upsert_frontmatter`` writes YAML frontmatter, which is not valid TOML — so a ``.toml``
+    promote records the same two facts as a comment header instead. It is an UPSERT, like its
+    frontmatter counterpart: a header from an earlier promote is replaced, never accumulated."""
+    body = text.lstrip("\n")
+    while body.startswith(_TOML_PROVENANCE_PREFIX):
+        _, _, body = body.partition("\n")
+    header = f"{_TOML_PROVENANCE_PREFIX} {today.isoformat()}"
+    if source:
+        header += f"  source: {source}"
+    return f"{header}\n{body}"
+
+
 def promote(
     profiles_root: Path,
     content_root: Path,
@@ -113,23 +176,31 @@ def promote(
     """Promote a staged candidate into the live corpus — the operator gate.
 
     Copies the staged candidate over ``profiles/<p>/knowledge/<topic>``, then re-stamps its
-    frontmatter: ``refreshed`` → ``today`` always, ``source`` if provided, and a ``review`` cadence
-    defaulted by topic when the candidate declares none. Clears the staged file on success. Raises
-    if there is no staged candidate."""
+    provenance: ``refreshed`` → ``today`` always, ``source`` if provided, and (``.md`` only) a
+    ``review`` cadence defaulted by topic when the candidate declares none. A ``.toml`` candidate
+    must round-trip through ``tomllib`` BEFORE it may overwrite the live file, and carries its
+    provenance as a comment header instead of YAML frontmatter. Clears the staged file on success.
+    Raises if there is no staged candidate, or if a ``.toml`` candidate fails the parse gate — in
+    which case the live file is untouched and the candidate is left staged for repair."""
+    rel = _safe_topic_relpath(topic)
     staged = staged_path(content_root, profile, topic)
     if not staged.is_file():
         raise FileNotFoundError(f"no staged candidate for {profile}/{topic}")
     text = staged.read_text(encoding="utf-8")
 
-    existing, _ = km.parse_frontmatter(text)
-    updates: dict[str, str | None] = {"refreshed": today.isoformat()}
-    if source is not None:
-        updates["source"] = source
-    elif not existing.get("source"):
-        updates["source"] = "manual"
-    if not existing.get("review"):
-        updates["review"] = km.default_review(_safe_topic_relpath(topic).as_posix())
-    stamped = km.upsert_frontmatter(text, updates)
+    if rel.suffix == ".toml":
+        _require_parsable_toml(text, topic)
+        stamped = _stamp_toml_provenance(text, today=today, source=source)
+    else:
+        existing, _ = km.parse_frontmatter(text)
+        updates: dict[str, str | None] = {"refreshed": today.isoformat()}
+        if source is not None:
+            updates["source"] = source
+        elif not existing.get("source"):
+            updates["source"] = "manual"
+        if not existing.get("review"):
+            updates["review"] = km.default_review(rel.as_posix())
+        stamped = km.upsert_frontmatter(text, updates)
 
     target = live_path(profiles_root, profile, topic)
     target.parent.mkdir(parents=True, exist_ok=True)

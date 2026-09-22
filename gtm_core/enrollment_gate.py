@@ -16,14 +16,13 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from .prospect_paths import evals_dir
-from .prospects_state import (
-    ACCOUNT_ID_FIELD,
-    RETIRED_STATUSES,
-    _identity_keys,
-    latest_path,
-    load_latest,
+from .account_exclusion_keys import (
+    account_is_dropped,
+    ledger_account_keys,
+    row_account_keys,
 )
+from .prospect_paths import evals_dir
+from .prospects_state import RETIRED_STATUSES, latest_path, load_latest
 
 #: Accounts in latest.json that mean "already in conversation" (PS6)
 DEFAULT_ENGAGED_STATUSES = frozenset(
@@ -143,6 +142,8 @@ def _load_lanes_state(
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(rec, dict):
+                return None, f"REFUSED: lanes-state.jsonl line is not a JSON object: {line!r}"
             email = (rec.get("email") or "").strip().lower()
             if email:
                 state_by_email[email] = rec
@@ -302,8 +303,16 @@ def _extract_blocked_lookups(
     blocked_emails: dict[str, str] = {}
     for it in items:
         st = str(it.get("status") or "").strip().lower()
-        if st in BLOCKED_ACCOUNT_STATUSES or st.replace("_", "-") in BLOCKED_ACCOUNT_STATUSES:
-            for k in _identity_keys(it):
+        if st.replace("_", "-") not in BLOCKED_ACCOUNT_STATUSES and account_is_dropped(it):
+            # A dropped account is closed to sending on a second axis. A row that cannot be tied
+            # to it by an exact key carries a blank verdict, which the generic lane admits.
+            st = "verdict drop"
+        if (
+            st in BLOCKED_ACCOUNT_STATUSES
+            or st.replace("_", "-") in BLOCKED_ACCOUNT_STATUSES
+            or st == "verdict drop"
+        ):
+            for k in ledger_account_keys(it):
                 blocked_keys[k] = st
             for f in ("contact_email", "email"):
                 em = str(it.get(f) or "").strip().lower()
@@ -313,35 +322,44 @@ def _extract_blocked_lookups(
 
 
 def _row_identity_keys(r: dict) -> list[str]:
-    row_keys: list[str] = []
-    aid = str(r.get(ACCOUNT_ID_FIELD) or r.get("account_id") or "").strip().lower()
-    if aid:
-        row_keys.append(f"a:{aid}")
-    domain = str(r.get("company_domain") or r.get("domain") or "").strip().lower()
-    if domain:
-        row_keys.append(f"d:{domain}")
-    cid = str(r.get("id") or "").strip().lower()
-    if cid:
-        row_keys.append(f"i:{cid}")
-    company = " ".join(str(r.get("company") or "").split()).lower()
-    if company:
-        row_keys.append(f"c:{company}")
-    return row_keys
+    """Every key the row offers to the account-status join.
+
+    The SAME list ``prospects_consolidate`` excludes on
+    (:func:`gtm_core.account_exclusion_keys.row_account_keys`), so the gate and the send-list
+    build cannot disagree about which account a row belongs to. This used to be a second,
+    narrower hand-rolled list — exact domain / id / company / account_id only — and a company-name
+    VARIANT of a do-not-contact account (no domain and no ``account_id`` on the row, a legal
+    suffix on the ledger's name) drew no objection here. The row now also offers the domain of
+    the contact's own email and its legal-form-normalised company name; every comparison is
+    still exact, never a substring.
+    """
+    return row_account_keys(r)
 
 
 def check_account_status(
     rows: list[dict], profile: str, content_root: Path | None = None
 ) -> str | None:
-    """PS-R I2: Join rows to latest.json and refuse retired or engaged accounts."""
-    lp = latest_path(profile, content_root)
-    if not lp.is_file():
-        return None
-    try:
-        latest_doc = load_latest(profile, content_root)
-    except Exception:
-        return None
+    """PS-R I2: Join rows to latest.json and refuse retired or engaged accounts.
 
-    items = latest_doc.get("items", [])
+    Fail-CLOSED. "The ledger could not be read" is not "no account objects": a truncated or
+    wrong-shaped ``latest.json`` refuses the list, because the do-not-contact status this
+    gate exists to honour is exactly what it could not see. An ABSENT ledger is different and
+    is no objection — that is ``load_latest``'s own contract (absent = an empty ledger,
+    present-but-unreadable = an error), and a tenant with no ledger has no retired accounts.
+    """
+    try:
+        items = load_latest(profile, content_root).get("items", [])
+        malformed = sum(1 for it in items if not isinstance(it, dict))
+        if malformed:
+            raise ValueError(f"{malformed} ledger entr(ies) are not JSON objects")
+    except (OSError, ValueError) as exc:  # ValueError covers JSON + unicode decode errors
+        return (
+            f"REFUSED: account ledger unreadable ({latest_path(profile, content_root).name}: "
+            f"{type(exc).__name__}) — cannot confirm no account on this list is "
+            f"do-not-contact, disqualified, or already in conversation; repair or restore the "
+            f"ledger before enrolling"
+        )
+
     blocked_keys, blocked_emails = _extract_blocked_lookups(items)
 
     blocked_rows: list[tuple[str, str]] = []

@@ -1,7 +1,22 @@
 # packs/solution-architecture/graphs/solution-architecture.toml
 #
-# The third real pack graph (E-4 generality proof): discovery -> design -> runbook -> deck.
-# No external gate — this pack produces documents, it doesn't publish or send anything.
+# The third real pack graph (E-4 generality proof). Since 2026-09-22 it is a DAG rather than a
+# chain: `design` fans out to `scope-check` and `runbook`, which run concurrently in one frontier.
+#
+#                        ┌─ scope-check ── proposal
+#   discovery ── design ─┤
+#                        └─ runbook ────── deck
+#
+# The two added nodes are the SA chain's missing commercial half. `scope-check` sits AFTER the
+# design (its post-design mode — the richer one: it has a concrete solution to simplify and the
+# design's own residual assumptions to turn into questions), and `proposal` sits after it, because
+# a price quoted before the buyer has confirmed scope is a price for work nobody has agreed to.
+#
+# No external gate — this pack produces documents, it doesn't publish or send anything. Both new
+# skills derive `free` + `oss = "public"`, so the graph's effective min_entitlement is unchanged
+# at `free` and the pack stays stub-free in the OSS carve (verified with gtm_core.gating, not
+# assumed: a node above `free` reprices the whole graph and an `oss = "private"` one would make it
+# stub-bearing, which then needs a [carve].stub_bearing_graphs declaration AND the pinned roster).
 
 pack = "solution-architecture"
 variant = "solution-architecture"
@@ -32,3 +47,17 @@ depends_on = ["runbook"]
 model_role = "brain_plan"
 skill = "build-deck"
 prompt = "Run the build-deck skill to produce the solution architecture deck."
+
+[[nodes]]
+id = "scope-check"
+depends_on = ["design"]
+model_role = "brain_plan"
+skill = "solution-scope-check"
+prompt = "Run the solution-scope-check skill in post-design mode against the design just produced."
+
+[[nodes]]
+id = "proposal"
+depends_on = ["scope-check"]
+model_role = "brain_plan"
+skill = "commercial-proposal"
+prompt = "Run the commercial-proposal skill using the design and the confirmed scope."

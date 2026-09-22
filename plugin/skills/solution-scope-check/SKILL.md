@@ -64,7 +64,28 @@ generic (`references/question-types.md`).
      validate scope *before* committing effort to the design) — honour that.
    - **Neither** → ask for a design, a discovery brief, or a short plain-language direction first.
      Do **not** fabricate a solution or a discovery.
-3. **Consume the primary source** for the resolved mode (verbatim in meaning — do not invent):
+3. **Post-design only — lint the design before you simplify it.**
+
+   ```
+   uv run python -m gtm_core.design_lint content/<active>/accounts/<slug>/solution-design-*.md
+   ```
+
+   This worksheet is a faithful simplification of that design, so anything wrong in the design is
+   about to be restated to the buyer in a shorter, more quotable form. **An error blocks: fix the
+   design first** (or, if the operator says ship anyway, say in your reply which errors you are
+   carrying forward and why). Read the warnings — a coverage gap the design left open is usually a
+   scope-validation question this worksheet should be asking on page 2, which is what it is for.
+
+   **The judgement calls (`~` — SD6 to SD9) matter more here than anywhere else, and you do not
+   resolve them.** They are the claim checks, and §4a–§4b below are the same questions asked by
+   hand: an untagged capability, a design-target in the indicative, a claim against a stated
+   limit. A worksheet is shorter and more quotable than the design it simplifies, so an overclaim
+   that survives into it is *more* dangerous than it was. Carry each one to the operator as its own
+   line and let them answer — they know what shipped this week; these patterns know what shipped
+   when they were written. Never suppress one (there is no `lint-ok` for them) and never resolve
+   one by dropping the caveat that was making the sentence true (§4c).
+
+4. **Consume the primary source** for the resolved mode (verbatim in meaning — do not invent):
    - **Post-design** → the design's **Executive summary** (value / problem / solution / outcome /
      who-it's-for), the **V1 / V2 / not-building** cut, and the **assumptions box + open-questions
      appendix** (the raw material for page 2).
@@ -72,7 +93,7 @@ generic (`references/question-types.md`).
      — the "what we heard"), the **direction/approach** under consideration and **frameworks to cite**,
      and the **Requirements question bank** (its must-ask items — already tagged with the design decision
      each unlocks; the raw material for page 2).
-4. **Consume the account dossier (optional).** If a fresh `account-dossier-[company]-*` exists, pull the
+5. **Consume the account dossier (optional).** If a fresh `account-dossier-[company]-*` exists, pull the
    **buyer's name + role** for the recipient line. Never restate the whole dossier.
 
 **Confirm in one short message** (skip what the source already answers):

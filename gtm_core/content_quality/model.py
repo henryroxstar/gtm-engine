@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from ..video_lint import SAFE_AREAS
+try:
+    from ..video_lint import SAFE_AREAS
+except ModuleNotFoundError:
+    # Same reason as the guarded import in post.py: the video tier is withheld from the
+    # public cut, and this package's TEXT half must keep working there. The only use of
+    # SAFE_AREAS here is deriving _RATIO_SLUG_TO_COLON below, which the video path alone
+    # consults — and that path refuses outright when the tier is absent.
+    SAFE_AREAS = {}
 
 _BLOCK = "block"
 _WARN = "warn"

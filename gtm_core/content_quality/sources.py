@@ -108,7 +108,7 @@ def _parse_profile_md(text: str) -> dict[str, Any]:
     return out
 
 
-def load_profile_facts(profiles_root: Path, profile: str) -> dict[str, Any]:
+def load_profile_facts(profiles_root: Path, profile: str, overlay: str = "") -> dict[str, Any]:
     """Load tenant facts relevant to quality checks.
 
     Reads PROFILE.md, voice.md, social-tuning.md, audience-psychology.md,
@@ -138,8 +138,8 @@ def load_profile_facts(profiles_root: Path, profile: str) -> dict[str, Any]:
         "product.md",
         "voice-bans.txt",
     ):
-        path = profile_dir / "knowledge" / name
-        text = _load_text(path)
+        ov = (overlay or None) if name == "icp-personas.md" else None  # only overlayable name
+        text = _load_text(resolve_knowledge_file(profiles_root, profile, name, overlay=ov))
         if text is not None:
             facts[name.removesuffix(".md").removesuffix(".txt")] = text
 

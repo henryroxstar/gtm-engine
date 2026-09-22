@@ -26,6 +26,7 @@ from . import knowledge_staging
 from . import outcomes as oc
 from . import tweet_patterns as tp
 from .paths import resolve_content_root, resolve_profiles_root
+from .power import detectable_lift
 
 #: A tag needs at least this many sends before its rate is trustworthy enough to promote.
 DEFAULT_MIN_SENT = 5
@@ -41,10 +42,100 @@ def _rate(v):
     return "—" if v is None else f"{v * 100:.1f}%"
 
 
+#: Structural tag prefixes: they say WHERE a result was measured, not WHAT to change. Derived
+#: from the producers that actually write them (`grep -rhoE 'f?"[a-z_]+:' gtm_core/ agent/`),
+#: never invented here. A structural tag stays in the table and never becomes a remedy line —
+#: until 2026-09-21 a `cell:…` tag over threshold rendered as "strengthen this angle in
+#: hook-matrix.md", which is the wrong file, the wrong noun and the wrong remedy.
+_STRUCTURAL_PREFIXES: frozenset[str] = frozenset(
+    {"cell:", "seq:", "lane:", "overlay:", "format:", "platform:", "predictor_band:"}
+)
+
+#: The one prefix that IS a message-axis claim.
+_MESSAGE_PREFIX = "hook:"
+
+#: Remedy target per axis. `structural` and `unknown` map to NOTHING on purpose: naming a file
+#: for a result whose axis is unresolved is how the operator gets sent to edit the wrong one.
+_REMEDY = {
+    "message": ("hook-matrix.md` / `voice.md", "angle"),
+    "icp": ("icp-personas.md` / `icp-scoring.toml", "segment"),
+}
+
+
+def _classify_axis(
+    tag: str, *, hook_ids: frozenset[str] = frozenset(), icp_terms: frozenset[str] = frozenset()
+) -> str:
+    """Which axis does this tag name — ``message``, ``icp``, ``structural`` or ``unknown``?
+
+    Known prefix FIRST, then membership. The ledger's tag vocabulary is a mix that cannot be
+    re-tagged retroactively: learning-axis tags are bare strings (``["myth-bust", "regtech",
+    "ciso"]``) while structural tags carry a prefix their producers already write. So both
+    halves resolve against data already on disk, and a row written before this existed still
+    classifies.
+
+    Fails closed to ``unknown``. The permissive branch today is "assume it's an angle", and
+    that assumption is precisely what produces the wrong advice. A tag matching BOTH axes is
+    ``ambiguous`` and routed to neither — the same closed-vocabulary rule the content
+    distiller's ``_by_axis`` already applies, where a row with a present-but-invalid key
+    belongs to neither bucket.
+    """
+    lowered = (tag or "").strip().lower()
+    if not lowered:
+        return "unknown"
+    if lowered.startswith(_MESSAGE_PREFIX):
+        return "message"
+    if any(lowered.startswith(p) for p in _STRUCTURAL_PREFIXES):
+        return "structural"
+    is_message = lowered in hook_ids
+    is_icp = lowered in icp_terms
+    if is_message and is_icp:
+        return "ambiguous"
+    if is_message:
+        return "message"
+    if is_icp:
+        return "icp"
+    return "unknown"
+
+
+def _require_list_tags(row: dict) -> None:
+    """A row whose ``tags`` is present but not a list REFUSES the run.
+
+    Skipping it silently drops the row into the BASELINE (``_tag_value`` returns ``None``, so
+    it counts in the denominator and in no bucket), which shifts every comparison in the note
+    without saying so. A smaller answer that looks like a correct one is the failure this
+    repo names explicitly.
+    """
+    tags = row.get("tags")
+    if tags is not None and not isinstance(tags, list):
+        raise ValueError(
+            f"outcomes row has a non-list `tags` ({type(tags).__name__}); refusing the distill "
+            f"run rather than silently folding the row into the baseline"
+        )
+
+
 def promote_candidates(
-    summary: dict, *, min_sent: int = DEFAULT_MIN_SENT, lift: float = DEFAULT_LIFT
+    summary: dict,
+    *,
+    min_sent: int = DEFAULT_MIN_SENT,
+    lift: float = DEFAULT_LIFT,
+    hook_ids: frozenset[str] = frozenset(),
+    icp_terms: frozenset[str] = frozenset(),
 ) -> list[dict]:
-    """Tags that clearly out- or under-perform the baseline reply rate with enough observations."""
+    """Tags that out- or under-perform the baseline reply rate — each carrying its own power.
+
+    ``DEFAULT_MIN_SENT`` stays at 5 on purpose. The same repo's own power calculation says a
+    1.3x lift needs ~3,070 observations per arm to be detectable, so this threshold sits far
+    below the detectable effect and will promote noise the moment data arrives. Raising it to
+    a statistically defensible floor is the "correct" fix and the wrong one: at current volume
+    it empties the note entirely, and an empty note reads as *"no signal"* rather than *"no
+    data"*. Those are different states and the operator must be able to tell them apart.
+
+    So the fix is to keep the candidate visible and stop calling it a conclusion. Every
+    candidate carries ``mde`` (from :func:`gtm_core.power.detectable_lift` at its own n) and
+    ``powered``; anything not powered is ``watch``, never a promotion. ``powered`` is granted
+    only by an explicit MDE comparison — a ``None`` MDE yields ``watch``, so absence never
+    grants.
+    """
     baseline = summary["totals"].get("reply_rate")
     if not baseline:
         return []
@@ -54,11 +145,67 @@ def promote_candidates(
         if rate is None or b["sent"] < min_sent:
             continue
         if rate >= baseline * lift:
-            out.append({"tag": tag, "direction": "outperforms", "rate": rate, "sent": b["sent"]})
+            direction = "outperforms"
         elif rate <= baseline / lift:
-            out.append({"tag": tag, "direction": "underperforms", "rate": rate, "sent": b["sent"]})
+            direction = "underperforms"
+        else:
+            continue
+
+        mde = detectable_lift(b["sent"], baseline)
+        # The effect size is a RATIO in whichever direction it points: an underperformer's
+        # rate/baseline is < 1, so comparing that raw against the MDE would make every
+        # underperformer permanently unpowered no matter how much data arrived. Compare the
+        # magnitude of the gap instead, so both directions are held to the same bar.
+        observed = (rate / baseline) if rate >= baseline else (baseline / rate if rate else None)
+        powered = bool(mde is not None and observed is not None and observed >= mde)
+        out.append(
+            {
+                "tag": tag,
+                "direction": direction if powered else "watch",
+                "rate": rate,
+                "sent": b["sent"],
+                "mde": mde,
+                "powered": powered,
+                "axis": _classify_axis(tag, hook_ids=hook_ids, icp_terms=icp_terms),
+            }
+        )
     out.sort(key=lambda c: (c["direction"], -c["rate"]))
     return out
+
+
+def _remedy_line(c: dict) -> str:
+    """One candidate as a line — routed to the file its AXIS names, or to no file at all.
+
+    A `structural` tag says where a result was measured, not what to change; an `unknown` or
+    `ambiguous` one cannot be resolved to a file at all. Both are reported WITHOUT a remedy,
+    because naming a file for an unresolved axis is how an operator gets sent to edit the
+    wrong one — the exact defect this replaced, in the other direction.
+    """
+    mde = c.get("mde")
+    power = (
+        f" only a {mde:g}x difference is detectable at this n"
+        if mde is not None
+        else " no difference is detectable at this n"
+    )
+    head = (
+        f"- `{c['tag']}` **{c['direction']}** — reply rate {_rate(c['rate'])} "
+        f"(n={c['sent']:g};{power})."
+    )
+
+    target = _REMEDY.get(c.get("axis", "unknown"))
+    if target is None:
+        axis = c.get("axis", "unknown")
+        if axis == "structural":
+            return f"{head} Measured here, not caused here — no knowledge file to change."
+        return (
+            f"{head} Its axis is unresolvable ({axis}), so no file is proposed — "
+            f"name the tag's axis before acting on it."
+        )
+    topic, noun = target
+    verb = "Strengthen" if c["direction"] == "outperforms" else "Reconsider / soften"
+    if c["direction"] == "watch":
+        verb = "Watch"
+    return f"{head} {verb} this {noun} in `{topic}`."
 
 
 def render_learnings(profile: str, period: str, summary: dict, candidates: list[dict]) -> str:
@@ -99,26 +246,108 @@ def render_learnings(profile: str, period: str, summary: dict, candidates: list[
     for tag, b in ranked:
         lines.append(f"| `{tag}` | {b['sent']:g} | {b['replies']:g} | {_rate(b['reply_rate'])} |")
 
+    # A candidate whose axis names no file never becomes a remedy line. It is already in the
+    # "By tag" table above — reported, measured, and deliberately not routed, because naming a
+    # file for an unresolved axis is how an operator is sent to edit the wrong one.
+    routable = [c for c in candidates if c.get("axis") in _REMEDY]
+    unrouted = [c for c in candidates if c.get("axis") not in _REMEDY]
+    promote = [c for c in routable if c["direction"] != "watch"]
+    watch = [c for c in routable if c["direction"] == "watch"]
+
     lines += ["", "## Promote?", ""]
-    if candidates:
+    if promote:
         lines.append(
             "Clear signals worth folding into the knowledge corpus (apply by hand to the named "
             "topic, then re-stamp its `refreshed:`):"
         )
         lines.append("")
-        for c in candidates:
-            topic = (
-                "hook-matrix.md" if c["direction"] == "outperforms" else "hook-matrix.md / voice.md"
-            )
-            verb = "strengthen" if c["direction"] == "outperforms" else "reconsider / soften"
-            lines.append(
-                f"- `{c['tag']}` **{c['direction']}** — reply rate {_rate(c['rate'])} "
-                f"(n={c['sent']:g}). {verb.capitalize()} this angle in `{topic}`."
-            )
+        lines.extend(_remedy_line(c) for c in promote)
     else:
         lines.append("_No signal yet clears the promote threshold (need more observations)._")
+
+    if watch:
+        lines += [
+            "",
+            "## Watch",
+            "",
+            "Not promotions — these do not have the observations to support a conclusion yet. "
+            "The number is shown so the absence of data is visible, rather than the note "
+            "reading as though there were no signal:",
+            "",
+        ]
+        lines.extend(_remedy_line(c) for c in watch)
+
+    if unrouted:
+        named = ", ".join(f"`{c['tag']}` ({c.get('axis', 'unknown')})" for c in unrouted)
+        lines += [
+            "",
+            f"_{len(unrouted)} tag(s) cleared the threshold but name no knowledge file: "
+            f"{named}. A structural tag says WHERE a result was measured, not what to change; "
+            f"an unresolved one needs its axis named before it can be acted on. Reported here "
+            f"rather than routed._",
+        ]
+
     lines.append("")
     return "\n".join(lines)
+
+
+def _membership(profile: str, profiles_root: Path | None, content_root: Path | None):
+    """``(hook_ids, icp_terms)`` for bare-tag classification, read from files already on disk.
+
+    This is what makes membership resolution work on rows written before any of this existed:
+    a bare ``"ciso"`` in a 2026-07 outcomes row still classifies today, because the answer
+    comes from the tenant's current vocabulary rather than from a prefix the row never carried.
+    A new prefix scheme would have been cleaner and would have stranded every historical row,
+    which is the opposite of what a data-starved loop needs.
+
+    Every lookup is best-effort: a profile with no hook bank or no rubric still distills, it
+    just resolves fewer tags — and an unresolved tag fails closed to ``unknown`` and is
+    reported without a remedy, never guessed at.
+    """
+    from .paths import resolve_profiles_root
+
+    profiles_root = profiles_root or resolve_profiles_root()
+    hook_ids: set[str] = set()
+    icp_terms: set[str] = set()
+
+    # No try/except here on purpose. `hooks.load_hooks` checks `is_file()` before every read
+    # and answers an ABSENT bank with an empty HookBank, so there is no FileNotFoundError path
+    # to catch — a handler for one would be a control that can never fire (§R18). A MALFORMED
+    # bank still raises from the parser, and that is left to propagate: the file exists, so
+    # someone meant it to be read, and resolving zero hooks from it would silently reclassify
+    # every hook tag as `unknown`.
+    bank = hk.load_hooks(profiles_root, profile, content_root=content_root)
+    hook_ids = {h.id.strip().lower() for h in bank.hooks if h.id}
+
+    # A MISSING role-vocabulary.toml is fine — `rv.load` answers with the shipped default.
+    # A PRESENT BUT MALFORMED one raises VocabularyError, and that is deliberately NOT caught:
+    # the file exists, so someone meant it to be read, and quietly falling back to the default
+    # would classify tags against a vocabulary the tenant did not write.
+    from . import role_vocabulary as rv
+
+    vocab = rv.load(profile, profiles_root)
+    icp_terms |= {p.strip().lower() for p in vocab.personas}
+    icp_terms |= {s.strip().lower() for s in vocab.seats}
+    icp_terms |= {s.strip().lower() for s in vocab.segments}
+
+    # No rubric is a real state for a profile that does not prospect, not an error here — but
+    # a malformed one raises from tomllib and is left to propagate, same reasoning as the
+    # vocabulary above.
+    from . import prospects_backlog as pb
+
+    try:
+        rubric = pb.load_rubric(profile, profiles_root)
+    except FileNotFoundError:
+        rubric = None
+    if rubric is not None:
+        icp_terms |= {
+            str(c.get("name", "")).strip().lower()
+            for c in rubric.get("cohort", [])
+            if c.get("name")
+        }
+        icp_terms |= {str(k).strip().lower() for k in (rubric.get("segment") or {})}
+
+    return frozenset(hook_ids), frozenset(icp_terms - {""})
 
 
 def distill(
@@ -138,8 +367,11 @@ def distill(
     today = today or date.today()
     period = period or _period_label(today)
     rows = oc.read_outcomes(content_root, profile)
+    for row in rows:
+        _require_list_tags(row)
     summary = oc.summarize(rows)
-    candidates = promote_candidates(summary)
+    hook_ids, icp_terms = _membership(profile, profiles_root, content_root)
+    candidates = promote_candidates(summary, hook_ids=hook_ids, icp_terms=icp_terms)
     note = render_learnings(profile, period, summary, candidates)
 
     target = content_root / profile / "learnings" / f"{period}.md"

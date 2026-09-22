@@ -16,6 +16,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-22
+
+### Added
+- A sales and solutions-engineering skill pack: `battlecard`, `call-prep`, `demo-narrative`,
+  `poc-plan`, `value-case`, `deal-slip-scenario`, `team-pipeline`, `crm-hygiene-check`,
+  `security-review`, `solution-discovery`, `solution-scope-check`, `consulting-partner-brief`,
+  and `product-partner-brief` — covering the deal-support motion from technical discovery
+  through a scoped proof-of-concept to an executive business case and partner enablement.
+- SEO research skills (`seo-keyword-research`, `seo-keyword-clustering`,
+  `seo-competitor-analysis`, `seo-audit`) that route through a dedicated `openseo` MCP tool for
+  keyword discovery, intent clustering, competitor gap analysis, and site audits.
+- A `diagram-design` skill for publication-grade architecture SVGs, flowcharts, quadrant
+  matrices, and scorecards, rendered natively from a Mermaid, Excalidraw, or plain-text spec.
+- `metrics-review` and `synthesize-research` skills that turn product analytics and qualitative
+  customer feedback into executive-ready reports.
+- An `airq-scan` skill that runs an AI-agent-security assessment of a target company's product
+  and produces ready-to-post infographics and give-first outreach copy.
+- An ICP (ideal-customer-profile) `check`/`propose` command pair: `icp check` critiques a
+  resolved ICP for unqueryable criteria and rubric quality before a prospecting run spends
+  anything on it, and `icp propose` suggests add/amend/retire changes without writing to the
+  profile.
+- A run-scoped experiment layer lets one prospecting run try a different ICP variant without
+  touching the live profile, with deterministic, segment-stratified assignment so a comparison
+  isn't skewed by which audience happened to land in which arm.
+- Knowledge staging now accepts `.toml` inputs alongside Markdown.
+- Detected opt-outs can be mirrored onto the email provider's own Do Not Contact list — an
+  add-only action gated the same way as any send.
+- The public `docker-compose.yml` now carries the DNC-list kill switches
+  (`GTM_DNC_ADD_ENABLED`, `GTM_CAPABILITY_AUTOSET_ENABLED`), matching every other switch it
+  already exposed.
+
+### Changed
+- `identity-kit` (brand/avatar/voice identity setup) is now a hosted-product skill. It only
+  configures handles the video-render lane reads, and that lane has been hosted-product for a
+  while — this closes the gap rather than changing what a self-hoster can already do.
+
+### Fixed
+- **`python -m gtm_core.radar` (content-radar's own CLI) was broken in v0.17.1** — a
+  module-level import of a helper that only ever shipped in the private tree raised
+  `ModuleNotFoundError` on any invocation. Moved that helper to where it's actually used;
+  content-radar now runs standalone again.
+- **`python -m gtm_core.content_quality` (content-plan / content-publish / content-studio's
+  quality gates) had the same failure mode** — fixed the same way, and the CLI now degrades
+  cleanly (refuses the video-specific check rather than skipping it silently) wherever the
+  video tier isn't installed.
+- Closed an XXE (XML external entity) exposure in the Draw.io diagram importer.
+- Prospect-list consolidation, retention gating, and account-integrity checks in the `prospect`
+  skill.
+- RocketReach lookups are more resilient to transient provider errors, and prospect-list imports
+  now sit behind the same spend gate as other paid calls.
+- Extended multi-agent tool-name translation (Cursor / Antigravity / Codex) to cover the
+  prospecting export guard.
+- Corrected the email-campaign-dashboard `--help` output after a flag rename.
+
+## [0.18.0] - 2026-09-21
+
+### Added
+- A run-scoped ICP/messaging experiment layer: try a different ICP or hook-matrix variant for
+  one prospecting run without touching the live profile or forking content. Assignment is
+  deterministic and stratified by segment and seat, so a variant comparison isn't skewed by
+  which audience happened to land in which arm. Role/seat vocabulary (personas, seat labels)
+  moves from a hardcoded list into per-tenant knowledge data, so a new seat type no longer
+  needs a code change.
+- Email campaign dashboard: a new segments view, plus worklist/roster refinements.
+- A `reconcile-dnc` CLI verb checks logged opt-out rows against a provider's own do-not-contact
+  list read-back, closing a gap where an opt-out could sit unenforced on the provider side with
+  nothing to catch it.
+
+### Fixed
+- Corrected the Saleshandy unified-inbox endpoint (it had been guessed and 404'd on first live
+  contact) to match the documented API, with the field-name changes that come with it.
+- Opt-out ingestion now refuses a count of opt-outs with no names, a named opt-out not yet
+  suppressed anywhere the send path reads, or a partial name list, instead of silently
+  under-suppressing.
+- Reconciled counted vs. identifiable opt-outs across the run history and the suppression
+  ledger — an opt-out sent as a reply was previously invisible to both.
+- A blank (no-overlay) default was rejected as an unsafe path segment, crashing every
+  content-quality pre/post check. Fixed at the one call site that threads it through.
+- Onboarding now resolves product-level knowledge files correctly, removing a class of
+  duplicated per-product knowledge files.
+
 ## [0.17.1] - 2026-09-21
 
 ### Changed

@@ -258,10 +258,20 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
     has_email, is_named = _co("email"), _co("first")
     has_signal, has_source = _co("why_now"), _co("signal_source_url")
 
-    def _count(field: str) -> list[tuple[str, int]]:
+    def _count(field: str, norm=None) -> list[tuple[str, int]]:
+        """Distinct companies per value of ``field``, newest-first by size.
+
+        ``norm`` folds the raw column onto the value the reader should see. Only
+        ``segment`` needs it so far, and it needs it badly: ``GTM_Segment`` is spelled
+        ``Builder`` in two of this profile's exports and ``builder`` in the other two, so
+        the raw column reports one customer type as two — the same reason ``filters.FACETS``
+        keys its dropdown on ``segment_key`` rather than the raw value.
+        """
         out: dict[str, set[str]] = {}
         for r in rows:
-            out.setdefault(column_value(r, field) or "—", set()).add(column_value(r, "company"))
+            value = column_value(r, field)
+            key = (norm(value) if norm else value) or "—"
+            out.setdefault(key, set()).add(column_value(r, "company"))
         return sorted(((k, len(v)) for k, v in out.items()), key=lambda kv: -kv[1])
 
     out = {
@@ -276,6 +286,11 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
         "signal_sourced": _n("signal_source_url"),
         "tiers": _count("tier"),
         "verdicts": _count("verdict"),
+        # Customer type, folded on the same normaliser the filter's dropdown uses. The page
+        # could already SELECT one segment; it could not say how big each was without
+        # selecting each in turn and remembering the number, which is the comparison an
+        # operator asking "what are the enterprise accounts" is actually making.
+        "segments": _count("segment", clean_segment),
         "companies": sorted({column_value(r, "company") for r in rows}),
         "judge_source": next(iter(judged.values()), {}).get("source", ""),
         "judge_tally": judge_tally,

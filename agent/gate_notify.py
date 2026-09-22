@@ -244,6 +244,84 @@ async def push_optout_alert(
         )
 
 
+async def push_dnc_divergence(
+    cfg: Config,
+    profiles_root: Path,
+    profile: str,
+    findings: list[str],
+    *,
+    provider_only: int = 0,
+) -> None:
+    """Alert the operator that the DNC mirror and the provider's list disagree.
+
+    ONE message for the whole reconcile, never one per finding. A 400-row list can produce
+    hundreds of divergences, and a cockpit that pings hundreds of times is a cockpit the
+    operator mutes — which is how the alert that mattered gets missed. The message carries
+    the counts, the first few addresses, and the command to see the rest.
+
+    Fire-and-forget, same posture as :func:`push_optout_alert`: it notifies, it never acts.
+    Nothing here writes to the provider or to ``suppression.csv``.
+    """
+    from agent.profiles import load_gate1_chat_id
+
+    if not findings:
+        return
+    token = cfg.telegram_bot_token
+    if not token:
+        logger.debug("push_dnc_divergence: TELEGRAM_BOT_TOKEN not set — skipping")
+        return
+
+    chat_id = load_gate1_chat_id(profiles_root, profile)
+    if chat_id is None:
+        logger.warning(
+            "push_dnc_divergence: telegram_gate1_chat_id not set for profile=%s — "
+            "%d DNC divergence(s) unreported. Add the field to profiles/%s/PROFILE.md.",
+            profile,
+            len(findings),
+            profile,
+        )
+        return
+
+    # Every field is provider- or ledger-derived (§R5): escaped, quoted, never interpreted.
+    shown = findings[:5]
+    more = len(findings) - len(shown)
+    lines = [
+        f"<b>[{html.escape(profile)}] DNC mirror divergence</b>",
+        f"{len(findings)} ledger row(s) claim provider-side suppression that the provider's "
+        "DNC list does not carry. A sequence outside this repo can still reach them.",
+        "",
+    ]
+    lines += [f"• {html.escape(f)}" for f in shown]
+    if more:
+        lines.append(f"…and {more} more.")
+    if provider_only:
+        lines.append(
+            f"\n({provider_only} entr(y/ies) are on the provider and not in the ledger — "
+            "expected: the provider list legitimately holds hand-added exclusions that were "
+            "never opt-outs. Not a finding, and never written to suppression.csv.)"
+        )
+    lines.append(
+        f"\nFull list: <code>python -m gtm_core.suppression reconcile-dnc "
+        f"--profile {html.escape(profile)}</code>"
+    )
+    text = "\n".join(lines)
+
+    import httpx  # lazy — keeps module + unit tests import-light (mirrors agent/publish.py)
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+            r = await client.post(
+                _TELEGRAM_API.format(token=token),
+                data={"chat_id": str(chat_id), "text": text, "parse_mode": "HTML"},
+            )
+        if r.status_code != 200:
+            logger.warning(
+                "push_dnc_divergence: Telegram returned %s for profile=%s", r.status_code, profile
+            )
+    except Exception:
+        logger.warning("push_dnc_divergence: HTTP error for profile=%s", profile, exc_info=True)
+
+
 async def push_signal_alert(
     cfg: Config,
     profiles_root: Path,

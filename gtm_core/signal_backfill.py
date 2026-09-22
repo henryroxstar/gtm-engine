@@ -286,8 +286,9 @@ def promote_records(
     and one lost batch on 2026-08-29 -- the recipe was correct and nobody ran it.
 
     Each item is a FULL COPY of the account's existing record with only the record's own
-    fields replaced. ``upsert_latest`` treats an item as a wholesale replacement apart from
-    its sticky fields, so a partial item silently drops score, tier and contact data.
+    fields replaced. ``upsert_latest`` merges field by field — a blank incoming value never
+    overwrites a populated one — so a partial item would be safe too; the full copy is kept
+    because it makes the promoted item readable on its own.
 
     A record whose row has no ``account_id`` cannot be promoted and is RETURNED, never
     dropped: the caller has to see that it has nowhere durable to go.

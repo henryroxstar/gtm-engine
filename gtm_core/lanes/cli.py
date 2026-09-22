@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 
 from ..adjudication import read_records
-from ..prospects_consolidate.paths import _sequences_dir
+from ..prospects_consolidate.paths import _sequences_dir, ready_to_load_path
 from . import decisions as dec
 from .context import POLICY_FILE, load_context
 from .model import PROTECTIVE_HOLD_TRIGGERS
@@ -41,8 +41,51 @@ def _read_csv(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def _pool_emails(profile: str) -> set[str] | None:
+    """Every address in the profile's pooled list, or ``None`` when there is no list to ask.
+
+    An EMPTY list is an answer — ``set()``: everyone has left it, so nobody is carried forward.
+    ``None`` is only for a list that cannot answer: missing, not text, or with no ``email``
+    column at all (a zero-byte file included). Folding the two together (``… or None``) kept
+    every removed person counting as a contact, forever.
+    """
+    path = ready_to_load_path(profile)
+    if not path.is_file():
+        return None
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            if "email" not in (reader.fieldnames or []):
+                return None
+            return {(r.get("email") or "").strip().lower() for r in reader} - {""}
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
+
+
+def _refuse(message: str) -> int:
+    print(f"REFUSED: {message}", file=sys.stderr)
+    return 2
+
+
 def _cli_route(args) -> int:
     as_of = args.as_of or datetime.date.today()
+    missing = [str(p) for p in args.records if not p.is_file()]
+    if missing:
+        return _refuse(f"judge records file not found: {', '.join(missing)}")
+    if not args.csv.is_file():
+        return _refuse(f"list not found: {args.csv}")
+    # The state file is read, routed against, and REPLACED: two routes interleaving would
+    # each carry forward from a read the other has since overwritten. Held from the read to
+    # the restamp — see `decisions.state_lock` for why this is not the run-level profile lock.
+    with dec.state_lock(args.profile):
+        return _route_locked(args, as_of)
+
+
+def _route_locked(args, as_of: datetime.date) -> int:
+    try:
+        previous = dec.read_state(dec.state_path(args.profile))
+    except dec.StateError as exc:
+        return _refuse(f"{exc} — repair or remove that line, then route again")
     stale = [
         f"{p.name} ({(as_of - record_date(p)).days}d old)"
         for p in args.records
@@ -60,7 +103,11 @@ def _cli_route(args) -> int:
     records = [r for p in args.records for r in read_records(p)]
     ctx = load_context(args.profile, as_of=as_of)
     prior = dec.read_decisions(dec.decisions_path(args.profile))
-    previous = dec.read_state(dec.state_path(args.profile))
+    if not args.records:
+        print(
+            "no judge records given — every row is routed as unjudged (none can reach the "
+            "personalised email until the judge has scored this list)"
+        )
     result = route(
         rows,
         records,
@@ -83,8 +130,15 @@ def _cli_route(args) -> int:
         for r in result.routed
         if r.decided
     ]
-    sheet = write_sheet(hold, hold.with_suffix(".html"), stamp=stamp, auto=auto)
-    dec.write_state(result, dec.state_path(args.profile), stamp)
+    sheet = write_sheet(hold, dec.sheet_path(args.profile, stamp), stamp=stamp, auto=auto)
+    carried = (
+        []
+        if args.replace_all
+        else dec.carry_forward(
+            previous, {r.email for r in result.routed}, _pool_emails(args.profile)
+        )
+    )
+    dec.write_state(result, dec.state_path(args.profile), stamp, carried=carried)
     # Re-stamp `ready-to-load.csv` right now (PS2) rather than waiting for the next
     # `consolidate` sweep to notice the new state file — a deferred import, matching
     # `consolidate._stamp_lanes`'s own deferred import of `lanes.decisions`, since the two
@@ -93,6 +147,8 @@ def _cli_route(args) -> int:
 
     restamp_ready_to_load(args.profile)
     print()
+    if not args.replace_all:
+        print(f"carried forward {len(carried)} record(s) not in this CSV")
     for lane, path in paths.items():
         print(f"  {lane:<12} {path}")
     print(f"  hold queue   {hold}")
@@ -157,7 +213,18 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("route", help="route every pooled row to exactly one lane")
     rp.add_argument("--profile", required=True)
     rp.add_argument("--csv", required=True, type=Path, help="the pooled list (ready-to-load.csv)")
-    rp.add_argument("--records", required=True, type=Path, nargs="+", help="judge JSONL file(s)")
+    rp.add_argument(
+        "--records",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="judge JSONL file(s); omit on a first run to route every row as unjudged",
+    )
+    rp.add_argument(
+        "--replace-all",
+        action="store_true",
+        help="drop the state of every row NOT in --csv (default: carry those records forward)",
+    )
     rp.add_argument("--as-of", type=datetime.date.fromisoformat, default=None)
     rp.add_argument("--stamp", default="", help="date stamp for output names (default: as-of)")
     rp.add_argument(

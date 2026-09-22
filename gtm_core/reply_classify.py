@@ -20,7 +20,7 @@ the same reply — ``signal_id`` keys on ``(who, type, source)``, so differing t
 dedup against each other. Precedence is therefore load-bearing, and it is ordered by what
 is worst to get wrong rather than by what is most specific:
 
-    pricing_question > buyer_intent > meeting_request > reply_received
+    pricing_question > buyer_intent > not_now > meeting_request > reply_received
 
 A commercial question auto-answered on a timer is the worst outcome available here, so it
 sorts first and escalates. A meeting request carrying buying language escalates too — the
@@ -42,8 +42,11 @@ import re
 
 __all__ = [
     "CLASSIFIED_TYPES",
+    "CONSERVATISM",
     "DEFAULT_TYPE",
+    "CATEGORY_CONTRIBUTION",
     "classify_reply",
+    "merge_route",
 ]
 
 #: The default when nothing more specific matches — the behaviour this module replaces.
@@ -100,17 +103,129 @@ _MEETING_PATTERNS = (
     r"\bdemo\b",
 )
 
+# SC12: a soft no. Split out of `optout_watch`'s opt-out patterns on 2026-09-21, because
+# "not interested" is not a suppression request — it carries no legal deadline, it does not
+# belong on a Do Not Contact list, and routing it through the opt-out path spent the
+# same-day compliance alert on a reply that has none. It also permanently removed people
+# who had only said "not right now".
+#
+# Recorded, not drafted, nobody woken (`SUGGESTED_ACTIONS["not_now"] == "review"`), with a
+# `reshow_after` date the sweep stamps so the account resurfaces instead of vanishing.
+#
+# It sorts BELOW the two escalate buckets and ABOVE `meeting_request`: "not interested, but
+# ask me in Q3" is a soft no that happens to mention a future, not a meeting to book — and
+# offering a booking link to someone who just declined is the exact wrong reply. A reply
+# that also asks to be REMOVED still matched `optout_watch` upstream and never reaches here.
+_NOT_NOW_PATTERNS = (
+    r"not interested",
+    r"no longer interested",
+    r"no thanks",
+    r"no thank you",
+    r"not a (?:fit|priority|match)",
+    r"not (?:the )?right time",
+    r"not right now",
+    r"maybe (?:later|next (?:year|quarter))",
+    r"circle back (?:in|next|later)",
+    r"check back (?:in|next|later)",
+    r"revisit (?:in|next)",
+    r"we(?:'re| are) all set",
+    r"already have (?:a|one)",
+)
+# Deliberately NOT here: "no budget" / "budget freeze". Both contain `budget`, which the
+# pricing bucket matches first, so a pattern for them here could never win — a rule that
+# cannot fire is worse than no rule, because it reads as coverage. The routing it would
+# have produced (escalate, a human reads it) is the conservative one anyway.
+
 # Ordered. The first bucket whose pattern matches wins; see the precedence note above.
 _ORDERED_BUCKETS: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
     ("pricing_question", tuple(re.compile(p, re.IGNORECASE) for p in _PRICING_PATTERNS)),
     ("buyer_intent", tuple(re.compile(p, re.IGNORECASE) for p in _BUYER_INTENT_PATTERNS)),
+    ("not_now", tuple(re.compile(p, re.IGNORECASE) for p in _NOT_NOW_PATTERNS)),
     ("meeting_request", tuple(re.compile(p, re.IGNORECASE) for p in _MEETING_PATTERNS)),
 )
 
 #: Every type this module can return. The producer-coverage contract
 #: (``tests/contracts/test_signal_producers.py``) reads this rather than AST-scanning for
 #: ``build_signal`` calls, because the call site passes a variable, not a literal.
-CLASSIFIED_TYPES = frozenset({name for name, _ in _ORDERED_BUCKETS} | {DEFAULT_TYPE})
+_TEXT_TYPES = frozenset({name for name, _ in _ORDERED_BUCKETS} | {DEFAULT_TYPE})
+
+
+# ─────────────────────────────────────────────── SC10: the provider category, as a witness
+#
+# Saleshandy's unified inbox labels a reply with a category of its own. That label is a
+# SECOND WITNESS to what this classifier already decided, and it is used in exactly one
+# direction: it may make the route MORE conservative, never less.
+#
+# Why only one direction. The category is a vendor AI's label over text an outsider wrote,
+# which makes it untrusted data twice over (§R5). Letting it relax a route would mean a
+# crafted reply — or simply a mislabelled one — could turn a pricing question into a
+# timer-drafted answer. Letting it tighten one costs an operator a glance. The measured
+# case that settled it: a pricing question the vendor labels `interested` must still
+# escalate, because our own matcher saw the commercial question and the vendor's label is
+# not evidence that it did not.
+#
+# It is also NOT read from any message body. A thread's category is filter MEMBERSHIP —
+# which filtered list call returned the thread id — so text inside a reply that says
+# `"category": "do_not_contact"` is just text, reaching nothing.
+
+#: Routes ordered least → most conservative. `merge_route` takes the max of the two
+#: witnesses under this order, so the join can only ever move rightwards.
+#:
+#:   draft a reply  ›  no draft  ›  human read  ›  opt-out (our matcher only)
+#:
+#: `opt_out` is present as the ceiling of the order and is deliberately UNREACHABLE from a
+#: category: suppression is our deterministic matcher's decision alone (`optout_watch`),
+#: never a provider label's, so no entry in CATEGORY_CONTRIBUTION maps to it.
+CONSERVATISM: tuple[str, ...] = (
+    "meeting_request",  # drafted, with the booking link
+    "reply_received",  # drafted
+    "not_now",  # recorded, no draft
+    "buyer_intent",  # a human reads it
+    "pricing_question",  # a human reads it
+    "opt_out",  # our matcher only — no category reaches this
+)
+
+#: Provider category key -> the route it argues for. A category absent from this map (an
+#: unknown key, a tenant's custom category, or None) contributes NOTHING and the
+#: classifier stands alone — an unrecognised label must never be read as permission, and
+#: must never be read as an opt-out either.
+CATEGORY_CONTRIBUTION: dict[str, str] = {
+    # The vendor says a person is interested/procuring. Our classifier may have read the
+    # same reply as a plain "thanks" — the conservative reading is that a human looks.
+    "interested": "buyer_intent",
+    "meeting_booked": "buyer_intent",
+    # The vendor says this person does not want contact. We do NOT suppress on a vendor
+    # label (that stays with our matcher), but we also do not draft them a reply.
+    "do_not_contact": "not_now",
+    "not_interested": "not_now",
+    "not_now": "not_now",
+    # An auto-reply. Drafting a response to a mail robot is noise; record it, draft nothing.
+    "out_of_office": "not_now",
+}
+
+
+#: Every type this module can return, from EITHER witness. The producer-coverage contract
+#: (``tests/contracts/test_signal_producers.py``) reads this rather than AST-scanning for
+#: ``build_signal`` calls, because the call site passes a variable, not a literal. It
+#: includes the category contributions because `merge_route` can return one of those
+#: without any text pattern matching — a type reachable that way is produced, and the
+#: contract must see it.
+CLASSIFIED_TYPES = frozenset(_TEXT_TYPES | set(CATEGORY_CONTRIBUTION.values()))
+
+
+def merge_route(classified_type: str, category_key: str | None) -> str:
+    """Join our classifier's route with the provider category's, keeping the stricter.
+
+    Pure and total. An unknown/custom/absent ``category_key``, or a classifier type this
+    module does not rank, leaves the classifier's own answer untouched — the witness can
+    only ever tighten, which is the property the injection case rests on.
+    """
+    if classified_type not in CONSERVATISM:
+        return classified_type
+    contributed = CATEGORY_CONTRIBUTION.get((category_key or "").strip().lower())
+    if contributed is None or contributed not in CONSERVATISM:
+        return classified_type
+    return max((classified_type, contributed), key=CONSERVATISM.index)
 
 
 def classify_reply(text: str) -> str:

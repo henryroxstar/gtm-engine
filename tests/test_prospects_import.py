@@ -192,6 +192,10 @@ def test_finalize_merges_into_latest_and_writes_hubspot(tmp_path):
             "market": "United States",
             "tier": "A",
             "score": 8,
+            # A scored row must name the rubric that produced it, or `finalize` refuses
+            # before writing (`prospects_import.require_rubric_provenance`).
+            "rubric_source": "knowledge/fixture.md#rubric",
+            "rubric_version": "2026-01-01",
             "why_now": "agentic intent 86",
             "qualification_path": "intent-only-relaxed",
             "heat": 2,
@@ -279,6 +283,8 @@ def test_finalize_email_status_reaches_ready_to_load_via_consolidate(tmp_path):
             "market": "United States",
             "tier": "A",
             "score": 9,
+            "rubric_source": "knowledge/fixture.md#rubric",
+            "rubric_version": "2026-01-01",
             "contact_name": "Dana Cho",
             "contact_email": "dana.cho@verified.example",
             "email_status": "RocketReach A",
@@ -333,6 +339,8 @@ def test_finalize_research_record_reaches_ready_to_load_via_consolidate(tmp_path
             "market": "United States",
             "tier": "A",
             "score": 9,
+            "rubric_source": "knowledge/fixture.md#rubric",
+            "rubric_version": "2026-01-01",
             "conf": "0.9",
             "contact_name": "Sam Lee",
             "contact_email": "sam.lee@recorded.example",

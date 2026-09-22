@@ -24,6 +24,8 @@ os.environ.setdefault("BACKEND_JWT_SECRET", "test-secret-for-unit-tests-only-32x
 os.environ.setdefault("BACKEND_JWT_EXPIRE_MINUTES", "60")
 os.environ.setdefault("BACKEND_REFRESH_EXPIRE_DAYS", "30")
 
+from datetime import UTC
+
 from backend.auth import create_access_token, create_refresh_token  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth, require_service_auth  # noqa: E402
 from backend.errors import register_error_handlers  # noqa: E402
@@ -181,7 +183,7 @@ def test_other_refresh_token_failures_are_token_invalid(client, token):
 
 
 def test_refresh_after_password_change_is_token_revoked(client):
-    from datetime import UTC, datetime, timedelta
+    from datetime import datetime, timedelta
 
     c, conn = client
     conn.fetchrow.return_value = {"password_changed_at": datetime.now(UTC) + timedelta(hours=1)}

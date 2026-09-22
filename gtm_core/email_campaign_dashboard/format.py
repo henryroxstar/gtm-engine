@@ -107,7 +107,10 @@ def _stat(
     ``filterable=`` argument: a tile cannot opt into being recomputed without declaring a
     derivation something re-executes. A tile that does not react carries the reason, server-
     rendered and ``hidden`` — the filter's only job is to unhide it, so no sentence on this
-    page lives in JavaScript where §R14's prose lint cannot see it.
+    page lives in JavaScript where §R14's prose lint cannot see it. What is unhidden is a
+    two-word mark; the exact reason is its tooltip. The sentence itself used to be the
+    visible text, so selecting one facet printed ~30 words under every frozen tile — the
+    explanation now appears once, beside the filter (``filters.bar_html``).
 
     ``sub_html`` is pre-escaped markup and the ONLY way to get a live count into a sub-line;
     build it with ``filters.sub_counts`` and nothing else. ``sub`` stays escaped.
@@ -123,8 +126,8 @@ def _stat(
     why = (
         ""
         if pred
-        else f'<div class="stat-why" hidden>Not filtered — this figure '
-        f"{_e(filters.grey_reason(src))}.</div>"
+        else f'<div class="stat-why" hidden title="Not filtered — this figure '
+        f'{_e(filters.grey_reason(src))}.">not filtered</div>'
     )
     return (
         f'<div class="stat" data-tile="t{idx}" data-filter="{"on" if pred else "off"}">'

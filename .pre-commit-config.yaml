@@ -80,7 +80,7 @@ repos:
         entry: uv run python tests/lint/pii_check.py
         language: system
         pass_filenames: true
-        files: \.(py|md|json|toml|csv|ya?ml|txt|sh)$
+        files: \.(py|md|json|toml|csv|ya?ml|txt|sh|service|timer)$
         # content/ and profiles/ hold real customer PII by design and never ship.
         exclude: ^(content|profiles)/
 

@@ -119,6 +119,11 @@ min_entitlement = "pro_plus"
 oss = "private"
 reason = "consolidated video footage skill priced pro_plus and private, founder decision"
 
+[skills.identity-kit]
+min_entitlement = "pro_plus"
+oss = "private"
+reason = "2026-09-22: it registers and health-checks the render-identity handles (soul_id, reference_element_ids, voice_id, restyle_preset_id, avatar looks) that ONLY the already-private (pro_plus) video lane reads, and one of its steps drives gtm_core/elements, which the carve withholds — so the public cut was shipping a setup wizard for absent features with a dead step in it. Priced pro_plus to match the lane it configures, not on its own technical tier (which defaults free) — test_no_private_skill_sits_in_a_free_graph requires every oss=private skill clear at least pro."
+
 
 
 [skills.carousel-visuals]

@@ -81,7 +81,7 @@ _SENDABLE = LANE_VERDICTS["generic"]
 
 
 def _staged_candidates(m: dict) -> dict[str, dict]:
-    """``email -> {sequence, admissible}`` for every row on a sequence's recipient list.
+    """``email -> {sequences, admissible}`` for every row on a sequence's recipient list.
 
     **A recipient CSV is a CANDIDATE list, not an enrolment record.** The file says who was
     proposed; the provider says who was loaded. On the 2026-09-04 SG-builders sequence the
@@ -94,10 +94,26 @@ def _staged_candidates(m: dict) -> dict[str, dict]:
     staged no matter which file it sits in. :func:`_reconcile` then compares the admissible
     count against the provider's own number and reports the gap rather than resolving it —
     nothing on disk can say WHICH four of the five admissible rows were loaded.
+
+    **One address can be on several lists, so membership is a SET, not a last-seen label.**
+    This used to assign ``out[email] = {...}`` per file, so whichever recipient CSV happened
+    to come last in ``m["messages"]`` silently overwrote the rest. 75 of this profile's 576
+    listed addresses are on more than one list, and the label decides which sequence
+    :func:`_reconcile` counts them under — so the reconciliation panel's own figures moved
+    with file order. Measured 2026-09-21 by reversing ``m["messages"]``: sequence
+    ``Mgw47XpZzA`` reported **41 admissible against 45 enrolled** forwards and **0 against
+    45** reversed. The second reading is a five-alarm drift warning produced by nothing but
+    iteration order, on the one panel whose entire job is to detect drift honestly.
+
+    ``sequences`` holds every sequence whose list carries this address **and admits it**,
+    sorted — so the value is a property of the files, not of the order they were read in.
+    ``admissible`` is therefore "admissible on at least one list", which is what
+    :func:`_group_of` needs to ask; the account-wide refusal it must also respect is the
+    roster's own verdict, which ``_group_of`` reads separately.
     """
     root: Path | None = m.get("_content_root")
     seq_dir = _prospects_dir(m["profile"], root) / "sequences"
-    out: dict[str, dict] = {}
+    found: dict[str, set[str]] = {}
     for msg in m.get("messages") or []:
         label = msg.get("sequence_id") or "a sequence"
         path = seq_dir / (msg.get("csv") or "")
@@ -109,13 +125,15 @@ def _staged_candidates(m: dict) -> dict[str, dict]:
                     email = (row.get("email") or "").strip().lower()
                     if not email:
                         continue
-                    out[email] = {
-                        "sequence": label,
-                        "admissible": (row.get("verdict") or "").strip() in _SENDABLE,
-                    }
+                    entry = found.setdefault(email, set())
+                    if (row.get("verdict") or "").strip() in _SENDABLE:
+                        entry.add(label)
         except OSError:
             continue
-    return out
+    return {
+        email: {"sequences": tuple(sorted(seqs)), "admissible": bool(seqs)}
+        for email, seqs in found.items()
+    }
 
 
 def _provider_enrolled(m: dict) -> dict[str, int]:
@@ -145,9 +163,23 @@ def _group_of(row: dict, packs: set[str], candidates: dict[str, dict]) -> str:
     # provider had them enrolled — the page disagreeing with the sequencer about six people.
     # The pack files are deliberately left on disk; they are history, not a work state.
     #
-    # On a candidate list AND admissible. A row the gate refuses is not staged, whichever
-    # file it sits in — it falls through to `excluded` below, where its verdict puts it.
-    if cand and cand["admissible"]:
+    # On a candidate list AND admissible on BOTH verdicts — the recipient CSV's and the
+    # account's own. A row the gate refuses is not staged, whichever file it sits in; it
+    # falls through to `excluded` below, where its verdict puts it.
+    #
+    # The two are read together because they are dated differently and the CSV is the older
+    # one. `_staged_candidates` reads the verdict column of the recipient file, and a
+    # recipient file written before the research pass carries a BLANK there — which the
+    # generic lane admits by design (`lane_verdicts`), blank meaning "this lane makes no
+    # per-row claim", never "this account was cleared". The roster, folded from the run
+    # exports, holds the newer call. Checking only the file let a `drop` the researcher had
+    # already recorded render as "On the recipient list. Nothing sent.": on 2026-09-21, 70 of
+    # a live tenant's 107 enterprise accounts, all three `clean-enterprise-*-20260818`
+    # lists blank against an 2026-08-25 admission pass that dropped them.
+    #
+    # AND, not OR, so a disagreement between the two refuses rather than sends — the same
+    # fail-closed posture as the enrollment gate itself.
+    if cand and cand["admissible"] and (row.get("verdict") or "") in _SENDABLE:
         return "staged"
     if slug(row["company"]) in packs:
         return "pack"
@@ -171,8 +203,12 @@ def _stands(row: dict, group: str, candidates: dict[str, dict]) -> str:
     if group == "pack":
         return "Pack written for one named person. Sent by hand."
     if group == "staged":
-        seq = (candidates.get(row["email"].lower()) or {}).get("sequence", "a sequence")
-        return f"On the recipient list for {seq}. Nothing sent."
+        # Every list, not one of them. Naming a single sequence for a person queued on three
+        # was not just incomplete — which one got named depended on file read order.
+        seqs = (candidates.get(row["email"].lower()) or {}).get("sequences") or ()
+        if len(seqs) > 1:
+            return f"On {len(seqs)} recipient lists: {', '.join(seqs)}. Nothing sent."
+        return f"On the recipient list for {seqs[0] if seqs else 'a sequence'}. Nothing sent."
     if group == "handsend":
         return "Body written for a role inbox. Manual send — the merge-field gate refuses it."
     if group == "nocontact":
@@ -237,10 +273,15 @@ def _reconcile(m: dict, staged: list[dict], candidates: dict[str, dict]) -> str:
     provider = _provider_enrolled(m)
     if not provider:
         return ""
+    # Counted per MEMBERSHIP, not per person. "Admissible on this list" is a fact about a
+    # (row, sequence) pair, so a person on two lists is one admissible row on each — exactly
+    # what the provider's own per-sequence enrolled count is counting on the other side of
+    # the comparison. Attributing them to one sequence apiece left the others short against
+    # a provider number that included them, which reads as drift and is arithmetic.
     per_seq: dict[str, int] = {}
     for row in staged:
-        seq = (candidates.get(row["email"].lower()) or {}).get("sequence", "")
-        per_seq[seq] = per_seq.get(seq, 0) + 1
+        for seq in (candidates.get(row["email"].lower()) or {}).get("sequences") or ():
+            per_seq[seq] = per_seq.get(seq, 0) + 1
 
     lines = []
     for seq, listed in sorted(per_seq.items()):

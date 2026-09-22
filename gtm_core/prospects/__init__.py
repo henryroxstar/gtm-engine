@@ -32,6 +32,7 @@ VERBS: dict[str, str] = {
     "paths": "gtm_core.prospect_paths",
     "status": "gtm_core.prospect_status_cli",
     # Gate it
+    "icp": "gtm_core.icp_check",
     "preflight": "gtm_core.preflight",
     "funnel": "gtm_core.funnel",
     "list-fit": "gtm_core.list_fit",
@@ -57,6 +58,7 @@ _SUMMARY: dict[str, str] = {
     "dashboard": "rebuild the operator status page",
     "paths": "print the canonical locations of this profile's pipeline state",
     "status": "Where does the current list stand, in plain language.",
+    "icp": "critique the ICP definition before it spends anything",
     "preflight": "check budget and connectors before a run spends anything",
     "funnel": "size the run against the delivery target",
     "list-fit": "is this list worth working? role fit, signal grade, source hit rate",

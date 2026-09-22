@@ -70,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.matrix_only:
         matrix = parse_matrix(
-            resolve_knowledge_file(resolve_profiles_root(), args.profile, "hook-matrix.md")
+            resolve_knowledge_file(resolve_profiles_root(), args.profile, "hook-matrix.md"),
+            profile=args.profile,
         )
         if not matrix.ok:
             print(f"{args.profile:<16} UNSUPPORTED ({matrix.shape}) — {matrix.reason}")

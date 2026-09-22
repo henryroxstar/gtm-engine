@@ -122,6 +122,8 @@ _The representative request as numbered steps (caller → [the product] → targ
 [request-sequence diagram]
 ```
 
+_How to read this:_ [one line — what the diagram shows, and what a reader should look at first].
+
 1. [step — what happens]
 2. [step — what happens]
 3. [step — what happens]
@@ -206,7 +208,35 @@ _Honest scoping: state the company's real certifications accurately; the product
 - **[Material choice, e.g. managed vs self-hosted]:** [pros] / [cons] → **recommendation:** [x]
 - **[Material choice, e.g. build vs buy]:** [pros] / [cons] → **recommendation:** [x]
 
-## A8. Internal appendix _(omit from customer copy)_
+## A8. Constraints
+
+_Fixed and not ours to choose — separate from A1's assumptions. One line each, with who owns it._
+
+- …
+
+## A9. Quality requirements
+
+| Attribute | Target | Owner |
+|---|---|---|
+| Availability | …% over … | … |
+| Latency | … ms at the …th percentile | … |
+| Throughput | … sustained, … burst | … |
+| Recovery | RPO … · RTO … | … |
+| Residency | … | … |
+
+_A figure or "not yet agreed" (and then an A2 open question). Never "fast" or "highly available"._
+
+## A10. Deployment topology
+
+_Where each component runs, in whose tenancy, and every boundary crossed. Diagram + a line per hop._
+
+## A11. Glossary
+
+| Term | What it means here |
+|---|---|
+| … | … |
+
+## A12. Internal appendix _(omit from customer copy)_
 
 - [persona codes, ICP score, deal context — never in the customer-facing body]
 

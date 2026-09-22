@@ -2,14 +2,62 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..account_exclusion_keys import (
+    account_is_dropped,
+    ledger_account_keys,
+    row_account_keys,
+)
 from ..prospects_state import (
     ACCOUNT_ID_FIELD,
     RETIRED_STATUSES,
     _identity_key,
     _identity_keys,
+    latest_path,
     load_latest,
 )
 from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
+
+
+class LedgerUnreadableError(SystemExit):
+    """``latest.json`` is PRESENT but cannot be read — the send-list build must not run.
+
+    A :class:`SystemExit` on purpose. ``python -m gtm_core.prospects_consolidate`` then prints
+    exactly this one line on stderr and exits 1 with no traceback, and no unattended wrapper's
+    broad ``except Exception`` can turn "the do-not-contact ledger could not be read" back into a
+    successful-looking build — which is the failure this exists to end.
+    """
+
+
+def _ledger_items(profile: str, content_root: Path | None) -> list[dict]:
+    """The ledger's account items, or an ABORT — never a silent "no accounts".
+
+    Every reader below used to answer an unreadable ledger with an empty index. For the id and
+    record joins that costs a column; for the retired set it re-admits every do-not-contact
+    account: a truncated ``latest.json`` (a write cut short) produced exit 0 and a
+    ``ready-to-load.csv`` that listed the retired account's contact. "Could not read it" is not
+    "nobody is retired".
+
+    ABSENT stays an empty ledger: that is ``load_latest``'s own contract (absent = empty skeleton,
+    present-but-unreadable = an error), and a first run has no ledger yet. What is caught is what
+    ``load_latest`` can raise — ``OSError`` (a directory, permissions, I/O) and ``ValueError``
+    (``JSONDecodeError`` and ``UnicodeDecodeError`` are both subclasses, plus its own wrong-shape
+    errors) — and an item that is not an object is refused the same way rather than left to raise
+    an ``AttributeError`` three calls later. Consolidate reads the ledger before it writes
+    anything, so an abort leaves every output exactly as it was.
+    """
+    try:
+        items = load_latest(profile, content_root).get("items", [])
+        malformed = sum(1 for item in items if not isinstance(item, dict))
+        if malformed:
+            raise ValueError(f"{malformed} ledger entr(ies) are not JSON objects")
+    except (OSError, ValueError) as exc:
+        raise LedgerUnreadableError(
+            f"ABORTED: account ledger unreadable ({latest_path(profile, content_root)}: "
+            f"{type(exc).__name__}: {exc}) — cannot tell which accounts are do-not-contact, "
+            "disqualified or closed-lost, so no send list was built and nothing was written; "
+            "repair the file or restore it from prospects/.snapshots/, then run consolidate again"
+        ) from exc
+    return items
 
 
 def _account_item_of(row: dict) -> dict:
@@ -26,19 +74,41 @@ def _account_key_of(row: dict) -> str:
     return _identity_key(_account_item_of(row))
 
 
+def _account_keys_of(row: dict) -> list[str]:
+    """EVERY ``latest.json`` key the row's account is reachable under — the exclusion join.
+
+    :func:`_account_key_of` answers "what is this account called" with one key, domain-first.
+    That is the wrong question for "has this account been retired": the retired set holds every
+    key of the ledger item, and the two only meet if the ONE key the row picked is still among
+    them. A ledger item whose ``domain`` was blanked by a minimal re-discovery kept its
+    ``do-not-contact`` status and stopped matching, because the pooled row still carried the
+    domain and so never offered its company name — the contact came back as ready to load.
+
+    So the row offers all of them, including the account slug the ledger stores as ``id``
+    (``prospects_import`` stamps ``id = slug(company)``, and a row carries no ``id`` of its own).
+    Every comparison stays EXACT on a normalised value — a whole domain, a whole slug, a
+    whitespace-collapsed lowercased name — never a substring, so retiring one company cannot
+    take out a neighbour whose name merely contains it.
+
+    Since 2026-09-21 the list is :func:`gtm_core.account_exclusion_keys.row_account_keys`, shared
+    with the enrollment gate, and carries two more exact keys: the domain of the contact's own
+    email and the company name minus its trailing legal form. A name VARIANT of a retired account
+    ("... , Inc." in the ledger, the bare name and no domain on the row) met none of the keys
+    above and was listed as ready to load.
+    """
+    return row_account_keys(row)
+
+
 def _account_id_index(profile: str, content_root: Path | None) -> dict[str, str]:
     """Every ``latest.json`` identity key -> that account's stamped ``account_id``.
 
     Built from the ledger of record rather than re-derived per row, so a pooled row
-    joins to the same account the dashboard shows. Absent or unreadable is an empty
-    index: a first run has no accounts to join to, which is not an error.
+    joins to the same account the dashboard shows. ABSENT is an empty index: a first run
+    has no accounts to join to, which is not an error. Present-but-unreadable aborts —
+    see :func:`_ledger_items`.
     """
-    try:
-        data = load_latest(profile, content_root)
-    except (OSError, ValueError):
-        return {}
     index: dict[str, str] = {}
-    for item in data.get("items", []):
+    for item in _ledger_items(profile, content_root):
         account_id = str(item.get(ACCOUNT_ID_FIELD) or "").strip()
         if not account_id:
             continue
@@ -150,12 +220,8 @@ def _account_record_index(profile: str, content_root: Path | None) -> dict[str, 
     Only non-empty values are indexed, so an account with a partial record contributes
     exactly the fields it actually has and never blanks a column the row already filled.
     """
-    try:
-        data = load_latest(profile, content_root)
-    except (OSError, ValueError):
-        return {}
     index: dict[str, dict[str, str]] = {}
-    for item in data.get("items", []):
+    for item in _ledger_items(profile, content_root):
         account_id = str(item.get(ACCOUNT_ID_FIELD) or "").strip()
         if not account_id:
             continue
@@ -170,24 +236,24 @@ def _account_record_index(profile: str, content_root: Path | None) -> dict[str, 
 
 
 def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[str]:
-    """Account keys whose lifecycle ``status`` retires them from sending.
+    """Account keys the ledger has closed to sending: a retiring lifecycle ``status``, or a
+    ``verdict: drop`` (:func:`~gtm_core.account_exclusion_keys.account_is_dropped`).
 
     ``latest.json`` is the ledger of record for account lifecycle; the pooled CSVs are
     derived views of it. Reading it here is what makes an operator's (or an eval
     writeback's) disqualification actually reach a build output — before this, nothing
     in the send-list build filtered on lifecycle status at all.
 
-    Absent or unreadable is an empty set, never an exception: a profile with no
-    latest.json is a first run, and the ledger + DNC gates still apply.
+    ABSENT is an empty set: a profile with no latest.json is a first run, and the ledger +
+    DNC gates still apply. Present-but-UNREADABLE is an abort (:func:`_ledger_items`) — until
+    2026-09-21 it was an empty set too, so a truncated ledger retired nobody.
+
+    Keys are :func:`~gtm_core.account_exclusion_keys.ledger_account_keys` — the item's identity
+    keys plus its legal-form-normalised name — the other half of :func:`_account_keys_of`.
     """
-    retired = RETIRED_STATUSES
-    try:
-        data = load_latest(profile, content_root)
-    except (OSError, ValueError):
-        return set()
     keys: set[str] = set()
-    for item in data.get("items", []):
-        if str(item.get("status") or "").strip().lower() in retired:
-            for key in _identity_keys(item):
-                keys.add(key)
+    for item in _ledger_items(profile, content_root):
+        retired = str(item.get("status") or "").strip().lower() in RETIRED_STATUSES
+        if retired or account_is_dropped(item):
+            keys.update(ledger_account_keys(item))
     return keys

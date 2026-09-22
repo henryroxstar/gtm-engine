@@ -1,0 +1,3 @@
+✓ clean.md — clean
+
+  Coverage: 12/12 dimensions answered

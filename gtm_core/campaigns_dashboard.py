@@ -210,7 +210,7 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
 
     return {
         "profile": profile,
-        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M timezone.utc"),
         "campaigns": campaigns,
         "unlinked_sequences": unlinked_sequences,
     }

@@ -1,0 +1,164 @@
+{
+  "dirty.md": [
+    {
+      "tier": "SD1",
+      "rule": "tier missing",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Executive summary",
+      "fix": "the three-tier read needs Executive summary \u2014 an exec, the customer overview, then the appendix the customer copy drops"
+    },
+    {
+      "tier": "SD1",
+      "rule": "tier order",
+      "severity": "error",
+      "section": 2,
+      "excerpt": "Tier 2 (technical appendix) precedes Tier 1 (customer overview)",
+      "fix": "order is exec summary \u2192 Tier 1 \u2192 Tier 2; the appendix comes last so the customer copy can drop it whole"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-01",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Goals and the problem \u2014 What outcome is this for, and whose problem does it solve?",
+      "fix": "add a section that answers it; ours normally does so as: Executive summary, and the 'what we heard' recap"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-02",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "Constraints \u2014 What is fixed and not ours to choose \u2014 and is that stated apart from what we merely assume?",
+      "fix": "add a section that answers it; ours normally does so as: A constraints block, distinct from the assumptions list"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-03",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Context and scope \u2014 What sits outside the boundary, and where does the boundary run?",
+      "fix": "add a section that answers it; ours normally does so as: Tier 1 architecture, current-state diagram"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-04",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Solution strategy \u2014 What is the shape of the answer, and why this shape rather than another?",
+      "fix": "add a section that answers it; ours normally does so as: Tier 1 solution, and the architecture selection"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-05",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Building blocks \u2014 What gets configured or built, component by component?",
+      "fix": "add a section that answers it; ours normally does so as: A3 Component inventory"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-06",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Runtime behaviour \u2014 What actually happens on one request, end to end?",
+      "fix": "add a section that answers it; ours normally does so as: Tier 1 how-it-works, request-sequence diagram"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-07",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "Deployment \u2014 Where does it run, in whose tenancy, and across which boundaries?",
+      "fix": "add a section that answers it; ours normally does so as: A deployment topology section or diagram"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-08",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "Crosscutting concerns \u2014 What holds across every component \u2014 identity, policy, logging, error handling?",
+      "fix": "add a section that answers it; ours normally does so as: A4 Identity, policy and data flow"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-09",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "Decisions \u2014 Which choices were made, when, and what did each one cost us?",
+      "fix": "add a section that answers it; ours normally does so as: A trade-offs section carrying a decision record per material choice"
+    },
+    {
+      "tier": "SD2",
+      "rule": "coverage gap COV-11",
+      "severity": "error",
+      "section": 0,
+      "excerpt": "Risks and open questions \u2014 What could still go wrong, and what is genuinely undecided?",
+      "fix": "add a section that answers it; ours normally does so as: A2 Open questions and dependencies, plus the V1/V2 cut"
+    },
+    {
+      "tier": "SD3",
+      "rule": "quality requirements absent",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "no availability, latency, throughput or recovery figures anywhere",
+      "fix": "add a quality-requirements section with a figure per attribute \u2014 this is the first thing the customer's architect interrogates, and stating service levels only in the commercial proposal puts them in the wrong document"
+    },
+    {
+      "tier": "SD4",
+      "rule": "glossary absent",
+      "severity": "warn",
+      "section": 0,
+      "excerpt": "no glossary",
+      "fix": "add one for the terms that mean something specific here \u2014 a reader who guesses a definition disagrees with the design without knowing it"
+    },
+    {
+      "tier": "SD6",
+      "rule": "untagged capability",
+      "severity": "advisory",
+      "section": 5,
+      "excerpt": "1 row(s) leave \u201cStatus\u201d blank where 2 fill it in \u2014 first: \u201c| Discrepancy report | | shown from fixtures |\u201d",
+      "fix": "tag it Enforced / Simulated / Design-target like its neighbours. An untagged row in a tagged matrix reads as live to a customer's architect. The linter is reading the cell, not the product \u2014 if this shipped since, the cell is the stale half"
+    },
+    {
+      "tier": "SD7",
+      "rule": "design-target as live",
+      "severity": "advisory",
+      "section": 5,
+      "excerpt": "stated in the present tense, while section 5 labels it ahead of the build \u2014 both about: cross-region, reconciliation \u2014 \u201cCross-region reconciliation validates every leg of the booking, in all four regions.\u201d",
+      "fix": "move the prose to the conditional \u2014 \u201cwould\u201d, \u201conce built\u201d, \u201cplanned for\u201d \u2014 or carry the tag into the sentence. If it shipped since, the matrix row is the stale half: \u201c| Cross-region reconciliation | Design-target | one region today |\u201d"
+    },
+    {
+      "tier": "SD8",
+      "rule": "constraint contradiction",
+      "severity": "advisory",
+      "section": 5,
+      "excerpt": "this writes to something \u201cGuardrails\u201d freezes \u2014 both about: rule, store \u2014 \u201cThe gateway writes each verdict into the rule store on every booking.\u201d",
+      "fix": "one of the two moved. Either the limit lifted (update \u201cGuardrails\u201d) or the claim overreaches (cut it, or say who writes instead). The stated limit reads: \u201cThe rule store is read-only to us and stays in place for the whole engagement.\u201d"
+    },
+    {
+      "tier": "SD9",
+      "rule": "actor drift",
+      "severity": "advisory",
+      "section": 0,
+      "excerpt": "\u201cpresent\u201d is done by us and by the principal, in section 5 \u2014 \u201cwe present it when the wallet is offline.\u201d \u00b7 \u201cThe customer presents a session reference;\u201d",
+      "fix": "say which one acts, and if the operator acts because the tooling cannot yet make the principal the actor, say that and give the V2 path (Step 2). Two correct sentences about two different operations read alike to this rule \u2014 if that is the case here, they are worth distinguishing in the prose too"
+    },
+    {
+      "tier": "SD12",
+      "rule": "count drift",
+      "severity": "error",
+      "section": 2,
+      "excerpt": "\u201cThree limits worth stating:\u201d introduces 2, not 3",
+      "fix": "re-count after every cut \u2014 merging two bullets into one leaves the number wrong and nothing else notices"
+    },
+    {
+      "tier": "SD13",
+      "rule": "diagram without walkthrough",
+      "severity": "warn",
+      "section": 2,
+      "excerpt": "\u201cTier 2 \u2014 technical notes\u201d draws a diagram and does not read it",
+      "fix": "every diagram ships with a one-line \u201chow to read this\u201d and a per-component line in plain language \u2014 the target-state diagram especially must not stand alone"
+    }
+  ]
+}

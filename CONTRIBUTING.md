@@ -41,7 +41,7 @@ pre-publish de-brand gate:
 bash tests/lint/debrand_check.sh --release
 ```
 
-The enforced Python rules (§R1–§R18) are documented in [`docs/RULES.md`](docs/RULES.md);
+The enforced Python rules (§R1–§R19) are documented in [`docs/RULES.md`](docs/RULES.md);
 each is CI-gated. Read them before changing the agent, publish, or permission paths.
 
 ## Invariants you must not break

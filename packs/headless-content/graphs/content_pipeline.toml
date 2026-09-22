@@ -1,0 +1,34 @@
+# packs/headless-content/graphs/content_pipeline.toml
+
+pack = "headless-content"
+variant = "content_pipeline"
+
+[[nodes]]
+id = "scan"
+model_role = "brain_radar"
+skill = "market-scan"
+prompt = "Run the market-scan skill for the active profile to capture new signals."
+
+[[nodes]]
+id = "plan"
+depends_on = ["scan"]
+model_role = "brain_plan"
+skill = "content-plan"
+gate = true
+prompt = "Propose the content plan based on the market scan."
+
+[[nodes]]
+id = "studio"
+depends_on = ["plan"]
+model_role = "brain_plan"
+skill = "content-studio"
+prompt = "Generate drafts for all approved items."
+
+[[nodes]]
+id = "publish"
+depends_on = ["studio"]
+model_role = "brain_plan"
+skill = "content-publish"
+gate = true
+external_effect = "publish"
+prompt = "Publish approved posts to target platforms."

@@ -34,7 +34,8 @@ Build a crisp pre-meeting brief the colleague can read in five minutes. Map the 
 4. **`profiles/<active>/knowledge/product.md`** — the product suite (resolve real product names from here; declared in `PROFILE.md` → `products[]`), solution themes, features, discovery questions.
 5. **`profiles/<active>/knowledge/company.md`** — company narrative, team, investors, competitive positioning.
 6. **Prior prospect file** (if it exists in the account folder `content/<active>/accounts/<account-slug>/`) — a `prospects-*-[company].md` or `outreach-*-[company].md` from a prior run. Pull the score, why-now signal, and persona details already captured. Skip the web research if the file is fresh (≤30 days).
-7. **Cohort dossier (only if the account's workflow maps to one; skip otherwise).** If the profile ships `knowledge/use-cases/` and the account's workflow matches one of the cross-org cohorts in `knowledge/use-cases/README.md`'s table, read only that one dossier for **§7 (dual buyer map)** — sharper persona register than the generic `icp-personas.md` cards — and **§8 (objections & rebuttals)** — cohort-specific pushback. **Check freshness first:** read the dossier's own "Sources & verification log" and "On refresh (Nd)" line at the bottom; if today is past compile-date + the refresh window, treat its time-sensitive claims as unconfirmed and re-verify the specific fact in the web sweep below rather than citing it as settled. Never upgrade a `Flagged`/`(~unverified~)` tag to verified — carry it forward as-is.
+7. **`deck-research-*[company]*.md` / `account-dossier-*[company]*` in the account folder** — the reusable Layer 1. Read it before the research sweep; the field map and the three reuse rules are in the next section.
+8. **Cohort dossier (only if the account's workflow maps to one; skip otherwise).** If the profile ships `knowledge/use-cases/` and the account's workflow matches one of the cross-org cohorts in `knowledge/use-cases/README.md`'s table, read only that one dossier for **§7 (dual buyer map)** — sharper persona register than the generic `icp-personas.md` cards — and **§8 (objections & rebuttals)** — cohort-specific pushback. **Check freshness first:** read the dossier's own "Sources & verification log" and "On refresh (Nd)" line at the bottom; if today is past compile-date + the refresh window, treat its time-sensitive claims as unconfirmed and re-verify the specific fact in the web sweep below rather than citing it as settled. Never upgrade a `Flagged`/`(~unverified~)` tag to verified — carry it forward as-is.
 
 ## Gather inputs
 
@@ -47,7 +48,44 @@ Ask the colleague:
 
 Keep the ask brief — one short message, not a form. If they've already given context in their request, use it and don't ask again.
 
-## Research the account (skip if prior file is fresh)
+## Reuse before you research — `deck-research` Layer 1 and the account dossier
+
+**Read Layer 1 before you research anything.** `deck-research` writes eleven persona-agnostic,
+sourced fields (`L1-1`…`L1-11`) to `deck-research-[company]-[YYYY-MM-DD].md` in the same account
+folder, and `account-dossier` writes the walked-through version of the same account. Both are built
+to be reused — Layer 1's whole reason for existing is that it is *persona-agnostic*, so re-running
+the sweep here does not produce better facts, it produces a **second set** of facts that can
+disagree with the ones already in front of the customer.
+
+| You need | Layer 1 field |
+|---|---|
+| company overview, size, segment, ICP score | `L1-1` firmographics_icp |
+| agent maturity — do they run agents in production | `L1-2` agentic_maturity |
+| stack, frameworks, cloud, IAM | `L1-3` tech_stack |
+| regulatory exposure and certifications | `L1-4` regulatory_posture |
+| the live threats specific to their deployment | `L1-5` threat_hypotheses |
+| concrete agent scenarios from their own portfolio | `L1-6` use_case_scenarios |
+| incumbent / build-vs-buy / lock-in | `L1-7` incumbent_competitive |
+| the matched proof story | `L1-8` proof_story |
+| the dated why-now trigger | `L1-9` why_now |
+| named buying committee → persona → primary pain | `L1-10` buying_committee |
+| the numbered sources behind every external claim | `L1-11` sources |
+
+Three rules when you reuse it:
+
+- **Freshness is per-file, not per-account.** Fresh (≤30 days) → use it and sweep only for what it
+  marks `null`, plus anything dated after it was written. Stale → still read it, still carry its
+  `L1-11` numbering, and re-verify only the **time-sensitive** claims rather than starting over.
+- **Carry the sourcing, do not launder it.** An `L1-11` footnote travels with the fact. A claim
+  that arrives here without one is not promoted to sourced by being restated in a different
+  document — that is how an unverified signal becomes a number in a QBR.
+- **Never upgrade a flagged claim.** A field tagged unverified stays unverified here. If `L1-2` is
+  empty the account was flagged as possibly not deck-ready, and that is a finding for this
+  document, not a gap to quietly fill with a fresh guess.
+
+---
+
+## Research the account (only for what Layer 1 does not already answer)
 
 Run a focused web sweep. Do NOT use metered tools (Firecrawl, Vibe Prospecting) for call prep — free paths only (web search + browser).
 

@@ -60,7 +60,7 @@ def test_append_cost_and_month_total_for_explicit_month(cfg):
     ym = "2026-06"
     # `ts` is the ledger's timestamp field — month_cost_total filters on its YYYY-MM prefix.
     # Supplying `ts` explicitly makes the rollup deterministic (no dependence on write time;
-    # an omitted `ts` is auto-stamped with the current UTC time, which would defeat the test).
+    # an omitted `ts` is auto-stamped with the current timezone.utc time, which would defeat the test).
     led.append_cost({"tool": "firecrawl", "cost_usd": 1.50, "ts": f"{ym}-01T10:00:00Z"})
     led.append_cost({"tool": "vibe", "cost_usd": 2.25, "ts": f"{ym}-14T08:30:00Z"})
     # A different month must NOT count toward June's total.
@@ -78,7 +78,7 @@ def test_append_cost_and_month_total_for_explicit_month(cfg):
 def test_month_cost_total_defaults_to_current_month(cfg):
     led = Ledgers(cfg, PROFILE)
     this_month = dt.datetime.now(dt.UTC).strftime("%Y-%m")
-    # No `ts` → the ledger auto-stamps the current UTC time, which lands in this_month.
+    # No `ts` → the ledger auto-stamps the current timezone.utc time, which lands in this_month.
     led.append_cost({"tool": "deepseek", "cost_usd": 0.40})
 
     # Called with no arg → uses the current YYYY-MM.

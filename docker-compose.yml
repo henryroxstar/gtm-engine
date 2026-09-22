@@ -85,6 +85,13 @@ services:
       APOLLO_API_KEY: ${APOLLO_API_KEY:-}
       SALESHANDY_API_KEY: ${SALESHANDY_API_KEY:-}
       SYFTEN_API_KEY: ${SYFTEN_API_KEY:-}
+      SALESHANDY_DNC_LIST_ID: ${SALESHANDY_DNC_LIST_ID:-}
+      # Both closed by default. GTM_DNC_ADD_ENABLED gates the write to the provider's
+      # do-not-contact list; GTM_CAPABILITY_AUTOSET_ENABLED gates the compliance
+      # preflight's ability to plan a provider settings change. Unset means off, and an
+      # unrecognised value also means off.
+      GTM_DNC_ADD_ENABLED: ${GTM_DNC_ADD_ENABLED:-}
+      GTM_CAPABILITY_AUTOSET_ENABLED: ${GTM_CAPABILITY_AUTOSET_ENABLED:-}
 
       # Headless image/video generation workers — gated on presence, so leaving these
       # unset disables that MCP server rather than breaking the container.

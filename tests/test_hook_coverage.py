@@ -46,6 +46,7 @@ from gtm_core.hook_coverage import (
     persona_of,
     premise_unsupported,
     render,
+    seat_of,
     shared_phrases,
     signal_columns_for_segment,
 )
@@ -221,7 +222,23 @@ def test_persona_of_is_fail_quiet_on_an_unrecognised_title(title):
 def test_ciso_wins_over_cloud_architect_because_order_is_load_bearing():
     """ "chief information security" must not be claimed by "chief information officer"."""
     assert persona_of("Chief Information Security Officer") == "ciso"
-    assert persona_of("Chief Information Officer") == "cloud-architect"
+    assert persona_of("Chief Information Officer") == "cio"
+
+
+def test_cio_and_cloud_architect_are_distinct_personas_on_one_seat():
+    """The 2026-09-21 split: 87 titles / 5,262 people in the `architect` seat were CIOs
+    and 3 titles / 100 people were architects, so the seat reported technical coverage of
+    the ICP's named "Influencer — Security architect" that it did not have.
+
+    The property that makes the split safe is that the SEAT is unchanged — no new copy is
+    owed — while the persona axis stops reporting one number for two buyers. Ordering is
+    load-bearing in the other direction too: "Chief Information Architect" carries BOTH a
+    `chief information` cue and an `architect` cue, and must seat as the architect it is.
+    """
+    assert persona_of("Chief Information Officer") == "cio"
+    assert persona_of("Enterprise Architect") == "cloud-architect"
+    assert persona_of("Chief Information Architect") == "cloud-architect"
+    assert seat_of("Chief Information Officer") == seat_of("Enterprise Architect") == "architect"
 
 
 def test_data_compliance_and_compliance_stay_distinct_personas():

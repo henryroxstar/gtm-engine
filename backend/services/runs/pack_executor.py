@@ -12,6 +12,7 @@ from gtm_core.capabilities import Entitlement
 from gtm_core.metering import acheck_budget
 
 from ...database import workspace_scope
+from ...dnc_dispatch import dispatch_backend_dnc_add
 from ...email_dispatch import dispatch_backend_email_enroll
 from ...publish_dispatch import dispatch_backend_publish
 from .budget import _reserve_or_deny
@@ -36,6 +37,7 @@ from .persistence import (
     _file_block,
     _persist_node,
     _upsert_block,
+    dnc_refusal,
     enroll_refusal,
     publish_refusal,
 )
@@ -173,6 +175,7 @@ def _gate_draft_content(
     *,
     run_id: str | None = None,
     enroll: bool = False,
+    dnc: bool = False,
     publish: bool = False,
 ) -> tuple[str, Any, str | None]:
     """Resolve the draft content to present at this gate, which mechanism (if
@@ -233,10 +236,14 @@ def _gate_draft_content(
             return pending_content, None, "review"
         return text, None, "review"
 
-    found = gate_actions.gate_draft(cfg, profile_name, run_id=run_id, enroll=enroll)
+    found = gate_actions.gate_draft(cfg, profile_name, run_id=run_id, enroll=enroll, dnc=dnc)
     if enroll and found is None:
         raise gate_actions.EnrollDraftError(
             f"{gated.get('name')!r} wrote no enrollment draft for this run ({run_id})"
+        )
+    if dnc and found is None:
+        raise gate_actions.DncDraftError(
+            f"{gated.get('name')!r} wrote no DNC draft for this run ({run_id})"
         )
     draft_path, draft_kind = found if found is not None else (None, None)
     pending_content = (
@@ -246,6 +253,8 @@ def _gate_draft_content(
     )
     if draft_kind == "enroll":
         gate_actions.parse_enroll_draft(pending_content, source=draft_path.name)
+    if draft_kind == "dnc":
+        gate_actions.parse_dnc_draft(pending_content, source=draft_path.name)
     return pending_content, draft_path, draft_kind
 
 
@@ -283,7 +292,12 @@ def _promote_gate_draft(
             "this gate has no editable draft — edited content was not applied; "
             "approve or reject it instead"
         )
-    approved_bytes = edited if edited is not None or draft_kind != "enroll" else pending_content
+    # Both JSON draft kinds promote the bytes the operator APPROVED, never a re-read of
+    # "newest draft in the profile" — the profile lock is released while a run waits at
+    # its gate, so another run can write a newer one meanwhile (client issue #240).
+    approved_bytes = (
+        edited if edited is not None or draft_kind not in ("enroll", "dnc") else pending_content
+    )
     return gate_actions.promote_gate_draft(
         cfg, profile_name, draft_kind, approved_bytes, draft_path=draft_path
     )
@@ -351,6 +365,35 @@ async def _dispatch_gate2(
         from agent import gate_actions
 
         gate_actions.clear_enroll_draft(draft_path)
+        if target_id == gated_node_id:
+            return None, None
+        return None, (target_id, outcome.operator_line())
+
+    if effect == "dnc_add":
+        # SC9, the third effect. Same shape as the enrollment branch above: the approved
+        # draft names ADDRESSES, the shared dispatcher narrows them against this profile's
+        # own opt-out ledger, writes inside `dnc_context()`, and reads back before
+        # recording anything. The brain never runs this node and holds no tool for it.
+        if enroll_draft is None:
+            return RunFailure(
+                "draft_invalid",
+                f"{target_id!r} needs an approved DNC draft, found none — the review "
+                "node's dnc-draft could not be promoted",
+            ), None
+        outcome = await dispatch_backend_dnc_add(
+            cfg,
+            profile_name,
+            pool=pool,
+            workspace_id=workspace_id,
+            draft=enroll_draft,
+            dry_run=dry_run,
+        )
+        failure = dnc_refusal(outcome)
+        if failure is not None or outcome is None or not outcome.ok:
+            return failure, None  # dry_run / disabled: nothing written, node skipped
+        from agent import gate_actions
+
+        gate_actions.discard_dnc_draft(cfg, profile_name, path=draft_path)
         if target_id == gated_node_id:
             return None, None
         return None, (target_id, outcome.operator_line())
@@ -653,6 +696,7 @@ async def _execute_pack_run(
                 gated,
                 run_id=run_id,
                 enroll=effect == "email_enroll",
+                dnc=effect == "dnc_add",
                 publish=is_publish,
             )
             has_draft = draft_path is not None

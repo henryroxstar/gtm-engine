@@ -10,7 +10,8 @@ Guarantees:
   * **Merge, never replace.** New items upsert by a precise identity key
     (:func:`_identity_key` — domain-first, then id, then a non-lossy company
     name); an account already present keeps its operator-edited ``status`` (and
-    other sticky fields) unless the caller explicitly refreshes them.
+    other sticky fields), and every field the incoming item leaves out or blank
+    (:mod:`gtm_core.prospects_merge` — a thin re-emit never erases research).
   * **Never drop an existing account.** The merged result always starts from
     *every* existing item and only appends/updates — even a pre-existing
     duplicate key is retained, never silently collapsed.
@@ -37,10 +38,13 @@ import shutil
 import sys
 import tempfile
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from gtm_core.paths import _safe_segment, resolve_content_root
+from gtm_core.prospects_lock import ledger_lock, serialised
+from gtm_core.prospects_merge import AccountMatcher, merge_onto
 
 SNAPSHOT_DIRNAME = ".snapshots"
 SNAPSHOT_KEEP = 30
@@ -234,6 +238,7 @@ def _atomic_write(path: Path, data: dict) -> None:
             os.unlink(tmp)
 
 
+@serialised(latest_path, create=True)
 def upsert_latest(
     profile: str,
     new_items: list[dict],
@@ -242,63 +247,51 @@ def upsert_latest(
     generated_at: str | None = None,
     allow_shrink: bool = False,
     content_root: Path | None = None,
+    new_account_defaults: Callable[[dict], dict] | None = None,
+    on_merged: Callable[[list[dict]], None] | None = None,
 ) -> dict:
     """Merge ``new_items`` into latest.json by :func:`_identity_key`.
 
     Merge-only by construction: the result starts from *every* existing account
     and only appends/updates — it can never drop a prior account, so a full-file
     overwrite is impossible through this path. Existing accounts keep their
-    STICKY_FIELDS (operator status edits, etc.); all other fields are refreshed
-    from the incoming item. An incoming item with no derivable key is appended
+    STICKY_FIELDS (operator status edits, etc.); other fields refresh only where the
+    incoming item is populated (:func:`merge_onto`), so ``new_account_defaults`` — the
+    fill for a NEW account — never reaches one. A keyless incoming item is appended
     (never dropped). Snapshots the current file first, writes atomically. Refuses
     to shrink the item count unless ``allow_shrink=True``. Returns a summary dict.
+
+    ``on_merged`` is how a caller learns WHICH account each item landed on: it is called
+    once, before anything is written, with a list parallel to ``new_items`` — element ``i``
+    is a copy of the merged ledger row ``new_items[i]`` belongs to (``account_id`` already
+    stamped). An exception from it propagates and leaves the ledger untouched.
     """
     current = load_latest(profile, content_root)
     existing_items = current.get("items", [])
 
-    # Start from ALL existing items — none is ever dropped, even a pre-existing
-    # duplicate key (setdefault keeps the first occurrence as the merge target
-    # while leaving the duplicate in the list).
+    # Start from ALL existing items — none is ever dropped, even a pre-existing duplicate
+    # key (the matcher merges into the first occurrence and leaves the duplicate listed).
     result_items = [dict(it) for it in existing_items]
-    index: dict[str, int] = {}
-    for pos, it in enumerate(result_items):
-        for k in _identity_keys(it):
-            index.setdefault(k, pos)
+    matcher = AccountMatcher(result_items, _identity_keys)
 
     added, updated, keyless_appended, ids_stamped = 0, 0, 0, 0
+    landed_at: list[int] = []  # new_items[i] landed on result_items[landed_at[i]]
     for item in new_items:
-        keys = _identity_keys(item)
-        if not keys:
-            # Un-keyable (e.g. a pure-non-ASCII name with no domain/id): append
-            # rather than silently drop, and report it — an invisible append is
-            # how duplicates accumulate unnoticed.
-            result_items.append(dict(item))
-            added += 1
-            keyless_appended += 1
-            continue
-        pos = next((index[k] for k in keys if k in index), None)
-        if pos is not None:
-            prior = result_items[pos]
-            merged = dict(item)
-            for f in STICKY_FIELDS:
-                if f in prior and prior[f] not in (None, "", "new"):
-                    merged[f] = prior[f]
-            # Sticky unconditionally, unlike the fields above: an account's id is not a
-            # value a later run gets an opinion about.
-            if str(prior.get(ACCOUNT_ID_FIELD) or "").strip():
-                merged[ACCOUNT_ID_FIELD] = prior[ACCOUNT_ID_FIELD]
-            if str(prior.get("added_at") or "").strip():
-                merged["added_at"] = prior["added_at"]
-            result_items[pos] = merged
-            updated += 1
-        else:
-            result_items.append(dict(item))
+        # Un-keyable (e.g. a pure-non-ASCII name with no domain/id): append rather than
+        # silently drop, and report it — an invisible append is how duplicates accumulate.
+        keyless = not _identity_keys(item)
+        pos, keep = (None, ()) if keyless else matcher.find(item)
+        is_new = pos is None
+        if is_new:
+            result_items.append(new_account_defaults(item) if new_account_defaults else dict(item))
             pos = len(result_items) - 1
             added += 1
-        # Re-index under every key the merged row now carries, so a key gained on
-        # this run is reachable on the next one.
-        for k in _identity_keys(result_items[pos]):
-            index.setdefault(k, pos)
+            keyless_appended += keyless
+        else:
+            result_items[pos] = merge_onto(result_items[pos], item, sticky=STICKY_FIELDS, keep=keep)
+            updated += 1
+        matcher.note(pos, new=is_new)
+        landed_at.append(pos)
 
     # Stamp an account_id on anything that lacks one — including pre-existing rows, so a
     # file written before this field existed gains ids on its next merge rather than
@@ -311,6 +304,9 @@ def upsert_latest(
             ids_stamped += 1
         if not str(item.get("added_at") or "").strip():
             item["added_at"] = timestamp_str
+
+    if on_merged is not None:
+        on_merged([dict(result_items[pos]) for pos in landed_at])  # raising here writes nothing
 
     if not allow_shrink and len(result_items) < len(existing_items):
         raise ValueError(
@@ -342,6 +338,7 @@ def upsert_latest(
     }
 
 
+@serialised(latest_path)
 def set_status(
     profile: str,
     updates: dict[str, str],
@@ -448,6 +445,7 @@ def mark_replied(
     return _mark_replied(profile, emails, source=source, content_root=content_root)
 
 
+@serialised(latest_path)
 def mutate_account(
     profile: str,
     account: str,
@@ -523,9 +521,10 @@ def restore(
             raise FileNotFoundError(f"no snapshots in {snap_dir}")
         src = snaps[-1]
     dest = latest_path(profile, content_root)
-    # snapshot the (possibly bad) current file before clobbering it, so restore is itself reversible
-    snapshot(profile, content_root)
-    shutil.copy2(src, dest)
+    with ledger_lock(dest):
+        # snapshot the (possibly bad) current file first, so restore is itself reversible
+        snapshot(profile, content_root)
+        shutil.copy2(src, dest)
     return src
 
 

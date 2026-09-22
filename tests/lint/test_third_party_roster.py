@@ -58,8 +58,8 @@ def test_every_unreachable_account_falls_into_a_documented_residual():
     """~30% of accounts yield no key, and that is a KNOWN limit, not a bug — but every
     miss must be explainable by one of the filters, or a filter has broken.
 
-    Measured 2026-09-05 on 1,244 accounts: 308 all-English names ("harmonic", "new york
-    life"), 70 tokens below the length floor ("anz", "ema"), 9 released by the allowlist.
+    Measured 2026-09-05 on 1,244 accounts: 308 all-English names ("harmonic", "steady
+    oak"), 70 tokens below the length floor ("anz", "ema"), 9 released by the allowlist.
     An unexplained miss means `derive_keys` stopped producing a key it used to produce,
     which no other test here would notice. A bare count would go stale the day an account
     is added; this asserts the property instead.
@@ -76,7 +76,10 @@ def test_every_unreachable_account_falls_into_a_documented_residual():
             stripped = [t for t in toks if t not in roster._CORP_SUFFIXES]
             if (
                 not stripped  # nothing but a corporate form
-                or all(t in words for t in stripped)  # all-English: documented residual
+                # all-English (inflections included): the documented residual. This must
+                # be the SAME predicate `derive_keys` drops a head token on, or a token it
+                # deliberately dropped reads here as an unexplained miss.
+                or all(roster.is_ordinary_word(t, words) for t in stripped)
                 or (len(stripped) == 1 and len(stripped[0]) < roster.MIN_TOKEN_LEN)
                 or any(t in allowed for t in stripped)
                 or stripped != toks  # a suffix was stripped, so the key is shorter
@@ -126,6 +129,52 @@ def test_an_all_english_phrase_is_not_a_key(tmp_path):
         pytest.skip(f"{roster.DICT_FILE} is missing (install wamerican)")
     (tmp_path / "content/acme/accounts/the-first-state-bank").mkdir(parents=True)
     assert roster.derive_keys(tmp_path) == set()
+
+
+@pytest.mark.parametrize("slug", ["decisions", "funding", "circles", "interactions"])
+def test_an_inflected_english_word_is_not_a_key(tmp_path, slug):
+    """A plural or gerund is as ordinary as its base form, and the wordlist does not say so.
+
+    `/usr/share/dict/words` is a 1934 list of BASE forms. A bare membership test therefore
+    called these four identities, and the gate fired 409 times on ordinary prose across the
+    shipped surface — a dict key in the signal taxonomy, "returns one of three decisions",
+    Venn-diagram guidance. A gate that cries wolf is one people learn to skip, so the fix
+    belongs in key GENERATION (see `is_ordinary_word`), never in triaging the findings.
+    """
+    if not roster.DICT_FILE.exists():
+        pytest.skip(f"{roster.DICT_FILE} is missing (install wamerican)")
+    (tmp_path / f"content/acme/accounts/{slug}").mkdir(parents=True)
+    assert roster.derive_keys(tmp_path) == set(), f"{slug!r} became a key"
+
+
+def test_a_coined_word_the_stemmer_cannot_reach_is_still_a_key(tmp_path):
+    """The stemmer is not a general English oracle, and must not be mistaken for one.
+
+    `cyber` has no base form in a 1934 wordlist, so it survives generation and is released
+    by `[third-party-allowed]` with a written reason instead. Pinned so that a later, more
+    aggressive stemmer cannot quietly take over the allowlist's job: the allowlist requires
+    a human and a reason, and that is the property being protected.
+    """
+    if not roster.DICT_FILE.exists():
+        pytest.skip(f"{roster.DICT_FILE} is missing (install wamerican)")
+    (tmp_path / "content/acme/accounts/cyber").mkdir(parents=True)
+    assert roster.is_ordinary_word("cyber", roster._dictionary()) is False
+    assert "cyber" in roster.load_third_party_allowed(), (
+        "released by the allowlist, not the stemmer"
+    )
+
+
+def test_the_stemmer_never_invents_a_base_form_for_a_real_name(tmp_path):
+    """Over-generating stems is safe only because candidates are CHECKED, never emitted.
+
+    `zylophanes` must not be released just because stripping `s` produced something; it is
+    released only if that something is in the dictionary. This is the direction the filter
+    cannot afford to get wrong.
+    """
+    if not roster.DICT_FILE.exists():
+        pytest.skip(f"{roster.DICT_FILE} is missing (install wamerican)")
+    (tmp_path / "content/acme/accounts/zylophanes").mkdir(parents=True)
+    assert "zylophanes" in roster.derive_keys(tmp_path)
 
 
 def test_a_short_token_is_not_a_key(tmp_path):

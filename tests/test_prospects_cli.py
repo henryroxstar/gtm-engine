@@ -123,3 +123,10 @@ def test_help_lists_the_status_verb(capsys):
     assert cli.main(["--help"]) == 0
     out = capsys.readouterr().out
     assert "status" in out
+
+
+def test_icp_is_a_registered_verb_with_a_dispatchable_entry_point():
+    """IC1/§3.A.1: the ICP critique is a pre-spend command, the ICP analogue of preflight."""
+    assert cli.VERBS.get("icp") == "gtm_core.icp_check"
+    module = importlib.import_module(cli.VERBS["icp"])
+    assert cli._entry_point(module) is not None

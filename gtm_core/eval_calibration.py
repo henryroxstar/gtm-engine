@@ -54,7 +54,7 @@ import re
 import sys
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .adjudication import DEFAULT_STRATA, sample
@@ -294,8 +294,21 @@ def sample_golden_set(
 
 
 def _fmt(value: bool | None) -> str:
+    """``True``/``False``/``None`` -> ``Y``/``N``/``-``.
+
+    Refuses anything else rather than coercing it. The old body was
+    ``"Y" if value else "N"``, so a suggestions file written with the sheet's OWN vocabulary
+    (``"N"``) rendered as ``Y`` — truthy string — and every negative sub-check silently
+    flipped positive on the page the operator then corrects. Found 2026-09-22 building the
+    first pre-filled round. A formatter that inverts an answer is worse than one that stops.
+    """
     if value is None:
         return "-"
+    if not isinstance(value, bool):
+        raise TypeError(
+            f"prefill answers are True/False/None, got {value!r} ({type(value).__name__}). "
+            'Map the sheet\'s "Y"/"N"/"-" before passing them in.'
+        )
     return "Y" if value else "N"
 
 
@@ -1484,6 +1497,34 @@ def _cli_rules(args) -> int:
         records.append(rec)
         read_files.append(path.name)
     labels = read_labels(Path(args.labels))
+    # Join the answer key, exactly as `gtm_core.eval_writeback` does and for the same reason
+    # it documents there: `lab.injected` is DEAD on any label this program's own tooling
+    # produced, because the page must not show the labeler which rows are planted. Reading it
+    # straight made P2's `keep` band unreachable from a real round — the first live labeling
+    # round (2026-09-22, 53 labels, 21 of them on planted rows covering 18 rules) reported
+    # every one of those rules `delete-candidate` for want of this join.
+    if args.internal:
+        key = {}
+        for line in Path(args.internal).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rec = json.loads(line)
+                key[rec["row_id"]] = (bool(rec.get("injected")), rec.get("injected_rule"))
+        joined, hit = [], 0
+        for lab in labels:
+            inj, rule = key.get(lab.row_id, (False, None))
+            if inj and rule:
+                hit += 1
+                joined.append(replace(lab, injected=True, injected_rule=rule))
+            else:
+                joined.append(lab)
+        labels = joined
+        print(f"joined the answer key: {hit} of {len(labels)} label(s) sit on a planted row")
+    else:
+        print(
+            "note: no --internal passed. If these labels came from the HTML labeler they all "
+            "carry `injected: false`, so no rule can earn a `keep` — pass the round's "
+            "internal-<date>.jsonl."
+        )
     invisible = tuple(r.strip() for r in args.not_human_visible.split(",") if r.strip())
 
     if not records:
@@ -1693,6 +1734,15 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="comma-separated rules whose defect cannot appear on a labeling sheet "
         "(build_eval_sheet's unusable list). These are never delete candidates.",
+    )
+    p_rules.add_argument(
+        "--internal",
+        default="",
+        help="the internal-<date>.jsonl for this round. REQUIRED IN PRACTICE: a blind "
+        "sheet's export writes `injected: false` on every row by design (the labeler must "
+        "not see the answer key), so without this join no label carries injected evidence "
+        "and the `keep` band is unreachable — every rule reads delete-candidate however "
+        "carefully the round was labeled.",
     )
 
     p_rec = sub.add_parser("reconcile", help="join judge verdicts to reply outcomes (P3)")

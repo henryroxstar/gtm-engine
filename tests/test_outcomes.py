@@ -274,8 +274,19 @@ def test_summarize_rates_by_tag(tmp_path):
 
 
 def test_promote_candidates_flags_out_and_under_performers():
-    cands = {c["tag"]: c["direction"] for c in gd.promote_candidates(oc.summarize(ROWS))}
-    assert cands == {"myth-bust": "outperforms", "feature-list": "underperforms"}
+    """Both tags clear the lift threshold — and at n=10 neither is a conclusion.
+
+    Updated 2026-09-21 (IC5). This test used to assert `outperforms`/`underperforms` here,
+    which is exactly the dishonesty that change removes: at n=10 on a 20% baseline only a
+    3.95x difference is detectable, and these are 1.5x and 2.0x. The lift direction is still
+    computed and reported — the candidate stays visible so the absence of data is visible —
+    but it is labelled `watch`, not promoted.
+    """
+    cands = {c["tag"]: c for c in gd.promote_candidates(oc.summarize(ROWS))}
+    assert set(cands) == {"myth-bust", "feature-list"}
+    assert all(c["direction"] == "watch" for c in cands.values())
+    assert all(c["powered"] is False for c in cands.values())
+    assert all(c["mde"] is not None for c in cands.values()), "the note must print the MDE"
 
 
 def test_promote_candidates_need_enough_observations():
@@ -295,8 +306,14 @@ def test_distill_writes_note_with_promote_section(tmp_path):
     assert path == tmp_path / "acme" / "learnings" / "2026-06.md"
     text = path.read_text()
     assert "## Promote?" in text
-    assert "myth-bust" in text and "outperforms" in text
-    assert "feature-list" in text and "underperforms" in text
+    # IC4/IC5: these tags belong to no hook bank and no role vocabulary in this fixture, so
+    # their axis is genuinely unresolvable. They stay VISIBLE — an empty note reads as "no
+    # signal" when the truth is "no data" — but no knowledge file is named for them, which is
+    # the whole point: naming one for an unresolved axis sends the operator to edit the wrong
+    # file. That is reported explicitly rather than guessed at.
+    assert "myth-bust" in text and "feature-list" in text
+    assert "name no knowledge file" in text
+    assert "hook-matrix.md" not in text, "an unresolved tag must not be routed to a file"
 
 
 def test_distill_stage_option_stages_learnings_candidate(tmp_path):
@@ -610,8 +627,30 @@ def test_promote_candidates_flags_outperforming_hook_tag():
         {"channel": "email", "outcome": "sent", "value": 1000, "tags": ["hook:b"]},
         {"channel": "email", "outcome": "reply", "value": 10, "tags": ["hook:b"]},
     ]
-    cands = {c["tag"]: c["direction"] for c in gd.promote_candidates(oc.summarize(rows))}
-    assert cands == {"hook:a": "outperforms", "hook:b": "underperforms"}
+    cands = {c["tag"]: c for c in gd.promote_candidates(oc.summarize(rows))}
+    assert set(cands) == {"hook:a", "hook:b"}
+    # At n=1000 on a 3.5% baseline the MDE is 1.77x. hook:b is 3.5x DOWN — comfortably
+    # detectable, so it is a real conclusion. hook:a is 1.71x up, just under the bar, so it
+    # is honestly a `watch`. Both are still reported; only one is called a result.
+    assert cands["hook:b"]["direction"] == "underperforms"
+    assert cands["hook:b"]["powered"] is True
+    assert cands["hook:a"]["direction"] == "watch"
+
+
+def test_an_underperformer_can_be_powered_at_all():
+    """Regression control for a direction asymmetry (IC5): an underperformer's rate/baseline
+    is < 1, so comparing that raw against the MDE would leave EVERY underperformer permanently
+    unpowered no matter how much data arrived — a whole direction silently unpromotable. The
+    magnitude of the gap is what must clear the bar."""
+    rows = [
+        {"channel": "email", "outcome": "sent", "value": 1000, "tags": ["hook:a"]},
+        {"channel": "email", "outcome": "reply", "value": 60, "tags": ["hook:a"]},
+        {"channel": "email", "outcome": "sent", "value": 1000, "tags": ["hook:b"]},
+        {"channel": "email", "outcome": "reply", "value": 10, "tags": ["hook:b"]},
+    ]
+    powered = [c for c in gd.promote_candidates(oc.summarize(rows)) if c["powered"]]
+    assert powered, "no candidate in either direction could ever be powered"
+    assert any(c["direction"] == "underperforms" for c in powered)
 
 
 def test_attribute_score_json_with_no_band_adds_no_predictor_tag(tmp_path):

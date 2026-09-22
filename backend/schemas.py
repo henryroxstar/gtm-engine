@@ -225,6 +225,9 @@ class RunResponse(BaseModel):
     # None on every pre-Fleet-Phase-A row.
     principal_kind: str | None = None
     principal_id: str | None = None
+    # A6 (2026-09-20): graceful degradation fallback. Set to "checklist" if a write
+    # tool was denied but the agent successfully generated manual steps for the operator.
+    fallback_mode: str | None = None
     # Fleet Phase B (G1, additive): external correlation id.
     external_ref: str | None = None
 

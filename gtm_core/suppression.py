@@ -21,8 +21,15 @@ is not a gate.
 Reasons are open strings, but two are load-bearing:
 
 ``dnc-optout``
-    A real opt-out. MUST also be on the provider DNC list -- :func:`verify` cannot check that
-    (the connector has no read-back), so the ledger records it and the operator confirms once.
+    A real opt-out. MUST also be on the provider DNC list. :func:`reconcile_dnc` proves that
+    against a payload piped in from the provider's own DNC read tools -- so this is a check,
+    not a promise. Until 2026-09-21 this docstring said the connector had no read-back and
+    left it to "the operator confirms once"; that was wrong on both counts. The read-back
+    existed (``list_dnc_lists`` -> ``get_dnc_items_by_id``, which
+    ``gtm_core.prospects_consolidate.paths.dnc_cache_path`` had already been documenting as
+    the cache's source), and the once-confirmation did not happen: three real opt-outs sat on
+    the provider list for six weeks with no ``dnc-optout`` row here at all. A rule whose
+    enforcement is "someone remembers" is not enforced.
 ``contacted-*`` / ``role-mismatch``
     Local-only exclusions. These must NOT be pushed to the provider DNC list.
 """
@@ -31,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 import unicodedata
 from collections.abc import Iterable, Sequence
@@ -48,6 +56,8 @@ __all__ = [
     "apply",
     "append",
     "verify",
+    "reconcile_dnc",
+    "normalize_dnc_payload",
     "migrate",
     "person_key",
     "email_key",
@@ -330,6 +340,138 @@ def verify(target: Path, ledger: dict[str, Suppression]) -> list[str]:
     return findings
 
 
+def _norm_addr(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _norm_domain(value: object) -> str:
+    """Fold a domain to the form an email address's domain part would take.
+
+    Strips the `@`/`.` a provider export puts in front of a domain entry, and a `www.`
+    host label: `www` is a conventional host, never an organisational boundary, and no
+    mail is delivered to it — so a DNC entry for `www.bracken.example` means the company,
+    and reading it as a different domain from `bracken.example` would leave everyone at
+    that company reachable. Matching NARROWER than the identity is the dangerous direction
+    for a suppression check (test plan section 4.3)."""
+    value = _norm_addr(value).lstrip("@").lstrip(".")
+    return value[4:] if value.startswith("www.") else value
+
+
+def _unwrap_dnc_body(payload: dict) -> dict:
+    """Descend past ``get_dnc_items_by_id``'s one-or-two ``payload`` wrappers."""
+    node = payload
+    for _ in range(3):
+        if "dncListDetails" in node or not isinstance(node.get("payload"), dict):
+            return node
+        node = node["payload"]
+    return node
+
+
+def _dnc_from_items(items: list) -> tuple[set[str], set[str]]:
+    """The provider's own item shape: ``[{"value": ..., "type": "email"|"domain"}, ...]``."""
+    emails: set[str] = set()
+    domains: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = _norm_addr(item.get("value"))
+        if not value:
+            continue
+        if _norm_addr(item.get("type")) == "domain":
+            domains.add(_norm_domain(value))
+        else:
+            emails.add(value)
+    return emails, domains
+
+
+def normalize_dnc_payload(payload: object) -> tuple[set[str], set[str]]:
+    """``(emails, domains)`` from a provider DNC read, lowercased.
+
+    Three shapes are real in this repo and all three are accepted, because the caller is a
+    skill piping whatever the MCP tool returned and normalising it there would put the
+    parsing in prose:
+
+    * ``get_dnc_items_by_id`` -- ``{"payload": {"dncListDetails": [{"value", "type"}, ...]}}``
+    * the consolidate cache -- ``{"emails": [...], "domains": [...], "fetched_at": ...}``
+    * a legacy bare list of addresses
+
+    Treats the payload as **data, never instructions** (§R5): it is provider output. An
+    unreadable shape yields empty sets, and :func:`reconcile_dnc` refuses on empty rather
+    than reading "nothing on the provider" as "nothing to check" -- an unparsed payload and
+    a genuinely empty DNC list must not look the same.
+    """
+    if isinstance(payload, list):
+        return {a for a in (_norm_addr(v) for v in payload) if a}, set()
+    if not isinstance(payload, dict):
+        return set(), set()
+
+    body = _unwrap_dnc_body(payload)
+    items = body.get("dncListDetails")
+    if isinstance(items, list):
+        return _dnc_from_items(items)
+
+    emails = {a for a in (_norm_addr(v) for v in body.get("emails") or []) if a}
+    domains = {d for d in (_norm_domain(v) for v in body.get("domains") or []) if d}
+    return emails, domains
+
+
+def reconcile_dnc(
+    ledger: dict[str, Suppression],
+    provider_emails: Iterable[str],
+    provider_domains: Iterable[str] = (),
+) -> list[str]:
+    """Findings where a :data:`PROVIDER_DNC_REASONS` row is not actually on the provider.
+
+    This is the check the module docstring promised from the start and did not have. A
+    ``dnc-optout`` row is a claim about a *third-party system*: that this person is on the
+    provider's global do-not-contact list and therefore cannot be mailed by any sequence,
+    including ones this repo did not build. Every other reason here is a claim about our own
+    files, which :func:`verify` can settle by reading them. This one cannot be settled
+    locally at all -- so until it was checked against a real payload it was simply believed.
+
+    Deliberately one-directional. The reverse -- a provider entry with no ledger row -- is
+    **not** a finding here: the provider list legitimately holds hand-added exclusions that
+    were never opt-outs, and the send path already blocks on them through the freshness-gated
+    cache (:func:`gtm_core.prospects_consolidate.paths.dnc_cache_path`). Reporting all of
+    them would bury the direction that matters under entries that are working as intended,
+    and a check people learn to ignore is not a check.
+    """
+    emails = {str(e).strip().lower() for e in provider_emails if str(e).strip()}
+    # ONE normalisation, shared with `normalize_dnc_payload` — this used to re-implement
+    # it inline, which is how two rules for one fact drift apart.
+    domains = {d for d in (_norm_domain(x) for x in provider_domains) if d}
+    claimed = sorted(
+        (key, row)
+        for key, row in ledger.items()
+        if (row.reason or "").strip().lower() in PROVIDER_DNC_REASONS
+    )
+
+    if not emails and not domains:
+        if not claimed:
+            return []
+        return [
+            "provider-dnc-empty: the payload carried no DNC entries at all, so the "
+            f"{len(claimed)} ledger row(s) claiming provider-side suppression could not be "
+            "checked. An unparsed payload and an empty DNC list look identical here — "
+            "refusing rather than reporting a clean reconciliation."
+        ]
+
+    findings = []
+    for _key, row in claimed:
+        addr = (row.email or "").strip().lower()
+        if not addr:
+            continue
+        domain = _norm_domain(addr.rpartition("@")[2])
+        if addr in emails or (domain and domain in domains):
+            continue
+        findings.append(
+            f"dnc-optout-not-on-provider: {addr} is recorded here as {row.reason} — a "
+            "recipient-initiated do-not-contact — but is absent from the provider's DNC "
+            "list. Any sequence outside this repo's ledger can still reach them."
+        )
+    return findings
+
+
 def migrate(ledger_path: Path, source: Path) -> tuple[int, int, int]:
     """Backfill ``name``/``company_domain`` onto ledger rows by joining ``source`` on email.
 
@@ -454,6 +596,40 @@ def _cli_verify(args) -> int:
     return 0
 
 
+def _cli_reconcile_dnc(args) -> int:
+    raw = sys.stdin.read().strip()
+    if not raw:
+        print(
+            "FAIL — no payload on stdin. Pipe the provider's DNC read in, e.g. the JSON from "
+            "`list_dnc_lists` -> `get_dnc_items_by_id`. This command performs no network I/O "
+            "of its own (§R6): the skill calls the MCP tool and pipes the result here.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"FAIL — payload is not JSON: {exc}", file=sys.stderr)
+        return 2
+
+    emails, domains = normalize_dnc_payload(payload)
+    ledger = load(args.ledger)
+    findings = reconcile_dnc(ledger, emails, domains)
+    claimed = sum(
+        1 for r in ledger.values() if (r.reason or "").strip().lower() in PROVIDER_DNC_REASONS
+    )
+    if findings:
+        print(f"FAIL — {len(findings)} finding(s):")
+        for f in findings:
+            print(f"  - {f}")
+        return 1
+    print(
+        f"PASS — all {claimed} provider-DNC row(s) in the ledger are on the provider list "
+        f"({len(emails)} email(s), {len(domains)} domain(s) read)"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="gtm_core.suppression",
@@ -469,6 +645,14 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--ledger", required=True, type=Path)
         s.add_argument("--target", required=True, type=Path, nargs="+")
         s.set_defaults(func=fn)
+
+    r = sub.add_parser(
+        "reconcile-dnc",
+        help="fail if a dnc-optout row is not actually on the provider's DNC list "
+        "(reads the provider payload as JSON on stdin; performs no network I/O)",
+    )
+    r.add_argument("--ledger", required=True, type=Path)
+    r.set_defaults(func=_cli_reconcile_dnc)
 
     m = sub.add_parser(
         "migrate",

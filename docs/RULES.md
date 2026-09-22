@@ -30,6 +30,42 @@ preference, and "no linter caught it" is not a defence.
 | [§R16](#r16--a-skill-that-generates-media-must-be-withheld-from-the-carve) | A renderer shipping its body in the public carve because its declared tier was wrong | `tests/lint/manifest_prose_check.py` — same four layers as §R15 |
 | [§R17](#r17--a-providers-rate-lives-in-one-module-and-is-pointed-at-from-everywhere-else) | A provider rate copied into prose, going stale silently across many files | `tests/lint/provider_rate_check.py` — pre-commit, CI, pytest, release export |
 | [§R18](#r18--a-check-that-cannot-discriminate-is-not-a-check) | A check whose verdict is constant — unsatisfiable by construction, silent on unrecognised input, or absent from the path the work takes; and a broken instrument read as a defect in the data | PR review — the question is in the rule; one pinning test per instance (`test_judge_lane_rubric.py`, `test_persona_cue_boundaries.py`, `test_prospects_consolidate.py`) |
+| [§R19](#r19--an-axis-may-not-score-our-own-research-coverage) | An axis that awards points for a fact about OUR RESEARCH rather than the account — dossier length, evidence-link count, team count, description length, row completeness. Gating on them is required; scoring them is the ban | `gtm_core/scorecard/loader.py` `_check_coverage_proxy` at card load; `tests/unit/test_scorecard_engine.py` (parameterised over the denylist, both directions) |
+
+---
+
+## Closed allowlists — enforced refusals, not review questions
+
+Two tenant-knowledge surfaces are governed by a **closed allowlist that refuses rather than
+coerces**. Both are enforced in code at load/stage time; neither is a question anyone is asked
+in review, and neither should be listed as one.
+
+| Allowlist | Where it lives | What it refuses |
+|---|---|---|
+| **Overlay allowlist** | [`gtm_core/experiments.py`](../gtm_core/experiments.py) — `OVERLAYABLE`, with `REFUSED` naming what may never be overridden | An experiment overlay that carries a file outside the allowlist is **rejected at admission** (`experiments.admit`), before the run starts. `PROFILE.md`, `voice.md`, `BRAND.toml` and the ban lists are `REFUSED` by name. Governed additionally by the `GTM_EXPERIMENT_OVERLAY_ENABLED` kill switch, closed by default. |
+| **Staged-topic extension allowlist** | [`gtm_core/knowledge_staging.py`](../gtm_core/knowledge_staging.py) — `_ALLOWED_SUFFIXES = {".md", ".toml"}` | A staged topic carrying any other extension raises. A topic with no extension still defaults to `.md`. Coercion is what produced the defect this closes — appending `.md` to `icp-scoring.toml` left the three machine-readable targeting files with no staged-review path at all — so the fix cannot be more coercion. |
+
+**The writer set for `profiles/`, stated once.** `profiles/` is read-only at runtime, with
+**three** key-scoped exceptions — a singleton claim would be wrong, and was restated in four docs
+before this was checked:
+
+| Writer | Writes | Scope |
+|---|---|---|
+| [`knowledge_staging.promote`](../gtm_core/knowledge_staging.py) | the knowledge **corpus** (`knowledge/<topic>`) | operator-invoked, `diff`-before-`promote` |
+| [`hooks.save_hooks`](../gtm_core/hooks.py) | `knowledge/hooks.toml` | the hook bank's own verbs |
+| [`brandkit.set_identity_value`](../gtm_core/brandkit.py) | `knowledge/BRAND.toml` identity handles | `identity-kit`, key-scoped, atomic |
+
+Every other module — `icp_check` included — holds no writer for `profiles/` at all. Of the three,
+`knowledge_staging.promote` is the one the extension allowlist governs, and the `.toml`
+half of that allowlist is paired with a round-trip parse gate: a staged `.toml` must
+`tomllib.loads` (and parse to something non-empty) *before* it may overwrite the live file. A
+malformed rubric promoted over a working one does not degrade gracefully — the next
+`load_rubric` raises and the prospecting pipeline stops.
+
+**Why they are recorded here.** Both read like conventions and are not. A reader who takes
+either for a style preference will widen it; widening the first is the same class of change as
+removing a gate, and widening the second means answering, for the new extension, what `promote`
+must verify before it may overwrite a live tenant file.
 
 ---
 
@@ -458,6 +494,31 @@ the commit gate:
    real gmail is *not* masked by the one allowlisted free-mail fixture.
 4. **release** (`scripts/oss-export.sh`) — runs the same checker over the finished carve, plus a
    binary-document sweep (`grep -I` cannot read a PDF, so text is extracted first).
+
+**A fifth layer, and the only one that sees a bare name: `carve-preflight`.** The four layers
+above match **shapes** (email / host / phone / LinkedIn) and a **derived roster**. A real company
+whose name is an ordinary word is in neither, and `derive_keys` makes that worse on purpose: it
+**drops a head token found in the system dictionary** as noise, so for such an account the one
+form that generalises to any new phrasing (`<Name> Automation Co`, `<Name> Ltd`) is exactly the
+form filtered out. Pair it with an RFC-2606 `.example` domain and `pii_check` exits **0** on a file
+naming a live tenant account.
+
+That is not hypothetical. On 2026-09-21 a fixture in `tests/test_icp_check.py` used a live account
+lifted from a comment in that tenant's own `icp-scoring.toml`; all four layers passed it and
+`carve-preflight` caught it. **Both prior public leaks were test fixtures of the same shape** — this
+was the third. The filter is right in general (the house fictional vocabulary — `Acme`, `Vertex`,
+`Marker` — is deliberately chosen from dictionary words), so the fix is a narrow one, tracked in
+[`PENDING.md`](../PENDING.md).
+
+Two operational consequences, both binding:
+
+* **Never build a fixture from tenant data.** Not from an account folder, a case-study list, or a
+  prose comment in `icp-scoring.toml` / `competitors.toml` — those comments are full of real
+  accounts. Generate names with `python -m gtm_core.fictionalize <kind> "<value>"`, and rewrite the
+  row's other fields too: a `description` paraphrasing that account's real positioning carries the
+  identity after the name is gone.
+* **For any change adding fixtures or docs with company-shaped tokens, a green `pii_check` is not
+  evidence.** Run `carve-preflight`.
 
 **Adding an allowlist entry** requires a human confirming the value identifies nobody, and a
 comment saying why. For a third-party NAME (`[third-party-allowed]`) there are exactly two
@@ -928,6 +989,23 @@ that same substring class — bare `cro`, `coo` and `cio` were each deleted from
 with a comment explaining the trap — and each fix was applied to the one cue rather than to the
 matching rule, which is why a fourth survived. Fix the class.
 
+**The instrument is a check too — verify it before believing its verdict.** The failure this rule
+names applies to the tools that *test* for it. Two traps cost real time on 2026-09-21, both
+reporting a defect that did not exist:
+
+* **A hand-rolled mutation pass must clear `__pycache__` around every mutation and restore.**
+  CPython decides staleness from mtime **and size**, so a same-length replacement
+  (`"unknown"` → `"message"`, both 7 characters) can leave a stale `.pyc` in place: the mutant
+  never executes and the run reports **SURVIVED** — a verdict about a mutant that never ran. Worse,
+  after restoring, *unrelated* tests fail against bytecode no longer on disk while
+  `inspect.getsource` shows the correct source, so the code looks broken and the harness looks
+  fine. Mutate by **line number**, not first textual match: the same run replaced an early guard
+  while its verdict named the final fallback.
+* **A shape-matching lint is not evidence for what it cannot match** — see §R9's fifth layer.
+
+Once cache-busted, that pass earned its keep immediately: it found an empty-tag guard no test
+covered, where a blank tag could have been routed to a knowledge file silently.
+
 **Enforcement — review, plus a test per instance.** Like [§R11](#r11--gates-must-cross-examine-not-self-certify),
 the shape is too general to lint: no linter can tell a criterion that is strict from one that is
 unsatisfiable. The rule is the question above, asked in the PR that adds or edits any check, and
@@ -938,3 +1016,41 @@ parameterised over the words rather than over the known bugs; and
 `tests/test_prospects_consolidate.py` asserts the hand-send list and the sequencer load file are
 disjoint and share one verdict rule (`gtm_core.lane_verdicts`). Per
 [§R12](#r12--a-probe-needs-a-positive-control) each of those leads with the case that must fire.
+
+## §R19 — An axis may not score our own research coverage
+
+**The rule.** A field that measures *how much we looked* may gate whether a row is scorable, and
+may never contribute points to the score. The denylist is code —
+`gtm_core.scorecard.model.COVERAGE_PROXY` — and a tenant card declaring an axis or component on
+one of its members **fails at load**, before a single row is scored.
+
+**The litmus for adding a field to it:** *would this change if we researched harder without the
+company changing?* If yes, it is a coverage proxy. Today's members: `dossier_length`,
+`has_evidence_url`, `team_count`, `description_length`, `row_completeness`.
+
+**Why.** On 2026-09-21 a 1003-row enrichment run scored every account against a rubric assembled
+from plan prose while the tenant's maintained rubric sat unread in the profile. Its ICP-fit axis
+was `len(description) >= 60` — a **length check** awarding full fit credit. **806 of 1000 rows
+came out Tier A**, and the mean score tracked how many sales teams had listed a company (1 team
+9.79 → 2 teams 11.31 → 3 teams 11.94) rather than anything about the company. Every existing
+check was green: the arithmetic was right, the output was well-formed, the distribution looked
+like a distribution. A scale that measures the measurer is not detectable by looking at it.
+
+**Note the boundary, because it is the whole rule.** The *same facts* are legitimate — required,
+even — as a **sufficiency gate**. "We have not researched this account" must change whether the
+row gets a number at all; it must never change what the number is. That is why
+`gtm_core.scorecard` answers *may this row be scored?* before *how good is it*, and why a row
+with a missing input gets a **category naming the unlock** instead of a low score. Those are
+different findings, and once they are both an integer no operator can tell them apart.
+
+**Enforced:** `gtm_core/scorecard/loader.py` (`_check_coverage_proxy`) at card load;
+`tests/unit/test_scorecard_engine.py` parameterises the denylist so a member added to the code
+without a test is still covered, and asserts the gate-versus-score boundary in both directions.
+A real-distribution guard rides alongside it in
+`tests/unit/test_scorecard_live_migration.py`: no tier may hold >60% of scored rows, and the
+Spearman correlation between score and `# teams` must stay below 0.3 — the two checks the
+2026-09-21 rubric would have failed while passing everything else.
+
+## Graceful Degradation & Fallbacks
+- **Missing Connector:** Work with what is available and say plainly what was used and what was not. Uploaded or pasted files are a complete input.
+- **Write Refusals:** If a connected tool refuses a write (e.g. admin blocked), turn the change into a checklist or paste-ready text for the operator, quote the refusal, and never retry or attempt to use another tool to bypass.

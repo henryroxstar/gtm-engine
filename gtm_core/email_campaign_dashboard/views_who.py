@@ -13,6 +13,7 @@ from .format import (
     roster_gap,
     scope_label,
 )
+from .views_segments import segment_mix
 
 
 def _trim(text: str, n: int = 190) -> str:
@@ -52,14 +53,16 @@ def _next_step(j: dict | None) -> str:
 #: Why a block does not follow the filter. Server-rendered and ``hidden``; the page's JS
 #: only unhides it. Kept beside the blocks they describe rather than in the template,
 #: because §R14's prose lint reads ``*.py`` and nothing else.
+#: The visible text is a two-word mark; the reason is its tooltip. The one full explanation
+#: sits beside the filter control (``filters.bar_html``) rather than under every block.
 _STALE_SEAT = (
-    '<p class="why" hidden>Not filtered — this measures the merge LANES against their own '
-    "specs, so its denominator is the recipients those lanes render, not the accounts "
-    "selected above.</p>"
+    '<p class="why" hidden title="Not filtered — this measures the merge LANES against their '
+    "own specs, so its denominator is the recipients those lanes render, not the accounts "
+    'selected above.">not filtered</p>'
 )
 _STALE_JUDGE = (
-    '<p class="why" hidden>Not filtered — the judge scored a queue of drafted emails, so '
-    "these are rows in that queue rather than accounts in this roster.</p>"
+    '<p class="why" hidden title="Not filtered — the judge scored a queue of drafted emails, '
+    'so these are rows in that queue rather than accounts in this roster.">not filtered</p>'
 )
 
 
@@ -209,6 +212,8 @@ def _roster_who(m: dict) -> str:
         {_stat(r["signal"], "carry a dated why-now", src="rows:co_signal", sub_html=sub_counts(r["rows"], [("co_signal_sourced", " cite a source")]))}
       </div>
 
+      {segment_mix(m)}
+
       <div class="card">
         <h2>Every account in {_e(scope_label(m))}</h2>
         <p class="note">Tiers: {tiers or "—"}. Research verdicts: {verdicts or "—"}.</p>
@@ -348,10 +353,7 @@ def _who_view(m: dict) -> str:
       <div class="card" data-no-filter data-stale-when-filtered>
         <h2>Where they are</h2>
         {_barlist([(c["name"], c["n"]) for c in sup["countries"]], sup["total"])}
-        <p class="why" hidden>Not filtered — this counts the shared prospect pool, a
-        different and much larger set than the campaign roster the filter selects from.
-        Filtering the roster cannot move it, and rescaling it to the selection would answer
-        a question nobody asked.</p>
+        <p class="why" hidden title="Not filtered — this counts the shared prospect pool, a different and much larger set than the campaign roster the filter selects from. Filtering the roster cannot move it, and rescaling it to the selection would answer a question nobody asked.">not filtered</p>
         <p class="note">Three markets. The campaign is overwhelmingly a US motion — the two
         smaller markets are too small to read a result from on their own.</p>
       </div>

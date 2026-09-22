@@ -40,6 +40,11 @@ _avatar_stubbed = pytest.mark.skipif(
 _router_stubbed = pytest.mark.skipif(
     not ROUTER.exists(), reason="video-router body_template.md not present (paid-tier stub)"
 )
+# identity-kit joined the paid-tier roster 2026-09-22 (it configures handles only the
+# already-private video lane reads) — same shape as the two above.
+_identity_kit_stubbed = pytest.mark.skipif(
+    not IDENTITY_KIT.exists(), reason="identity-kit body_template.md not present (paid-tier stub)"
+)
 
 
 def _flat(path: Path) -> str:
@@ -209,6 +214,7 @@ def test_the_avatar_body_confirms_an_unconfirmed_look_before_spending():
 # --- identity-kit: the one place the pick is recorded ---------------------------------------------
 
 
+@_identity_kit_stubbed
 def test_identity_kit_has_a_step_where_the_operator_picks_the_look():
     body = _flat(IDENTITY_KIT)
     assert "heygen_look_landscape" in body and "heygen_look_portrait" in body, (
@@ -218,6 +224,7 @@ def test_identity_kit_has_a_step_where_the_operator_picks_the_look():
     assert "list_avatar_looks" in body
 
 
+@_identity_kit_stubbed
 def test_identity_kit_writes_the_look_through_the_brandkit_cli():
     body = _flat(IDENTITY_KIT)
     assert "--set identity.heygen_look_landscape" in body or re.search(
@@ -225,6 +232,7 @@ def test_identity_kit_writes_the_look_through_the_brandkit_cli():
     ), "identity-kit does not show the CLI write for the approved look"
 
 
+@_identity_kit_stubbed
 def test_identity_kit_does_not_pick_the_look_on_the_operators_behalf():
     body = _flat(IDENTITY_KIT).lower()
     assert "do not pre-select" in body or "never pre-select" in body, (
@@ -233,6 +241,7 @@ def test_identity_kit_does_not_pick_the_look_on_the_operators_behalf():
     )
 
 
+@_identity_kit_stubbed
 def test_identity_kit_audits_both_look_keys():
     """An audit that reported one orientation would make the other invisible, which is how a
     single-key assumption creeps back."""

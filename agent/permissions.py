@@ -232,6 +232,23 @@ _EXTERNAL_EFFECT_LEAVES: frozenset[str] = frozenset(
         # future skill regression cannot reach Saleshandy. See agent/email_dispatch.py.
         "add_leads_to_sequence",
         "import_prospects_to_sequence",
+        # ── Saleshandy: the DNC write (SC9, 2026-09-21). A suppression list is a compliance
+        # record, so a brain-initiated write to it is the same class of action as a publish.
+        # Admitted only inside `dnc_context()` — see `_SALESHANDY_DNC_LEAVES`.
+        "add_dnc_items",
+        "create_dnc_list",
+        # The REMOVAL verbs, denied with NO admitting context at all — they are absent from
+        # all three context leaf-sets, so nothing can ever open them. The in-repo connector
+        # exposes none of these, and "we did not build one" is not a guarantee: a hosted or
+        # claude.ai Saleshandy connector that exposes `remove_dnc_items` would otherwise be
+        # class-allowed, which is exactly how the three Reap publish verbs were reachable
+        # until they were named above. Un-suppressing someone who opted out is the one
+        # action in this repo with no undo and no legitimate automated caller.
+        "remove_dnc_items",
+        "delete_dnc_item",
+        "delete_dnc_list",
+        "update_dnc_list",
+        "clear_dnc_list",
     }
 )
 
@@ -257,6 +274,21 @@ _SALESHANDY_ENROLL_LEAVES: frozenset[str] = frozenset(
     }
 )
 
+#: Saleshandy verbs that WRITE to the provider's Do Not Contact list. Denied everywhere
+#: EXCEPT inside an approved ``dnc_add`` dispatch (``agent/dnc_dispatch.py``) — the third
+#: external effect, same shape as the two above.
+#:
+#: Note what is NOT here and never will be: a REMOVE verb. The direction is one-way by
+#: construction, because nothing in this system may un-suppress a person who opted out.
+#: `create_dnc_list` is included because a brain that can create a list can create an empty
+#: one and add to that instead of the real one — a suppression write that suppresses nobody.
+_SALESHANDY_DNC_LEAVES: frozenset[str] = frozenset(
+    {
+        "add_dnc_items",
+        "create_dnc_list",
+    }
+)
+
 #: Thread/async-safe flag: True only while ``agent/publish.py`` is dispatching an
 #: operator-approved publish. Used by ``_classify_mcp`` to allow Reap publish verbs
 #: in that narrow window and deny them everywhere else.
@@ -270,6 +302,13 @@ _publish_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
 #: ``_publish_context`` exactly, for the A11 email-enrollment gate.
 _email_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "agent_email_context", default=False
+)
+
+
+#: Thread/async-safe flag: True only while ``agent/dnc_dispatch.py`` is dispatching an
+#: operator-approved DNC add. Mirrors ``_publish_context``/``_email_context`` exactly.
+_dnc_context: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "agent_dnc_context", default=False
 )
 
 
@@ -313,6 +352,30 @@ def email_context():
         _email_context.reset(token)
 
 
+def in_dnc_context() -> bool:
+    """True when running inside an approved DNC-add dispatch."""
+    return _dnc_context.get()
+
+
+@contextlib.contextmanager
+def dnc_context():
+    """Set the DNC-context flag for the duration of the block.
+
+    Used by ``agent/dnc_dispatch.dispatch_approved_dnc_add`` to wrap the actual provider
+    write. ContextVars propagate across async/await, so a call made inside this block sees
+    the flag; the brain's own tool calls never run inside it.
+
+    The three contexts are NOT interchangeable: a publish dispatch cannot open a DNC write,
+    and a DNC dispatch cannot open an enrollment. Each effect gets its own window, or the
+    gate that approved one set of bytes would authorise a different action entirely.
+    """
+    token = _dnc_context.set(True)
+    try:
+        yield
+    finally:
+        _dnc_context.reset(token)
+
+
 # Note: `reframe` is a leaf on BOTH the Reap and Higgsfield MCP servers. Both class-allow today —
 # no live bug — but this rule is leaf-keyed by design (a claude.ai connector's server segment is an
 # opaque per-user UUID), so it cannot distinguish the two vendors. If Reap's `reframe` ever needs
@@ -340,13 +403,65 @@ def _classify_mcp(tool_name: str) -> Decision:
     2. A leaf matching a family prefix must be on that family's allowlist — else denied (AP-02).
     3. Otherwise the class-allow applies: MCP is the sanctioned egress path.
     """
-    leaf = tool_name[len(_MCP_PREFIX) :].rsplit("__", 1)[-1]
+    from gtm_core.mcp_categories import CATEGORY_RULES, get_category_for_connector, is_write_tool
+
+    server_and_leaf = tool_name[len(_MCP_PREFIX) :]
+    if "__" in server_and_leaf:
+        connector_name = server_and_leaf.rsplit("__", 1)[0]
+        leaf = server_and_leaf.rsplit("__", 1)[-1]
+    else:
+        connector_name = ""
+        leaf = server_and_leaf
+
+    cat = get_category_for_connector(connector_name)
+    if cat and cat in CATEGORY_RULES:
+        rules = CATEGORY_RULES[cat]
+        denied_patterns = rules["denied_patterns"]
+        context_name = rules["context"]
+
+        # A DNC write is a write to a COMPLIANCE RECORD. It is denied on every connector,
+        # in every category, and is admitted only by its own context — deliberately NOT by
+        # the category's, which for the sequencer category is `email_context`. An approved
+        # ENROLLMENT must never also authorise a suppression write: the operator approved
+        # one set of bytes for one effect, and the three effects are not interchangeable.
+        #
+        # Checked first inside this branch because the category path returns before the
+        # leaf-level `_EXTERNAL_EFFECT_LEAVES` rule below ever runs — the ordering that let
+        # `add_dnc_items` through on a categorised connector until SC9.
+        if leaf in _SALESHANDY_DNC_LEAVES:
+            return "allow" if in_dnc_context() else "deny"
+
+        if denied_patterns:
+            is_denied = any(leaf.startswith(pat) or leaf == pat for pat in denied_patterns)
+            if is_denied:
+                return (
+                    "allow"
+                    if (
+                        (context_name == "email_context" and in_email_context())
+                        or (context_name == "publish_context" and in_publish_context())
+                        # No `dnc_context` clause: no CATEGORY_RULES entry declares that
+                        # context, and a branch that cannot fire reads as coverage it does
+                        # not provide. DNC writes are decided above, before this branch.
+                    )
+                    else "deny"
+                )
+            return "allow"
+
+        # PRD §4.3 Fail-Closed Default: If a connector is bound to a category
+        # but its tools are not yet mapped in the deny declarations, all write/mutation
+        # tools from that connector default to denied. Read-only tools default to allowed.
+        return "deny" if is_write_tool(leaf) else "allow"
+
     if leaf in _EXTERNAL_EFFECT_LEAVES:
-        if leaf in _REAP_PUBLISH_LEAVES and in_publish_context():
-            return "allow"
-        if leaf in _SALESHANDY_ENROLL_LEAVES and in_email_context():
-            return "allow"
-        return "deny"
+        return (
+            "allow"
+            if (
+                (leaf in _REAP_PUBLISH_LEAVES and in_publish_context())
+                or (leaf in _SALESHANDY_ENROLL_LEAVES and in_email_context())
+                or (leaf in _SALESHANDY_DNC_LEAVES and in_dnc_context())
+            )
+            else "deny"
+        )
     for prefix, allowed in _MCP_CONNECTOR_ALLOWLISTS.items():
         if leaf.startswith(prefix):
             return "allow" if leaf in allowed else "deny"

@@ -39,7 +39,14 @@ from ..prospects_consolidate.columns import MASTER_COLS
 from ..prospects_consolidate.confidence import org_token
 from ..prospects_consolidate.paths import _pool_subdir
 from .context import RouterContext
-from .model import HOLD_ORDER, LANE_COLUMNS, LANES, PROTECTIVE_HOLD_TRIGGERS, Routed
+from .model import (
+    HOLD_ORDER,
+    LANE_COLUMNS,
+    LANES,
+    PROTECTIVE_HOLD_TRIGGERS,
+    UNATTENDED_TRIGGERS,
+    Routed,
+)
 from .triggers import first_exclude, first_hold
 
 #: Lanes a prior decision or policy may route a held row INTO. ``suppress`` is deliberately
@@ -72,12 +79,16 @@ class RoutingResult:
 def judge_index(records: Iterable[Adjudication]) -> dict[str, list[Adjudication]]:
     """email → touch-1 records. Several records per email are normal (one per cell the
     person was drafted into); ``worst_verdict`` collapses them and the router flags the
-    join as ambiguous when the bodies differ."""
+    join as ambiguous when the bodies differ.
+
+    A record with a BLANK email is never indexed: the join key is the address, and ``""``
+    is not one — it would hand its verdict to every pooled row that also lacks an email."""
     out: dict[str, list[Adjudication]] = {}
     for rec in records:
-        if rec.unscored or int(rec.touch or 1) != 1:
+        email = (rec.email or "").strip().lower()
+        if not email or rec.unscored or int(rec.touch or 1) != 1:
             continue
-        out.setdefault((rec.email or "").strip().lower(), []).append(rec)
+        out.setdefault(email, []).append(rec)
     return out
 
 
@@ -191,8 +202,8 @@ def route_row(
     routed.lane, routed.detail, routed.reason_code = _verdict_lane(row, judge, ctx, cap)
     _apply_stickiness(routed, previous or {})
 
-    if unattended and routed.lane in ("generic", "repair"):
-        routed.trigger = f"unattended-{routed.lane}"
+    if unattended and routed.lane in UNATTENDED_TRIGGERS:
+        routed.trigger = UNATTENDED_TRIGGERS[routed.lane]
         routed.detail = f"unattended mode fail-closed for {routed.lane} lane candidate"
         routed.lane = "hold"
 
@@ -267,11 +278,12 @@ def route(
     result = RoutingResult(notes=list(ctx.notes))
     ordered = sorted(rows, key=lambda r: (-_score(r), (r.get("email") or "").lower()))
     for row in ordered:
+        email = (row.get("email") or "").strip().lower()
         result.routed.append(
             route_row(
                 row,
                 ctx,
-                index.get((row.get("email") or "").strip().lower()),
+                index.get(email) if email else None,  # no address, no join — never ""
                 source=source,
                 cap=cap,
                 decisions=decisions,
@@ -346,7 +358,9 @@ def _supersede_previous_stamps(
     """Move any PREVIOUS ``ready-to-load-<lane>-YYYY-MM-DD.csv`` — visible or already-hidden —
     into ``.pool/.superseded/`` before a new stamp is written.
 
-    Never deletes. Never moves any file that ``cells.toml`` references, which would remove a
+    Moves, never deletes — and nothing here ever prunes the archive: deleting prospect data
+    is the operator's explicit ``retention_sweep``, never a build step. Never moves any file
+    that ``cells.toml`` references, which would remove a
     staged/enrolled list from the double-enrolment guard (C3). Matches only the exact stamp
     shape, preserving legacy or custom lists.
     """

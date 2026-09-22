@@ -62,7 +62,7 @@ frameworks ask you to trust broad permissions; this one is built so there's noth
 | **Cost** | \$500–\$3,000 / mo | \$20 / mo (heavy manual copy-paste) | Token spend + hosting fees | **\$0 base** (runs on your existing workspace — Claude, Antigravity, Cursor, or Codex) |
 | **Outbound Safety** | Auto-sends cold emails (reputation risk) | Manual review | Broad tool permissions | **Non-bypassable human gates** (cannot auto-send) |
 | **Company Context** | Rigid scraping | Re-pasting context every prompt | Custom vector DB plumbing | **Profile Second Brain** (onboard once, inherits everywhere) |
-| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **63 skills & 10 packs** (video, decks, posts, SDR) |
+| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **78 skills & 11 packs** (video, decks, posts, SDR) |
 | **Data Privacy** | Third-party cloud vendor lock-in | Shared training data | Varies | **100% Local / Gitignored** (data stays on your machine) |
 
 **You onboard once.** Say `"set me up"` and point it at your website; it reads your site and drafts
@@ -152,7 +152,7 @@ every run gets.
 **Contents** — [See it work](#see-it-work) · [Four ways to run & integrate](#four-ways-to-run-and-integrate) ·
 [Getting started](#getting-started-chat-mode) · [Workspace support](#workspace--harness-support) · [Tools & keys](#tools--keys) ·
 [What it does out of the box](#what-it-does-out-of-the-box) ·
-[GTM skill suite](#gtm-skill-suite-63-skills--all-profile-driven) ·
+[GTM skill suite](#gtm-skill-suite-78-skills--all-profile-driven) ·
 [Profiles](#profiles-multi-company) ·
 [Content craft](#content-craft--the-details-that-make-output-land) ·
 [How it works](#how-it-works) · [Repo layout](#repo-layout) ·
@@ -172,10 +172,11 @@ turn by turn. No VPS, no Docker, no database, and no standing agent — you're t
 skill. This is what most people want. → [Getting started](#getting-started-chat-mode)
 
 **2 · Autonomous self-hosted agent.**
-Deploy the self-hosted **Claude Agent SDK** runtime — locally or on your own **VPS** — that runs the
-workflow graph on your behalf: it works news → plan → research → studio → publish 24/7 as
-containerized services, pausing only at the two human approval gates in Telegram. Needs Docker and a
-secret manager. → [`docs/DEPLOY.md`](docs/DEPLOY.md)
+Deploy the self-hosted **Claude Agent SDK** runtime — locally or on your own **VPS** — that runs any
+pack graph you have activated on your behalf, 24/7 as containerized services, pausing only at the
+human approval gates in Telegram. A run starts from a clock, a signal, or a message you send —
+prospecting from your ICP, inbound from a reply that landed, content from a news signal. Needs
+Docker and a secret manager. → [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
 **3 · Client REST API development.**
 Spin up the local FastAPI backend (`./scripts/stack.sh start` on `:8000`) with Postgres and Redis.
@@ -202,7 +203,7 @@ RevenueCat subscription checks and Cloudflare Workers KV caching.
 
 | Workspace / Harness | Support Level | How skills load | Notes |
 |---|---|---|---|
-| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 63 skills, MCPs, and interactive gates |
+| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 78 skills, MCPs, and interactive gates |
 | **Google Antigravity** | Native | Auto-discovered via `.agents/` | Multi-agent workflows, native `run_command` and file tools |
 | **Cursor / Codex** | Supported | `.agents/AGENTS.md` + `.cursor/` rules | Interactive chat mode; skills invoke via prompt conventions |
 | **Headless VPS (Agent SDK)** | Dedicated Runtime | Containerized agent loop | 24/7 autonomous graph execution behind Telegram human gates |
@@ -324,7 +325,7 @@ for the prospecting budget model.
 
 ## What it does out of the box
 
-**10 packs ship in-repo, spanning 22 workflow variants** — each a wired **workflow graph** on the
+**11 packs ship in-repo, spanning 24 workflow variants** — each a wired **workflow graph** on the
 same unmodified engine. A pack is just which skills run, in what order, under which gates. Most are
 sequential chains; `planning` is a **batch** of independent nodes that run side by side, and
 `creator` fans out and rejoins — proving a pack is a *graph*, not necessarily a pipeline. All skills
@@ -348,6 +349,7 @@ pause that guards something.
 | **Knowledge refresh** | Re-reads your corpus and flags what has gone stale before a run leans on it | 1 | — writes to your profile only |
 | **Market intelligence** | Continuous competitor/regulatory signals and weekly internal positioning read | 1 | — documents only |
 | **Outcomes loop** | Feeds real results (replies, engagement) back so the next run is scored against what actually worked | 2 | — reads and records only |
+| **Headless content** | Autonomous end-to-end content production across scan, plan, studio, and publish behind async signal queues | 1 | Gate 2 publish |
 
 
 ### Planning
@@ -372,7 +374,7 @@ pause that guards something.
 | **Creator** | The same "why now" signal, rendered as short-form video |
 |---|---|
 | **Variants** | `short-form-video` (fully generated) · `presenter-video` (a disclosed synthetic presenter) · `live-action-video` (your own footage) · `repurpose-clips` and `restyle-shorts` (from existing video) · `demo-clips` (screen capture of your product) · `cross-modal-campaign` (one signal → text + image + video in a single fan-out) |
-| **Flow** | Generated lanes: radar → plan → **brief** → **script** → **storyboard** → render → finish → score → publish. Render fans out (vertical + feed cuts, or presenter + inserts) and rejoins at `finish`. The **brief** settles the pre-spend decisions under the plan approval and adds no gate of its own: the cover, the structure, what stays constant across shots, whether a carousel would say it cheaper. Footage lanes skip the render half — `live-action-video` runs radar → plan → brief → script → **capture** → score → publish |
+| **Flow** | Generated lanes: radar → plan → **brief** → **script** → **storyboard** → render → finish → score → publish. Render fans out (vertical + feed cuts, or presenter + inserts) and rejoins at `finish`. The **brief** settles the pre-spend decisions under the plan approval and adds no gate of its own: the cover, the structure, what stays constant across shots, whether a carousel would say it cheaper. Footage lanes skip the render half — `live-action-video` runs radar → plan → brief → script → **capture** → score → publish. `cross-modal-campaign` is the widest fan-out: radar → plan → **format-plan** → **text-studio** + **image-studio** + video-script in parallel → publish, so one signal becomes a post, an image and a video from a single approval rather than three runs |
 | **Extra gates** | Beyond the two permanent gates, a generated lane adds a **storyboard** approval — you sign off the frames before anything renders, because rendering is the expensive part, and the gate ships a free **animatic**, those same frames held for each shot's real duration with the voice-over over the top, so you judge pacing rather than pictures. A footage lane has no storyboard at all: its extra approval is the **capture** gate, where you approve the exact source file before anything is uploaded |
 | **Disclosure** | Any render using a trained likeness or cloned voice must carry your configured disclosure line, checked at staging **and** re-checked independently at the publish gate. A tenant that never configured one fails closed — this is EU AI Act Article 50, not house style |
 | **Output & gates** | A finished, captioned, scored cut. **Both gates apply**, plus the lane's extra gate — storyboard on a generated lane, capture on a footage lane |
@@ -382,7 +384,7 @@ pause that guards something.
 | **Prospecting** | Reach the right prospect, at the right time, with the right message |
 |---|---|
 | **What it does** | Sources, enriches, and scores leads so your outreach lands where it should. Every account scored against **your** ideal customer profile, not a generic list |
-| **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** — one approval: you review the finished emails and the lead list together before anything reaches your sender |
+| **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** → **sequence-enroll** — one approval: you review the finished emails and the lead list together before anything reaches your sender. `sequence` drafts the enrolment plan and stops; `sequence-enroll` is the node that actually pushes the leads, and the agent never runs it — a Python-only dispatcher does, after you approve, because enrolling leads sends prospect details to a third-party processor |
 | **Data sources** | **Vibe Prospecting** — discovery, firmographics, company-level buyer-intent. **RocketReach** — verified contact email/phone, news & hiring triggers, job-change timing. **Apollo** — last-resort contact backstop (email only), company buying-intent, job-posting signals. Fused into a "why now" heat signal. Free web search is the fallback when none are connected |
 | **Output** | Scored brief · contact-ready outreach packs · HubSpot-ready CSV. Email drafts follow best-practice sequence structure (a real signal as the hook, a matched case study, one clear ask) and cite only public signals — intent times the touch, it never appears in the copy |
 | **After a reply lands** | The `inbound` pack reads it (read-only), classifies intent (P0–P3), and drafts a reply behind the same human gate. Nothing auto-sends |
@@ -394,13 +396,13 @@ pause that guards something.
 | **Solution architecture** | Use case → technical solution (for pre-sales / SA) |
 |---|---|
 | **What it does** | Turns a use case into a technical solution, either mapped onto your flagship product (product-led) or synthesised as a bespoke custom build |
-| **Flow** | discovery question bank → solution design → setup runbook → deck (sequential chain) |
-| **Under the hood** | Profiles the account's stack, produces architecture diagrams and a design doc, and hands off to the deck or Word skills |
+| **Flow** | discovery question bank → solution design → then a fan-out: scope-check → commercial proposal, and setup runbook → deck |
+| **Under the hood** | Profiles the account's stack, produces brand-token architecture diagrams and a design doc that is lint-gated before it is delivered, and hands off to the deck, the proposal, or the Word skills. Alongside the chain: a security questionnaire answered only from the evidence pack, a quantified value case, a time-boxed POC plan, a demo narrative, and a competitor battlecard |
 | **Output & gates** | Documents only. No external gate; nothing is published |
 
 ---
 
-## GTM skill suite (63 skills — all profile-driven)
+## GTM skill suite (78 skills — all profile-driven)
 
 Every skill is **company and product agnostic** — brand, voice, ICP, markets, and product all load
 from the active profile bundle. Zero hardcoded company strings (CI-gated by `debrand_check.sh`).
@@ -415,7 +417,13 @@ Start with your immediate task rather than memorizing the catalog:
 | **Prep for a high-stakes call** | `"prep me for my call with [company]"` | `call-prep`, `account-dossier` | 5-min briefing doc, SPIN discovery questions, matched case study |
 | **Post something timely on LinkedIn** | `"draft my LinkedIn post about [news/topic]"` | `content-radar`, `content-studio` | 3 hook archetypes (Gate 1) $\rightarrow$ on-brand copy (Gate 2) |
 | **Engage on Reddit or LinkedIn** | `"reply to this post: [URL]"` | `linkedin-reply`, `reddit-reply` | Value-first, non-promotional response staged for review |
-| **Design an enterprise solution** | `"design the solution for [company]"` | `solution-discovery`, `solution-design` | Architecture SAD doc, problem $\rightarrow$ target diagrams |
+| **Design an enterprise solution** | `"design the solution for [company]"` | `solution-discovery`, `solution-design` | Architecture SAD doc, problem $\rightarrow$ target diagrams, lint-gated before delivery |
+| **Answer a security questionnaire** | `"answer this security questionnaire"` | `security-review` | Answers drawn only from your evidence pack — anything unbacked is refused with a named owner |
+| **Quantify and prove the deal** | `"build the value case for [company]"` / `"plan a POC"` | `value-case`, `poc-plan`, `demo-narrative` | Baseline $\rightarrow$ modelled delta with an assumption register, a time-boxed POC with named verifiers, and a demo flow |
+| **Compete honestly** | `"battlecard for [competitor]"` | `battlecard` | Where they win, where we win, the trap questions, and what we must not claim |
+| **Design architecture diagrams** | `"design an architecture diagram for [product]"` | `diagram-design` | Publication-ready SVG/Mermaid diagrams and companion specs |
+| **Audit SEO & research keywords** | `"audit our SEO for [domain]"` | `seo-audit`, `seo-keyword-research` | Technical SEO audit, keyword clusters, competitor analysis |
+| **Govern sales pipeline & hygiene** | `"check CRM hygiene"` / `"review team pipeline"` | `crm-hygiene-check`, `team-pipeline` | **Needs a CRM connector, which this repo does not ship** — the skills preflight the category and refuse by name rather than reporting over nothing (`python -m gtm_core.connector_categories crm`) |
 | **Build a strategic account plan** | `"build an account plan for [company]"` | `account-plan` | Buying influence map, MEDDPICC scorecard, 5-step action plan |
 | **Check environment health** | `"run environment check"` | `check_env` CLI | Readiness audit of keys, profile, and spend caps |
 
@@ -430,8 +438,11 @@ Start with your immediate task rather than memorizing the catalog:
 | **Short-form video** | `video-router`, `creator-brief`, `video-plan`, `video-script`, `video-storyboard`, `video-preview`, `video-render`, `video-avatar`, `video-finish`, `video-score`, `video-clip`, `video-restyle`, `demo-capture`, `video-footage` |
 | **Engagement** | `linkedin-engagers`, `linkedin-reply`, `reddit-reply`, `community-signal-analysis` |
 | **Carousels & infographics** | `carousel-pdf`, `carousel-visuals`, `carousel-auto`, `infographic-data`, `infographic-handwritten` |
-| **GTM planning** | `gtm-planning`, `campaign-plan`, `solution-discovery`, `solution-design`, `solution-scope-check`, `gateway-runbook` |
-| **Market intelligence** | `market-harvest`, `market-intelligence` |
+| **GTM planning & solution design** | `gtm-planning`, `campaign-plan`, `solution-discovery`, `solution-design`, `solution-scope-check`, `gateway-runbook`, `diagram-design` |
+| **Pre-sales: prove, price, compete** | `security-review`, `value-case`, `poc-plan`, `demo-narrative`, `battlecard` |
+| **SEO & organic growth** | `seo-audit`, `seo-competitor-analysis`, `seo-keyword-clustering`, `seo-keyword-research` |
+| **Pipeline governance & CRO** | `crm-hygiene-check`, `deal-slip-scenario`, `metrics-review`, `team-pipeline` |
+| **Market intelligence & research** | `market-harvest`, `market-intelligence`, `synthesize-research` |
 | **Risk assessment** | `airq-scan` |
 | **Founder journey** | `builder-radar`, `builder-evidence`, `builder-studio` |
 | **Operations** | `setup`, `profile-onboard`, `identity-kit`, `knowledge-refresh`, `outcomes-sync`, `content-outcomes-sync` |
@@ -553,13 +564,25 @@ gtm-engine runs GTM work as a **workflow graph**: the *engine* executes it, a *p
 your *profile* feeds it. That three-layer split is the whole design — a shared, domain-agnostic
 engine, declarative domain workflows on top, and your company data underneath.
 
+Every pack variant is its own graph with its own starting point — a news signal, an ICP query, an
+account, a reply that landed, a clock. Two of them, side by side:
+
 ```
-  THE DEFAULT WORKFLOW GRAPH   (the "marketing / linkedin-post" pack)
+  TWO OF THE WORKFLOW GRAPHS   (the "marketing / linkedin-post" and the
+                                "prospecting / prospect-outreach" packs)
 
       radar ──▶ plan ──▶ research ──▶ studio ──▶ publish
                   ▲                                  ▲
                Gate 1                             Gate 2
           you approve the plan         you approve the exact bytes
+
+      prospect ──▶ dossier ──▶ outreach ──▶ quality ──▶ sequence ──▶ enroll
+                                                          ▲
+                                                    the one gate
+                                     you approve the emails AND the lead list
+                                       together, before either leaves for a
+                                          third-party sender. Nothing sends:
+                                          the sequence is staged PAUSED
 
    HOW EACH NODE RUNS
 
@@ -702,7 +725,7 @@ lifecycle, ledgers, and the staging→promotion pattern: [`docs/gtm-data-infra.m
 ## Development
 
 Working in the repo — dev setup, the CI gates your change must pass, and the invariants you must
-not break: **[`CONTRIBUTING.md`](CONTRIBUTING.md)**. The enforced Python rules (§R1–§R18, most
+not break: **[`CONTRIBUTING.md`](CONTRIBUTING.md)**. The enforced Python rules (§R1–§R19, most
 CI-gated) live in [`docs/RULES.md`](docs/RULES.md).
 
 CI runs the shell lint gates and `pytest tests/` on pull requests; use `uv run …` for everything

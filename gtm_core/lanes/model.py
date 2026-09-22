@@ -52,7 +52,19 @@ HOLD_ORDER = (
     "tier-a-generic",
     "duplicate-contact",
     "unattended-generic",
+    "unattended-repair",
 )
+
+#: The hold trigger an UNATTENDED route writes instead of each send-path lane it refuses to
+#: fill without a person present (fail-closed). This mapping is the only spelling: the router
+#: reads it rather than composing ``f"unattended-{lane}"`` — which is how ``unattended-repair``
+#: once reached a state file that nothing downstream had ever heard of, and ended the
+#: mandatory status step in a traceback. Every value is also a ``HOLD_ORDER`` member with a
+#: question and copy below (pinned by ``tests/unit/test_lanes_route_state.py``).
+UNATTENDED_TRIGGERS: dict[str, str] = {
+    "generic": "unattended-generic",
+    "repair": "unattended-repair",
+}
 
 #: Triggers that EXCLUDE a row outright (deterministic, no decision to make). ``already-
 #: enrolled`` is the double-enrolment guard: a row already in a registered sequence list has
@@ -181,6 +193,14 @@ HOLD_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "salvage": "salvage",
         },
     ),
+    "unattended-repair": (
+        "Unattended run stopped on an email the review wants reworked",
+        {
+            "suppress": "keep this account out of outreach (reversible)",
+            "generic": "send the seat email instead of a reworked one",
+            "salvage": "rework it — say the better fact, argument, or person",
+        },
+    ),
 }
 
 #: Which QUESTION a hold trigger answers, for the hold sheet (PS12). Several triggers with
@@ -203,6 +223,7 @@ HOLD_QUESTION: dict[str, str] = {
     "tier-a-generic": "tier-a-would-get-generic",
     "duplicate-contact": "second-contact-same-account",
     "unattended-generic": "unattended-fail-closed",
+    "unattended-repair": "unattended-needs-rework",
 }
 
 #: Plain-English title + per-choice meaning per QUESTION id (not per trigger) — adapted from
@@ -265,6 +286,14 @@ QUESTION_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "suppress": "keep it out of outreach (reversible)",
             "generic": "send the seat email anyway",
             "salvage": "re-research or write a custom outreach note",
+        },
+    ),
+    "unattended-needs-rework": (
+        "Unattended run stopped on an email the review wants reworked",
+        {
+            "suppress": "keep it out of outreach (reversible)",
+            "generic": "send the seat email instead of a reworked one",
+            "salvage": "rework it — say the better fact, argument, or person",
         },
     ),
 }

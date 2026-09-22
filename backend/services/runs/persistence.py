@@ -24,6 +24,8 @@ RunErrorCode = Literal[
     "worker_unavailable",
     "publish_not_configured",
     "email_not_configured",
+    # SC9: the workspace has no Saleshandy key, so an approved dnc_add wrote nothing.
+    "dnc_not_configured",
     "publish_draft_missing",
     "disclosure_required",
     "draft_integrity_failed",
@@ -145,6 +147,27 @@ def enroll_refusal(outcome) -> RunFailure | None:
             "no Saleshandy API key configured for this workspace — not enrolled",
         )
     if outcome.status != "dry_run" and not outcome.ok:
+        return RunFailure("dispatch_failed", outcome.operator_line())
+    return None
+
+
+def dnc_refusal(outcome) -> RunFailure | None:
+    """Why an approved DNC-add dispatch fails the run, or None (SC9).
+
+    ``outcome`` is ``dispatch_backend_dnc_add``'s return: None when the workspace has no
+    Saleshandy key (or the dispatch swallowed an internal exception) — nothing was written.
+    A dry run is not a failure, and neither is the kill switch being off: that is a
+    deployment that has not opted in, not a broken run, so it surfaces as the operator line
+    rather than a failed run.
+    """
+    if outcome is None:
+        return RunFailure(
+            "dnc_not_configured",
+            "no Saleshandy API key configured for this workspace — nothing added to DNC",
+        )
+    if outcome.status in ("dry_run", "disabled", "nothing_to_do"):
+        return None
+    if not outcome.ok:
         return RunFailure("dispatch_failed", outcome.operator_line())
     return None
 

@@ -25,9 +25,13 @@ def prompt_gate_kind(sentinel: str) -> str:
 def pack_gate_kind(draft_kind: str | None) -> str:
     """A pack gate's kind, from the draft its node left at the gate (``agent.gate_actions``):
     a plan draft → ``plan``, an enroll draft → ``email_enroll``, a publish draft → ``publish``, none → ``review``."""
-    return {"plan": "plan", "enroll": "email_enroll", "publish": "publish"}.get(
-        draft_kind, "review"
-    )
+    return {
+        "plan": "plan",
+        "enroll": "email_enroll",
+        "publish": "publish",
+        # SC9: a `dnc_add` gate leaves a `dnc` draft (agent/gate_actions.py).
+        "dnc": "dnc_add",
+    }.get(draft_kind, "review")
 
 
 def dispatch_target(nodes, gated_node_id: str) -> tuple[str | None, str]:
@@ -47,7 +51,14 @@ def dispatch_target(nodes, gated_node_id: str) -> tuple[str | None, str]:
             n
             for n in nodes
             if gated_node_id in getattr(n, "depends_on", ())
-            and getattr(n, "external_effect", None) in ("email_enroll", "publish")
+            # MUST list every member of `gtm_core.packs.loader._ALLOWED_EXTERNAL_EFFECTS`.
+            # It is spelled out rather than imported because this module is a deliberate
+            # pure leaf — both the real executors and the fake call it, so an import here
+            # is an import cycle waiting to happen (`test_the_shared_gate_kind_rules_are_a
+            # _pure_leaf`). The duplication is therefore load-bearing, and
+            # `tests/contracts/test_closed_sets_agree.py` is what keeps the two in step:
+            # widening the loader alone leaves an approved gate dispatching nothing.
+            and getattr(n, "external_effect", None) in ("email_enroll", "publish", "dnc_add")
         ),
         None,
     )

@@ -287,6 +287,12 @@ def bar_html(m: dict) -> str:
     return (
         f'<div class="filterbar" id="filterbar"><span class="flabel">Filter</span>{picks}'
         '<button type="button" id="filter-clear" hidden>Clear</button></div>'
+        # The ONE place the filter's limit is explained. Each figure that cannot follow a
+        # selection carries a two-word mark (its exact reason is the mark's tooltip); the
+        # sentence is here, once, instead of under every one of them.
+        '<p class="why filter-note" id="filter-note" data-filter-note hidden>Some figures '
+        "below are marked <strong>not filtered</strong>: they count something the filter does "
+        "not select from, so they stay as they were. Hover a mark for the exact reason.</p>"
         '<div class="card banner" id="filter-tripwire" hidden>'
         "<h2>This page disagrees with its own filter data</h2>"
         "<p>A headline figure and the row data behind the filter do not match, so every "

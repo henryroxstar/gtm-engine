@@ -168,24 +168,49 @@ def test_why_non_question_status_groups_by_reason(tmp_path, monkeypatch, capsys)
     assert any("1" in line and "researcher-drop" in line for line in lines)
 
 
-def test_malformed_lines_and_non_dict_in_state_file_are_skipped(tmp_path, monkeypatch, capsys):
+_GOOD_LINE = '{"email": "a@x.example", "lane": "generic", "reason": ""}\n'
+
+
+@pytest.mark.parametrize("bad", ["not valid json", "null", "123", '["a@x.example"]'])
+@pytest.mark.parametrize("why", [[], ["--why", "ready_to_send"]])
+def test_a_state_line_that_is_not_a_record_is_refused_not_skipped(
+    tmp_path, monkeypatch, capsys, bad, why
+):
+    """Changed 2026-09-21 (review L2): these lines used to be skipped and the block printed
+    exit 0 with one person fewer — a confident undercount pasted to the operator, while
+    `lanes route` refused the very same file. Now the two agree."""
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     state_file = tmp_path / "acme" / "prospects" / "evals" / "lanes-state.jsonl"
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(
-        '{"email": "a@x.example", "lane": "generic", "reason": ""}\n'
-        "not valid json\n"
-        "null\n"
-        "123\n"
-        '{"email": "b@x.example", "lane": "personalised", "reason": ""}\n',
-        encoding="utf-8",
-    )
+    state_file.write_text(_GOOD_LINE + "\n" + bad + "\n", encoding="utf-8")
+    _write_latest(tmp_path / "acme" / "prospects" / "latest.json", [])
+    assert cli.main(["--profile", "acme", *why]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("The sorted list could not be read")
+    assert "line 3" in captured.err and len(captured.err.strip().splitlines()) == 1
+
+
+def test_blank_lines_in_the_state_file_are_not_a_defect(tmp_path, monkeypatch, capsys):
+    """Negative control for the refusal above."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    state_file = tmp_path / "acme" / "prospects" / "evals" / "lanes-state.jsonl"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(_GOOD_LINE + "\n   \n" + _GOOD_LINE, encoding="utf-8")
     _write_latest(tmp_path / "acme" / "prospects" / "latest.json", [])
     assert cli.main(["--profile", "acme"]) == 0
-    out = capsys.readouterr().out
-    counts = _counts_from_output(out)
-    assert counts["ready_to_send"] == 2
-    assert counts["total"] == 2
+    assert _counts_from_output(capsys.readouterr().out)["total"] == 2
+
+
+@pytest.mark.parametrize("which", ["lanes-state.jsonl", "latest.json"])
+def test_bytes_that_are_not_text_are_one_clear_line(tmp_path, monkeypatch, capsys, which):
+    _seed(tmp_path, monkeypatch)
+    target = next((tmp_path / "acme" / "prospects").rglob(which))
+    target.write_bytes(target.read_bytes() + b"\xff\xfe\n")
+    assert cli.main(["--profile", "acme"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "Traceback" not in captured.err
+    assert len(captured.err.strip().splitlines()) == 1
 
 
 def test_why_flag_does_not_print_the_default_block(tmp_path, monkeypatch, capsys):
@@ -196,11 +221,28 @@ def test_why_flag_does_not_print_the_default_block(tmp_path, monkeypatch, capsys
     assert "every person in the current list" not in out
 
 
-def test_an_unmapped_reason_propagates_uncaught(tmp_path, monkeypatch):
+def test_an_unmapped_reason_is_counted_visibly_never_a_traceback(tmp_path, monkeypatch, capsys):
+    """Changed 2026-09-21 (PSK-028): this used to REQUIRE `UnmappedStatus` to propagate. The
+    status step is mandatory in every run and pasted to the operator, so one state record this
+    build cannot map must show up as a counted line, not end the run in a traceback."""
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
-    rows = [{"email": "z@x.example", "lane": "hold", "reason": "not-a-real-trigger"}]
+    rows = [
+        {"email": "z@x.example", "lane": "hold", "reason": "not-a-real-trigger"},
+        {"email": "y@x.example", "lane": "generic", "reason": "no-judge-verdict"},
+    ]
     _write_jsonl(tmp_path / "acme" / "prospects" / "evals" / "lanes-state.jsonl", rows)
-    from gtm_core.prospect_status import UnmappedStatus
+    assert cli.main(["--profile", "acme"]) == 0
+    captured = capsys.readouterr()
+    line = next(ln for ln in captured.out.splitlines() if ln.startswith("Unrecognised"))
+    assert re.search(r"^Unrecognised\s+1\b", line) and "sort the list again" in line
+    assert _counts_from_output(captured.out)["total"] == 2  # it still participates in the sum
+    # the command that fixes it goes to stderr — the table itself stays in the operator's words
+    assert "not recognise" in captured.err and "re-run `lanes route`" in captured.err
+    assert cli.main(["--profile", "acme", "--why", "waiting_on_you"]) == 0
 
-    with pytest.raises(UnmappedStatus):
-        cli.main(["--profile", "acme"])
+
+def test_no_unrecognised_line_when_every_record_maps(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path, monkeypatch)
+    assert cli.main(["--profile", "acme"]) == 0
+    captured = capsys.readouterr()
+    assert "Unrecognised" not in captured.out and captured.err == ""

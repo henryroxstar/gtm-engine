@@ -23,8 +23,6 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from gtm_core.voc.signals import load_content_signals
-
 # --- scoring weights (tunable; documented so the rubric is auditable) -------- #
 W_TRENDING = 0.55
 W_FIT = 0.45
@@ -209,6 +207,50 @@ def cluster_and_score(items: list[dict], pillars: list[str]) -> list[dict]:
     return out
 
 
+def load_content_signals(path: Path) -> list[dict]:
+    """Read the content-radar handoff file. Missing or unreadable file → empty list.
+
+    Each item must carry at least ``signal_id``, ``pillar``, and ``angle``;
+    ``verified`` content signals are the ones content-radar should surface.
+
+    Lives here rather than in ``gtm_core.voc`` (which produces the handoff file, via
+    ``market-intelligence``): this reader has no VOC-pipeline dependency of its own, and
+    ``market-intelligence`` is a private/stubbed skill in the OSS carve while
+    ``content-radar`` — the only consumer of this function — ships publicly. A module-level
+    import of ``gtm_core.voc`` here previously broke `python -m gtm_core.radar` entirely
+    wherever ``gtm_core.voc`` doesn't exist.
+    """
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        if not all(
+            isinstance(raw.get(k), str) and raw.get(k) for k in ("signal_id", "pillar", "angle")
+        ):
+            continue
+        out.append(
+            {
+                "signal_id": str(raw["signal_id"]),
+                "pillar": str(raw["pillar"]),
+                "angle": str(raw["angle"]),
+                "title": str(raw["title"]) if isinstance(raw.get("title"), str) else "",
+                "url": str(raw["url"]) if isinstance(raw.get("url"), str) else "",
+                "evidence_ids": [str(x) for x in raw.get("evidence_ids", []) if isinstance(x, str)],
+                "verified": bool(raw.get("verified", False)),
+                "decay_days": int(raw.get("decay_days", 30)),
+            }
+        )
+    return out
+
+
 def content_signal_clusters(path: Path, pillars: list[str], seen_ids: set[str]) -> list[dict]:
     """Convert verified market-intelligence content signals into high-priority clusters.
 
@@ -387,13 +429,17 @@ def main(argv: list[str] | None = None) -> int:
 
 def _default_content_signals_path(content_root: Path, profile: str, date_str: str) -> Path:
     """Default path for the market-intelligence content-signals handoff file."""
-    from gtm_core.voc.signals import content_signals_path
-
     try:
         as_of = date.fromisoformat(date_str)
     except ValueError:
         as_of = date.today()
-    return content_signals_path(content_root, profile, as_of=as_of)
+    return (
+        content_root
+        / profile
+        / "plans"
+        / "market-intelligence"
+        / f"content-signals-{as_of.isoformat()}.json"
+    )
 
 
 def _derive_date(items: list[dict]) -> str | None:

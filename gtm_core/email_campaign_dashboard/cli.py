@@ -4,7 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .render import check_fresh, render_dashboard
+from .model import LaneStateUnreadable
+from .render import check_fresh, refresh_all, render_dashboard
 from .scope import MODES
 
 
@@ -39,6 +40,16 @@ def _cli(argv: list[str] | None = None) -> int:
         ),
     )
     ap.add_argument(
+        "--refresh-all",
+        action="store_true",
+        help=(
+            "re-render every page that already exists, each under its own recorded scope. "
+            "Only the profile rollup is refreshed automatically, so the scoped pages go "
+            "stale silently — a stale page renders identically to a current one. Use this "
+            "after changing the renderer, which no freshness check can see."
+        ),
+    )
+    ap.add_argument(
         "--check-fresh",
         action="store_true",
         help=(
@@ -50,6 +61,25 @@ def _cli(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
     root = Path(args.content_root) if args.content_root else None
+    try:
+        return _run(args, root)
+    except LaneStateUnreadable as err:
+        # Every lane-derived figure on the page reads that one file. A page rendered without it
+        # is a page of numbers that are quietly short, which is worse than no page.
+        print(
+            f"ABORTED: the sorted list could not be read — {err}. Nothing was written; "
+            "run `lanes route` again to rebuild it.",
+            file=sys.stderr,
+        )
+        return 2
+
+
+def _run(args: argparse.Namespace, root: Path | None) -> int:
+
+    if args.refresh_all:
+        for path in refresh_all(args.profile, root, stubs=not args.no_stubs):
+            print("wrote " + str(path))
+        return 0
 
     if args.check_fresh:
         rep = check_fresh(args.profile, root, campaign=args.campaign, scope=args.scope)

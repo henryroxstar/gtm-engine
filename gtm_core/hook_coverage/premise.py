@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..paths import resolve_knowledge_file, resolve_profiles_root
 from .config import EXEMPLARS, MAX_SPECS_PER_CAPABILITY
-from .declared import _CAPABILITY_RE, _PREMISE_RE, _STAKES_RE
+from .declared import _CAPABILITY_RE, _PREMISE_RE, _SIGNAL_COLUMN_RE, _STAKES_RE
 from .matrix import _clean_cell, _sections, _split_row
 
 # --- does the row's own fact ESTABLISH what the body claims? --------------------------
@@ -321,3 +321,14 @@ def premise_unsupported(
                 )
             )
     return out
+
+
+def declared_signal_column(spec_text: str) -> str:
+    """The signal CATEGORY a spec declares its beat 2 depends on, or ``""``.
+
+    Same one-line front-block read as :func:`declared_premise`. Empty is a real answer and
+    not an error: every spec written before 2026-09-22 predates the field, which is exactly
+    what the `signal-column-undeclared` WARN is for.
+    """
+    m = _SIGNAL_COLUMN_RE.search(spec_text or "")
+    return m.group("value").strip() if m else ""

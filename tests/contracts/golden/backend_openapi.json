@@ -1828,6 +1828,17 @@
             ],
             "title": "External Ref"
           },
+          "fallback_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Mode"
+          },
           "gate": {
             "anyOf": [
               {

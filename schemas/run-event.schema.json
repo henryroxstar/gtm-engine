@@ -29,7 +29,7 @@
             "pending_gate": { "type": ["string", "null"], "description": "Raw gate sentinel when paused at a gate, else null." },
             "pending_content": { "type": ["string", "null"], "description": "The exact bytes awaiting approval when paused at a gate, else null." },
             "protocol": { "type": "integer", "minimum": 1, "description": "Protocol 1+: the stream vocabulary version this server emits. Absent = protocol 0. 2 additionally means seq is a durable, resumable id and ?since= is supported (see RECONNECT CONTRACT)." },
-            "gate": { "type": ["string", "null"], "description": "ST-01: the open gate's parsed kind (plan | publish | email_enroll | review), mirroring the awaiting_approval event and GET /v1/runs/{id}. Null once the gate is decided or on a run never gated — a client landing on this frame while a gate is open no longer needs a supplementary GET to learn which kind it is." },
+            "gate": { "type": ["string", "null"], "description": "ST-01: the open gate's parsed kind (plan | publish | email_enroll | dnc_add | review), mirroring the awaiting_approval event and GET /v1/runs/{id}. Null once the gate is decided or on a run never gated — a client landing on this frame while a gate is open no longer needs a supplementary GET to learn which kind it is." },
             "pending_node_id": { "type": ["string", "null"], "description": "ST-01: the gated graph node (joins onto PackDescriptor.nodes[].id), mirroring the awaiting_approval event's node_id. Null on a prompt run (no graph) or when no gate is open." },
             "pending_content_sha": { "type": ["string", "null"], "description": "ST-01: sha256 hex of pending_content, mirroring the awaiting_approval event — echo it back as the gate decision's content_sha. Null when pending_content is null." },
             "nodes": {
@@ -85,7 +85,7 @@
             "run_id": { "type": "string" },
             "pending_gate": { "type": "string", "description": "Raw gate sentinel as detected in the output stream." },
             "pending_content": { "type": ["string", "null"] },
-            "gate": { "type": "string", "enum": ["plan", "publish", "email_enroll", "review"], "description": "Protocol 1+: gate kind. plan/publish for prompt runs; a pack gate is plan (plan draft), email_enroll (enrollment draft) or review (no draft of its own). node_id names which step is waiting. Open-world." },
+            "gate": { "type": "string", "enum": ["plan", "publish", "email_enroll", "dnc_add", "review"], "description": "Protocol 1+: gate kind. plan/publish for prompt runs; a pack gate is plan (plan draft), email_enroll (enrollment draft), dnc_add (a do-not-contact add draft) or review (no draft of its own). node_id names which step is waiting. Open-world." },
             "node_id": { "type": "string", "description": "Protocol 1+: the gated graph node (joins onto PackDescriptor.nodes[].id)." },
             "pending_content_sha": { "type": "string", "description": "Protocol 1+: sha256 hex of pending_content." }
           }
@@ -120,7 +120,7 @@
             "status": { "type": "string", "enum": ["ok", "failed", "rejected", "canceled"] },
             "output": { "type": "string", "description": "Final output when status = ok." },
             "error": { "type": "string", "description": "Failure reason when status = failed/rejected." },
-            "error_code": { "type": "string", "description": "Machine-readable reason when status = failed — branch on this, display error. OPEN-WORLD: a client MUST treat a code it does not know as a generic failure. Current values: cost_cap_reached | gate_timeout | run_interrupted | retries_exhausted | fake_runs_disabled | worker_unavailable | publish_not_configured | email_not_configured | publish_draft_missing | disclosure_required | draft_integrity_failed | draft_invalid | dispatch_failed | node_failed | internal_error. Absent on ok/rejected, and on runs that failed before the field existed." }
+            "error_code": { "type": "string", "description": "Machine-readable reason when status = failed — branch on this, display error. OPEN-WORLD: a client MUST treat a code it does not know as a generic failure. Current values: cost_cap_reached | gate_timeout | run_interrupted | retries_exhausted | fake_runs_disabled | worker_unavailable | publish_not_configured | email_not_configured | dnc_not_configured | publish_draft_missing | disclosure_required | draft_integrity_failed | draft_invalid | dispatch_failed | node_failed | internal_error. Absent on ok/rejected, and on runs that failed before the field existed." }
           }
         }
       }

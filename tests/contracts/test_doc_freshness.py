@@ -115,6 +115,84 @@ def _pack_variants() -> dict[str, int]:
     }
 
 
+#: README `### <heading>` -> the pack slug under packs/ that section describes. Only the packs the
+#: README gives a section of their own; the rest are covered by the inventory test below.
+_README_PACK_SECTIONS: dict[str, str] = {
+    "Marketing": "marketing",
+    "Creator": "creator",
+    "Prospecting": "prospecting",
+    "Solution architecture": "solution-architecture",
+}
+
+_H3 = re.compile(r"^### (.+?)\s*$", re.MULTILINE)
+
+
+def _readme_section(text: str, heading: str) -> str:
+    """The README block under one `### heading`, down to the next one."""
+    match = re.search(rf"^### {re.escape(heading)}\s*$", text, re.MULTILINE)
+    assert match, f"README.md has no `### {heading}` section"
+    tail = text[match.end() :]
+    nxt = _H3.search(tail)
+    return tail[: nxt.start()] if nxt else tail
+
+
+def _pack_node_ids(slug: str) -> set[str]:
+    from gtm_core.packs.loader import load_pack_graph
+
+    graphs = sorted((REPO / "packs" / slug / "graphs").glob("*.toml"))
+    assert graphs, f"packs/{slug}/graphs/ has no variants"
+    ids: set[str] = set()
+    for path in graphs:
+        ids |= set(load_pack_graph(path).ids)
+    return ids
+
+
+@pytest.mark.parametrize(
+    ("heading", "slug"), sorted(_README_PACK_SECTIONS.items()), ids=lambda v: str(v)
+)
+def test_readme_pack_block_names_every_node_in_that_packs_graphs(heading: str, slug: str) -> None:
+    """Every node a pack actually runs is named in the README block that describes it.
+
+    ``test_readme_pack_inventory_matches_disk`` proves a pack is *named*; it cannot prove the
+    description is *true*. Both gaps this found on its first run were real and load-bearing:
+    `sequence-enroll`, the node that actually pushes leads to a third-party processor and that
+    the agent is denied outright, appeared nowhere — the README described a flow that stopped one
+    node before the only step with an external effect. And `cross-modal-campaign`'s three-way
+    fan-out (`format-plan` → `text-studio` + `image-studio` + video) was named in the variants
+    row and absent from the flow, so the one shape a reader could not guess was the one not shown.
+
+    A node matches when its id appears, or when every hyphen-separated part of it does — the
+    README writes prose ("fans research out into evidence + competitive"), not node ids, and
+    requiring the literal id would be a style rule wearing a contract's clothes. The direction is
+    deliberately one-way: a node absent from the prose is a finding; prose with no node behind it
+    is just prose.
+    """
+    block = _readme_section((REPO / "README.md").read_text(encoding="utf-8"), heading).lower()
+    missing = sorted(
+        node
+        for node in _pack_node_ids(slug)
+        if node not in block and not all(part in block for part in node.split("-"))
+    )
+    assert not missing, (
+        f"README.md's `### {heading}` block does not name {missing} — nodes packs/{slug}/ "
+        "actually runs. A flow a reader cannot see is a step that happens without them."
+    )
+
+
+def test_every_readme_pack_section_maps_to_a_pack_on_disk() -> None:
+    """The instrument check on the map above.
+
+    A typo in a heading, or a pack renamed on disk, would make every case above pass by
+    describing nothing — the section lookup asserts, but only if the parametrization still names
+    a real pair. This pins both halves independently.
+    """
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    for heading, slug in _README_PACK_SECTIONS.items():
+        assert (REPO / "packs" / slug / "graphs").is_dir(), f"packs/{slug}/graphs/ missing"
+        assert _readme_section(text, heading).strip(), f"`### {heading}` section is empty"
+    assert _README_PACK_SECTIONS
+
+
 def test_readme_pack_inventory_matches_disk() -> None:
     """The README's pack count, variant count, and pack names must match packs/.
 

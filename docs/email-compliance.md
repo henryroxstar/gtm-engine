@@ -201,6 +201,20 @@ website, by anyone with access.
 | **Contact data** — RocketReach, Vibe Prospecting, Apollo · *external* | finds and verifies work email addresses | give you permission to email anyone. Their terms also govern what you may do with the data — read them |
 | **Inbox providers** — Gmail, Yahoo, Outlook · *external, and on the recipient's side* | decide whether your email reaches the inbox at all, using their own published rules | enforce the law. Their rules are their own, separate from it, and stricter in places — see [`email-optimization.md` §1](email-optimization.md) |
 | **This repo's preflight** — runs locally | checks the mechanics deterministically, before every load, and blocks the load if one fails | replace legal review, or verify that what it read is actually true |
+| **The capability registry** — [`gtm_core/sequencers.toml`](../gtm_core/sequencers.toml), runs locally | records what each sequencer's PRODUCT does, with a source URL and the date it was read, and refuses anything uncited — so "the sequence stops on reply" is a citation, not a memory | tell you what THIS workspace has switched on. That is configuration, it changes in the vendor's UI at any moment, and the preflight asserts it live per sequence |
+
+**Why those are two different rows.** A capability is a fact about the vendor's product and is the
+same for every tenant; a configuration is a per-workspace toggle any human can flip. Writing a
+configuration into a file is how three real opt-outs sat unmirrored for six weeks: a boolean that
+was true once. The registry holds only the first kind, and every row fails to load without a
+`source` and a `verified_on` date.
+
+The preflight asserts each policy-governed capability on a five-rung ladder and reports one of four
+words, of which **only `FAIL` blocks**: a live read that shows the setting on is `PASS`; a setting
+nothing can read back is `ATTESTED` when the operator passed `--attest <capability>` for that run
+(never carried into the next one); an advisory capability reports without blocking; anything else —
+an uncited registry row, a setting read as off, a capability nobody has yet established is even
+readable — is a `FAIL` that names the vendor UI path to fix it.
 
 Warmup and deliverability tooling is worth having, but note what it is: it builds sending reputation.
 It has no effect on legality. A well-warmed domain sending non-compliant email is just sending

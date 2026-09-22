@@ -3,6 +3,7 @@ usage: python -m gtm_core.email_campaign_dashboard [-h] --profile PROFILE
                                                    [--no-stubs]
                                                    [--scope {campaign,open,all}]
                                                    [--campaign CAMPAIGN]
+                                                   [--refresh-all]
                                                    [--check-fresh]
 
 Render the email-campaign status page.
@@ -27,6 +28,12 @@ options:
                         unknown slugs are refused rather than silently falling
                         back to the rollup, which is a different campaign's
                         numbers.
+  --refresh-all         re-render every page that already exists, each under
+                        its own recorded scope. Only the profile rollup is
+                        refreshed automatically, so the scoped pages go stale
+                        silently — a stale page renders identically to a
+                        current one. Use this after changing the renderer,
+                        which no freshness check can see.
   --check-fresh         do not render — report whether the page for this scope
                         is still built from what is on disk now, and exit non-
                         zero if not. A stale page renders identically to a

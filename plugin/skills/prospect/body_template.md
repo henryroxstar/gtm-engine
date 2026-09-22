@@ -18,14 +18,57 @@ Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) s
 
 > **Knowledge resolution (product-aware).** Wherever this skill loads a per-product knowledge file —
 > `icp-personas.md` or `market-scan-config.md` — resolve its path with
-> `python -m gtm_core.resolve_knowledge <file> --profile <active> [--product <slug>]` and read whatever
+> `python -m gtm_core.resolve_knowledge <file> --profile <active> [--product <slug>] [--overlay <slug>]` and read whatever
 > path it prints, instead of opening `knowledge/<file>` directly. The helper returns the product-level
 > file (`products/<slug>/<file>`) when present and falls back to the profile-level `knowledge/<file>`
 > otherwise. Pass `--product` when the run is bound to one product (the lead `default_product` from
 > PROFILE.md, or a product the operator named); omit it for profile-wide work — a profile that keeps one
 > shared knowledge pack always falls back to the profile level, so nothing changes for it.
+>
+> **`--overlay` is for an experiment, and only when the operator named one.** An overlay
+> (`profiles/<active>/experiments/<slug>/`) replaces targeting files for the length of ONE run, so a
+> different ICP or hook matrix can be tried without touching the live one. Never infer it, never
+> carry it over from a previous run, and never pass more than one — it is an argument precisely so
+> it cannot become ambient.
+>
+> **If the operator named an overlay, admit it BEFORE you spend anything:**
+>
+> ```bash
+> uv run python -m gtm_core.experiments --profile <active> --overlay <slug>
+> ```
+>
+> A non-zero exit means the run does **not** start — it is refused for a named reason (the feature is
+> switched off, the experiment expired, its manifest is wrong, or it carries a file it may not
+> override). **Report the reason and stop. Do not fall back to the base profile**: that would spend
+> real credits and write overlay-labelled results containing base-ICP data, which is worse than a
+> stopped run because it looks like an answer.
+>
+> Once admitted, pass `--overlay <slug>` to every `resolve_knowledge` call in this skill **and** to
+> the backlog scorer, so the run scores against the experiment's rubric rather than the tenant's.
+> When you register the resulting list in `sequences/cells.toml`, set `overlay = "<slug>"` on the
+> row — that is what makes the experiment's results separable from the live pipeline's afterwards.
 
-1. **Read the PROFILE.** Read `profiles/<active>/PROFILE.md`. Pull: `company`, `brand_name`, `default_product` (the lead product), `target_markets`, `segment_mix`, `emphasize_personas/verticals`, `monthly_tool_budget_usd`, `per_run_cap_usd`, `tools_metered`, and the `vibe_prospecting` + `rocketreach` + `apollo` connection statuses. If no PROFILE exists, run `setup` first (or ask the 3 essentials: markets, segment mix, budget).
+> **Critique the ICP before you spend against it.** The ICP definition is the one targeting
+> input with no gate on it — every other gate in this pipeline polices rows, lists and copy.
+> Run:
+>
+> ```bash
+> uv run python -m gtm_core.prospects icp check --profile <active> --warn-only
+> ```
+>
+> and paste the one summary block into the run header. It reads the RESOLVED ICP, so pass
+> `--overlay <slug>` too when one is in effect, and `--product <slug>` when the run is bound to
+> one product. **Unlike the overlay admission above, a finding does NOT stop the run** — a weak
+> criterion is still the tenant's ICP, and refusing to prospect on it would turn a critique into
+> a gate nobody asked for. Report the findings and continue; the operator decides what to change.
+>
+> A clean result means the criteria are queryable, the personas mappable, the rubric
+> discriminating. It does **not** mean the ICP is right — that needs replies, which the command
+> cannot see, and it says so in its own output. To test one candidate phrase before adding it to
+> the rubric: `icp keyword --profile <active> --phrase "<candidate>"` prints the hit count plus a
+> sample to read, and names which rubric key the phrase belongs in.
+
+1. **Read the PROFILE.** Read `profiles/<active>/PROFILE.md`. Pull: `company`, `brand_name`, `default_product` (the lead product), `target_markets`, `segment_mix`, `emphasize_personas/verticals`, `monthly_tool_budget_usd`, `per_run_cap_usd`, `tools_metered`, and the `vibe_prospecting` + `rocketreach` + `apollo` connection statuses. If no PROFILE exists, run `setup` first (or ask the 3 essentials: markets, segment mix, budget). **If `target_markets` is empty or still the template placeholder (`[<e.g. United States (primary), Singapore>]`), STOP and ask the operator for the real markets** (unattended: stop the run and give that reason) — otherwise every lead is silently excluded as out-of-market, with no hint why.
 2. **Skim the references** (load as needed):
    - `references/gates-and-scoring.md` — **generic** scoring machinery only: order of ops, the gate/rubric *shapes*, the heat axis, Tier-A ordering, default thresholds, per-run distribution. The **actual gates, rubric line-items, segments, and thresholds are tenant-specific** and come from the active profile (next bullet), which wins over anything illustrated here.
    - `references/discovery-and-budget.md` — Vibe filters, credit/budget model, enrichment depth, the 6-source signal sweep, the RocketReach Intentsify two-tier intent path, and the web-search fallback.
@@ -43,6 +86,7 @@ Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) s
 - **Scoped run:** if the user names a market, segment, or count ("5 startups in Singapore"), honor it.
 - **Bulk run (operator states a large target, e.g. "300 accounts"):** standard mode's ~20–30-row `fetch-entities` intake per pass cannot reach a large target — use **bulk mode** instead (full funnel in `references/discovery-and-budget.md` §"Bulk mode"). Steps 1–4 (exclude set, preflight, budget pre-check auto-scaled, funnel sizing) below still apply; Steps 5–7 (discovery, why-now, the record) are replaced by that section's size→filter→export→ingest→score flow; Steps 8–9 (gate/score, enrichment) run the same rubric but **finalists-only enrichment and web-sweep confirmation**, not per-candidate; Step 10's `latest.json` merge happens via `python -m gtm_core.prospects_import finalize` (wraps the same safe merge-only writer + emits the HubSpot CSV in one call) instead of a hand-assembled items file. If any gate was relaxed for the run, set `qualification_path` (e.g. `intent-only-relaxed`) on every affected item — see the item shape in Step 10 below.
 - **Re-score mode ("refresh heat", "re-score my prospects", "update intent"):** no new discovery — refresh `heat` / `intent_feeds` on the accounts already in `content/<active>/prospects/latest.json` against *today's* intent, then re-rank Tier-A. Reuses this skill's intent fetch + heat axis; skips discovery, gating, enrichment, and outreach drafting. Full procedure in `references/heat-rescore.md`. Near-zero cost (intent checks are credit-free). Use after a tracked-topic change, for a periodic heat refresh, or to apply the scored heat axis to older runs.
+- **List mode (the operator supplies the accounts — "enrich and score this list", "score the accounts in this sheet", "we added some accounts, score them again"):** every other mode *finds* the universe; here it arrives from outside — a curated spreadsheet, a partner list, accounts colleagues added during an internal review. **Skip discovery entirely** and run the existing tail: sheet → CSV → `prospects_import ingest` → score on the same rubric (`gates-and-scoring.md`) → `prospects_import finalize`. Full procedure in `references/discovery-and-budget.md` §"List mode" — read it, because two defaults are wrong for a list you did not buy: **pass `--source curated-sheet`** (the default `vibe-export` logs per-row cost to `costs.jsonl`, which on a 400-row sheet fabricates ~$16 of spend against the §R2 cap), and expect **heat 0** until a Re-score pass fills it. List mode composes with the others: once the list is in `latest.json`, a later full/bulk run excludes those accounts through the normal exclude set, so the same company is never double-counted.
 
 ## Workflow
 
@@ -90,14 +134,14 @@ run `scripts/bootstrap.ps1` (Windows) or `bash scripts/bootstrap.sh` (mac/Linux)
 In a **new** shell, re-run the probe as `uv run python -m gtm_core.paths`. `uv` provisions its own
 Python 3.11+, so the alias never gets a vote.
 
-**Step 1 — Init, mode, & exclude set.** Read the current state; do not sweep yet. The consolidation
-sweep runs **once per run, at Step 10**. It is cumulative over *every* `prospects-*-hubspot.csv` on
-disk, so that one run also folds in whatever a previous, interrupted run wrote and never
-consolidated — this step used to run the identical command for that reason, which was one command
-twice for one effect.
+**Step 1 — Init, mode, & exclude set.** Read the current state; do not consolidate yet.
+Consolidation runs **once per run, at Step 10** — nowhere else. It is cumulative over *every*
+`prospects-*-hubspot.csv` on disk, so that one run also folds in whatever a previous, interrupted
+run wrote and never consolidated — this step used to run the identical command for that reason,
+which was one command twice for one effect.
 
 The whole picture lives on one page: `content/<active>/email_campaign_status.html` (account backlog →
-email funnel → ready/verifying/blocked, plus cost and next steps), refreshed by every sweep. Point
+email funnel → ready/verifying/blocked, plus cost and next steps), refreshed by every consolidation. Point
 the operator there when they ask "where's the data / how many are ready / what's next" instead of
 enumerating CSVs. Confirm the mode (§Modes above) — **bulk mode** if the operator stated a large target the standard intake can't reach, **standard mode** otherwise — and state which in the run header.
 
@@ -202,15 +246,19 @@ the dossier is not automatically the source for *this* clause.
 
 Then run the standardized 6-source web sweep per candidate — the intent/trigger feeds pre-flag, the sweep **confirms and dates** (the 🔥 cites the public source, never the feed). Offload query generation and hit normalization to `gtm_core.web_sweep` to eliminate unstructured search thrashing:
 
-Generate deterministic queries across the 6 sources:
+Generate deterministic queries across the 6 sources (the search vocabulary comes from the profile's `web-sweep.toml`, resolved product-first; neutral defaults when the profile has none):
 ```bash
-uv run python -m gtm_core.web_sweep queries --company "<company>" [--domain <domain>]
+uv run python -m gtm_core.web_sweep queries --company "<company>" --profile <active> \
+  [--product <slug>] [--domain <domain>] --segment <enterprise|startup>
 ```
 
-Execute these queries using your available search tools. Then pass raw hits to the normalizer to validate HTTPS URLs, reject search engines, verify freshness windows (<90d enterprise, <18m startup funding, ≤210d general), and extract the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
+Execute these queries using your available search tools. Save the raw hits to a JSON **file** — an array of objects with `url`, `date` (`YYYY-MM-DD`), `type` (`newsroom|hiring|eng|regulatory|funding|incident`), `evidence`, and optionally `title`, `strength` (`H|M|L`), `subject` — then pass the file's **path** (or `-` for stdin, never inline JSON) to the normalizer, which validates HTTPS URLs, rejects search engines, enforces the freshness window (≤90d enterprise, ≤210d otherwise) and extracts the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
 ```bash
-uv run python -m gtm_core.web_sweep normalize --hits '<hits_json>'
+uv run python -m gtm_core.web_sweep normalize --company "<company>" --hits <hits.json> \
+  --segment <enterprise|startup>
 ```
+
+**Always pass `--segment`** — without it the enterprise 90-day window is never applied. Read the whole result, not just the top signal: `rejected` says why each refused hit was refused (evidence that does not mention the account is `subject-mismatch`; `signal_subject` is the entity the evidence is *about*), and `context_hits` holds startup funding older than 210 days — background only, never the why-now, because the load gate refuses a `signal_observed` that old. **Exit 2 means every hit was mis-keyed — fix the keys and re-run; it is not a "nothing found".**
 
 If no fresh signal passes, the CLI outputs `verdict: "re-angle"` with an empty `why_now`, ensuring negative prose never pollutes the field. The top signal must map to an ICP "why now" trigger **and pass both
 tests in Step 7 — sendable and sellable — before you stop looking.** A fact that fails either one
@@ -368,15 +416,51 @@ source does not contain, a subject that is not the recipient — checked determi
 
 > **Verify attribution before a feed event becomes a why-now.** Vibe's `fetch-businesses-events` is a cheap way to batch this sweep (`match-business` → `fetch-businesses-events`, ~1 credit/row, far cheaper than one web search per account) — but its events are attributed loosely, and on 2026-08-12 **more than half of the candidates it returned were wrong or unverifiable**. Three failure modes, all seen in one run: a **name collision** (a health system drew a release from a *credit union* that shares one word of its name; a hospital operator drew a *similarly-named automation vendor*; a company drew news from its own *separately-listed spin-off*), a **partner's or vendor's news** filed under the account (one account drew its AI vendor's own product announcement), and a **product that does not exist** (a "launch" no primary source corroborates). Checking whether the account's name appears in the event text is necessary but **never sufficient** — substring matching is precisely what lets a same-word stranger pass as the account. Open the source for every why-now that will reach copy, and record the outcome as `VERIFIED`, `VERIFIED-CORRECTED`, or killed-with-reason. An unverified event is not a why-now; leave it out rather than quoting it.
 
-> **Interactive Chat Modals (`ask_question`) Restriction:** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g., credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-by-row or contact-level reviews. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
+> **Interactive Chat Modals (`ask_question`) Restriction:** `ask_question` means your surface's structured question tool — see CLAUDE.md "Multi-Agent Tool Translation" (Claude Code: `AskUserQuestion`; unattended: never block, apply the step's stated unattended rule). The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g., credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-by-row or contact-level reviews. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
 
-**Step 8 — Gate & score.** Offload scoring and ranking to `gtm_core.score_prospects` to prevent hallucinated math or manual sorting errors. Save candidate records with their extracted signals and raw feed metrics into a JSON file, then run:
+**Step 8 — Gate & score.**
+
+**Name the rubric you scored against, in the run header, before anything else in this step.** Not
+"the ICP rubric" — the file and the version, as the scorecard prints them. On 2026-09-21 a
+1003-row pass scored every account against a rubric assembled from plan prose while the tenant's
+maintained one sat unread in the profile: the ICP-fit axis was a description **length** check, a
+negative research finding scored as a positive one, and 806 of 1000 rows came out Tier A with a
+mean that tracked how many teams had listed a company. Every check was green. A rubric nobody
+named is a rubric nobody can review.
+
+**If the profile ships `knowledge/scorecard.toml`, score through it rather than by hand.** The
+engine refuses to emit a number when an input is missing — the row gets a **category naming the
+unlock** instead, which is what keeps "we never researched this" distinguishable from "we
+researched this and it is weak":
 
 ```bash
-uv run python -m gtm_core.score_prospects --profile <active> --items <candidates.json> --out <scored.json>
+uv run python -m gtm_core.scorecard score --profile <active> --items <rows.json>
 ```
 
-This deterministically applies the profile's segment gates and rubric (from `icp-personas.md` / its linked scoring file), drops anything below the publish threshold (default ≥6), applies the **Heat axis** (+2 for topic-intent score ≥75 on any feed, +1 more for double-intent convergence across 2+ feeds; 60–74 flagged elevated with 0 pts, capped at ceiling), assigns `tier` (`A` vs `B`), and deterministically ranks finalists (Tier A → Heat → New-in-Role → Recency → Score). Aim ≥3 Tier-A; if short, note "broaden next run."
+Its JSON output carries an `event` object ready for the ledger — append it with the same
+`ledger_cli append-history` call Step 10 already uses, so the run records **which rubric, at which
+version**, scored how many rows into which tiers. That field is what lets `outcomes-sync`
+attribute a reply-rate change to a rubric change rather than to noise; without it the loop cannot
+be measured at all. The scorecard never writes the ledger itself — it computes, you record.
+
+Add `--product <slug>` when the run is bound to one product and `--overlay <slug>` when an
+experiment was admitted, exactly as every other knowledge read in this skill does. `explain`
+prints the resolved card, its axes and the inputs it requires, which is the fastest way to see
+what a row is missing. Each scored item comes back with `rubric_source` + `rubric_version` on it
+— **carry those through to `finalize`, which refuses a scored row without them.** A profile with
+no card falls back to the hand-applied rubric below; it does not silently score against a default,
+because a default rubric is the undeclared rubric this whole step exists to prevent.
+
+Then offload the math and ranking to `gtm_core.score_prospects` to prevent hallucinated arithmetic or manual sorting errors. **The scorer is profile-blind by design (it has no `--profile` flag): you apply the tenant's segment gates and rubric** (from `icp-personas.md` / its linked scoring file) **and supply each candidate's `fit_score` and `segment`**; the CLI owns heat, cap, tier and rank. Save candidate records with their `fit_score`, extracted signals and raw feed metrics into a JSON file, then run:
+
+```bash
+uv run python -m gtm_core.score_prospects --items <candidates.json> --out <scored.json> \
+  --dropped-out <dropped.json>
+```
+
+`--out` holds **only published rows** (Tier A/B); rows below the threshold go to `--dropped-out` as `tier: drop` / `verdict: drop` — **never concatenate the dropped file into the items handed to `finalize`**. Paste the stderr line `scored N · published P (A: a, B: b) · below threshold D` into the run header; a stderr warning about an unknown `segment` means fix the item and re-run. Pass `--publish-threshold` / `--tier-a-threshold` / `--ceiling` when the profile's rubric differs from the defaults.
+
+The CLI deterministically drops anything below the publish threshold (default ≥6), applies the **Heat axis** (+2 for topic-intent score ≥75 on any feed, +1 more for double-intent convergence across 2+ feeds; 60–74 flagged elevated with 0 pts, capped at ceiling), assigns `tier` (`A` vs `B`), and deterministically ranks finalists (Tier A → Heat → New-in-Role → Recency → Score). Aim ≥3 Tier-A; if short, note "broaden next run."
 
 **Every finalist leaves research with a verdict — `send`, `re-angle`, or `drop` — plus a
 `verdict_reason` for anything that is not `send`.** "Not sendable" has to be a representable output
@@ -401,7 +485,7 @@ admits what it is.
 
 A `drop` should also go to the durable suppression ledger with its reason, not just be left out of
 one file — `.pool/suppression.csv` is the source of truth, and a row omitted from a build output
-comes back on the next sweep.
+comes back on the next consolidate.
 
 ### The verdict is not the enrollment gate — the LANE is
 
@@ -419,9 +503,17 @@ widens `--require-verdict` to that lane's admissible set:
 were not always — the gate hard-dropped every non-`send` row and stranded 461 of 598 pooled rows,
 which is the defect `gtm_core.lanes` was built (2026-09-03) to fix. In the generic lane
 `no-dossier`, `verdict-missing` and `relation-unresolved` report as one advisory line each rather
-than per-row errors, because a body referencing no research cannot be wrong about research. Every
-other class — competitor, academic domain, stale artifact, why-now shape, freshness — stays a hard
-ERROR in **every** lane. A calibrated judge's `drop` never removes a generic row either: the judge
+than per-row errors, because a body referencing no research cannot be wrong about research — only
+an **absent** record is advisory. Every other class — competitor (a listed name or alias, any
+subdomain, or the contact's email domain), academic domain, stale artifact, why-now shape, and a
+**wrong** record (`signal-stale`, future-dated, a search-page source, subject mismatch, human-agent)
+— stays a hard ERROR in **every** lane. With `--lane`, a verdict the lane does not admit is a
+`verdict-inadmissible` ERROR whether or not `--require-verdict` is passed. At enrollment, add
+`--require-verdict send --write-kept <kept.csv>`: refused rows are listed, the rows that passed are
+written to `<kept.csv>` (only on PASS, never over the input, and only in the SAME folder as the
+list it filters), and the last line reads `PASS (kept K
+of N) — the input file still contains the N-K refused row(s); load <kept path>`. **Load the kept
+file, never the input.** A calibrated judge's `drop` never removes a generic row either: the judge
 read the *personalised* body, and its rejection of that argument is why the row is in this lane.
 
 **Why the generic lane is the safer failure, not the lax one.** On 2026-08-21 the operator rejected
@@ -444,47 +536,55 @@ Use `ask_question`:
 
 The `ask_question` modal tool is explicitly intended for this batch approval. Do not ask per account; row-by-row triage in chat modals remains strictly forbidden. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
 
+**Unattended (a pack or scheduled run, nobody to answer): do not ask.** Pass `--unattended` to `lanes route` in Step 10 — every row that would need this decision is held, fail-closed — state in the run header that N contacts are waiting on a decision, and stop there. Never take the "(Recommended)" option on the operator's behalf.
+
 **Respect the share cap before you ask.** `generic_lane_share_cap` in
 `content/<active>/settings.json` (default 0.5) bounds generic as a fraction of the run's enrollable
-rows — nothing in `gtm_core` reads this setting today, so honouring it is this step's job, done by
-hand: count the run's enrollable rows, and if routing every no-signal candidate to generic would
+rows. `gtm_core.prospect_guards` reads it — `python -m gtm_core.prospect_guards --check
+generic-lane-cap --profile <active> --generic-count <G> --total-count <T>` exits 2 over the cap —
+but nothing in the router calls that guard, so running it is this step's job: count the run's
+enrollable rows, and if routing every no-signal candidate to generic would
 exceed the cap, propose only up to it and say which accounts you held back and why. The cap exists
 because a lane that accepts blank verdicts is exactly the lane every under-researched row drifts
 into, and a pipeline that is 100% generic has stopped doing research without anyone deciding to.
 Reply rate **by lane** is already reported (`gtm_core.cells`, with a Wilson interval), so this is
 measurable — but only if generic never silently becomes the default.
 
-**Step 9 — Persona enrichment.** For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **Contact resolution → RocketReach first** (when connected): resolve the top-1 persona's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the official connector) — or the bulk variant (`rocketreach_bulk_lookup` / `BulkLookup`, capped at 25 finalists per call) when resolving several finalists at once. See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping between surfaces. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, `enrich-prospects-contacts` on the resulting table. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete with ≥1 champion/primary-buyer contact. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
+**Step 9 — Persona enrichment.** For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **How many seats to resolve is a property of the SEGMENT** — Enterprise up to 3 (champion, economic buyer, technical evaluator), Startup/Builder 1 (the founder is all three at once). **Resolve the champion FIRST, not the most senior person**: for Enterprise that is the Head of AI Platform / VP AI Eng / Dir Applied AI, with the CISO as co-signer, never the reverse — see `discovery-and-budget.md` § "Persona enrichment" for the depth table and the market evidence. **Contact resolution → RocketReach first** (when connected): resolve each seat's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the official connector) — or the bulk variant (`rocketreach_bulk_lookup` / `BulkLookup`, capped at 25 finalists per call) when resolving several finalists at once. See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping between surfaces. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, `enrich-prospects-contacts` on the resulting table. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete when its segment's seats are resolved: **Enterprise — the champion plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 the floor); **Startup/Builder — ≥1 champion/primary-buyer contact.** Resolving one exec per enterprise account and stopping is single-threading a committee deal, not completing it. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
 
 **Step 10 — Generate outputs.** Run-level files under `content/<active>/prospects/`; per-account
-packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 1:
+packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 1. **The bullets
+describe outputs; the command order is fixed: `prospects_import finalize` (merges `latest.json`,
+emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block (Step 12).**
 - `prospects-YYYYMMDD.md` — header + one section per account (per-account template). Pull the **recommended opening hook** from the hook matrix (don't free-write); map a case study from `profiles/<active>/knowledge/case-studies.md` — when the account is in a vertical with an industry pack, prefer that pack's **"Matching proof shape"** for the proof and seed the hook from its **"Email angles"** (industry-level `[bracketed]` fills only, never account-specific).
 - `prospects-YYYYMMDD-hubspot.csv` — one row per contact, per the CSV map.
 - **Fold this run's emails into the loadable pool now — don't wait for the whole flow to finish.**
   Consolidating emailed contacts into a sequencer-ready list has historically been a manual,
   end-of-flow step the operator often can't reach (a run gets interrupted, or only part of the
   flow runs) — exports then pile up invisibly, since `latest.json` is account-level and never
-  holds person+email rows. Run the sweep right after writing the CSV above, so even a run that
-  stops here still lands its emails:
+  holds person+email rows. Run consolidate right after `finalize` (below) has written the CSV, so
+  even a run that stops here still lands its emails:
   ```bash
   python -m gtm_core.prospects_consolidate consolidate --profile <active>
   ```
-  This dedupes by email against every prior `prospects-*-hubspot.csv`, excludes the Do Not Contact
-  list (refresh the cache the sweep reads via `python -m gtm_core.prospects_consolidate` — see its
+  It builds the pool and deletes nothing: retention is never part of a prospect run (a separate,
+  operator-initiated `gtm_core.retention_sweep` prints a plan first and refuses to act while any
+  campaign is unfinished). Consolidate dedupes by email against every prior `prospects-*-hubspot.csv`, excludes the Do Not Contact
+  list (refresh the cache consolidate reads via `python -m gtm_core.prospects_consolidate` — see its
   module docstring for `dnc_cache_path()`; the email-sequence skill's provider preflight is what
   keeps that cache current), and gates by deliverability confidence — RocketReach A/A- or
   `verified`/`account-folder-verified` → `sequences/ready-to-load.csv` (the **one** visible list,
   safe to load today); everything else with no or weak signal → the hidden hold queue
   `sequences/.pool/needs-verification.csv` (needs a verification pass, never load blind); known-bad
   grades → excluded and logged. The full audit `master-list.csv` and all snapshots also live under
-  `sequences/.pool/` — so a human browsing `sequences/` sees exactly one load file. The sweep is also
+  `sequences/.pool/` — so a human browsing `sequences/` sees exactly one load file. Consolidate is also
   person-unique and cross-address DNC-clean (the same human under two email formats, or already
   contacted under a different address, is collapsed/excluded).
 
   **Correcting a fact on a row that already exists is a DIFFERENT write, and the obvious one is
-  wrong.** This sweep skips an already-present email except to re-rank its confidence, and no flag
+  wrong.** Consolidate skips an already-present email except to re-rank its confidence, and no flag
   re-reads `why_now` from an export — so a corrected clause written into `ready-to-load.csv` (or
-  any pooled CSV) is silently discarded by the next sweep. A lock does not help: the file is
+  any pooled CSV) is silently discarded by the next consolidate. A lock does not help: the file is
   *rebuilt*, not raced. On 2026-08-29 one batch was lost to this three times, twice after being
   re-applied under `gtm_core.locks.profile_lock`. The record's durable home is the **account**:
   ```bash
@@ -496,7 +596,7 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   Aiming `--out` at a pooled CSV is refused outright.
 
   **"How many emails are ready to send"
-  is always this sweep's `ready_to_load` output, never a hand-built or dated list.**
+  is always consolidate's `ready_to_load` output, never a hand-built or dated list.**
 - For **each Tier-A (🔥)** account: `prospects-YYYYMMDD-outreach-[company-slug].md` using the Tier-A pack template — a pre-drafted **4-touch / 2-channel arc** (LinkedIn first, then email, over ~12 days) threading **4–6 personas** with role-differentiated first lines. The exact touch shape lives in `references/output-templates.md`, which renders the ceiling `voice.md` sets — do not restate a touch count here, or the two drift (they did: this file said 5 while `voice.md` said 4, and packs shipped both). **Read `profiles/<active>/knowledge/voice.md` first**; every line must pass the voice rules. These are drafts — never auto-send, and never presented as sendable until the pack passes `tests/linter/outreach_pack_linter.py --format prospect-pack` with zero errors (run it `--batch` over the run so cross-account subject/hedge reuse is caught too).
 - **Nurture split (5/95):** fit-but-cold accounts (Tier-B, heat 0) get **no meeting-ask sequence** — list them in the run file under "Nurture" with a suggested monthly no-ask value touch (give-first artifact, LinkedIn presence). A later signal promotes them into a sequence.
 - **Refresh the outreach log** — after writing this run's outreach pack(s), regenerate the cross-run rollup so there's always one place to see everything drafted:
@@ -505,18 +605,16 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   ```
   This parses every pack under `content/<active>/accounts/*/prospects-*outreach-*.md` (this run's and all prior ones) and rewrites `content/<active>/prospects/outreach-log.md` + `.csv` — date, account, tier, persona, verified email, subject, channels, path back to the full pack. Idempotent and cheap (0 credits, no LLM call); safe to run even if this run produced zero Tier-A packs.
 - If appending to a local tracker spreadsheet, add the run's rows now.
-- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file or hand-roll 26-field objects.** Instead of manually constructing the full 26-field object per item, pass your minimal parsed items (containing core fields like `company`, `segment`, `market`, `score`, `tier`, `contact_name`, `contact_title`, signals, and verdicts) to `gtm_core.prospects_import finalize --standard`:
+- **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file.** Pass the scorer's published items (`company`, `segment`, `market`, `score`, `tier`, `contact_name`, `contact_title`, the Step 7 record, `verdict`, `lane`) to `gtm_core.prospects_import finalize`:
   ```bash
   python -m gtm_core.prospects_import finalize --profile <active> \
-    --items <path-to-minimal-items.json> --source-run <run-id> --standard
+    --items <path-to-items.json> --source-run <run-id>
   ```
-  Or stage them first via `python -m gtm_core.prospects_import stage-standard --items <minimal.json> --out <staged.json>` before merging. `prospects_import` automatically populates the canonical 26-field structure with sensible defaults, derives the canonical slug `id`, and ensures all required fields are present before atomic merging into `latest.json` and emitting `prospects-<run-id>-hubspot.csv`.
+  Or stage them first via `python -m gtm_core.prospects_import stage-standard --items <items.json> --out <staged.json>` before merging. `finalize` normalises every item (`--standard` is accepted but is now a no-op), derives the canonical slug `id`, merges atomically into `latest.json` and emits `prospects-<run-id>-hubspot.csv`. **It fabricates nothing:** `verdict`, `category_relation`, `signal_subject`, `signal_agent_kind` and `lane` stay blank unless you supplied them, and the record gate then BLOCKs that row honestly — so supply them. A blank never overwrites a populated field, and `verdict` moves only when supplied, so re-discovering an account with a minimal item cannot erase what is on it. A `tier: drop` / `verdict: drop` item is recorded as `verdict: drop`, `lane: excluded`, never exported, and counted as `refused` in the JSON summary. `--source-run` is a bare segment (no `/`, no `..`); an invalid value prints one `ERROR:` line, exits 2 and writes nothing.
 
-  **Bulk mode:** run `python -m gtm_core.prospects_import finalize --profile <active> --items
-  <scored-items.json> --source-run <run-id>` instead — it calls the exact same safe merge-only writer
-  under the hood and additionally emits `prospects-<run-id>-hubspot.csv` in one step, so bulk mode
-  doesn't need a separate CSV-writing pass.
-  Each canonical item object (populated automatically by `--standard`):
+  **Bulk mode:** the same command with `<scored-items.json>` as `--items` — one call merges and
+  emits the HubSpot CSV, so bulk mode needs no separate CSV-writing pass.
+  Each canonical item object (the fields you supply; `id` and `status` are derived):
   ```json
   {
     "id": "<company-slug>",
@@ -539,7 +637,7 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
     "signal_evidence": "<verbatim span of that source>",
     "signal_subject": "<the entity the fact is about>",
     "signal_agent_kind": "ai|human|none|unclear",
-    "category_relation": "prospect|competitor|partner|adjacent|unclear",
+    "category_relation": "prospect|competitor|regulator|partner|adjacent|unclear",
     "signal_column": "<the matrix's signal column label for this account's own segment, verbatim>",
     "hook_cell": "<optional — the full matrix cell, verbatim; derivable from signal_column>",
     "verdict": "send|re-angle|drop",
@@ -555,14 +653,19 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
   reads a `lane` **column on the CSV** (`--lane` refuses a list whose own column disagrees). A lane
   that lives only in the jsonl is a decision nobody downstream can see: on 2026-09-04 the pool had
   592 rows routed — 363 of them `generic` — while `ready-to-load.csv` carried no `lane` column at
-  all. So after the consolidate sweep, route and re-stamp:
+  all. So after consolidate, route and re-stamp — **with no `--records` on a prospect run**: the
+  judge runs later, in `email-quality`, so rows route as unjudged and the status block has real
+  numbers from the first run. Add `--unattended` when nobody can answer Step 8's question:
   ```bash
   python -m gtm_core.lanes route --profile <active> \
-    --csv content/<active>/prospects/sequences/ready-to-load.csv \
-    --records content/<active>/prospects/evals/judge/*.jsonl
+    --csv content/<active>/prospects/sequences/ready-to-load.csv [--unattended]
   ```
-  Then report the split (Step 12). Never hand-write a `lane` value into a pooled CSV — those files
-  are rebuilt, so the edit is discarded on the next sweep, exactly as with a corrected `why_now`
+  Pass `--records` only with the explicit file(s) the current `email-quality` pass wrote — **never
+  a glob**, which aborts in zsh when nothing matches and mixes in stale judge records when something
+  does. Routing a subset CSV carries every other row's record forward (it prints `carried forward N
+  record(s)`); `--replace-all` is the explicit wholesale rewrite.
+  Then report where the list stands with the status block (Step 12). Never hand-write a `lane` value into a pooled CSV — those files
+  are rebuilt, so the edit is discarded on the next consolidate, exactly as with a corrected `why_now`
   (Step 10's `signal_backfill --promote` note). The account is the durable home; the router is the
   only thing that stamps the row.
 
@@ -596,7 +699,7 @@ packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 
     --json '{"tool":"apollo","skill":"prospect","cost_usd":0,"units":{"credits":<n>},"run_id":"<run-id>"}'
   ```
 
-**Step 11 — Dossier + outreach-draft sweep.** After the Step 10 consolidate sweep, check whether any
+**Step 11 — Dossier + outreach-draft sweep.** After Step 10's consolidate, check whether any
 account is missing a dossier — this is the only variable-cost step here (each candidate is a real
 agent turn), so it always asks before it runs, never on autopilot. This step used to check **only**
 Tier-A; on 2026-08-12 a 496-contact bulk sequence staged and reached 439 accounts (mostly Tier-B/bulk
@@ -628,6 +731,9 @@ re-generated under a second, duplicate folder.
   full prospecting-brief pass below; every other candidate defaults to the cheaper **research-pack**
   variant (`account-dossier` skill §"Research pack variant") unless the operator asks for more depth —
   say so explicitly so the operator isn't surprised by the lighter output on a Tier-B account.
+
+  **Unattended: do not ask and do not generate** — this step never runs on autopilot. State in the
+  run header that N accounts have no research file yet, and move on to Step 12.
 
 - **On confirmation, for each candidate:**
   1. Invoke `account-dossier` — **prospecting-brief mode** for a Tier-A candidate (its lightest *docx*
@@ -674,17 +780,25 @@ whose-move-is-it and drifted out of sync with Step 13's own report. Run:
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table) — byte-identical to the block Step 1
+and paste its output, unedited, between the markers below (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table) — byte-identical to the block Step 1
 opened the run with and the block Step 13 closes it with:
 
 <!-- operator -->
 [paste the command's output here, unedited]
 <!-- /operator -->
 
-A row behind any non-`Ready to send` line is work queued, not work rejected; say so, or the next
-reader re-derives "we have no prospects" from a number that never meant that.
+**Reading the block.** Two sections that never sum to each other: *Accounts — where each stands
+(companies, not people)* — `Not a fit / excluded`, `Needs a new angle (queued)`, `No usable contact
+yet`, `Not yet routed`, `Held`, `Ready`, `All accounts` — and *Contacts — by status (people, not
+companies)* — `Waiting on you`, `Ready to send`, `Being fixed`, `In the sending tool`, `Not
+emailing` — then `Needs an address` and `Checking the address`. `Unrecognised` and `Check:` lines
+appear only when something is wrong: report them, never trim them. The banner `ACTION REQUIRED: N
+contacts are waiting on your decision. Review sheet: <path>` always equals `Waiting on you`. Only
+`Not a fit / excluded` and `Not emailing` are closed; every other line is work queued, not work
+rejected — say so, or the next reader re-derives "we have no prospects" from a number that never
+meant that.
 
-**Step 13 — Always last: render the status page AT THIS RUN'S SCOPE, then prove it is fresh.** **Every run of this skill — any mode, including re-score/refresh-heat and enrichment-only passes that skip the sweep — ends with this. Never skip it.** It is cheap and read-only. Two commands, not one:
+**Step 13 — Always last: render the status page AT THIS RUN'S SCOPE, then prove it is fresh.** **Every run of this skill — any mode, including re-score/refresh-heat and enrichment-only passes that skip consolidation — ends with this. Never skip it.** It is cheap and read-only. Two commands, not one:
 ```bash
 # 1. render at the scope this run actually touched
 uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope open
@@ -692,7 +806,7 @@ uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope op
 uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope open --check-fresh
 ```
 
-**Pick the scope; do not default to the rollup.** `--scope open` renders the campaigns whose manifest says `status = "active"` — the right answer for a normal run. Use `--scope campaign --campaign <slug>[,<slug>]` when the run worked one named campaign, and `--scope all` only when the question really is profile-wide. A page scoped wrong is the failure this flag exists for: on 2026-09-04 a campaign with 8 planned emails and 4 people showed "0 of 990 emails · 51 people · 3 sequences", every number real and every number belonging to a different campaign.
+**Pick the scope; do not default to the rollup.** `--scope open` renders the campaigns whose manifest says `status = "active"` — the right answer for a normal run. On a profile with **no campaign manifest at all** it falls back to everything (exit 0, one stderr note, the page is `email_campaign_status.html`) — report that note; when manifests exist but none is open it still refuses (exit 1) and names the alternatives: report the refusal, then re-run with the scope that fits the question. Use `--scope campaign --campaign <slug>[,<slug>]` when the run worked one named campaign, and `--scope all` only when the question really is profile-wide. A page scoped wrong is the failure this flag exists for: on 2026-09-04 a campaign with 8 planned emails and 4 people showed "0 of 990 emails · 51 people · 3 sequences", every number real and every number belonging to a different campaign.
 
 **Run the freshness check and report what it says.** It compares the page against a digest of every input it read, so it catches an input edited after the render *and* one that appeared since. This matters because **a stale page renders identically to a current one** — on 2026-09-05 a live page was seventeen hours behind `cells.toml` and looked perfectly current, and the first regeneration of that session was a byte-identical no-op that only a `grep` caught. If `--check-fresh` exits non-zero, re-render and say so; never report the page as current because the render command succeeded.
 
@@ -704,7 +818,7 @@ Then **close the run with the current status, same shape as Step 1 opened with.*
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table):
+and paste its output, unedited, between the markers below (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table):
 
 <!-- operator -->
 [paste the command's output here, unedited]
@@ -714,7 +828,7 @@ and paste its output, unedited, between the markers below (if the command exits 
 Then point the operator at the page itself — one line, e.g. *"here's the full picture:
 `content/<active>/campaign-open.html`"* — so they always land on the one page that shows the whole
 picture (account backlog → email funnel → ready/verifying/blocked, cost, next steps) instead of
-hunting through CSVs. The full `consolidate` sweep in Step 1 / Step 10 regenerates the profile-wide
+hunting through CSVs. Step 10's `consolidate` regenerates the profile-wide
 page only; Step 13 is what produces a page at the *run's* scope and proves it fresh. Ask for the
 path rather than spelling it: `uv run python -m gtm_core.prospects paths --profile <active>`.
 
@@ -745,7 +859,7 @@ A grouping key is a claim about identity — prove it before you group on it.
 - **Provenance travels as data, not as prose.** Every account carries its dated 🔥 signal + URL into the brief and the outreach pack **and** into the six record columns (Step 7). A URL that appears only in a markdown brief is not provenance the pipeline can check — the load gate reads the row, not the write-up.
 - **"Not sendable" is a real answer.** Every finalist carries `verdict` + `verdict_reason` (Step 8). A research step with no way to refuse produces exactly as many emails as it was asked for, whatever the accounts turned out to be.
 - **`verdict` is yours, and only yours.** It is the researcher's column, written once here and never machine-overwritten. The judge writes `judge_verdict` / `judge_verdict_reason` / `judge_calibrated` in its own columns, and enrollment keeps a row only when `verdict == send` **and** it is not a *calibrated* judge `drop`. An uncalibrated judge — one with no sealed holdout behind it — ranks rows and never removes them. Do not write the `judge_*` columns, and do not read them as if they were your finding.
-- **Identity is stamped, not re-derived.** `latest.json` is the ledger of record and assigns each account an immutable `account_id`; the consolidate sweep stamps `pool_row_id` per person-row and joins the two. Quote those ids when referring to a row or an account across files, rather than re-deriving a key from a company name that six other places normalise differently. The pooled CSVs are **derived views** — never hand-edit one and expect the edit to survive a rebuild; change the ledger, or the suppression ledger, instead.
+- **Identity is stamped, not re-derived.** `latest.json` is the ledger of record and assigns each account an immutable `account_id`; consolidate stamps `pool_row_id` per person-row and joins the two. Quote those ids when referring to a row or an account across files, rather than re-deriving a key from a company name that six other places normalise differently. The pooled CSVs are **derived views** — never hand-edit one and expect the edit to survive a rebuild; change the ledger, or the suppression ledger, instead.
 - **The last wave has to have been read before the next one is staged.** `email-sequence` refuses to stage without a `positive_reply_rate` reading on file (`gtm_core.prospects wave-gate check`). This skill does not send, but it is what fills the next wave — a list built while the previous one is unmeasured is a list nobody can learn from.
 - **Drafts only:** outreach is never sent from this skill.
 - **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced via the CLI / dashboard `ACTION REQUIRED` alerts.

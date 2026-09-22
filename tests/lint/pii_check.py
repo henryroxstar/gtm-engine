@@ -49,7 +49,11 @@ ALLOWLIST = Path(__file__).resolve().parent / "pii_allowlist.txt"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import third_party_roster  # noqa: E402  (same directory, stdlib-only, no package)
 
-# The shippable surface. content/ + profiles/ hold real PII by design and are excluded.
+# The source surface this rule governs. content/ + profiles/ hold real PII by design and
+# are excluded. Note this is NOT "the carved surface": systemd/ is deliberately not carved
+# (scripts/oss-export.sh) and is still scanned, because §R9 is about what sits in the REPO,
+# not only what ships. The 2026-09-08 cross-tenant incident was a private checkout handed
+# to a customer — an uncarved directory reaches a third party exactly like a carved one.
 SOURCE_DIRS = (
     "gtm_core",
     "agent",
@@ -61,8 +65,25 @@ SOURCE_DIRS = (
     "schemas",
     "docs",
     "scripts",
+    "systemd",
 )
-SCAN_SUFFIXES = {".py", ".md", ".json", ".toml", ".csv", ".yaml", ".yml", ".txt", ".sh", ".html"}
+# .service/.timer were absent until 2026-09-21, which made all four enforcement points
+# (pre-commit, CI, pytest, export) blind to systemd/ as a whole — ~40 unit files whose
+# ExecStart lines carry operator config and whose comments carry operator annotations.
+SCAN_SUFFIXES = {
+    ".py",
+    ".md",
+    ".json",
+    ".toml",
+    ".csv",
+    ".yaml",
+    ".yml",
+    ".txt",
+    ".sh",
+    ".html",
+    ".service",
+    ".timer",
+}
 # Binary/vendored trees.
 EXCLUDE_PARTS = {".venv", "__pycache__", "node_modules", ".git", ".pytest_cache"}
 # Self-referential files: the allowlist names domains on purpose, the checker's own tests
@@ -135,6 +156,7 @@ BARE_DOMAIN_DIRS = frozenset(
         "tests",
         "schemas",
         "packs",
+        "systemd",
     }
 )
 BARE_DOMAIN_PLUGIN_SUFFIXES = frozenset({".py", ".toml", ".json"})
@@ -156,6 +178,12 @@ THIRD_PARTY_DIRS = frozenset(
         "schemas",
         "packs",
         "plugin",
+        # Not carved, and in scope anyway: an ExecStart comment naming the customer a
+        # timer was added for is the same leak as one in a docstring. The TENANT's own
+        # name is expected here (--profile <tenant> is what a unit does) and no rule in
+        # this module fires on it — that is debrand_check.sh's surface, and it scans the
+        # carve, which systemd/ is not part of.
+        "systemd",
     }
 )
 

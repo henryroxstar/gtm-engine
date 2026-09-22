@@ -88,12 +88,59 @@ def test_every_shipped_pack_variant_still_loads():
         assert pack.nodes, f"{path.name} loaded with no nodes"
 
 
+SOLUTION_ARCHITECTURE = (
+    REPO / "packs" / "solution-architecture" / "graphs" / "solution-architecture.toml"
+)
+
+
 def test_solution_architecture_pack_loads_and_shapes_correctly():
-    pack = load_pack_graph(
-        REPO / "packs" / "solution-architecture" / "graphs" / "solution-architecture.toml"
-    )
-    assert pack.ids == ("discovery", "design", "runbook", "deck")
+    """A DAG since 2026-09-22 (SA7): `design` fans out, and the commercial half is on the graph.
+
+    `scope-check` after the design, not before it — post-design is the richer mode, with a
+    concrete solution to simplify. `proposal` after `scope-check`, because a price quoted before
+    the buyer confirms scope is a price for work nobody agreed to.
+    """
+    pack = load_pack_graph(SOLUTION_ARCHITECTURE)
+    assert pack.ids == ("discovery", "design", "runbook", "deck", "scope-check", "proposal")
     assert all(not n.gate for n in pack.nodes)  # produces docs, no external gate
+    by_id = {n.id: n for n in pack.nodes}
+    assert by_id["scope-check"].depends_on == ("design",)
+    assert by_id["proposal"].depends_on == ("scope-check",)
+
+
+def test_solution_architecture_design_fans_out_into_the_frontier(cfg):
+    """Engine-side, and the reason this is a separate test: that the TOML parses proves the file
+    is well-formed, never that the runner treats the two new nodes as a fan-out. Once `design`
+    completes, `runbook` and `scope-check` are both runnable in ONE frontier and are dispatched
+    concurrently — asserting only on `pack.ids` would pass on a graph the runner walks linearly.
+    """
+    from agent.pipeline import OK, new_manifest, runnable_frontier
+
+    _, engine_graph = load_engine_graph(SOLUTION_ARCHITECTURE)
+    manifest = new_manifest("r-sa", "cron", PROFILE, graph=engine_graph)
+    assert set(runnable_frontier(engine_graph, manifest)) == {"discovery"}
+    stages = {s["name"]: s for s in manifest["stages"]}
+    for stage in ("discovery", "design"):
+        stages[stage]["status"] = OK
+    assert set(runnable_frontier(engine_graph, manifest)) == {"runbook", "scope-check"}
+    stages["scope-check"]["status"] = OK
+    assert set(runnable_frontier(engine_graph, manifest)) == {"runbook", "proposal"}
+
+
+def test_solution_architecture_stays_free_and_stub_free(cfg):
+    """SA7's pricing half, verified rather than assumed.
+
+    Adding a node above `free` reprices the WHOLE graph, and an `oss = "private"` node makes the
+    pack stub-bearing — which then needs a `[carve].stub_bearing_graphs` declaration and an entry
+    in the pinned roster. Both new skills derive `free` + `public`, so neither happens; this is
+    what fails the day one of them is repriced.
+    """
+    from gtm_core import gating
+
+    pack = load_pack_graph(SOLUTION_ARCHITECTURE)
+    skills = [n.skill for n in pack.nodes]
+    assert gating.derive_graph_floor(skills) == "free"
+    assert {s: gating.oss_visibility(s) for s in skills} == dict.fromkeys(skills, "public")
 
 
 def test_planning_pack_is_three_independent_roots_no_gate():

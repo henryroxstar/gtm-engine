@@ -13,6 +13,7 @@ import json
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -843,7 +844,7 @@ def test_a_job_whose_heartbeat_stopped_reads_as_interrupted(client, cfg, status)
 
 
 def test_a_job_with_a_live_heartbeat_is_still_running(client, cfg):
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     job_id = _plant_job(cfg, heartbeat_at=datetime.now(UTC).isoformat())
 
@@ -862,7 +863,7 @@ def test_an_interrupted_job_is_not_reused(client, cfg, monkeypatch):
 
 
 def test_expired_finished_jobs_are_pruned_and_live_ones_kept(client, cfg, monkeypatch):
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     now = datetime.now(UTC).isoformat()
     expired = _plant_job(cfg, status="succeeded")

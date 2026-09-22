@@ -50,7 +50,7 @@ class UnknownHookCell(ValueError):
 # :func:`persona_of` is re-exported here so callers of this module need not know that.
 
 
-def persona_key_of_label(label: str) -> str | None:
+def persona_key_of_label(label: str, profile: str | None = None) -> str | None:
     """Normalise a *matrix* persona label onto the same key space as :func:`persona_of`.
 
     Running one cue list over both a recipient's title and the matrix's own row label
@@ -58,7 +58,7 @@ def persona_key_of_label(label: str) -> str | None:
     persona names. A label that does not normalise is reported as unmapped, never
     dropped — an unjoinable matrix row is a real gap in the report, not an absence.
     """
-    return persona_of(_clean_cell(label))
+    return persona_of(_clean_cell(label), profile)
 
 
 # --- matrix parsing -----------------------------------------------------------------
@@ -116,6 +116,11 @@ class Matrix:
     #: Why an ``UNSUPPORTED`` matrix could not be read, in the operator's words.
     reason: str = ""
     path: Path | None = None
+    #: The profile whose role vocabulary resolves this matrix's persona labels. ``None``
+    #: falls back to the session's bound profile, then to the shipped default — so a caller
+    #: that never learned about tenant vocabularies keeps working, and one that did gets the
+    #: tenant's own personas instead of being told they map to nothing.
+    profile: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -137,7 +142,7 @@ class Matrix:
         """``{persona label -> canonical key}`` for every label that normalises."""
         out = {}
         for label in self.personas:
-            key = persona_key_of_label(label)
+            key = persona_key_of_label(label, self.profile)
             if key:
                 out[label] = key
         return out
@@ -294,7 +299,7 @@ def _detect_shape(text: str) -> str:
     return MatrixShape.UNSUPPORTED
 
 
-def parse_matrix(source: str | Path) -> Matrix:
+def parse_matrix(source: str | Path, profile: str | None = None) -> Matrix:
     """Read a ``hook-matrix.md`` into ``{(segment, persona, signal) -> Cell}``.
 
     Accepts a path or the document text. Carries no hook of its own: every hook string
@@ -320,6 +325,7 @@ def parse_matrix(source: str | Path) -> Matrix:
                 "measurable against it (add Persona and Signal columns to gate it)"
             ),
             path=path,
+            profile=profile,
         )
 
     cells: list[Cell] = []
@@ -330,7 +336,7 @@ def parse_matrix(source: str | Path) -> Matrix:
         for heading, body in _sections(text):
             cells.extend(parse(heading, body))
 
-    return Matrix(shape=shape, cells={c.key: c for c in cells}, path=path)
+    return Matrix(shape=shape, cells={c.key: c for c in cells}, path=path, profile=profile)
 
 
 def _cells_equal(a: str, b: str) -> bool:

@@ -81,12 +81,13 @@ def render(
         # test in tests/agent/test_onboard_path_containment.py).
         slug = slugify(product["slug"])
         files[f"products/{slug}/PRODUCT.md"] = _render_per_product_md(product)
-        files[f"products/{slug}/knowledge/icp-personas.md"] = _render_icp_md(
-            icp, draft.get("settings")
-        )
-        files[f"products/{slug}/knowledge/market-scan-config.md"] = _render_market_scan_config_md(
-            [product]
-        )
+        # Flat under products/<slug>/ — NOT products/<slug>/knowledge/. The flat level is the only
+        # place gtm_core.paths.resolve_knowledge_file() looks for a product override, so a file one
+        # directory deeper is written, frontmatter-stamped and indexed but never actually read:
+        # every skill silently falls back to the profile-level knowledge/ copy. agent/wizard.py
+        # writes (and probes) this same flat level; the renderer was the lone outlier.
+        files[f"products/{slug}/icp-personas.md"] = _render_icp_md(icp, draft.get("settings"))
+        files[f"products/{slug}/market-scan-config.md"] = _render_market_scan_config_md([product])
 
     # Bring in the _template starters this profile would otherwise be missing (skills-degrade gap),
     # then stamp lifecycle frontmatter on every managed topic still lacking it (gate-fail gap). Order

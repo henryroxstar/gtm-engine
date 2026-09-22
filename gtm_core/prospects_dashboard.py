@@ -162,7 +162,10 @@ def _latest_tokens(profile: str, content_root: Path | None) -> tuple[set[str], s
             continue
         all_tokens.add(tok)
         tier = (item.get("tier") or "").strip().upper()
-        if tier or item.get("score") is not None:
+        # `UNSCORED` is a tier, and a truthy one, but it is the tier a row gets when the
+        # scorecard REFUSED to score it. Counting it here reported the backlog as worked:
+        # "scored" would have included every row still waiting on an input.
+        if (tier and tier != "UNSCORED") or item.get("score") is not None:
             scored.add(tok)
         if tier == "A":
             tier_a.add(tok)

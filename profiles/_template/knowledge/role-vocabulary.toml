@@ -1,0 +1,98 @@
+# Role vocabulary — STARTER / SCHEMA EXAMPLE
+#
+# Delete this file unless you need it. A profile that ships no `role-vocabulary.toml` gets
+# the built-in default in `gtm_core/role_vocabulary.py` — a generic B2B-SaaS vocabulary
+# (ciso / cto / ceo / architect / product / ai-platform) that is the right answer for most
+# enterprise-software tenants. Ship this file only when your buyers are NOT that shape.
+#
+# THIS FILE IS DELIBERATELY NOT A COPY OF THE DEFAULT. A template that duplicated those ~400
+# lines would be a second home for the same fact, and the two would drift the first time one
+# was edited. What follows is a minimal, fictional example that teaches the SHAPE; read the
+# real values with:
+#
+#     python -m gtm_core.role_vocabulary --json          # the default, or your own
+#     python -m gtm_core.role_vocabulary --profile P     # summary + validation
+#
+# WHEN YOU NEED ONE. Run the coverage reader against your hook matrix:
+#
+#     python -m gtm_core.hook_coverage --profile <you> --matrix-only
+#
+# Every line it prints as `unmapped persona:` is a row of your own matrix that resolves onto
+# nothing. That does NOT raise — those rows are booked as *unassignable*, so your coverage
+# report reads zero and the copy looks like the problem. Two profiles in this repo sat that
+# way for months. If you see any, this file is the fix.
+#
+# HOW IT RESOLVES. Product-first, profile-fallback, exactly like every other knowledge file:
+# `products/<slug>/role-vocabulary.toml` wins over `knowledge/role-vocabulary.toml`.
+#
+# VALIDATION IS FAIL-LOUD. A seat naming a persona no rule produces, a persona claimed by two
+# seats, a `default_persona` that resolves to nothing, or a persona with no cues is a hard
+# error naming the offending value. A targeting fact that is wrong but not loud is one nobody
+# finds — which is the whole reason this file can exist.
+
+# Where a recipient goes when no cue matches. Must be one of the personas below. Its job is
+# to stop the None bucket being handed whatever persona a spec happened to declare.
+default_persona = "owner-operator"
+
+# The segment vocabulary every downstream comparison normalises against. Must include
+# `unspecified` — that is the kept value for a row nobody classified. Every segment named in
+# PROFILE.md `segment_mix` must appear here, and `tests/lint/test_profile_targeting_invariants.py`
+# pins the two together so a new segment cannot be added in the profile alone.
+segments = ["enterprise", "startup", "builder", "unspecified"]
+
+# Vocabulary that BELONGS to one seat and reads as borrowed in any other seat's email.
+# `lint_persona_lead` fails a body that leads on these while carrying none of its own seat's
+# stakes. Leave it empty if your copy has no such seat — empty is a correct value, not a gap.
+security_only = []
+
+# Titles that are recognisably NOT a buyer — distinct from "unrecognised". A cue here means
+# "we can see this seat and it is not a buyer"; no match means "we cannot see it". The two
+# look identical in a None bucket and lead to opposite actions (resolve a better contact vs.
+# do not contact this company at all). Keep it SMALL: under-claiming costs one wasted send,
+# over-claiming deletes a real account.
+non_buyer_cues = ["intern", "recruiter"]
+
+# Exec cues that name the JOB rather than a seniority band. Checked before the persona list,
+# so an explicit exec title outranks a lower functional cue in the same compound title.
+ceo_title_cues = ["chief executive"]
+
+# Titles that DISQUALIFY a persona even when one of its cues matched. The classic trap:
+# "Executive Vice President, Engineering" is not an exec.
+[anti_cues]
+owner-operator = ["vice president", "deputy"]
+
+# --- personas ---------------------------------------------------------------------------
+#
+# ORDER IS LOAD-BEARING — first match wins outright, so a broad persona placed above a narrow
+# one makes the narrow one unreachable. Put the most specific first.
+#
+# Cues are matched WORD-BOUNDED (`\bcue\b`), never as bare substrings. Two consequences worth
+# internalising before you add one:
+#   * a short stem is dangerous — `cto` is a substring of `director`, which once seated 128
+#     functional directors as CTOs and nothing reported it;
+#   * a singular does NOT match its plural — `\bphysician\b` does not match "Physicians",
+#     because the trailing "s" is a word character. List both forms when both occur.
+
+[[persona]]
+name = "budget-holder"
+cues = ["head of", "vp of", "director of"]
+
+[[persona]]
+# Last and broadest: the fallback for a self-describing owner no sharper cue caught.
+name = "owner-operator"
+cues = ["owner", "founder", "proprietor"]
+
+# --- seats ------------------------------------------------------------------------------
+#
+# A seat is a unit of COPY: everyone in it reads the same argument. Personas are finer than
+# seats on purpose — two personas can share a seat (the argument is the same) while staying
+# countable apart.
+#
+# A persona listed in NO seat is legal and useful: it resolves, so its rows are attributable,
+# and it is owed no copy. Use that for an audience you publish TO but never write outreach to.
+
+[[seat]]
+name = "exec"
+personas = ["budget-holder", "owner-operator"]
+# The stakes vocabulary this seat's copy is expected to carry.
+stakes = ["margin", "revenue", "risk", "growth"]

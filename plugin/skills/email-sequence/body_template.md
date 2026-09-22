@@ -42,7 +42,7 @@ a draft. Every one of these gates is a CLI:
 | List-fit | `gtm_core.list_fit` | research spend on a list nobody checked fits |
 | Merge-render | `tests/linter/merge_render_linter.py`, `gtm_core.merge_hygiene` | templates × CSV never linted as the combination that actually renders |
 | Account-integrity | `gtm_core.account_integrity --csv` | **the gate that refuses a row.** The reading pass ranks; this is what says no |
-| Enrollment hygiene | `gtm_core.suppression verify` / `apply`, `gtm_core.prospects_consolidate verify-batch` | **an unsubscribed person can be re-enrolled.** Suppression here is ledger-based, so with no interpreter there is no suppression at all |
+| Enrollment hygiene | `gtm_core.suppression verify` / `apply` / `reconcile-dnc`, `gtm_core.prospects_consolidate verify-batch` | **an unsubscribed person can be re-enrolled.** Suppression here is ledger-based, so with no interpreter there is no suppression at all |
 | Compliance preflight | `gtm_core.email_compliance preflight` | the operator confirms against nothing |
 | Signal split | `gtm_core.prospects_consolidate split-by-signal` | signal-led and generic rows collapse into one sequence |
 | Hand off | `gtm_core.ledger_cli append-history` | no audit row for a batch that reached a third party |
@@ -266,6 +266,82 @@ review, where every 4–5-rated email had it and every 1-rated email broke it:
    third axis the pilot didn't have language for yet. This is a design change, not a copy tweak;
    flag it to the operator before recutting a campaign's specs rather than silently rewriting eight
    bridges to a new house pattern.
+
+   **Declare the category in the front block: `signal_column: <category>` (2026-09-22).** The
+   paragraph above argues that beat 2 must depend on the fact's category and that a mixed list
+   makes that impossible. Declaring it is what turns the argument into something checkable —
+   `signal-column-undeclared` (WARN) fires when touch 1 opens on the standalone `{{Why Now}}.`
+   beat and the front block names no category. It is a WARN because all 37 live specs predate
+   the field; promote it to ERROR once the fleet has migrated, the same way `premise-missing`
+   is waiting to be promoted. One value per spec — if the list needs two, it needs two specs.
+
+   **The standalone `{{Why Now}}.` beat is no longer the unconditional default.** Use it when
+   the spec declares a single `signal_column` and beat 2 is written against that category.
+   Without a declared category, open on a CATEGORY REFERENT instead (below) and let the row's
+   clause do its work later in the body or not at all. Measured 2026-09-22 across 37 specs: 25
+   open on the standalone beat and none declares a category, which is the configuration the
+   2026-09-01 blind-label round scored "no" on all 35 rows.
+
+   **Sourcing a category referent.** A referent is a named, dated, external fact that is true of
+   the SEGMENT, not of the recipient — so it costs one verification per segment rather than one
+   per row, and it cannot be wrong about them. It must be:
+
+   - **named** — a product, standard, regulation or incident a reader could look up;
+   - **dated** — with the month and year in the sentence, so staleness is visible to the reader
+     and to the existing staleness gate rather than implied;
+   - **external** — published by someone who is neither us nor them;
+   - **category-level** — true of every company in the segment. The moment it is true only of
+     this recipient it is a claim about their build, and `problem-asserts-internals` is the rule
+     that catches it.
+
+   This is the shape the 2026-08-25 batch used and the 2026-09-09 batch dropped, and dropping it
+   is what the craft measurement traced three symptoms back to: abstraction forces nominalisation,
+   nominalisation raises reading grade, and a sentence with no concrete situation has nowhere to
+   put "you". Read the numbers with `merge_render_linter.py <spec> --craft-report` before and
+   after; do not calibrate against the current corpus, which is the corpus the measurement says
+   is the problem.
+
+   **ALTITUDE: argue the consequence, name the mechanism only as evidence (2026-09-22, EC15).**
+   From the first live labelling round, in the operator's own words about real sends: *"such a
+   narrow problem… runtime governance, proving agent delegation, meeting new agentic AI guidance
+   are more strategic"*; *"the president of this company will not be thinking about this narrow
+   small problem — frame both the problem and the offer more strategically"*. Every one of those
+   bodies had already passed `seat-stakes-missing`, because that rule asks whether a seat word is
+   PRESENT, not whether the problem is stated at that altitude. `seat-stakes-not-in-problem`
+   (WARN) now checks the position; it cannot check the altitude, so this paragraph has to.
+
+   The test is not vocabulary. It is: **would this person recognise the sentence as their
+   problem, or as a description of a protocol they delegate?** A protocol detail is what makes
+   the consequence credible — it is never the consequence. Concretely:
+
+   - ❌ "When an agent sends a request over A2A, the transport credential names the company."
+   - ✅ "The first enterprise security review asks who authorised each agent action, and the
+     answer gets rebuilt per integration."
+
+   Both name the same gap. The second is what stalls a deal; the first is how it works.
+
+   **Do not make a standard the reader may not know carry the argument.** Operator, same round:
+   *"the user likely will not know what a W3C DID is and I'm not sure that is the right thing to
+   name as the gap"*. Name such a thing at most once, as evidence for a consequence already
+   stated in plain words — never as the gap itself, and never in the ask.
+
+   **Check the premise is load-bearing before building on it.** *"A2A is not widely used as a
+   protocol yet — do we need to make it so narrow?"* An argument scoped to one emerging protocol
+   is only as strong as that protocol's adoption in THIS segment. If the same consequence holds
+   without it, say it without it.
+
+   **And check the buyer actually has the buyer you are invoking.** *"Their buyers (people buying
+   insurance as individuals) would not have a security team."* "Your enterprise buyers will run
+   this through a security review" is a premise about their customers, not about them — it is
+   false for anyone selling B2C, and `right_person` will read fine while the whole frame is wrong.
+
+   **Rotate the offer across touches.** The last beat names an artifact from the profile's
+   `gift-artifacts.txt`; a sequence that offers the same artifact every touch is one ask repeated
+   three times. Measured 2026-09-22: the same artifact noun recurs across touches in 26 of 37
+   specs (70%). That rate is why it is guidance here and NOT a gate — a rule firing on 70% of a
+   population describes the population — but it is still the difference between a sequence and a
+   nag. `thread-sentence-repeat` (ERROR) does gate the harder version of this: the same SENTENCE
+   in two touches landing in one thread, where the reader has the earlier message directly above.
 2. **The seat's problem, as a PREDICTED question — never an asserted internal.** Banned shape:
    *"the honest answer at {{Company}} is a shared key nobody can attribute"* — a claim about their
    architecture nobody verified, and the single loudest AI tell in the batch. Allowed shapes: a
@@ -989,6 +1065,22 @@ before any enroll/import call — never after, and never rely on being asked.
   surface exposes **no removal tool**, so putting a merely already-contacted person on it forfeits
   them for every future sequence. Already-contacted and wrong-role are *local* exclusions
   (`contacted-*`, `role-mismatch`) and stay in the ledger only.
+- **Prove the `dnc-optout` rows are really on the provider — don't assume it.** A `dnc-optout` row
+  is a claim about a *third-party system*: that this person cannot be mailed by any sequence,
+  including ones outside this repo. Every other reason here is a claim about our own files, which
+  `verify` settles by reading them; this one cannot be settled locally at all. Until 2026-09-21 it
+  never was — three real opt-outs sat on a live tenant's provider DNC list for six weeks with no
+  ledger row, so the wave gate could name none of them. Read the provider list back and pipe it in:
+  ```bash
+  # the connector returns the list; this command performs no network I/O of its own (§R6)
+  saleshandy list_dnc_lists -> get_dnc_items_by_id  # via MCP, then pipe the JSON:
+  python -m gtm_core.suppression reconcile-dnc --ledger <pool>/suppression.csv < dnc.json
+  ```
+  Exit 1 names a person this repo believes is globally suppressed and who is not. It accepts the
+  provider's own item shape, the consolidate DNC cache, and a bare address list, so the cache at
+  `prospects/.cache/dnc-emails.json` works as the input when you have just refreshed it. An **empty**
+  payload is refused rather than reported clean — an unparsed response and an empty DNC list are
+  indistinguishable, and reading one as the other is how a broken pipe becomes a PASS.
 
 - **Refresh the consolidated pool before pulling the lead list.** Prospect runs pile up
   un-consolidated between sessions (a run gets interrupted, or the operator only runs part of the
@@ -1108,8 +1200,33 @@ uv run python -m gtm_core.email_compliance preflight --profile <active> \
   --settings-json /tmp/settings.json \
   --leads-csv content/<active>/prospects/sequences/ready-to-load.csv \
   --strict-market \
-  --suppression-ledger content/<active>/prospects/sequences/.pool/suppression.csv
+  --suppression-ledger content/<active>/prospects/sequences/.pool/suppression.csv \
+  --provider saleshandy --sequence-id <sequence-id>
 ```
+
+**`--provider` adds the fourth check: the sequencer's own capability contract (SC2/SC4).** The
+three checks above judge what THIS SEQUENCE carries. That one judges what the PROVIDER does and
+what somebody switched on in its UI — the two facts that were believed rather than read, and that
+let three real opt-outs sit unmirrored for six weeks. It resolves each capability through the
+committed registry (`gtm_core/sequencers.toml`: cited, dated, and refusing to load a row without a
+source URL and a `verified_on`), then asserts the live setting. It shares the SAME exit status; it
+is not a second gate.
+
+Four words appear in that table and **only `BLOCKS` blocks**: `verified by a live read`,
+`ATTESTED — an operator confirmed it, nothing was read`, `advisory — does not block`, and `BLOCKS`.
+An `ATTESTED` is never a `PASS`, because a human's say-so is not the same evidence as a read.
+
+- **`--attest <capability>`** is accepted only where the registry records that the setting cannot
+  be read back, and only for that run — it is never carried into the next one. Today that means
+  `--attest ooo_auto_pause` after you have confirmed Out of Office in the Saleshandy UI.
+- **`--sequence-id`** writes a `capability_asserted` row so "was this sequence checked, and when?"
+  is answerable from `ledger_cli` with no provider call. Written for a FAIL too.
+- **Expect `stop_on_reply` to BLOCK** until a live unfiltered `get_sequence_settings` read finds
+  its numbered code and dates the registry row. That is the intended state, not a bug: the setting
+  decides whether follow-ups keep going after someone replies, and nobody has read it back yet.
+
+See the provider adapter's "Capability contract" section for what each capability costs if it is
+wrong, and `python -m gtm_core.sequencers <provider>` to inspect the registry directly.
 
 **Exit code 1 means DO NOT LOAD** — fix the cause, re-run, and only then continue. Add `--markdown`
 to emit the table that goes in the sequence spec, and `--strict-market` to treat a lead with no

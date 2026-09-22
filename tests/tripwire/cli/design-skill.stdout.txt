@@ -1,0 +1,12 @@
+
+skill-contradiction.md
+  ✗ [SD11 contradictory guardrail] document: line 8 forbids what line 12 requires — both about: log, revision, version
+      → decide which rule is right and delete the other. L8: 'Never ship a version log with a design revision.' · L12: 'A revision must append a version log as its final section.'
+✓ skill-clean.md — clean
+
+  Errors block delivery. Warnings do not, but they are graded: read them,
+  then either fix or say why not, and where one is genuinely wrong about a
+  document suppress it with <!-- lint-ok SD4: reason --> in that section.
+  Judgement calls (~) are neither — they block nothing, --strict does not
+  promote them, and they take no lint-ok. Three tiers, three answers: two
+  that contradict each other train a reader to ignore both.

@@ -398,8 +398,8 @@ def test_render_returns_expected_files():
         "knowledge/case-studies.md",
         "knowledge/audience-psychology.md",
         "products/acme-deploy/PRODUCT.md",
-        "products/acme-deploy/knowledge/icp-personas.md",
-        "products/acme-deploy/knowledge/market-scan-config.md",
+        "products/acme-deploy/icp-personas.md",
+        "products/acme-deploy/market-scan-config.md",
     }
     assert set(files.keys()) == expected_paths, (
         f"Unexpected: {set(files.keys()) - expected_paths}\n"

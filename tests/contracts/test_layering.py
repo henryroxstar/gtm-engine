@@ -14,7 +14,6 @@ forbidding, which is exactly the gtm_core→agent edge this test was written to 
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -34,48 +33,23 @@ ALLOWED_EDGES = {
 }
 
 
-def _module_name(path: Path, root: Path) -> str:
-    parts = list(path.relative_to(root).with_suffix("").parts)
-    if parts and parts[-1] == "__init__":
-        parts = parts[:-1]
-    return ".".join(parts) or path.stem
-
-
-def _iter_import_targets(tree: ast.AST, mod: str):
-    """Yield (dotted_target, lineno) for every Import/ImportFrom node, TYPE_CHECKING included."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                yield alias.name, node.lineno
-        elif isinstance(node, ast.ImportFrom):
-            base = node.module or ""
-            if node.level:  # relative import → resolve against the current package
-                anchor = mod.split(".")
-                anchor = anchor[: max(0, len(anchor) - node.level)]
-                base = ".".join([*anchor, base]) if base else ".".join(anchor)
-            if base:
-                yield base, node.lineno
-
-
 def find_violations(root: Path = REPO, source_roots=SOURCE_ROOTS, allowed=ALLOWED_EDGES):
     """Return a list of ``"src_module:lineno -> dst_package"`` strings for forbidden edges."""
+    import sys
+
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from gtm_core.ast_graph import build_graph
+
     violations = []
-    for pkg in source_roots:
-        pkg_dir = root / pkg
-        if not pkg_dir.is_dir():
+    g = build_graph(root, source_roots=source_roots)
+    for mod, target, lineno in g.imports:
+        pkg = mod.split(".", 1)[0]
+        dst_pkg = target.split(".", 1)[0]
+        if dst_pkg == pkg or dst_pkg not in source_roots:
             continue
-        for path in sorted(pkg_dir.rglob("*.py")):
-            mod = f"{pkg}.{_module_name(path, root / pkg)}"
-            try:
-                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            except (SyntaxError, UnicodeDecodeError):
-                continue
-            for target, lineno in _iter_import_targets(tree, mod):
-                dst_pkg = target.split(".", 1)[0]
-                if dst_pkg == pkg or dst_pkg not in source_roots:
-                    continue
-                if (pkg, dst_pkg) not in allowed:
-                    violations.append(f"{mod}:{lineno} -> {dst_pkg}")
+        if (pkg, dst_pkg) not in allowed:
+            violations.append(f"{mod}:{lineno} -> {dst_pkg}")
     return violations
 
 

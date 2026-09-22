@@ -33,20 +33,31 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import UTC, datetime, timedelta
 
 from agent.config import Config
 from agent.ledgers import Ledgers
+from agent.optout_categories import _categories_by_thread
 from gtm_core.optout_watch import (
+    OptOutMatch,
+    _snippet,
     advance_watermark,
     find_optouts_in_thread,
     first_inbound_message,
+    is_unreadable,
     load_watermark,
     new_threads,
     record_optout_event,
+    record_unreadable_event,
     save_watermark,
+    thread_id_of,
 )
 from gtm_core.prospects_state import mark_replied
-from gtm_core.reply_classify import CLASSIFIED_TYPES, classify_reply
+from gtm_core.reply_classify import (
+    CLASSIFIED_TYPES,
+    classify_reply,
+    merge_route,
+)
 from gtm_core.signals import build_signal, new_signals, record_signals
 
 logger = logging.getLogger("agent.optout_sweep")
@@ -76,7 +87,7 @@ async def _fetch_all_threads(get_inbox_threads, not_configured: str) -> tuple[di
     two to exit 0 and the last to exit 1.
 
     Paging matters for correctness, not throughput: the watermark advances to the max
-    ``lastMessageAt`` across everything returned, so fetching only the first page would
+    ``lastMessageTimestamp`` across everything returned, so fetching only the first page would
     strand any thread past it — permanently, since the next sweep starts above the
     advanced mark. That is a silent miss, the one failure mode this module exists to
     prevent. Pages to exhaustion rather than breaking early on a page of already-seen
@@ -98,7 +109,13 @@ async def _fetch_all_threads(get_inbox_threads, not_configured: str) -> tuple[di
         if body is None:
             logger.error("optout_sweep: get_inbox_threads(page=%d) failed: %s", page, raw[:200])
             return None, "error"
-        batch = (body.get("payload") or {}).get("threads") or []
+        # CORRECTED 2026-09-21: the list key is `items`, not `threads` — see the
+        # `# CORRECTED` comment on `get_inbox_threads` in agent/mcp/saleshandy/server.py
+        # for the endpoint fix this key rename comes from. The internal wrapper this
+        # function returns still calls it `threads` on purpose (below) — that name is
+        # this module's OWN normalized shape, not the provider's, and every downstream
+        # reader (gtm_core.optout_watch.new_threads / advance_watermark) already keys on it.
+        batch = (body.get("payload") or {}).get("items") or []
         merged.extend(batch)
         if len(batch) < _PAGE_SIZE:
             return {"threads": merged}, "ok"
@@ -115,9 +132,66 @@ async def _fetch_all_threads(get_inbox_threads, not_configured: str) -> tuple[di
     return None, "error"
 
 
+#: How long a soft no rests before the account is worth re-approaching (SC12). Sixty days
+#: is the operator's cadence, not a legal period — an opt-out has a deadline, a soft no has
+#: a date. Nothing re-contacts on it automatically; it is carried so the decision is visible
+#: where it was made.
+_RESHOW_AFTER_DAYS = 60
+
+
+def _reshow_after(message_ts: str) -> str:
+    """``message_ts`` + 60 days as an ISO-8601 UTC string, falling back to now.
+
+    An unparseable or missing provider timestamp must not lose the date entirely, so the
+    sweep's own clock stands in — later than the true reply date, which errs toward
+    waiting longer before re-approaching rather than sooner.
+    """
+    base = None
+    if message_ts:
+        try:
+            base = datetime.fromisoformat(message_ts.replace("Z", "+00:00"))
+        except ValueError:
+            base = None
+    if base is None:
+        base = datetime.now(UTC)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=UTC)
+    return (base + timedelta(days=_RESHOW_AFTER_DAYS)).isoformat().replace("+00:00", "Z")
+
+
+def _normalise_thread(detail_body: dict, item: dict, thread_id: str) -> dict:
+    """The shape `gtm_core.optout_watch` expects, from whatever `get_thread` returned.
+
+    VERIFIED LIVE 2026-09-22: `get_thread`'s payload is a BARE LIST of messages — not the
+    `{id, subject, messages}` object this sweep assumed — and the subject lives on the
+    LIST item, not in the thread detail. Normalising here keeps the provider's shape in
+    the connector-adjacent layer and leaves `optout_watch` a pure function over one
+    documented dict, which is what its whole test suite rests on.
+
+    Both shapes are accepted: an object carrying `messages` passes through unchanged.
+    """
+    payload = detail_body.get("payload")
+    if isinstance(payload, dict):
+        messages = payload.get("messages") or []
+        subject = payload.get("subject") or item.get("subject") or ""
+    elif isinstance(payload, list):
+        messages = payload
+        subject = str(item.get("subject") or "")
+    else:
+        messages = []
+        subject = str(item.get("subject") or "")
+    return {"threadId": thread_id, "subject": subject, "messages": messages}
+
+
 async def run(profile: str, *, cfg: Config | None = None) -> int:
     """Sweep new inbox threads for opt-out replies. Returns a process exit code."""
-    from agent.mcp.saleshandy.server import NOT_CONFIGURED, get_inbox_threads, get_thread
+    from agent.mcp.saleshandy.server import (
+        NOT_CONFIGURED,
+        get_inbox_threads,
+        get_outcomes,
+        get_thread,
+        get_unibox_categories,
+    )
 
     cfg = cfg or Config.from_env()
     ledgers = Ledgers(cfg, profile)
@@ -154,11 +228,15 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
 
     watermark = load_watermark(watermark_path)
     candidates = new_threads(threads_payload, watermark)
+    # One read per routing-relevant category, once per sweep — never per thread.
+    category_by_thread = await _categories_by_thread(
+        get_unibox_categories, get_outcomes, get_inbox_threads
+    )
 
     found = 0
     signals: list[dict] = []
     for t in candidates:
-        thread_id = str(t.get("id") or "")
+        thread_id = thread_id_of(t)
         if not thread_id:
             continue
         raw_detail = await get_thread(thread_id)
@@ -182,7 +260,7 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
                 }
             )
             continue
-        payload = detail_body.get("payload") or {}
+        payload = _normalise_thread(detail_body, t, thread_id)
         match = find_optouts_in_thread(payload)
         if not match:
             # Not an opt-out — but it IS a new inbound reply, which this sweep used to
@@ -201,29 +279,88 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
             # across differing types, so two types for one thread would dispatch twice.
             inbound = first_inbound_message(payload)
             if inbound:
-                who = str(inbound.get("from") or "").strip()
-                if who:
+                # NEW-then-OLD field name, per the fallback posture the server.py fix
+                # documents for this endpoint's per-message shape.
+                who = str(inbound.get("senderEmail") or inbound.get("from") or "").strip()
+                body = str(inbound.get("body") or "")
+                if who and is_unreadable(body):
+                    # SC6. Every opt-out pattern is English, so a reply in another script
+                    # matched nothing above and would now be classified — in English — and
+                    # possibly handed a drafted reply. It may be an opt-out; this matcher
+                    # cannot tell. Record it, escalate it, and draft NOTHING. Recorded
+                    # before the watermark advances (same durability as the opt-out path);
+                    # the watermark itself is untouched, because one global timestamp has
+                    # no per-thread hold to release.
+                    unreadable = OptOutMatch(
+                        thread_id=thread_id,
+                        email=who,
+                        subject=str(payload.get("subject") or ""),
+                        message_ts=str(inbound.get("timestamp") or inbound.get("sentAt") or ""),
+                        snippet=_snippet(body),
+                        direction_known=bool(inbound.get("direction")),
+                    )
+                    escalated = await _escalate(cfg, profile, unreadable)
+                    record_unreadable_event(ledgers, unreadable, escalated=escalated)
+                    # SC9: and it is a candidate for the provider DNC mirror. The signal
+                    # only reaches a DRAFT — `optout-suppress`'s first node lists the
+                    # addresses with their ledger evidence and stops at a human gate.
                     signals.append(
                         build_signal(
                             who,
-                            classify_reply(str(inbound.get("body") or "")),
+                            "optout_unreadable",
+                            f"saleshandy-inbox:{thread_id}",
+                            ts=unreadable.message_ts or None,
+                            meta={"thread_id": thread_id, "subject": unreadable.subject},
+                        )
+                    )
+                    continue
+                if who:
+                    msg_ts = str(inbound.get("timestamp") or inbound.get("sentAt") or "")
+                    signal_type = merge_route(
+                        classify_reply(body), category_by_thread.get(thread_id)
+                    )
+                    meta = {
+                        "thread_id": thread_id,
+                        "subject": str(payload.get("subject") or ""),
+                    }
+                    if signal_type == "not_now":
+                        # SC12. A soft no is a date, not a deletion: the account resurfaces
+                        # instead of vanishing the way an opt-out-classified "not interested"
+                        # used to. Nothing reads this to re-contact automatically — it is the
+                        # operator's re-approach date, carried where the decision was made.
+                        meta["reshow_after"] = _reshow_after(msg_ts)
+                    signals.append(
+                        build_signal(
+                            who,
+                            signal_type,
                             # Thread-scoped on purpose. signal_id() keys on
                             # (who, type, source) with no timestamp, so a constant source
                             # would dedup the SAME person's every future reply away
                             # permanently once one was recorded. Per-thread means a new
                             # conversation surfaces and a re-scan of the same one does not.
                             f"saleshandy-inbox:{thread_id}",
-                            ts=str(inbound.get("sentAt") or "") or None,
-                            meta={
-                                "thread_id": thread_id,
-                                "subject": str(payload.get("subject") or ""),
-                            },
+                            ts=msg_ts or None,
+                            meta=meta,
                         )
                     )
             continue
         found += 1
         escalated = await _escalate(cfg, profile, match)
         record_optout_event(ledgers, match, escalated=escalated)
+        # SC9. The per-opt-out Telegram alert above STAYS — it is the same-day deadline and
+        # is not aggregated away. This signal is the second half the alert never had: a
+        # route to actually mirror the suppression onto the provider, drafted for a human
+        # rather than written by a timer.
+        if match.email:
+            signals.append(
+                build_signal(
+                    match.email,
+                    "optout_detected",
+                    f"saleshandy-inbox:{match.thread_id}",
+                    ts=match.message_ts or None,
+                    meta={"thread_id": match.thread_id, "subject": match.subject},
+                )
+            )
 
     # Dedup against history.jsonl (the same source the radar uses) so a thread that stays
     # in the inbox across sweeps is surfaced once, not every 4 hours. Recorded BEFORE the

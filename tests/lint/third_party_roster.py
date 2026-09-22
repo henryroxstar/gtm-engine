@@ -28,13 +28,16 @@ triaged:
 
   * a multi-word name becomes one n-gram key — distinctive by length, and its pattern
     spans separators, so it matches the slug form too;
-  * a name's LEADING token is also a key when it is >= MIN_TOKEN_LEN and absent from the
-    system dictionary, because that is what a slug or a comment abbreviates a company to.
-    The leading token of a multi-word name is often geography or a common noun instead
-    ("<city> <bank>", "<plural noun> <suffix>"), and the system dictionary is a 1934
-    wordlist that has neither plurals nor British spellings, so those land in
-    `[third-party-allowed]` under their own reason — measured here, that is ~15 entries
-    and it buys the five companies whose folder name is multi-word;
+  * a name's LEADING token is also a key when it is >= MIN_TOKEN_LEN and not ordinary
+    English, because that is what a slug or a comment abbreviates a company to. "Ordinary"
+    is `is_ordinary_word`, which stems before it consults the dictionary: the system list
+    is a 1934 wordlist of BASE forms, so a bare membership test called `decisions`,
+    `funding`, `circles` and `interactions` identities and fired on 409 lines of ordinary
+    prose. The leading token of a multi-word name is often geography or a common noun
+    instead ("<city> <bank>", "<plural noun> <suffix>"); those, and the British spellings
+    and modern coinages no stemmer reaches (`cyber`), land in `[third-party-allowed]`
+    under their own reason — measured here, that is ~20 entries and it buys the five
+    companies whose folder name is multi-word;
   * an all-English phrase is dropped. A company genuinely named in plain English is a
     RESIDUAL this gate does not cover: keying on it cannot distinguish the company from
     the same words used as prose. Those stay with the human identity read;
@@ -166,6 +169,52 @@ def _dictionary() -> set[str]:
     }
 
 
+# English inflections the system wordlist does not carry. `web2` is a 1934 list of BASE
+# forms: it has `decision`, `fund`, `circle` and `interaction` but none of their plurals or
+# gerunds, so an account named with one keyed on an ordinary English word and the gate fired
+# on prose 409 times — `agent/permissions.py`'s "returns one of three decisions", a dict key
+# in the signal taxonomy, Venn-diagram guidance. Stripping a suffix before the dictionary
+# check is what makes "is this an ordinary word?" mean what the docstring above says it
+# means. Measured 2026-09-21 on 1,321 keys: 28 keys drop (2.1%), 13 accounts lose their only
+# key — and all 13 are all-English names, which is the residual this module already documents
+# and leaves to the human identity read, not new blindness.
+#
+# Deliberately crude, and deliberately over-generating: each candidate is only ever CHECKED
+# against the wordlist, never emitted, so a wrong stem costs nothing and a missed one costs a
+# false positive. No stemmer library — this file is stdlib-only because pre-commit and the
+# export gate both run it.
+def _stems(token: str) -> set[str]:
+    """Candidate base forms of an inflected English token."""
+    out: set[str] = set()
+    if token.endswith("ies") and len(token) > 4:
+        out.add(token[:-3] + "y")
+    if token.endswith("es") and len(token) > 3:
+        out |= {token[:-2], token[:-1]}
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+        out.add(token[:-1])
+    if token.endswith("ing") and len(token) > 5:
+        out |= {token[:-3], token[:-3] + "e"}
+        if len(token) > 6 and token[-4] == token[-5]:
+            out.add(token[:-4])  # `running` -> `run`
+    if token.endswith("ed") and len(token) > 4:
+        out |= {token[:-2], token[:-1]}
+        if len(token) > 5 and token[-3] == token[-4]:
+            out.add(token[:-3])
+    return out
+
+
+def is_ordinary_word(token: str, words: set[str]) -> bool:
+    """Whether `token` is ordinary English — directly, or as an inflection of a base form.
+
+    The one predicate both filters consult. `derive_keys` drops a head token it calls True,
+    and the residual test explains a missed account with it; if they ever disagree, the test
+    reports accounts as unexplained that the filter deliberately dropped. Empty `words`
+    (no wordlist installed) returns False for everything, which is the filter switched off —
+    see `_dictionary`.
+    """
+    return token in words or any(s in words for s in _stems(token))
+
+
 def load_third_party_allowed() -> set[str]:
     """`[third-party-allowed]` — names that are also legitimate vendors/ecosystem tools."""
     allowed: set[str] = set()
@@ -236,7 +285,7 @@ def derive_keys(root: Path = ROOT) -> set[str]:
         if (
             len(head) >= MIN_TOKEN_LEN
             and head not in allowed
-            and head not in words
+            and not is_ordinary_word(head, words)
             and not head.isdigit()
         ):
             keys.add(head)

@@ -66,6 +66,10 @@ dependencies = [
   # wheel. captions.py is the ONLY gtm_core module permitted to import PIL.
   "pillow>=12.3",
   "boto3>=1.43.98",
+  # gtm_core/diagrams parses .drawio files an operator can upload — untrusted XML.
+  # defusedxml.ElementTree is a drop-in ET replacement that disables external
+  # entity/DTD resolution, closing the XXE surface (semgrep use-defused-xml).
+  "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
@@ -154,6 +158,7 @@ packages = [
   "backend.routers",
   "backend.services",
   "backend.services.runs",
+  "backend.services.signals",
   "cockpit",
   "gtm_core",
   "gtm_core.community_signal",
@@ -163,16 +168,22 @@ packages = [
     "gtm_core.brief_lint",
     "gtm_core.content_quality",
     "gtm_core.deck_lint",
+    "gtm_core.design_lint",
+    "gtm_core.diagrams",
     "gtm_core.email_campaign_dashboard",
     "gtm_core.hook_coverage",
+    "gtm_core.icp_check",
     "gtm_core.lanes",
     "gtm_core.merge_hygiene",
     "gtm_core.prospects_consolidate",
+    "gtm_core.role_vocabulary",
+    "gtm_core.scorecard",
     "gtm_core.screen_ui",
     "gtm_core.screen_ui.scenes",
     "gtm_core.shots_lint",
   "gtm_core.prospects",
   "gtm_core.skills",
+  "gtm_core.vfs",
   "mcp_server",
 ]
 
@@ -336,10 +347,17 @@ skips = ["B101"]
 
 # ── Coverage (pytest-cov) ───────────────────────────────────────────────────
 [tool.coverage.run]
-source = ["agent", "backend", "cockpit", "gtm_core", "mcp_server"]
+source = ["agent", "backend", "cockpit", "gtm_core", "mcp_server", "tests/linter"]
 branch = true
+# `tests/linter/` is the one directory under tests/ that holds PRODUCTION code: the four
+# copy/merge linters that gate outbound email, sitting beside their own tests. The blanket
+# `tests/*` omit that used to be here hid them from every coverage run this repo takes —
+# and since nothing else under tests/ is in `source`, that omit was protecting nothing.
+# Two defects sat behind the blind spot until 2026-09-22: a refusal path in the enrollment
+# gate that had never executed, and a `_selftest()` no test called. See PENDING.md EC13.
 omit = [
-  "tests/*",
+  "tests/linter/test_*.py",
+  "tests/linter/conftest.py",
   ".venv/*",
   "*/__pycache__/*",
   "profiles/*",

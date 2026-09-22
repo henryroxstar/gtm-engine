@@ -22,6 +22,7 @@ from outreach_pack_linter import (
     ROLE_INBOX_SENTINEL,
     RULES_VERSION,
     UNRESOLVED_SENTINEL,
+    EmailBlock,
     _artifact_count,
     _content_words,
     _depossess,
@@ -32,6 +33,7 @@ from outreach_pack_linter import (
     _subject_shape,
     detect_format,
     lint_body_homogeneity,
+    lint_email,
     lint_formatted_pack,
     lint_pack,
     lint_subject_homogeneity,
@@ -745,7 +747,11 @@ def test_unresolved_contact_suppresses_only_the_name_rules() -> None:
         ("Chief Data & Analytics Officer", "data-compliance", "security"),
         ("Chief Risk Officer", "compliance", "security"),
         ("Chief Technology Officer", "cto", "cto"),
-        ("Chief Information Officer", "cloud-architect", "architect"),
+        # A CIO resolves to its own persona since the 2026-09-21 split, and still to
+        # the SAME seat — the split was made to keep the seat identical while making
+        # "runs IT" and "architects systems" countable apart.
+        ("Chief Information Officer", "cio", "architect"),
+        ("Chief Architect, SVP of Technology", "cloud-architect", "architect"),
         ("Enterprise Architect", "cloud-architect", "architect"),
         ("Chief AI Officer", "ai-platform", "ai-platform"),
         ("Head of AI Platform", "ai-platform", "ai-platform"),
@@ -886,6 +892,16 @@ def test_a_clean_pack_still_passes(tmp_path):
         "Parsing that clause is a call most platforms would still route to a human.",
         "Booking through to dispatch with no human step, that's a real handoff.",
         "The autonomy ladder is further than most agent platforms get.",
+        # 2026-09-22 — second-person COMPETENCE ATTRIBUTION. Same failure as the comment
+        # above, one layer subtler: these are neither praise words nor rankings, so the
+        # rule passed all five at zero errors and every one shipped. The operator's
+        # objection on reading them back was that grading a stranger's build reads as
+        # grading someone more senior than the sender. One line per 2026-08-25 spec.
+        "You have the approval step right: a human signs off, it is logged, it fires.",
+        "That is the hard part and you have built it.",
+        "You have done the accuracy work, and that is the part anyone asks about first.",
+        "Building that is the hard part and you have done it.",
+        "You have built the hard part.",
     ],
 )
 def test_a_graded_opener_is_a_verdict(opener):
@@ -907,6 +923,19 @@ def test_a_graded_opener_is_a_verdict(opener):
         "That's a serious gap for the second customer.",
         # "lands" as a plain verb, not the 2026-07-03 stem
         "The deal lands in Q4 for most of them.",
+        # 2026-09-22 — the discriminators for the competence-attribution branch. The first
+        # is LOAD-BEARING: "You may already have this covered" is the hedge the five-beat
+        # spine MANDATES (`hedge-missing` fails a body without it), so a competence branch
+        # that convicted it would put the two rules in direct contradiction and force every
+        # body to fail one of them. What makes an attribution a verdict is a judgement about
+        # difficulty ("the hard part") or correctness ("<their thing> right"), never the
+        # bare fact of possession.
+        "You may already have this covered.",
+        "Might already be sorted on your side.",
+        "You have agents in production today.",
+        # "right" and "have" in their innocent senses — a bare \bright\b convicts both
+        "You have the right to opt out at any time.",
+        "You have until Friday to reply.",
     ],
 )
 def test_an_observation_is_not_a_verdict(opener):
@@ -1220,3 +1249,36 @@ def test_a_solution_overview_offer_passes():
         "for an approval-gated booking flow?",
     ]
     assert lint_offer_is_strategic(_blk("x"), s) == []
+
+
+def test_specificity_still_scores_the_whole_body_not_the_opener():
+    """Pins the 2026-09-22 decision NOT to move `specificity` to position (PENDING.md EC5).
+
+    Measured before building: scoping to the greeting-stripped first two sentences turns
+    1032 of 1783 live renders into ERRORs, 845 of them clean today. The comment above the
+    emission carries both refuted proxies. This test exists so the change cannot be made
+    quietly by someone who reads the plan and not the measurement — a body whose anchors all
+    sit AFTER the opener must still pass.
+    """
+    late = EmailBlock(
+        index=1,
+        header="Jordan Vance · CTO, Northwind",
+        first="Jordan",
+        company="Northwind",
+        to="jordan@northwind.example",
+        subject="a note",
+        body=(
+            # Greeting + TWO abstract sentences, so every anchor lands in sentence three
+            # or later. A body whose anchors are inside the first two sentences passes under
+            # both scopes and would prove nothing.
+            "Hi Jordan,\n\nMost teams hit the same wall once an agent starts acting for a "
+            "customer.\n\nThe transport credential names the organisation and not the "
+            "caller.\n\nThat pattern showed up in the Dover review in March, and again at "
+            "Ardal in 2026.\n\nAlex"
+        ),
+    )
+    rules = {v.rule for v in lint_email(late, signoff="Alex")}
+    assert "specificity" not in rules, (
+        "specificity fired on a body whose anchors are all after the opener — the positional "
+        "scope EC5 measured and rejected appears to have been applied"
+    )

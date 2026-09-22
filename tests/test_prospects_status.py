@@ -1,19 +1,23 @@
-"""Tests for Attrition Receipt and funnel conservation in gtm_core.prospects status."""
+"""Tests for the accounts block and funnel conservation in gtm_core.prospects status.
+
+2026-09-21 (PSK-029): the banner and the accounts block are derived from the routed state the
+contact table is built from, so three expectations here changed — see each test's docstring.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from gtm_core import prospect_status_cli as cli
-from gtm_core.prospect_status import (
+from gtm_core.prospect_status_receipt import (
     AttritionReceipt,
     compute_attrition_receipt,
     verify_funnel_conservation,
 )
-from gtm_core.slugify import slug
 
 
 def test_funnel_conservation_of_accounts() -> None:
@@ -66,73 +70,81 @@ def test_funnel_conservation_of_accounts() -> None:
 
 
 def test_double_count_prevention() -> None:
-    """Ensure accounts processed across multiple waves deduplicate correctly based on their canonical slug."""
-    # Wave 1 processed Acme Robotics (failed fit) and Eastvale (ready)
-    # Wave 2 re-evaluated Acme Robotics (now held) and added Summitline (ready)
+    """An account seen in two waves is ONE account — by the LEDGER's identity (domain first).
+
+    Changed 2026-09-21: this used to dedupe on the company-name slug, which merged distinct
+    ledger accounts that share a name. The ledger's own key is reused instead, so a re-spelled
+    name on the same domain is still one account, and the same name on two domains is two.
+    """
     wave1_items = [
-        {"company": "Acme Robotics", "stage": "failed_fit"},
-        {"company": "Eastvale Data", "stage": "ready"},
+        {"company": "Acme Robotics", "domain": "acmerobotics.example", "stage": "failed_fit"},
+        {"company": "Eastvale Data", "domain": "eastvaledata.example", "stage": "ready"},
     ]
     wave2_items = [
-        {"company": "Acme-Robotics", "stage": "held"},  # Same canonical slug as "Acme Robotics"
-        {"company": "Summitline Systems", "stage": "ready"},
+        {"company": "Acme-Robotics", "domain": "acmerobotics.example", "stage": "held"},
+        {"company": "Summitline Systems", "domain": "summitline.example", "stage": "ready"},
     ]
 
-    combined = wave1_items + wave2_items
-    receipt = compute_attrition_receipt(combined)
+    receipt = compute_attrition_receipt(wave1_items + wave2_items)
 
-    # Should deduplicate Acme Robotics down to 1 account: total unique = 3 (Acme Robotics, Eastvale Data, Summitline Systems)
     assert receipt.total_intake == 3
+    assert (receipt.held, receipt.ready, receipt.failed_fit) == (1, 2, 0)  # the later wave wins
     assert verify_funnel_conservation(receipt) is True
 
-    # Check that canonical slugs are used
-    assert slug("Acme Robotics") == slug("Acme-Robotics")
+
+def test_two_ledger_rows_sharing_a_name_on_different_domains_are_two_accounts() -> None:
+    items = [
+        {"company": "Northwind Robotics", "domain": "northwindrobotics.example"},
+        {"company": "Northwind Robotics", "domain": "northwind-robotics-apac.example"},
+        {"company": "Northwind Robotics", "domain": "northwindrobotics-eu.example"},
+    ]
+    assert compute_attrition_receipt(items).total_intake == 3
 
 
-def test_status_cli_outputs_attrition_receipt_and_action_alert(tmp_path: Path, monkeypatch) -> None:
-    """CLI outputs Attrition Receipt waterfall and ACTION REQUIRED alert when items are held."""
+def _seed_status(tmp_path: Path, monkeypatch, state_rows: list[dict], items: list[dict]) -> str:
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     profile = "test-profile"
     evals_dir = tmp_path / profile / "prospects" / "evals"
     evals_dir.mkdir(parents=True, exist_ok=True)
-
-    # lanes-state.jsonl with held records
-    state_rows = [
-        {"email": "ada@example.com", "lane": "generic", "reason": ""},
-        {"email": "bob@example.com", "lane": "hold", "reason": "tier-a-generic"},
-        {"email": "cy@example.com", "lane": "hold", "reason": "competitor-adjacent"},
-    ]
     (evals_dir / "lanes-state.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in state_rows), encoding="utf-8"
     )
+    (tmp_path / profile / "prospects" / "latest.json").write_text(
+        json.dumps({"kind": "prospects", "items": items}), encoding="utf-8"
+    )
+    return profile
 
-    latest_items = [
-        {"company": "Acme Corp", "stage": "ready"},
-        {"company": "Beta Inc", "stage": "held"},
-        {"company": "Gamma LLC", "stage": "held"},
+
+def test_status_cli_outputs_accounts_block_and_action_alert(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """The banner counts the CONTACTS waiting on the operator and the accounts block agrees.
+
+    Changed 2026-09-21: the banner used to say "N accounts require routing decisions in the
+    Review Sheet" — a count of contacts labelled as accounts, naming a sheet with no path.
+    """
+    state_rows = [
+        {"email": "ada@acme.example", "lane": "generic", "reason": "no-judge-verdict"},
+        {"email": "bob@beta.example", "lane": "hold", "reason": "tier-a-generic"},
+        {"email": "cy@gamma.example", "lane": "hold", "reason": "competitor-adjacent"},
     ]
-    latest_file = tmp_path / profile / "prospects" / "latest.json"
-    latest_file.write_text(
-        json.dumps({"kind": "prospects", "items": latest_items}), encoding="utf-8"
-    )
+    latest_items = [
+        {"company": "Acme Corp", "domain": "acme.example", "contact_email": "ada@acme.example"},
+        {"company": "Beta Inc", "domain": "beta.example", "contact_email": "bob@beta.example"},
+        {"company": "Gamma LLC", "domain": "gamma.example", "contact_email": "cy@gamma.example"},
+    ]
+    profile = _seed_status(tmp_path, monkeypatch, state_rows, latest_items)
 
-    import io
-    import sys
+    assert cli.main(["--profile", profile]) == 0
+    out = capsys.readouterr().out
 
-    buf = io.StringIO()
-    monkeypatch.setattr(sys, "stdout", buf)
-
-    exit_code = cli.main(["--profile", profile])
-    assert exit_code == 0
-    out = buf.getvalue()
-
-    # ACTION REQUIRED banner for 2 held accounts
-    assert (
-        "> [!WARNING] ACTION REQUIRED: 2 accounts require routing decisions in the Review Sheet."
-        in out
-    )
-    # Attrition receipt or waterfall
-    assert "[Total Intake]" in out or "Attrition Receipt" in out
+    assert "> [!WARNING] ACTION REQUIRED: 2 contacts are waiting on your decision." in out
+    assert "Accounts — where each stands (companies, not people):" in out
+    assert "Contacts — by status (people, not companies):" in out
+    assert re.search(r"^  Held\s+2\b", out, re.M)
+    assert re.search(r"^  Ready\s+1\b", out, re.M)
+    assert re.search(r"^  All accounts\s+3\b", out, re.M)
+    assert "Check:" not in out
 
 
 def test_classification_on_real_account_shapes() -> None:
@@ -201,56 +213,42 @@ def test_pseudo_email_values_classified_as_failed_enrichment() -> None:
     receipt = compute_attrition_receipt(accounts)
     assert receipt.total_intake == 5
     assert receipt.failed_enrichment == 4
-    assert receipt.ready == 1
+    # Changed 2026-09-21: a usable email alone used to make an account "ready". It is ready
+    # only when a routed contact is ready to send; with nothing routed it is "not yet routed".
+    assert (receipt.ready, receipt.not_routed) == (0, 1)
     assert verify_funnel_conservation(receipt) is True
 
 
-def test_status_cli_outputs_action_alert_when_latest_has_held_accounts(
-    tmp_path: Path, monkeypatch
+def test_status_cli_prints_no_action_alert_when_only_the_ledger_says_held(
+    tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """CLI outputs ACTION REQUIRED alert when lanes-state.jsonl has 0 held, but latest.json has held accounts."""
-    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
-    profile = "test-profile"
-    evals_dir = tmp_path / profile / "prospects" / "evals"
-    evals_dir.mkdir(parents=True, exist_ok=True)
+    """Nobody is waiting on the operator, so there is NO banner — whatever the ledger rows say.
 
-    # lanes-state.jsonl has generic only (0 held)
+    Changed 2026-09-21: this test used to REQUIRE a banner ("3 accounts") from ledger rows
+    alone while "Waiting on you" read 0 — the contradiction the live block showed as "705
+    accounts" above "Waiting on you 102". The banner is now the waiting count, always.
+    """
     state_rows = [
-        {"email": "ada@example.com", "lane": "generic", "reason": ""},
-        {"email": "bob@example.com", "lane": "generic", "reason": ""},
+        {"email": "ada@acme.example", "lane": "generic", "reason": "no-judge-verdict"},
+        {"email": "bob@acme.example", "lane": "generic", "reason": "no-judge-verdict"},
     ]
-    (evals_dir / "lanes-state.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in state_rows), encoding="utf-8"
-    )
-
-    # latest.json has 3 held accounts
     latest_items = [
-        {"company": "Acme Corp", "stage": "ready"},
-        {"company": "Beta Inc", "stage": "held"},
-        {"company": "Gamma LLC", "stage": "held"},
-        {"company": "Delta Co", "stage": "held"},
+        {"company": "Acme Corp", "domain": "acme.example", "contact_email": "ada@acme.example"},
+        {"company": "Beta Inc", "stage": "held", "status": "new"},
+        {"company": "Gamma LLC", "stage": "held", "status": "new"},
+        {"company": "Delta Co", "stage": "held", "status": "new"},
     ]
-    latest_file = tmp_path / profile / "prospects" / "latest.json"
-    latest_file.write_text(
-        json.dumps({"kind": "prospects", "items": latest_items}), encoding="utf-8"
-    )
+    profile = _seed_status(tmp_path, monkeypatch, state_rows, latest_items)
 
-    import io
-    import sys
+    assert cli.main(["--profile", profile]) == 0
+    out = capsys.readouterr().out
 
-    buf = io.StringIO()
-    monkeypatch.setattr(sys, "stdout", buf)
-
-    exit_code = cli.main(["--profile", profile])
-    assert exit_code == 0
-    out = buf.getvalue()
-
-    # ACTION REQUIRED banner must be present for the 3 held accounts in the ledger
-    assert (
-        "> [!WARNING] ACTION REQUIRED: 3 accounts require routing decisions in the Review Sheet."
-        in out
-    )
-    assert "[Held: 3]" in out
+    assert "ACTION REQUIRED" not in out
+    assert re.search(r"^Waiting on you\s+0\b", out, re.M)
+    assert re.search(r"^  Held\s+0\b", out, re.M)
+    assert re.search(r"^  Ready\s+1\b", out, re.M)
+    # The three unrouted accounts have no usable contact; none of them is "held".
+    assert re.search(r"^  No usable contact yet\s+3\b", out, re.M)
 
 
 def test_provenance_pairing_contract() -> None:

@@ -111,6 +111,8 @@ function mountFilter(ROWS) {
       });
     });
 
+    each('[data-filter-note]', function (el) { el.hidden = !on; });
+
     if (clear) { clear.hidden = !on; }
   }
 

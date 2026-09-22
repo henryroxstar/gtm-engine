@@ -121,6 +121,12 @@ against current docs/code/UI (tags drift either way), and verify any cited exter
 - **Honest nuance (do NOT overclaim):** where the reference pack notes an enforcement caveat (a
   check that runs somewhere other than the product, or a capability Enforced only under a specific
   demo configuration), carry that caveat onto the slide — never round it up to product-native.
+<!-- lint-ok SD11: three pairs, all restatement rather than contradiction. This bullet forbids
+     showing a Design-target as live; the bullet above it requires leading with what the same
+     reference pack tags Enforced, and Step 4.5 requires keeping Design-target capabilities on a
+     labelled roadmap band — the same rule from three sides. The third pair reads narrative
+     evidence ("a deck put a generated image on six argument slides, deleted them") as a
+     requirement to do it. Adjudicated 2026-09-22. -->
 - **Never show as live/green:** everything the reference pack tags **Design-target** on the current
   build. These are the roadmap, not the proof — frame them as "where the platform is going",
   never as a shipped control.
@@ -219,6 +225,15 @@ argument is already over.
   pilot?" surface the same number — only one of them is a question a proud CEO enjoys answering.
 - **Prefer questions the buyer can answer from memory**, about their own work. A question that
   needs research gets a promise to follow up, which is not an answer.
+- **The value chapter's questions are Phase 4; the objection slides are Phase 5**
+  (`docs/sales-questions-by-deal-phase.md`). Phase 4 is the one place the evidence is strongest:
+  in major sales it is *implication* and *need-payoff* questions that separate winners, because
+  they get the **buyer** to state the value. So a value slide whose questions are all "does this
+  solve your problem?" is asking the buyer to grade our pitch; "how much is that costing you over
+  a year?" is asking them to size their own. Phase 5 is where the deck usually overreaches: the
+  finding there is that the strong move after an objection is a longer pause and less talking, so
+  an objection slide is a **label and a question**, not a rebuttal with three supporting bullets.
+  A slide that answers an objection the buyer has not raised has raised it for them.
 - Use `<AskBox question="…" />`. `deck_lint` D2 enforces placement, count and sourcing.
 
 ---
@@ -307,6 +322,7 @@ have no product to show.
 | `demo-capture` → `<SlidevVideo>` | product-proof slides (a real flow, recorded once, reused) |
 | `screen_ui` scenes (`gtm_core/screen_ui.py`) | animated `role: screen` panels — a fabricated UI walkthrough when no real capture exists |
 | `excalidraw-diagram` / `json-canvas` / Slidev's built-in Mermaid | an alternative to hand-rolling a new SVG diagram component when one doesn't already fit tier 1 |
+| `diagram-design` / `gtm_core.diagrams render --format svg --profile <active>` | a **brand-token** architecture, sequence, deployment or data-flow SVG dropped straight onto a slide — labels stay real text, the palette resolves from `BRAND.toml` rather than being typed, and a wrong label is an edit instead of a re-render |
 | `infographic-data` | one real data visual per chapter — a chart, not a `StatBlock` restating the same number |
 
 If none of these fit and tier 1's catalog has no matching shape, only then write a new SVG
@@ -648,6 +664,9 @@ Put this on its own line at the very end of your response, after all prose.
 - **Claim only what's enforced (product capabilities).** Tag every product capability claim to the `CapabilityCoverage` matrix (Enforced / Simulated / Design-target). Never present a Design-target as live; never present a caveated enforcement point as product-native. Lead with the real differentiators from the product's reference pack. The product gives audit-ready **evidence** — it is not itself certified against the frameworks it evidences.
 - **Never skip the HITL gate** unless the user explicitly bypassed it.
 - **Outline before images** — generate Higgsfield backgrounds only after outline is approved.
+<!-- lint-ok SD11: the pair for this bullet is the narrative in Step 4.5 that a deck once put a
+     generated image on six argument-carrying slides and they were deleted. That is the evidence
+     for this rule, read as a requirement to do it. Adjudicated 2026-09-22. -->
 - **A generated image never carries an argument** — dividers and the cover only. An argument slide
   gets a diagram component or it is not finished (Step 4.5, D7 `image is doing the explaining`).
 - **Never cut prose because a visual appeared** — content moves into a diagram's labels or into the

@@ -1,0 +1,194 @@
+# The coverage taxonomy for a solution design — the dimensions a design must answer.
+#
+# Dimension NAMES and the ordering are a taxonomy, triaged from the third-party template
+# "arc42" (arc42.org, CC-BY-SA-4.0; read in full 2026-09-22). Every `question`, `match`
+# pattern, `severity` and `satisfied_by` value below is ORIGINAL. No arc42 text is
+# reproduced anywhere in this file — `source` cites the section number only, as a
+# citation, never as content to copy. The same posture gtm_core/tweet_patterns.toml takes
+# with the two ebooks it was triaged from.
+#
+# arc42 is used as a COVERAGE ORACLE, never as a template. A solution design here is a
+# customer-facing three-tier overview, not an internal architecture document, and it is
+# deliberately NOT restructured into arc42's twelve sections — the question each dimension
+# asks is what carries over, and `satisfied_by` names the section of OUR structure that
+# answers it.
+#
+# The file shape — items plus the closed vocabularies they draw on, all declared here —
+# follows the structure used by Azure/review-checklists (MIT). No review item and no
+# category name from that corpus appears in this repo; the categories below are pre-sales
+# architecture dimensions, authored here.
+#
+# `guid` is the stable identity. `id` is the human-readable number and may be renumbered;
+# `guid` may not, so a renumbering never silently re-points a `lint-ok` comment.
+
+[meta]
+name = "Solution design coverage"
+source = "arc42 §1–§12 (taxonomy only), read 2026-09-22"
+revised = "2026-09-22"
+
+# ── Closed vocabularies ───────────────────────────────────────────────────────────────
+# Declared in the same file as the items, so a rule cannot reference a severity or a
+# status this file does not define.
+
+severities = ["error", "warn"]
+
+# `not_verified` is a value in its own right, distinct from `present` and `not_applicable`.
+# A dimension the linter could not evaluate is NOT a dimension that passed — an absent or
+# unreadable input lands here, never on `present`.
+statuses = ["present", "absent", "not_verified", "not_applicable"]
+
+categories = ["framing", "structure", "behaviour", "operations", "assurance", "reference"]
+
+# ── Dimensions ────────────────────────────────────────────────────────────────────────
+
+[[dimensions]]
+id = "COV-01"
+guid = "cf68de2b-8d2f-4a78-a638-3fd398284341"
+name = "Goals and the problem"
+category = "framing"
+question = "What outcome is this for, and whose problem does it solve?"
+satisfied_by = "Executive summary, and the 'what we heard' recap"
+match = ["executive summary", "what we heard", "your situation", "the problem"]
+severity = "error"
+source = "arc42 §1"
+
+[[dimensions]]
+id = "COV-02"
+guid = "79362adb-2480-47a9-a4e4-c53ef0f877c4"
+name = "Constraints"
+category = "framing"
+question = "What is fixed and not ours to choose — and is that stated apart from what we merely assume?"
+satisfied_by = "A constraints block, distinct from the assumptions list"
+match = ["constraint", "beta constraint", "fixed", "out of our control"]
+severity = "warn"
+source = "arc42 §2"
+
+[[dimensions]]
+id = "COV-03"
+guid = "b3e0a42a-3191-42e4-9fd7-b0e0cd40b7ad"
+name = "Context and scope"
+category = "structure"
+question = "What sits outside the boundary, and where does the boundary run?"
+satisfied_by = "Tier 1 architecture, current-state diagram"
+match = ["context", "current state", "today", "scope", "architecture"]
+severity = "error"
+source = "arc42 §3"
+
+[[dimensions]]
+id = "COV-04"
+guid = "0e7be7dd-2c64-4d3f-b6a4-737369f099eb"
+name = "Solution strategy"
+category = "framing"
+question = "What is the shape of the answer, and why this shape rather than another?"
+satisfied_by = "Tier 1 solution, and the architecture selection"
+# NOT the bare word "solution". Every document this dimension governs is titled "Solution
+# design — <account>", so a bare marker was satisfied by the document's own title and COV-04
+# could never be absent — an ERROR-severity check that cannot discriminate is not a check
+# (§R18). Found 2026-09-22 by the mutation suite, which could not make COV-04 fail at all.
+match = [
+  "proposed solution",
+  "the solution",
+  "our solution",
+  "solution strategy",
+  "approach",
+  "strategy",
+  "target state",
+  "what we propose",
+  "what we would build",
+  "recommendation",
+]
+severity = "error"
+source = "arc42 §4"
+
+[[dimensions]]
+id = "COV-05"
+guid = "b59f3b35-f65d-47d0-8e4b-3e27b61d0241"
+name = "Building blocks"
+category = "structure"
+question = "What gets configured or built, component by component?"
+satisfied_by = "A3 Component inventory"
+match = ["component", "building block", "inventory", "what gets configured"]
+severity = "error"
+source = "arc42 §5"
+
+[[dimensions]]
+id = "COV-06"
+guid = "0afb5678-3ffe-431d-9750-4cdbdd6959a5"
+name = "Runtime behaviour"
+category = "behaviour"
+question = "What actually happens on one request, end to end?"
+satisfied_by = "Tier 1 how-it-works, request-sequence diagram"
+match = ["how it works", "runtime", "request sequence", "end to end", "data flow"]
+severity = "error"
+source = "arc42 §6"
+
+[[dimensions]]
+id = "COV-07"
+guid = "302080d0-748b-4730-8150-985cd42c9a91"
+name = "Deployment"
+category = "operations"
+question = "Where does it run, in whose tenancy, and across which boundaries?"
+satisfied_by = "A deployment topology section or diagram"
+match = ["deployment", "topology", "hosting", "where it runs", "residency"]
+severity = "warn"
+source = "arc42 §7"
+
+[[dimensions]]
+id = "COV-08"
+guid = "06a3f121-c259-40d8-ada3-aa67e2bb4b07"
+name = "Crosscutting concerns"
+category = "behaviour"
+question = "What holds across every component — identity, policy, logging, error handling?"
+satisfied_by = "A4 Identity, policy and data flow"
+match = ["crosscutting", "identity", "policy", "audit", "observability"]
+severity = "warn"
+source = "arc42 §8"
+
+[[dimensions]]
+id = "COV-09"
+guid = "0501346a-7833-4cb0-af46-70fb23108154"
+name = "Decisions"
+category = "assurance"
+question = "Which choices were made, when, and what did each one cost us?"
+satisfied_by = "A trade-offs section carrying a decision record per material choice"
+match = ["decision", "trade-off", "tradeoff", "alternatives considered"]
+severity = "warn"
+source = "arc42 §9"
+
+[[dimensions]]
+id = "COV-10"
+guid = "1ec44d20-3347-463c-8cda-b44307bb76e0"
+name = "Quality requirements"
+category = "assurance"
+question = "What must be true of it in production — availability, latency, throughput, recovery?"
+satisfied_by = "A quality-requirements section with a figure per attribute"
+match = ["quality requirement", "non-functional", "service level", "slo", "sla"]
+# WARN, and permanently so — founder decision 2026-09-22. Measured: EVERY real design in the
+# workspace lacked NFRs, the conformant ones included, so at `error` this dimension blocked
+# every design there was. (No count: this file ships publicly and the corpus is private
+# customer work. `--calibrate` prints the numbers on the operator's own machine.) The consequence accepted with it: nothing enforces
+# quality requirements. Do not "restore" this to error without reversing that decision.
+severity = "warn"
+source = "arc42 §10"
+
+[[dimensions]]
+id = "COV-11"
+guid = "7ab98de8-b179-49e5-bb1b-640824536ba3"
+name = "Risks and open questions"
+category = "assurance"
+question = "What could still go wrong, and what is genuinely undecided?"
+satisfied_by = "A2 Open questions and dependencies, plus the V1/V2 cut"
+match = ["risk", "open question", "dependenc", "what we are not building"]
+severity = "error"
+source = "arc42 §11"
+
+[[dimensions]]
+id = "COV-12"
+guid = "bb61d433-042b-4747-8209-2e991a8b2cdf"
+name = "Glossary"
+category = "reference"
+question = "Which terms mean something specific here, and does the reader share that meaning?"
+satisfied_by = "A glossary section"
+match = ["glossary", "terminology", "definitions"]
+severity = "warn"
+source = "arc42 §12"

@@ -126,6 +126,10 @@ chris@gmail.com
 # ADDING AN ENTRY: only vendor APIs, public infrastructure, or standards bodies — shapes
 # with no person attached. A blog, newsletter, or personal site is exactly what this
 # section must never hold; fictionalize the fixture onto .example instead.
+# ECMA-376 / OOXML XML namespace URIs. A standards body, never fetched — they are the
+# namespace STRINGS an .xlsx sheet is parsed with (tests/unit/test_scorecard_live_migration.py
+# reads one column out of a workbook with stdlib zipfile + defusedxml, adding no dependency).
+openxmlformats.org
 # Vendor APIs the code under test actually calls (mocked in tests, never fetched):
 anthropic.com
 apollo.io
@@ -223,6 +227,14 @@ json-schema.org
 sec.gov
 linkedin.com
 lnkd.in
+w3.org
+# arc42.org — the architecture-documentation template whose SECTION TAXONOMY (names and
+# ordering only, no template text) gtm_core/design_lint/coverage.toml is triaged from.
+# Cited there as provenance for a CC-BY-SA-4.0 source, the way gtm_core/tweet_patterns.toml
+# cites the ebooks it was triaged from. A standards/template body, no person attached.
+arc42.org
+gstatic.com
+draw.io
 # Provider CDN hosts pinned in gtm_core/media_fetch.py's egress allowlist. They appear in
 # tests/test_media_fetch.py as the positive and negative controls for that allowlist — a
 # vendor's own infrastructure, identifying no person. resource2 is listed because the test
@@ -250,6 +262,11 @@ heygen.ai
 #   2. PUBLIC INSTITUTION. A regulator, standards body or index whose rules the product
 #      implements. Naming it discloses nothing about who we sell to.
 #
+#   3. TECHNICAL IDENTIFIER. The string is a format constant — a font name in a CSS stack,
+#      a stencil-library id — and is not a reference to an organisation at all. Narrow by
+#      construction: the entry must name the constant it appears as, not the company the
+#      word also happens to spell.
+#
 # NOT admissible: "this is a big public company", or "the gate is noisy here". A real
 # prospect stays out of shipped text however famous it is — the leak is the sentence
 # around the name ("<company> sits on the AARM working group"), which is our research.
@@ -270,11 +287,52 @@ databricks
 okta
 # Market-data source cited in infographic prompt recipes.
 bloomberg
+# Object storage software cited in architecture diagram templates and examples.
+minio
+# Observability vendor cited beside Arize / Langfuse / OpenTelemetry / Prometheus in the
+# solution-discovery checklist and the diagram colour legends.
+datadog
+# Graph database we ship an ingest for: scripts/neo4j_code_graph/ loads this repo's own
+# code graph into it, so the name is our integration surface, not a customer.
+neo4j
+# Query federation engine cited beside Trino as the "federation engine" focal component in
+# the data-platform diagram recipe.
+dremio
+# Backup vendor, and the name of the draw.io stencil library the diagram extractor maps to
+# an infrastructure class (`("mxgraph.veeam", "infra")`).
+veeam
+# Cloud/platform vendor reached by four shipped integrations and cited as a platform rule
+# throughout: the FCM v1 push path and its OAuth token endpoint (`backend/push.py`), the
+# Gemini image MCP, the `google` news MCP server, Google Fonts/Cloud icons in the diagram
+# assets, Drive-backed `content/<profile>` symlinks, and the Google/Yahoo bulk-sender
+# one-click-unsubscribe rule the compliance preflight implements.
+google
+# Platform vendor in three non-customer shapes: the Windows App-Execution-Alias message
+# every interpreter-preflight quotes verbatim (`install from the Microsoft Store`), the
+# CJK font-family stacks in the diagram templates (`'Microsoft JhengHei'`, `'Microsoft
+# YaHei'` — a typeface, per reason 3), and Entra's git-backed changelog as a harvest source.
+microsoft
+# CRM named beside HubSpot in the same setup sentence and field maps, and cited in
+# `merge_hygiene/signal_terms.py` as the vendor vocabulary a buyer's own clause uses.
+salesforce
 
 # --- public institutions whose rules the product implements ---
 # Singapore's financial regulator: named in signal-classification comments because its
 # rulemaking is the signal being classified, not a customer relationship.
 monetary authority of singapore
+# Singapore's national AI programme, listed in the events-tracker's source directory beside
+# SGInnovate / NASSCOM / iSpirt / Hub71 as a market-specific events feed to harvest. It is
+# named as a SOURCE we read, which discloses nothing about who we sell to.
+ai singapore
+
+# --- technical identifiers that are not organisation references ---
+# The macOS system monospace font, in `font-family` stacks in the HTML/CSS templates
+# (`--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace`). A font name in a CSS stack
+# names a typeface, not a company we sell to.
+menlo
+# A Vue built-in component, listed beside KeepAlive / Suspense / Component in the deck
+# consistency checker. The string is a framework identifier, not an organisation.
+teleport
 
 # --- leading tokens that are geography or a common noun, not an identity ---
 # These are the FIRST word of a multi-word account name ("<city> <bank>", "<plural noun>
@@ -296,6 +354,13 @@ stanford
 changi
 weights
 centre
+# Not a plural or a spelling variant but a modern coinage absent from a 1934 wordlist, so no
+# stemmer reaches it. It appears as a seniority/function term in role vocabulary ("head of
+# cyber") and inside the security-function regex alternation in list_fit.
+cyber
+# Likewise a base form the 1934 list simply does not carry (it has `type` and `face`). It is
+# the ordinary word for a font across the brand-kit, caption and deck prose.
+typeface
 automation
 customers
 retrofit

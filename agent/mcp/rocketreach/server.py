@@ -28,6 +28,8 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from agent.mcp.rocketreach import resilience
+
 # --- RocketReach wiring ------------------------------------------------------- #
 # Endpoints confirmed against the RocketReach API docs (docs.rocketreach.co):
 #   GET  {base}/person/lookup        — synchronous single-person resolve
@@ -74,16 +76,11 @@ def _search_url(kind: str) -> str:
     return f"{ROCKETREACH_BASE_URL}{_CLASSIC_SEARCH_PATH[kind]}"
 
 
-# Poll budget while a record is still resolving. RocketReach returns status
-# "searching"/"progress" with an id; we poll checkStatus until it completes or we
-# give up (then the brain falls back). Kept small — the caller is human-paced.
-_MAX_POLLS = 5
-_POLL_INTERVAL_S = 2.0
-
-# Bulk is a server-side loop of the synchronous lookup (the native async bulk endpoint
-# needs ≥10 profiles + a webhook receiver this deployment has no inbound path for).
-# Cap the loop so a bad call can't fan out — finalist sets are small by design.
-_BULK_MAX = 25
+# Provider-load policy (poll budget, fan-out cap, pacing, 429 + breaker) lives in
+# `resilience.py` — one home for "how hard may we hit this provider".
+_MAX_POLLS = resilience.MAX_POLLS
+_POLL_INTERVAL_S = resilience.POLL_INTERVAL_S
+_BULK_MAX = resilience.BULK_MAX
 
 # Search page cap. Searches are credit-free, but the brain reads the results —
 # keep pages compact and let it paginate with ``start`` when it truly needs more.
@@ -229,11 +226,12 @@ async def _lookup_one(client: httpx.AsyncClient, key: str, query: dict) -> dict:
         return {"error": "no identifying fields (need name+company, linkedin_url, email, or id)"}
 
     try:
-        resp = await client.get(
-            f"{ROCKETREACH_BASE_URL}/person/lookup", params=params, headers=_headers(key)
-        )
+        url = f"{ROCKETREACH_BASE_URL}/person/lookup"
+        resp = await resilience.request(client, "GET", url, params=params, headers=_headers(key))
         resp.raise_for_status()
         body = resp.json()
+    except resilience.ProviderUnavailable as exc:
+        return {"error": str(exc), "query": params}  # rate-limited / circuit-open, said plainly
     except httpx.HTTPStatusError as exc:
         return {"error": f"HTTP {exc.response.status_code}", "query": params}
     except httpx.HTTPError as exc:
@@ -254,10 +252,9 @@ async def _lookup_one(client: httpx.AsyncClient, key: str, query: dict) -> dict:
             # the standard repeated-key array form (`?ids=<id>`) rather than a bare
             # scalar, matching the documented contract exactly even though a single
             # scalar happens to work on most REST frameworks' lenient parsers.
-            cs = await client.get(
-                f"{ROCKETREACH_BASE_URL}/person/checkStatus",
-                params={"ids": [pid]},
-                headers=_headers(key),
+            cs_url = f"{ROCKETREACH_BASE_URL}/person/checkStatus"
+            cs = await resilience.request(
+                client, "GET", cs_url, params={"ids": [pid]}, headers=_headers(key)
             )
             cs.raise_for_status()
             rows = cs.json()
@@ -318,9 +315,12 @@ async def _bulk(people: list[dict]) -> str:
             f"resubmit ≤{remaining} highest-priority finalists."
         )
 
+    if not resilience.available():
+        return resilience.unavailable_message()
     results: list[dict] = []
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
-        for q in people:
+        for i, q in enumerate(people):
+            await resilience.pace(i)  # a batch is not a burst; see resilience.py
             results.append(await _lookup_one(client, key, q if isinstance(q, dict) else {}))
     # Meter only the records that actually returned contact info (a resolved lookup).
     resolved = sum(
@@ -429,9 +429,13 @@ async def _search(
 
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
-            resp = await client.post(_search_url(kind), json=payload, headers=_headers(key))
+            resp = await resilience.request(
+                client, "POST", _search_url(kind), json=payload, headers=_headers(key)
+            )
             resp.raise_for_status()
             body = resp.json()
+    except resilience.ProviderUnavailable as exc:
+        return str(exc)  # already operator-readable; says rate-limited vs circuit-open
     except httpx.HTTPStatusError as exc:
         return f"[rocketreach-error] HTTP {exc.response.status_code}"
     except httpx.HTTPError as exc:

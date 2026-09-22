@@ -101,13 +101,24 @@ brand. Mode A (.pptx, no dependencies) or Mode B (cinematic Slidev).
 **`account-plan`** — Strategic plan for high-value accounts: ICP score, buying committee map, entry
 point strategy, proof story selection, and a sequenced 5-step action plan.
 
-### Plan the quarter
+### Plan the quarter & govern pipeline
 
 **`gtm-planning`** — Structured quarterly plan: market snapshot, ICP priorities, tiered target
 accounts, proof story selection, week-by-week motion calendar, risks, and open decisions.
 
-> The full set is **63 skills** across prospecting, content, short-form video, account prep, planning, engagement,
-> proof and partnerships, risk, and the founder-journey track. Browse `plugin/skills/` for the
+**`crm-hygiene-check`** & **`team-pipeline`** — Pipeline health, MEDDPICC compliance, deal slippage
+scenarios, and stage-by-stage velocity analysis.
+
+### Design diagrams & organic growth
+
+**`diagram-design`** — Generates publication-ready architecture SVGs, MEDDPICC scorecards,
+and flowchart diagrams from requirements or Markdown specs.
+
+**`seo-audit`** & **`seo-keyword-research`** — Technical on-page and off-page SEO audits, keyword
+intent discovery, and competitor content gap analysis.
+
+> The full set is **78 skills** across prospecting, content, short-form video, account prep, planning, engagement,
+> proof and partnerships, pre-sales (security questionnaires, value case, POC plan, demo narrative, battlecards), diagramming, SEO growth, pipeline governance, research synthesis, risk, and the founder-journey track. Browse `plugin/skills/` for the
 > complete list.
 
 ---

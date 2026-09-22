@@ -16,7 +16,7 @@ from .accounts import (
     _AUTHORITATIVE_RECORD_COLUMNS,
     _account_id_index,
     _account_item_of,
-    _account_key_of,
+    _account_keys_of,
     _account_record_index,
     _disqualified_account_keys,
     _verdict_at_least_as_strict,
@@ -354,7 +354,9 @@ def consolidate(
             suppressed_excluded += 1
             ready_blocked.append({**r, "blocked_reason": f"suppressed:{r['suppression']}"})
             continue
-        if _account_key_of(r) in disqualified_keys:
+        # ANY key, not the row's one domain-first key: a ledger item that lost its domain
+        # still retires the account by its name, its slug or its stamped id (PSK-014).
+        if not disqualified_keys.isdisjoint(_account_keys_of(r)):
             disqualified_excluded += 1
             ready_blocked.append({**r, "blocked_reason": "status-disqualified"})
             continue
@@ -481,16 +483,16 @@ def consolidate(
         "needs_verification_path": str(needs_verification_path(profile, content_root)),
     }
     _print_banner(result)
+    # Deliberately NO retention sweep here. One was wired into this tail — unconditional, silent,
+    # result discarded — and it purged the retired ledger row that is an account's only
+    # exclusion, so a do-not-contact account came back as a new prospect next pass (PSK-015).
+    # Retention is the operator's explicit `python -m gtm_core.retention_sweep`, never a build step.
     try:
-        from ..retention_sweep import sweep_stale_pii
+        # Every page that exists, not only the rollup: the scoped pages have no other
+        # automatic trigger, and a stale one is indistinguishable from a current one.
+        from ..email_campaign_dashboard.render import refresh_all as _refresh_gtm
 
-        sweep_stale_pii(profile, ttl_days=7, content_root=content_root)
-    except Exception as exc:  # noqa: BLE001
-        print(f"retention sweep skipped: {exc}", file=sys.stderr)
-    try:
-        from ..email_campaign_dashboard import render_dashboard as _render_gtm
-
-        _render_gtm(profile, content_root)
+        _refresh_gtm(profile, content_root)
     except Exception as exc:  # noqa: BLE001
         print(f"dashboard refresh skipped: {exc}", file=sys.stderr)
     return result

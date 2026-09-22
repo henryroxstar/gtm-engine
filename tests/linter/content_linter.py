@@ -426,6 +426,74 @@ def lint_prose_quality(text: str, extra_bans: tuple[str, ...] = ()) -> list[Viol
     # a banned word or em dash *inside a source quote* doesn't get flagged (docs/prose-craft.md).
     unquoted = _mask_quoted(text)
     v: list[Violation] = []
+
+    # 2026 Stylometry & Anti-Slop
+
+    # 1. Vocabulary Density Scoring
+    ai_markers = [
+        "significant",
+        "crucial",
+        "notably",
+        "comprehensive",
+        "insights",
+        "robust",
+        "leverage",
+        "foster",
+        "landscape",
+        "nuanced",
+        "streamline",
+        "elevate",
+    ]
+    paragraphs = unquoted.split("\n\n")
+    for p in paragraphs:
+        count = sum(
+            1 for w in ai_markers if re.search(r"(?<!\w)" + w + r"(?!\w)", p, re.IGNORECASE)
+        )
+        if count >= 3:
+            v.append(
+                Violation(
+                    "warn", "ai-vocabulary-density", f"Paragraph has 3+ AI markers. Found: {count}"
+                )
+            )
+            break
+
+    # 2. Reveal Bridges
+    reveal_bridges = [
+        r"The result\?",
+        r"It's not .*?, it's .*?",
+        r"Stop .*?, start .*?",
+        r"Here's what",
+        r"Here's how",
+    ]
+    for rb in reveal_bridges:
+        if re.search(rb, unquoted, re.IGNORECASE):
+            v.append(Violation("warn", "reveal-bridge", f"Found manufactured AI transition: {rb}"))
+
+    # 3. Performed Sincerity
+    sincerity = [r"Let me be honest", r"To be vulnerable for a second"]
+    for s in sincerity:
+        if re.search(s, unquoted, re.IGNORECASE):
+            v.append(Violation("warn", "performed-sincerity", f"Found confessional framing: {s}"))
+
+    # 4. Staccato Runs
+    # Split on sentence-ending periods and look for 3+ consecutive segments of ≤3 words.
+    _staccato_segments = [seg.strip() for seg in re.split(r"\.\s+", unquoted) if seg.strip()]
+    _run = 0
+    for seg in _staccato_segments:
+        if len(seg.split()) <= 3:
+            _run += 1
+        else:
+            _run = 0
+        if _run >= 3:
+            v.append(
+                Violation(
+                    "warn",
+                    "staccato-run",
+                    "Found manufactured staccato run (e.g. 'Short. Punchy. Done.')",
+                )
+            )
+            break
+
     if _EM_DASH_RE.search(unquoted):
         v.append(
             Violation(

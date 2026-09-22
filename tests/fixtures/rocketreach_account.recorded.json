@@ -1,0 +1,29 @@
+{
+  "_recorded": "2026-09-22, live RocketReach `account` response.",
+  "_why": "The test plan refuses a hand-written payload here: a dict shaped to match the parser cannot fail on the parser's own assumption. This is the real response, captured while company_search was genuinely exhausted (1000/1000 for the day, 0 remaining) - the exact condition that made gtm_core.preflight report 'intent available - Safe to spend' on 2026-09-21 while the credit-free half of the double-intent axis was locked out for ~12 hours.",
+  "_redacted": "id, first_name, last_name, email and state are REMOVED, and credit_usage is trimmed to the one row the instrument check reads (the rest disclosed our own subscription posture without earning anything), not fictionalised (SR9). Nothing else is altered - note `bulk_job`/`one_month` carries a real null limit and null remaining, an edge no hand-written fixture would have thought to include.",
+  "credit_usage": [
+    {"credit_type": "premium_lookup", "allocated": 3000, "used": 1580, "remaining": 1420}
+  ],
+  "rate_limits": [
+    {"action": "api_request", "duration": "one_second", "limit": 10, "used": 1, "remaining": 9},
+    {"action": "person_search", "duration": "one_minute", "limit": 60, "used": 0, "remaining": 60},
+    {"action": "person_search", "duration": "one_hour", "limit": 500, "used": 0, "remaining": 500},
+    {"action": "person_search", "duration": "one_day", "limit": 1000, "used": 512, "remaining": 488},
+    {"action": "person_search", "duration": "one_month", "limit": 20000, "used": 1271, "remaining": 18729},
+    {"action": "person_lookup", "duration": "one_minute", "limit": 100, "used": 0, "remaining": 100},
+    {"action": "person_lookup", "duration": "one_hour", "limit": 1000, "used": 0, "remaining": 1000},
+    {"action": "person_lookup", "duration": "one_day", "limit": 3000, "used": 329, "remaining": 2671},
+    {"action": "person_lookup", "duration": "one_month", "limit": 50000, "used": 1619, "remaining": 48381},
+    {"action": "company_search", "duration": "one_minute", "limit": 60, "used": 0, "remaining": 60},
+    {"action": "company_search", "duration": "one_hour", "limit": 500, "used": 0, "remaining": 500},
+    {"action": "company_search", "duration": "one_day", "limit": 1000, "used": 1000, "remaining": 0},
+    {"action": "company_search", "duration": "one_month", "limit": 20000, "used": 1133, "remaining": 18867},
+    {"action": "bulk_job", "duration": "one_minute", "limit": 10, "used": 0, "remaining": 10},
+    {"action": "bulk_job", "duration": "one_hour", "limit": 25, "used": 0, "remaining": 25},
+    {"action": "bulk_job", "duration": "one_day", "limit": 100, "used": 0, "remaining": 100},
+    {"action": "bulk_job", "duration": "one_month", "limit": null, "used": 0, "remaining": null},
+    {"action": "email_verification", "duration": "one_second", "limit": 10, "used": 0, "remaining": 10},
+    {"action": "email_verification", "duration": "one_minute", "limit": 300, "used": 0, "remaining": 300}
+  ]
+}

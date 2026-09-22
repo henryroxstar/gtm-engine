@@ -370,6 +370,21 @@ Add the three purpose-built infographic components in
 | **Capability ladder** | the seam — each rung a capability, showing which are covered and which is the missing one |
 | **Framework coverage strip** | the standards anchor — theirs / ours / neither, element by element |
 
+**A joint *flow* is a diagram, not a component.** The three components above cover comparison,
+progression and coverage. When the thing to show is a structure — where their system hands off to
+ours, which boundary the data crosses, what each side owns — write it as Mermaid and render it:
+
+```
+uv run python -m gtm_core.diagrams render --input <flow.mmd> --out <flow.svg> \
+    --format svg --profile <active> [--product <slug>] \
+    --title "<how to read this>" --desc "<the walkthrough, one sentence>"
+```
+
+Brand tokens resolve through `gtm_core.brandkit` (product over company, per key), the labels are
+escaped on the way out, and `--title`/`--desc` become the SVG's own `<title>`/`<desc>` — so the
+diagram carries its reading instructions into a PDF that has lost the surrounding prose. Invoke the
+`diagram-design` skill for anything the architecture/sequence/deployment types do not cover.
+
 > **Build infographics in CSS, not as images.** Generated raster infographics break dark mode, make
 > text unselectable and unsearchable, print badly, cannot be corrected without a re-render, and risk
 > text errors inside the image. CSS components adapt, stay accessible, and are editable in seconds.

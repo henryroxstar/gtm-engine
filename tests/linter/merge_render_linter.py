@@ -52,8 +52,10 @@ from outreach_pack_linter import (  # noqa: E402
     Violation,
     _anchors,
     _load_bans,
+    _sentences,
     lint_email,
     lint_hedge_stem,
+    lint_thread_repetition,
 )
 
 from gtm_core.merge_hygiene import (  # noqa: E402
@@ -595,21 +597,130 @@ def lint_same_company_divergence(touches: list[Touch], rows: list[dict]) -> list
 _DATA_BORNE_ELIGIBLE = frozenset({"persona-lead-mismatch"})
 
 
-def _is_data_borne(v: Violation, merged_values: str) -> bool:
-    """True when ``v``'s evidence lives only in the row's merged values, not the copy."""
+def _is_data_borne(v: Violation, merged_values: str, template: str) -> bool:
+    """True when ``v``'s evidence lives only in the row's merged values, not the copy.
+
+    ``template`` is the UNRENDERED body, and it is required rather than optional on
+    purpose: this predicate DELETES a finding, so a caller that forgot the argument must
+    break loudly instead of falling back to suppressing more.
+
+    Until 2026-09-22 it took no template at all, and checked only that every borrowed term
+    was present in the merged values — so a term the copy genuinely led on was suppressed
+    whenever the prospect's own clause happened to reuse the vocabulary, which for a
+    security-pain vocabulary and a security-adjacent prospect is the common case. The
+    narrowing the comment above has always described ("only when the term is absent from
+    the template itself") is now the code. Measured before changing it: zero live renders
+    raise ``persona-lead-mismatch`` today, so this widens nothing on the current corpus —
+    it stops a future suppression that would have been wrong. PENDING.md EC10.
+    """
     if v.rule not in _DATA_BORNE_ELIGIBLE or not merged_values:
         return False
     terms = re.findall(r"\(([^()]*)\)", v.detail)
     if not terms:
         return False
     borrowed = [t.strip() for t in terms[0].split(",") if t.strip()]
-    return bool(borrowed) and all(t.lower() in merged_values for t in borrowed)
+    if not borrowed:
+        return False
+    low = template.lower()
+    return all(t.lower() in merged_values and t.lower() not in low for t in borrowed)
 
 
 #: Above this failing share, `premise-unsupported` reports one aggregate finding instead of
 #: one per row. Same reasoning as `gtm_core.finding_budget`'s SATURATED band and the same
 #: number: a class firing on more than half a population is describing the population.
 PREMISE_SATURATION = 0.5
+
+
+#: Touch 1 opening on the row's clause as its own sentence — the "fact beat".
+_STANDALONE_WHY_NOW_RE = re.compile(r"(?:^|\n)\s*\{\{\s*Why Now\s*\}\}\s*[.!?]", re.IGNORECASE)
+
+
+def lint_signal_column(spec_text: str, touches: list[Touch]) -> list[Violation]:
+    """``signal-column-undeclared`` (WARN) — touch 1 opens on the standalone ``{{Why Now}}.``
+    fact beat and the spec declares no ``signal_column:`` (2026-09-22, PENDING.md EC7).
+
+    Why it matters, from this skill's own measurement: beat 2 has to depend on the fact's
+    CATEGORY, worded so it reads as wrong — not merely generic — under a fact from a
+    different category. A spec drafted for one category and rendered against a CSV mixing
+    several produces empty anaphora even when the letter of the beat-2 rule is followed,
+    because no single fixed sentence can depend on facts from categories it was not written
+    for. Declaring the category is what turns "is beat 2 load-bearing?" into a checkable
+    question.
+
+    **WARN, not ERROR, and the 68% fire rate is a migration artifact rather than saturation.**
+    All 37 live specs predate the field, so 25 of them (every one carrying the fact beat)
+    warn on day one. That is the same shape — and the same reasoning — as ``premise-missing``
+    above: a hard failure would block copy that is otherwise fine. Promote to ERROR once the
+    fleet has migrated, not before; a WARN nobody can clear is a WARN everybody learns to
+    skip.
+    """
+    from gtm_core.hook_coverage import declared_signal_column
+
+    if declared_signal_column(spec_text):
+        return []
+    t1 = next((t for t in touches if t.number == 1), None)
+    if t1 is None or not _STANDALONE_WHY_NOW_RE.search(t1.body):
+        return []
+    return [
+        Violation(
+            "WARN",
+            "SPEC",
+            "signal-column-undeclared",
+            "touch 1 opens on the standalone `{{Why Now}}.` fact beat but the front block "
+            "declares no `signal_column:` — beat 2 cannot be checked for depending on the "
+            "fact's category, and a list mixing categories renders it as a non-sequitur",
+        )
+    ]
+
+
+#: Strips the greeting so the recipient's first name is not read as the opener's referent.
+_GREETING_RE = re.compile(r"^\s*(?:hi|hey|hello)\s+[^,]{0,40},\s*", re.IGNORECASE)
+
+
+def lint_opener_dated(
+    touches: list[Touch], *, require_dated_opener: bool = False
+) -> list[Violation]:
+    """``opener-undated`` (WARN) — touch 1's opener carries no year or month.
+
+    **Off unless ``require_dated_opener`` is passed** (``--require-dated-opener``), matching how
+    ``--hook-matrix`` and ``premise_vocab`` gate their checks. That is not timidity, it is the
+    measurement: ZERO of 596 live touch-1 openers carried a dated referent on 2026-09-22, so
+    switched on by default this fails every spec in the fleet on day one, and a WARN nobody can
+    clear is a WARN everybody learns to skip.
+
+    It is the gate half of what `--craft-report`'s `dated` column reports, and it is the
+    survivable form of the EC5 change. The plan's version scored ANCHORS in the opener and was
+    abandoned on measurement — it turned 1032 of 1783 live renders into ERRORs and split the
+    two copy batches backwards, because `_anchors` cannot tell a rendered ``{{Company}}`` from a
+    named external standard. A date can be told apart from a merge value by looking at it, which
+    is why this proxy survives where that one did not. It is deliberately the WEAK half of
+    "named, dated, external": nothing here can check that the referent is external or
+    category-level — that is semantic, and the judge's.
+
+    Turn it on for a profile once its specs have migrated to the referent shape
+    (``email-sequence/body_template.md``); until then the column in ``--craft-report`` is the
+    honest instrument. PENDING.md EC5.
+    """
+    if not require_dated_opener:
+        return []
+    t1 = next((t for t in touches if t.number == 1), None)
+    if t1 is None:
+        return []
+    lines = [ln for ln in t1.body.split("\n") if ln.strip()]
+    body = "\n".join(lines[:-1]) if len(lines) > 1 else t1.body
+    opener = _GREETING_RE.sub("", " ".join(_sentences(body)[:2]))
+    if _DATED_RE.search(opener):
+        return []
+    return [
+        Violation(
+            "WARN",
+            "SPEC",
+            "opener-undated",
+            "touch 1's opener carries no year or month — the referent it opens on cannot be "
+            "placed in time, which is half of the named/dated/external shape "
+            "`email-sequence/body_template.md` asks for",
+        )
+    ]
 
 
 def lint_premise(spec_text: str, rows: list[dict], premise_vocab: dict | None) -> list[Violation]:
@@ -1002,6 +1113,7 @@ def lint_merge_render(
     hook_matrix: str = "",
     premise_vocab: dict | None = None,
     domain_aliases: set | None = None,
+    require_dated_opener: bool = False,
 ) -> tuple[list[Violation], dict]:
     """Render every touch against every row and lint the results.
 
@@ -1046,10 +1158,13 @@ def lint_merge_render(
     v += lint_signal_agent_homonym(rows)
     v += lint_touch_personalisation(touches, rows)
     v += lint_hedge_stem([(f"step {t.number}", t.body) for t in touches])
+    v += lint_thread_repetition([(f"step {t.number}", t.subject, t.body) for t in touches])
     v += lint_same_company_divergence(touches, rows)
     v += lint_hook_cell(spec_text, hook_matrix)
     v += lint_signal_cell(spec_text, rows, hook_matrix)
     v += lint_stakes(spec_text, touches)
+    v += lint_signal_column(spec_text, touches)
+    v += lint_opener_dated(touches, require_dated_opener=require_dated_opener)
     v += lint_premise(spec_text, rows, premise_vocab)
     domain_aliases = domain_aliases or set()
 
@@ -1099,7 +1214,7 @@ def lint_merge_render(
                 banned_stems=banned_stems,
                 gift_artifacts=gift_artifacts,
             ):
-                if _is_data_borne(x, merged):
+                if _is_data_borne(x, merged, t.body):
                     continue
                 if x.rule == "specificity" and x.level == "ERROR" and company_invisible:
                     continue
@@ -1268,6 +1383,75 @@ Rules-Version: 2026-07-16
     v = lint_merge_tags([bad_tag], DEFAULT_FIELD_LABELS)
     assert any(x.rule == "unknown-merge-tag" for x in v), [str(x) for x in v]
 
+    # --- REFERENCE COPY (2026-09-22, plan Phase 7 / PENDING.md EC7) ----------------------
+    #
+    # The linters had negative controls and no positive one: every fixture above is a body
+    # crafted to FAIL something. This is the other half — copy in the shape
+    # `email-sequence/body_template.md` now asks for (category referent -> predicted gap ->
+    # hedge -> offer), asserted to produce zero ERRORs. It locks the new shape in: a rule
+    # added later that convicts it is convicting the house pattern, and this is where that
+    # shows up rather than on a live campaign.
+    #
+    # Identities are fictional (docs/RULES.md R9) and the referent is this repo's established
+    # invented standards body, not a real vendor — the SHAPE is what is being pinned (named,
+    # dated, external, category-level), never which product it names.
+    #
+    # This fixture named a real thing until 2026-09-22, in the belief it was invented: a
+    # four-letter acronym that is in fact a vendor-authored governance spec donated to a standards
+    # body, and the vendor is a tracked competitor in the tenant's own competitors.toml. §R9 breach
+    # — a real third-party organisation as fixture data outside profiles/ and content/.
+    #
+    # Why no gate saw it: third_party_roster derives the roster from a competitor entry's `name`,
+    # and this was its `aliases` entry. The company name is caught (proven — writing it into this
+    # very comment tripped pii_check); the alias is not. An acronym is the worst case for that gap,
+    # because it reads as invented to a human reviewer too. The replacement is
+    # `gtm_core.fictionalize company <old>`, so it is stable across sessions.
+    #
+    # NOT yet operator-signed. Phase 7 asks for "I would send this" on each body, and that is
+    # a judgement code cannot make. Until it is given, this is a regression net for the shape
+    # and not a claim that the copy is good.
+    reference = parse_spec("""
+**Step 1 — Day 1** · Subject: `the agent nobody names`
+> Hi {{First Name}},
+>
+> The BRIGHTPATH working group published its agent-identity draft in April 2026. It names an agent inside one trust domain.
+>
+> Your agents do not stay inside one domain. When one calls a partner, the token names your company, not the agent. The partner has no evidence of which agent acted, or who let it.
+>
+> You may already have this covered. If not, the first customer who asks starts it: the answer gets rebuilt per integration, never carried across them.
+>
+> Want the one-page teardown of how a portable credential closes that once?
+>
+> Henry
+
+**Step 2 — Day 4** (same thread, no subject)
+> Hi {{First Name}},
+>
+> One more on that token. The BRIGHTPATH draft put agent identity in its first control set in April 2026, which is where a customer security review starts now.
+>
+> You may already have this wired. Where it lands: your audit log shows which account moved. What an auditor asks is which agent held the authority. Those are two records, not one.
+>
+> Want the crosswalk of how another platform closed that gap before its first enterprise review?
+>
+> Henry
+
+**Step 3 — Day 9** · Subject: `closing the identity loop`
+> Hi {{First Name}},
+>
+> Last one from me. The draft shipped in April 2026 with no portable identity layer, so every integration carries that evidence or nobody does.
+>
+> If you carry it per integration today, the cost grows with the partner count. If you do not carry it yet, the first customer audit sets your timeline.
+>
+> Say so and I will stop. Otherwise, want the reference architecture for carrying agent identity across partners?
+>
+> Henry
+""")
+    v, _ = lint_merge_render(reference, [good], signoff="Henry")
+    assert not [x for x in v if x.level == "ERROR"], (
+        "reference copy no longer passes the gate: "
+        + "; ".join(str(x) for x in v if x.level == "ERROR")
+    )
+
     print("selftest OK")
     return 0
 
@@ -1307,6 +1491,13 @@ Rules-Version: 2026-07-16
 # opt-in shape as --case-study-file/--artifact-file; the campaign-wide half (is this argument
 # distinguishable from its siblings, and does every populated persona have one) cannot live here
 # because lint_merge_render sees exactly one spec — it is gtm_core.hook_coverage.
+#
+# 2026-09-22 (email-craft audit): +4 — credit-is-verdict, offer-not-a-solution-overview,
+# cta-omits-gap, problem-asserts-internals. The same class of drift the note above records,
+# recurring for the same reason: the backstop only ever checked catalogue -> mutation, never
+# emitted -> catalogue, so the "fails closed if a future rule is added to either call path"
+# claim above was aspirational. `test_every_emitted_rule_is_catalogued` now walks the AST of
+# the rules `lint_email` reaches and makes it true in the direction that was missing.
 RULE_CATALOGUE: dict[str, tuple[str, str]] = {
     # (category, what it protects against)
     "hook-cell-missing": (
@@ -1401,9 +1592,63 @@ RULE_CATALOGUE: dict[str, tuple[str, str]] = {
         "The ask promises a result inside the reader's own review/audit environment rather "
         "than describing what the artifact contains",
     ),
+    # 2026-09-22: four rules that have fired on this path since they were written, from inside
+    # the imported `lint_email`, while being absent from this catalogue. They were invisible in
+    # `checks_run`, so `rule_lifecycle_report` had no denominator for them and could never return
+    # keep/recalibrate/delete — a rule outside the catalogue cannot earn its existence. Each is
+    # proven to fire from the clean baseline by its mutation in the suite.
+    #
+    # `capability-unargued` is deliberately NOT added: `lint_declared_capability` returns early
+    # when its word list is empty, and `lint_merge_render` never passes `capability_rules`, so the
+    # rule is inert here. Cataloguing it would assert a check ran when it did not.
+    "credit-is-verdict": (
+        "brand",
+        "The opener grades the reader's decision rather than observing what their move "
+        "signals — a stranger buying permission, and often grading someone more senior",
+    ),
+    "offer-not-a-solution-overview": (
+        "brand",
+        "The ask offers to go and look inside the reader's own system — unpaid labour worth "
+        "less than an hour of their own engineer — instead of trading on a public anchor",
+    ),
+    "cta-omits-gap": (
+        "substance",
+        "The ask shares no vocabulary with the problem the body just named, so the offer "
+        "reads as unrelated to the reason for writing",
+    ),
+    "problem-asserts-internals": (
+        "substance",
+        "The body states what is true inside the reader's architecture rather than predicting "
+        "the question — a claim about an environment the sender cannot see",
+    ),
     "hedge-stem-repeat": (
         "substance",
         "The same hedge construction frames more than one touch — the template becomes visible",
+    ),
+    "thread-sentence-repeat": (
+        "substance",
+        "The same sentence runs in two touches landing in ONE thread — the reader sees it "
+        "twice in the same window",
+    ),
+    "opener-undated": (
+        "substance",
+        "Touch 1's opener carries no year or month — opt-in, for a profile whose specs have "
+        "migrated to the dated-referent shape",
+    ),
+    "seat-stakes-not-in-problem": (
+        "substance",
+        "The seat's vocabulary appears only outside the problem beat — the problem itself is "
+        "still stated at mechanism altitude",
+    ),
+    "signal-column-undeclared": (
+        "signal",
+        "Touch 1 carries the standalone fact beat but the spec declares no signal_column — "
+        "beat 2's dependence on the fact's category cannot be checked",
+    ),
+    "thread-reply-prefix": (
+        "substance",
+        "A touch that opens a thread carries a Re:/Fwd: subject — it claims a conversation "
+        "the recipient never had",
     ),
     "specificity": ("substance", "Body has too few concrete anchors — reads as generic filler"),
     "word-count": ("substance", "Body is outside the length band the format allows"),
@@ -1716,6 +1961,120 @@ def _anchor_report(touches: list[Touch], rows: list[dict]) -> int:
     return 0
 
 
+#: A flat second-person claim about the reader, and the hedges that make one legal. Used ONLY
+#: by `--craft-report`, deliberately never as a rule: voice.md rule 9 REQUIRES beat 1 to be a
+#: flat, unhedged, second-person claim taken from their public copy, so this pattern convicts
+#: the required shape and the defect alike. It sees grammatical form, never verifiability. As a
+#: number to look at while editing it is useful; as a gate it would block the copy shape the
+#: 2026-09-22 craft work is trying to produce (measured: 40% of the second-person v2 batch
+#: against 5% corpus-wide — calibrated by the corpus being impersonal rather than by being right).
+_SECOND_PERSON_CLAIM_RE = re.compile(
+    r"\byou(?:'ve|’ve| have| are| run| own)\b"
+    r"|\byour\s+[a-z-]+\s+(?:is|are|has|have|sits|lives|holds|runs|carries|captures)\b",
+    re.IGNORECASE,
+)
+_CLAIM_HEDGE_RE = re.compile(
+    r"\b(may|might|likely|probably|often|usually|tend|tends|typically|if|unless|guess|hunch|"
+    r"read|assume|suspect|imagine|perhaps|maybe|could)\b",
+    re.IGNORECASE,
+)
+
+#: Vowel groups, for the reading-grade estimate. Deliberately a rough syllable count rather
+#: than a dictionary: the number is a direction to read, not a threshold to pass.
+_VOWEL_RUN_RE = re.compile(r"[aeiouy]+", re.IGNORECASE)
+
+#: A year or a month name — the cheap, checkable half of "named, dated, external referent".
+#: Reported by `--craft-report`, deliberately never a rule: measured 2026-09-22, ZERO of 596
+#: live touch-1 openers carry one, so a gate would fail the entire corpus on day one and a WARN
+#: nobody can clear is a WARN everybody learns to skip (the same argument that keeps
+#: `signal-column-undeclared` at WARN, one step further). It also does not separate the two
+#: batches — both are 100% — so it is not evidence about WHICH copy is better. It is the
+#: distance from the shape `email-sequence/body_template.md` now asks for, and that is all.
+_DATED_RE = re.compile(
+    r"\b(?:19|20)\d{2}\b|\b(?:January|February|March|April|May|June|July|August|September"
+    r"|October|November|December)\b",
+    re.IGNORECASE,
+)
+
+
+def _syllables(word: str) -> int:
+    w = re.sub(r"[^A-Za-z]", "", word).lower()
+    if not w:
+        return 0
+    n = len(_VOWEL_RUN_RE.findall(w))
+    if w.endswith("e") and n > 1:
+        n -= 1
+    return max(n, 1)
+
+
+def _craft_report(touches: list[Touch]) -> int:
+    """Per-touch craft metrics on the TEMPLATE, printed before anyone edits the copy.
+
+    Why template-time and not per-row. `outreach_pack_linter` rejects Flesch-Kincaid as a merge
+    gate for a good reason: the syllable term is dominated by this ICP's unavoidable vocabulary
+    and by the rendered company name, so one template would score a different grade row by row
+    for reasons no writer can act on. That objection is about the ROW. It does not hold for the
+    template with merge tags stripped, which is a single artifact an author can actually edit —
+    and the measurement that prompted this said so: the 2026-09-09 generic bodies carry zero
+    merge tags in the body and still score grade 9.3 against grade 6.6 for the 2026-08-25 batch.
+
+    Why a report and not a rule. Every threshold here would have to be calibrated against the
+    existing corpus, which is the corpus the numbers say is the problem — a gate fitted to
+    current practice ratifies current practice, which is the failure the WORDS_SOFT comment in
+    `outreach_pack_linter` documents at length. Print the distance instead and let the author
+    close it. Promotion to WARN needs a floor argued from something other than "what we already
+    ship" (PENDING.md EC-series).
+
+    Read-only and always exit 0, the same contract as `--anchor-report`.
+    """
+    print(f"craft report — {len(touches)} touch(es), merge tags stripped\n")
+    print(f"  {'touch':<7}{'words':>7}{'grade':>7}{'you':>5}{'I/we':>6}{'flat-2p':>9}{'dated':>7}")
+    for t in touches:
+        body = _MERGE_TAG_RE.sub("", t.body)
+        body = re.sub(r"^\s*Hi\s*,", "", body.strip())
+        words = re.findall(r"[A-Za-z']+", body)
+        sents = [s for s in re.split(r"(?<=[.!?])\s+", body) if s.strip()]
+        if not words or not sents:
+            continue
+        grade = (
+            0.39 * (len(words) / len(sents))
+            + 11.8 * (sum(_syllables(w) for w in words) / len(words))
+            - 15.59
+        )
+        you = len(re.findall(r"\b(?:you|your|yours)\b", body, re.IGNORECASE))
+        # `I` is case-SENSITIVE (lowercase "i" is not the pronoun); the rest are not, or a
+        # sentence-initial "My read:" / "We see" / "Our take" counts as no sender at all.
+        # Found 2026-09-22 measuring the EC7 recut: a touch opening "My read:" reported 0.
+        me = len(re.findall(r"\bI\b", body)) + len(
+            re.findall(r"\b(?:we|our|us|my)\b", body, re.IGNORECASE)
+        )
+        flat = sum(
+            1 for s in sents if _SECOND_PERSON_CLAIM_RE.search(s) and not _CLAIM_HEDGE_RE.search(s)
+        )
+        dated = len(_DATED_RE.findall(body))
+        print(f"  {t.number:<7}{len(words):>7}{grade:>7.1f}{you:>5}{me:>6}{flat:>9}{dated:>7}")
+    print(
+        "\n  grade  = Flesch-Kincaid on the template. docs/cold-email-craft-evidence.md 5.5 puts\n"
+        "           the evidence at 3-5 (Boomerang, 5.3M messages, +36% reply vs college level).\n"
+        "           No gate enforces it; this is the distance between the two.\n"
+        "  you    = second-person tokens. A body with none is a thesis, not a letter. Ungated.\n"
+        "  I/we   = whether a person is visibly sending this. Ungated.\n"
+        "  dated  = year/month tokens. The checkable half of the named-dated-external referent\n"
+        "           body_template.md asks touch 1 to open on. ZERO of 596 live touch-1 openers\n"
+        "           carried one on 2026-09-22, which is why this is a column and not a rule.\n"
+        "  flat-2p= unhedged claims of the shapes `you have/are/run/own ...` and `your X is/has\n"
+        "           ...` only. A PARTIAL count by construction — 'You shipped in March' is the\n"
+        "           same shape and is not counted — because this pattern is the one measured on\n"
+        "           2026-09-22 (5% corpus-wide, 40% on the second-person v2 batch) and widening\n"
+        "           it would silently invalidate that number. Treat 0 as 'none of these shapes',\n"
+        "           never as 'no claims'. NOT a defect count either: voice.md rule 9 requires\n"
+        "           beat 1 to be exactly this shape, sourced from their public copy — so high is\n"
+        "           normal for a researched opener. Read it beside `you`, and ask of each whether\n"
+        "           you could quote the source."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=f"Merge-render linter for sequenced sends (rules {RULES_VERSION})"
@@ -1758,6 +2117,13 @@ def main(argv: list[str] | None = None) -> int:
         help="combined daily send limit across the attached mailboxes (e.g. 3 warmed "
         "mailboxes x 10/day = 30); prints how long the list takes to work through",
     )
+    ap.add_argument(
+        "--require-dated-opener",
+        action="store_true",
+        help="turn on `opener-undated` (WARN). Off by default because zero of 596 live "
+        "touch-1 openers carried a date on 2026-09-22 — switch it on per profile once its "
+        "specs have migrated to the referent shape.",
+    )
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument(
         "--list-rules",
@@ -1797,6 +2163,15 @@ def main(argv: list[str] | None = None) -> int:
             "removing a proper noun can push rows under the floor with no other change."
         ),
     )
+    ap.add_argument(
+        "--craft-report",
+        action="store_true",
+        help=(
+            "print per-touch reading grade, second-person and first-person counts on the "
+            "TEMPLATE (merge tags stripped) and exit 0 without linting. None of it is gated: "
+            "it is the distance between what ships and docs/cold-email-craft-evidence.md."
+        ),
+    )
     args = ap.parse_args(argv)
 
     if args.selftest:
@@ -1807,14 +2182,19 @@ def main(argv: list[str] | None = None) -> int:
         out.write_text("\n".join(sorted(RULE_CATALOGUE)) + "\n", encoding="utf-8")
         print(f"wrote {len(RULE_CATALOGUE)} rule name(s) to {out}")
         return 0
-    if not args.spec or not args.csv:
-        ap.error("spec path and --csv are both required")
+    # `--craft-report` reads the TEMPLATE only, so requiring a CSV it never opens made the
+    # one mode an author runs BEFORE editing the copy the one mode that needs the send list.
+    # `--anchor-report` genuinely needs rows (it scores every render), so the check stays there.
+    if not args.spec or (not args.csv and not args.craft_report):
+        ap.error("spec path is required, and --csv for everything but --craft-report")
 
     spec_header_text = Path(args.spec).read_text(encoding="utf-8")
     touches = parse_spec(spec_header_text)
     if not args.signoff:
         m = re.search(r"^Sign-off:\s*(\S+)", spec_header_text, re.MULTILINE)
         args.signoff = m.group(1) if m else "Alex"
+    if args.craft_report and not args.csv:
+        return _craft_report(touches)
     with Path(args.csv).open(encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
 
@@ -1834,6 +2214,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.anchor_report:
         return _anchor_report(touches, rows)
 
+    if args.craft_report:
+        return _craft_report(touches)
+
     labels = tuple(_load_bans(args.fields)) if args.fields else DEFAULT_FIELD_LABELS
     violations, stats = lint_merge_render(
         touches,
@@ -1850,6 +2233,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         premise_vocab=(_load_premise_vocab(args.profile) if args.profile else None),
         domain_aliases=(_load_domain_aliases(args.profile) if args.profile else None),
+        require_dated_opener=args.require_dated_opener,
     )
     rc = _report(violations, stats, show=args.show, daily_cap=args.daily_cap)
     if args.json_out:

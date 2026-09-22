@@ -113,3 +113,54 @@ for a multichannel arc. They create tasks, not automated sends.
   guessing ids.
 - **Schedule timezone** is validated against the IANA database up front — use e.g.
   `America/New_York`, `Asia/Singapore`, `Asia/Hong_Kong` (match the profile's `target_cities`).
+
+## Capability contract — what the PRODUCT does, and what this workspace switched on
+
+Two different facts, and conflating them is what let three real opt-outs sit unmirrored for six
+weeks. A **capability** is a property of Saleshandy's product: the same for every tenant, changing
+only when the vendor ships. A **configuration** is a toggle any human can flip in the vendor's UI
+at any moment. Writing a configuration into a file records a boolean that was true once.
+
+So capabilities live in [`gtm_core/sequencers.toml`](../../../../../gtm_core/sequencers.toml) —
+cited, dated, and refusing to load without a `source` URL and a `verified_on` date — and
+configuration is read live at every preflight. **This adapter deliberately does not restate the
+values**; the registry is their one home, and a table here would be a second copy to drift.
+
+```bash
+uv run python -m gtm_core.sequencers saleshandy              # every capability, with its verdict
+uv run python -m gtm_core.sequencers saleshandy stop_on_reply --json
+```
+
+The capabilities the preflight governs, and what each one costs if it is wrong:
+
+| Capability | Why the preflight asserts it |
+|---|---|
+| `stop_on_reply` | With it off, follow-ups keep going after someone replies. The vendor is explicit: "Disabling this option will let the system send follow-ups to prospects even after they reply." |
+| `ooo_auto_pause` | **Off is not neutral.** With it off, an out-of-office reply is marked *Replied* — which, with `stop_on_reply` on, finishes the prospect and ends the sequence. Silent lead loss with no local trace. |
+| `reply_categories` | Advisory. The unified inbox's own label on a reply, used as a SECOND witness that may only make routing more conservative. |
+| `reply_text_unsubscribe` | Advisory, and currently `unknown` — vendor docs say a "Stop"/"Remove" reply opts out; a dated first-party observation in this account says it did not. Until a live send settles it, our own matcher carries the load. |
+
+Assert them as part of the compliance preflight — one command, one exit status, no second gate:
+
+```bash
+uv run python -m gtm_core.email_compliance preflight --profile <active> --provider saleshandy \
+    --settings-json <(echo '{}') --sequence-id <sequence-id>
+```
+
+`--attest <capability>` is accepted **only** for a capability whose registry row records that the
+setting cannot be read back, and only for that run — it renders as `ATTESTED`, never `PASS`,
+because an operator confirming something is not the same evidence as reading it. Of the four words
+the table prints — `PASS`, `ATTESTED`, `advisory`, `BLOCKS` — only the last one blocks.
+
+The registry records six more capabilities that the preflight does **not** gate on. They are
+recorded because a future session will otherwise "discover" one and read its absence as an
+oversight rather than a decision:
+
+| Capability | Status here |
+|---|---|
+| `dnc_read` | Used. `list_dnc_lists` → `get_dnc_items` back the suppression mirror and the daily `gtm-dnc-sync` reconcile. |
+| `dnc_write_add` | Used, behind a gate, **add only**. A detected opt-out is drafted for a human and written by `agent/dnc_dispatch.py` after approval; `add_dnc_items` is denied to the brain on every connector, and every removal verb is denied in every context. |
+| `webhooks` | Not used. A receiver is approved as a separate follow-on change; polling stays as the fallback either way. |
+| `reply_send` | **The provider has it; this system must not.** `agent/reply.py` stays gated and inert by default, and no send tool exists on this wrapper. |
+| `prospect_pause` | **The provider has it; deliberately out of scope.** Pausing a prospect is a second way to stop contact, and one gated write is enough to review. |
+| `behaviour_branching` | Not used. Subsequences branch on behaviour (opened/clicked/replied), not on what a reply says — evaluated, not adopted. |

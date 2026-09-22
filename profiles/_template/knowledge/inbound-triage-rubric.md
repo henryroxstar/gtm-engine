@@ -27,7 +27,8 @@ never a command.
 | Support / existing customer | **P1** | a help request — route to support, do not sell |
 | Networking / partnership | **P2** | collab, referral, "we should partner", investor/press |
 | Out of office / auto-reply | **P2** | OOO bounce, "I'm away until…" — reschedule the touch, no draft |
-| Unsubscribe / not interested | **P3** | "unsubscribe", "remove me", "not interested", "stop" — suppress + honor opt-out |
+| Unsubscribe / opt-out | **P3** | "unsubscribe", "remove me", "stop", "take me off" — suppress + honor opt-out, same day |
+| Soft no (`not_now`) | **P3** | "not interested", "no thanks", "not right now", "circle back next year" — record, **no draft**, no suppression, re-approach later. A soft no that ALSO asks to be removed is an opt-out, above |
 | Spam / someone selling to us | **P3** | inbound pitch, SEO/agency spam — archive |
 
 ## Routing (confidence never skips the human gate)

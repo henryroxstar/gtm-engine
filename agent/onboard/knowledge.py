@@ -22,13 +22,16 @@ def _knowledge_topic_relpath(relpath: str) -> str | None:
     """The topic path of a rendered file as the freshness scanner will see it, or None when the
     file is not a managed topic at all (e.g. ``PROFILE.md``).
 
-    Two managed roots exist (``knowledge_meta.MANAGED_ROOTS``). A file under any ``knowledge/`` dir
-    is classified relative to the nearest one, so a per-product knowledge file gets the same rule as
-    a profile-level one. Anything else under ``products/`` — ``products/<slug>/PRODUCT.md`` above
-    all — is a managed topic in its own right and keeps its full prefixed path, which is exactly the
-    relpath ``check`` reports it under. Before ``products/`` joined the scan (2026-08-29) this
-    returned None for those, so a freshly onboarded profile shipped an unstamped PRODUCT.md and
-    failed ``knowledge_meta_check`` — the very gap this helper exists to close."""
+    Two managed roots exist (``knowledge_meta.MANAGED_ROOTS``). A file under a ``knowledge/`` dir is
+    classified relative to the nearest one, which keeps the bare topic vocabulary
+    (``industry/cx-ai.md``) every skill and ledger row already uses. Everything under ``products/``
+    — ``PRODUCT.md`` and the per-product ``icp-personas.md`` / ``market-scan-config.md`` overrides
+    alike, all FLAT under ``products/<slug>/`` because that is the only level
+    ``resolve_knowledge_file`` reads — is a managed topic in its own right and keeps its full
+    prefixed path, which is exactly the relpath ``check`` reports it under. Before ``products/``
+    joined the scan (2026-08-29) this returned None for those, so a freshly onboarded profile
+    shipped an unstamped PRODUCT.md and failed ``knowledge_meta_check`` — the very gap this helper
+    exists to close."""
     parts = relpath.split("/")
     if "knowledge" in parts:
         last = len(parts) - 1 - parts[::-1].index("knowledge")

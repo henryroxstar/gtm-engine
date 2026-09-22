@@ -115,7 +115,9 @@ def audit_campaign(
         min_signal_attestation=min_signal_attestation,
     )
 
-    cov.matrix = parse_matrix(resolve_knowledge_file(profiles_root, profile, "hook-matrix.md"))
+    cov.matrix = parse_matrix(
+        resolve_knowledge_file(profiles_root, profile, "hook-matrix.md"), profile=profile
+    )
     if not cov.matrix.ok:
         cov.findings.append(f"matrix-unsupported: hook-matrix.md — {cov.matrix.reason}")
     elif cov.matrix.unmapped_personas():

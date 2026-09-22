@@ -70,11 +70,11 @@ def test_build_cells_splits_by_segment_and_seat(tmp_path):
     model = cells.build_cells(profile, tmp_path)
     by_id = {c["cell_id"]: c for c in model["cells"]}
 
-    assert by_id["enterprise:security:alpha"]["enrolled"] == 2
-    assert by_id["enterprise:cto:alpha"]["enrolled"] == 1
+    assert by_id["base:enterprise:security:alpha"]["enrolled"] == 2
+    assert by_id["base:enterprise:cto:alpha"]["enrolled"] == 1
     # A title with no seat -- unrecognised, or a persona that is deliberately seatless --
     # is reported as unknown, never silently folded into a seat.
-    assert by_id["enterprise:unknown:alpha"]["enrolled"] == 1
+    assert by_id["base:enterprise:unknown:alpha"]["enrolled"] == 1
 
 
 def test_suppression_column_reduces_sendable(tmp_path):
@@ -102,7 +102,7 @@ def test_outcome_rows_join_by_cell_tag(tmp_path):
         profile,
         '[[sequence]]\nid = "S1"\ncsv = "list.csv"\nspec = "spec-alpha-2026-08-18.md"\n',
     )
-    cid = "enterprise:security:alpha"
+    cid = "base:enterprise:security:alpha"
     rows = [
         {"outcome": "sent", "value": 10, "tags": [f"cell:{cid}"]},
         {"outcome": "reply", "value": 2, "tags": [f"cell:{cid}"]},
@@ -145,10 +145,11 @@ def test_comparability_requires_exactly_one_differing_dimension(tmp_path):
 
     # Same variant, different seat -> seat is cleanly readable.
     assert any(
-        "seat vs startup:cto:shared" in e for e in by_id["startup:security:shared"]["comparable_on"]
+        "seat vs base:startup:cto:shared" in e
+        for e in by_id["base:startup:security:shared"]["comparable_on"]
     )
     # Seat AND variant both move -> nothing is readable between them.
-    assert by_id["enterprise:security:sec"]["comparable_on"] == []
+    assert by_id["base:enterprise:security:sec"]["comparable_on"] == []
 
 
 def test_wilson_and_detectable_lift_edges():
@@ -170,12 +171,12 @@ def test_cli_text_and_json(tmp_path, capsys, monkeypatch):
     )
     assert cells._cli(["--profile", profile, "--content-root", str(tmp_path)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["cells"][0]["cell_id"] == "enterprise:security:alpha"
+    assert payload["cells"][0]["cell_id"] == "base:enterprise:security:alpha"
 
     assert (
         cells._cli(["--profile", profile, "--content-root", str(tmp_path), "--format", "text"]) == 0
     )
-    assert "enterprise:security:alpha" in capsys.readouterr().out
+    assert "base:enterprise:security:alpha" in capsys.readouterr().out
 
 
 def test_intent_profile_reports_coverage_and_absent_feeds(tmp_path):
@@ -303,7 +304,7 @@ def test_by_lane_reply_rate_with_wilson_counts_lane_only_rows_once(tmp_path):
         '[[sequence]]\nid = "S1"\nlane = "personalised"\ncsv = "p.csv"\nspec = "spec-alpha-2026-08-18.md"\n'
         '[[sequence]]\nid = "S2"\nlane = "generic"\ncsv = "g.csv"\nspec = "spec-gen-2026-09-01.md"\n',
     )
-    cid = "enterprise:security:alpha"
+    cid = "base:enterprise:security:alpha"
     rows = [
         {"outcome": "sent", "value": 10, "tags": [f"cell:{cid}", "lane:personalised"]},
         {"outcome": "reply", "value": 2, "tags": [f"cell:{cid}", "lane:personalised"]},

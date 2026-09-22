@@ -38,7 +38,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 import tomllib
 from pathlib import Path
@@ -61,11 +60,14 @@ from outreach_pack_linter import seat_of  # noqa: E402
 #: an unknown segment is reported as unknown so the gap is visible in the table.
 UNKNOWN = "unknown"
 
-#: z for a 95% two-sided interval and for 80% power. Hardcoded so this module stays
-#: stdlib-only (no scipy) — both are fixed constants at the confidence/power levels
-#: the campaign manifest's own power table already assumes.
-Z_CONF = 1.96
-Z_POWER = 0.84
+#: Power/interval arithmetic lives in :mod:`gtm_core.power`, a stdlib-only leaf, and is
+#: re-exported here so every existing caller (and ``tests/test_cells.py``, which reaches
+#: them as ``cells.wilson`` / ``cells.detectable_lift``) is unchanged. Extracted 2026-09-21
+#: because importing this module drags in the ``sys.path`` insert above, and a caller that
+#: only wants to ask "is this n powered?" should not have to take that on. ONE
+#: implementation: a second copy would let two modules disagree about whether the same n
+#: supports the same claim.
+from .power import Z_CONF, Z_POWER, detectable_lift, wilson  # noqa: E402,F401
 
 
 def cells_map_path(profile: str, content_root: Path | None = None) -> Path:
@@ -90,8 +92,24 @@ def variant_of(spec: str) -> str:
     return "-".join(parts) or stem
 
 
-def cell_id(segment: str, seat: str | None, variant: str) -> str:
-    return f"{(segment or UNKNOWN).strip().lower()}:{seat or UNKNOWN}:{variant}"
+#: The overlay dimension's value for a run on the tenant's own targeting. Spelled rather
+#: than left empty so a historical cell id stays readable and never silently changes identity
+#: when the dimension was added — ``base:enterprise:cto:v1``, not ``:enterprise:cto:v1``.
+BASE_OVERLAY = "base"
+
+
+def cell_id(segment: str, seat: str | None, variant: str, overlay: str | None = None) -> str:
+    """The unit of analysis: one audience, one message, under one targeting definition.
+
+    ``overlay`` names the experiment overlay the run resolved against
+    (:mod:`gtm_core.experiments`), or :data:`BASE_OVERLAY` for the tenant's live targeting.
+    It is a full dimension rather than a tag because two cells differing ONLY in it are a
+    clean ICP comparison — same audience description, same seat, same copy, two definitions
+    of who to target — and :func:`_mark_comparability` can then say so without knowing
+    anything about experiments.
+    """
+    ov = (overlay or BASE_OVERLAY).strip().lower() or BASE_OVERLAY
+    return f"{ov}:{(segment or UNKNOWN).strip().lower()}:{seat or UNKNOWN}:{variant}"
 
 
 def load_cell_map(profile: str, content_root: Path | None = None) -> list[dict]:
@@ -121,6 +139,10 @@ def load_cell_map(profile: str, content_root: Path | None = None) -> list[dict]:
                     # personalised | generic | repair. Optional; a missing lane reads as
                     # "unregistered" downstream, never as personalised.
                     "lane": str(row.get("lane", "") or "").strip().lower(),
+                    # The experiment overlay this list was built under, if any. Absent means
+                    # the tenant's live targeting, which is the overwhelming majority of rows
+                    # and the reason the default is a value rather than a blank.
+                    "overlay": str(row.get("overlay", "") or "").strip().lower() or BASE_OVERLAY,
                 }
             )
     return out
@@ -201,11 +223,13 @@ def _enrolled_cells(src: dict, base: Path) -> dict[str, dict]:
         for row in csv.DictReader(fh):
             segment = (row.get("segment") or UNKNOWN).strip().lower() or UNKNOWN
             seat = seat_of(row.get("title") or "")
-            cid = cell_id(segment, seat, variant)
+            overlay = src.get("overlay") or BASE_OVERLAY
+            cid = cell_id(segment, seat, variant, overlay)
             cell = cells.setdefault(
                 cid,
                 {
                     "cell_id": cid,
+                    "overlay": overlay,
                     "segment": segment,
                     "seat": seat or UNKNOWN,
                     "variant": variant,
@@ -244,51 +268,13 @@ def email_index(profile: str, content_root: Path | None = None) -> dict[str, str
                 if not email or email in index:
                     continue
                 segment = (row.get("segment") or UNKNOWN).strip().lower() or UNKNOWN
-                index[email] = cell_id(segment, seat_of(row.get("title") or ""), variant)
+                index[email] = cell_id(
+                    segment,
+                    seat_of(row.get("title") or ""),
+                    variant,
+                    src.get("overlay") or BASE_OVERLAY,
+                )
     return index
-
-
-def wilson(successes: float, n: float) -> tuple[float, float] | None:
-    """95% Wilson score interval for a proportion. ``None`` when there is no
-    denominator — an unrateable cell must read as unknown, never as 0%."""
-    if n <= 0:
-        return None
-    p = successes / n
-    z2 = Z_CONF * Z_CONF
-    denom = 1 + z2 / n
-    centre = (p + z2 / (2 * n)) / denom
-    margin = (Z_CONF * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / denom
-    return (max(0.0, centre - margin), min(1.0, centre + margin))
-
-
-def detectable_lift(n_per_arm: float, baseline: float) -> float | None:
-    """Smallest relative lift over ``baseline`` detectable at this per-arm n
-    (80% power, 95% confidence, two-proportion normal approximation).
-
-    Returned as a multiplier: 2.0 means "only a doubling would show". ``None`` when
-    the inputs cannot support the question at all. This replaces the campaign
-    manifest's static power table with a reading against the n actually in hand.
-    """
-    if n_per_arm <= 0 or not (0 < baseline < 1):
-        return None
-    # Solve for p2 such that the standard two-proportion test is powered at n_per_arm.
-    # Iterate rather than invert: cheap, stdlib-only, and monotone in p2.
-    lo, hi = baseline, 1.0
-    for _ in range(60):
-        mid = (lo + hi) / 2
-        pbar = (baseline + mid) / 2
-        se_null = math.sqrt(2 * pbar * (1 - pbar) / n_per_arm)
-        se_alt = math.sqrt((baseline * (1 - baseline) + mid * (1 - mid)) / n_per_arm)
-        if se_alt <= 0:
-            break
-        powered = (mid - baseline) >= (Z_CONF * se_null + Z_POWER * se_alt)
-        if powered:
-            hi = mid
-        else:
-            lo = mid
-    if hi >= 1.0:
-        return None
-    return round(hi / baseline, 2)
 
 
 def build_cells(
@@ -356,7 +342,10 @@ def build_cells(
         # differ in BOTH seat and variant are confounded by construction.
         cell["comparable_on"] = []
 
-    ordered = sorted(cells.values(), key=lambda c: (c["segment"], c["seat"], c["variant"]))
+    ordered = sorted(
+        cells.values(),
+        key=lambda c: (c.get("overlay", BASE_OVERLAY), c["segment"], c["seat"], c["variant"]),
+    )
     _mark_comparability(ordered)
     return {
         "profile": profile,
@@ -433,7 +422,7 @@ def _mark_comparability(cells: list[dict]) -> None:
         for b in cells:
             if a is b:
                 continue
-            diffs = [d for d in ("segment", "seat", "variant") if a[d] != b[d]]
+            diffs = [d for d in ("overlay", "segment", "seat", "variant") if a[d] != b[d]]
             if len(diffs) == 1:
                 entry = f"{diffs[0]} vs {b['cell_id']}"
                 if entry not in a["comparable_on"]:

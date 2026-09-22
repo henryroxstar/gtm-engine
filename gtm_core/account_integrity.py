@@ -61,7 +61,6 @@ owns *is the account itself safe to write to*.
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime
 import re
 import sys
@@ -69,6 +68,16 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The competitor index and the registrable-stem helper live in `competitor_index` (moved
+# 2026-09-21, when matching grew to every identity an entry declares); re-exported here so
+# `from gtm_core.account_integrity import load_competitors` keeps working.
+from .competitor_index import (
+    DIRECT_TIER,
+    CompetitorHit,
+    _registrable_stem,
+    competitor_match,
+    load_competitors,
+)
 from .enrollment_gate import (
     _refuse_ambiguous_lane,
     _refuse_lane_state_mismatch,
@@ -89,6 +98,14 @@ from .prospects_consolidate import (
 )
 from .signal_record import audit_records
 from .suppression import load_index as load_suppression_index
+from .verdict_refusals import (
+    flag_refusal,
+    inadmissible_findings,
+    pass_line,
+    read_list,
+    refused_lines,
+    write_kept,
+)
 
 __all__ = [
     "DossierDepth",
@@ -192,54 +209,6 @@ class DomainIssue:
 
 
 _ACADEMIC_RE = re.compile(r"\.(edu|ac\.[a-z]{2,3}|edu\.[a-z]{2,3})$", re.IGNORECASE)
-
-#: Trailing labels that carry no organisational identity, so the registrable stem is the
-#: first label left after they are stripped. Small and explicit rather than a public-suffix
-#: dependency: this only has to separate `riverbend.edu` from `riverbend.org`, not parse the
-#: whole DNS.
-_PUBLIC_SUFFIX_PARTS = frozenset(
-    {
-        "edu",
-        "com",
-        "org",
-        "net",
-        "gov",
-        "int",
-        "ac",
-        "co",
-        "or",
-        "ne",
-        "go",
-        "uk",
-        "sg",
-        "au",
-        "nz",
-        "za",
-        "in",
-        "jp",
-        "hk",
-        "my",
-        "ca",
-        "us",
-        # RFC 2606's reserved documentation TLD, which every fixture in this repo uses.
-        "example",
-    }
-)
-
-
-def _registrable_stem(domain: str) -> str:
-    """The identity-bearing label of ``domain`` — ``riverbend`` for both riverbend.edu and
-    riverbend.org.
-
-    Used to tell "this .edu IS the account's own domain on another TLD" from "this .edu
-    belongs to somebody else entirely", which is the whole difference between a health
-    system's real work address and the university-domain-on-a-corporate-row defect.
-    """
-    labels = [x for x in (domain or "").strip().lower().split(".") if x]
-    while len(labels) > 1 and labels[-1] in _PUBLIC_SUFFIX_PARTS:
-        labels.pop()
-    return labels[-1] if labels else ""
-
 
 _DOMAIN_ALIASES_FILE = "domain-aliases.toml"
 
@@ -436,78 +405,6 @@ def why_now_not_a_signal(why_now: str) -> str:
     return ""
 
 
-# --- competitor flag -----------------------------------------------------------
-
-_COMPETITORS_FILE = "competitors.toml"
-
-#: The one tier that is a hard stop. ``competitors.toml``'s own header defines it as
-#: "products that overlap the core wedge" — there is no framing that rescues a cold
-#: pitch to a company selling the thing you are selling, so this is not a judgement
-#: the gate defers to a human. Every other tier (``adjacent``, ``nhi-native``,
-#: ``si-channel``) genuinely can be reframed, and stays a WARN.
-DIRECT_TIER = "direct"
-
-
-@dataclass(frozen=True)
-class CompetitorHit:
-    """One ``competitors.toml`` entry, matched to an account.
-
-    Carries the ``tier`` rather than only the rendered summary because the tier is
-    what decides ERROR vs WARN, and re-parsing it back out of a display string is
-    how a grading rule silently stops matching the file it grades.
-    """
-
-    tier: str
-    summary: str
-
-    @property
-    def direct(self) -> bool:
-        return self.tier.strip().lower() == DIRECT_TIER
-
-
-def load_competitors(profile: str, profiles_root: Path | None = None) -> dict[str, CompetitorHit]:
-    """Map ``org_token`` -> a one-line ``name (tier): note`` summary, sourced from the
-    profile's own maintained ``knowledge/competitors.toml`` (schema=1, ``[[competitor]]``
-    entries — see the file's header for tier definitions and provenance). Reuses that
-    file rather than a second list: it is already reviewed and dated, and a prospected
-    account is at least as often named by a product/alias as by the entity the
-    watchlist was filed under, so every alias and domain indexes to the same account
-    identity as the canonical name.
-
-    Returns an empty dict when the profile ships no such file — this check has
-    nothing to compare against; the profile owns the list, this module never
-    fabricates one.
-    """
-    root = profiles_root or resolve_profiles_root()
-    path = root / profile / "knowledge" / _COMPETITORS_FILE
-    out: dict[str, CompetitorHit] = {}
-    if not path.is_file():
-        return out
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    for entry in data.get("competitor", []):
-        name = (entry.get("name") or "").strip()
-        if not name:
-            continue
-        tier = (entry.get("tier") or "unknown").strip()
-        summary = f"{name} ({tier}) — {entry.get('note', '')}".rstrip(" —")
-        hit = CompetitorHit(tier=tier, summary=summary)
-        domains = entry.get("domains") or [""]
-        for n in (name, *entry.get("aliases", [])):
-            for d in domains:
-                tok = org_token(d, n)
-                if tok:
-                    out.setdefault(tok, hit)
-    return out
-
-
-def competitor_match(
-    company: str, company_domain: str, competitors: dict[str, CompetitorHit]
-) -> CompetitorHit | None:
-    """Return the matching ``competitors.toml`` entry, or ``None`` if not on the list."""
-    tok = org_token(company_domain, company)
-    return competitors.get(tok) if tok else None
-
-
 # --- the audit -----------------------------------------------------------
 
 
@@ -521,6 +418,7 @@ _ROW_LEVEL_RULES = frozenset(
         "verdict-missing",
         "verdict-unknown",
         "verdict-reason-missing",
+        "verdict-inadmissible",
         "relation-unresolved",
         "relation-competitor",
         "relation-regulator",
@@ -622,19 +520,56 @@ LANE_VERDICTS = _LANE_VERDICTS
 #: row is in those lanes at all.
 _JUDGE_MAY_REMOVE_LANES = frozenset({"", "signal", "personalised"})
 #: Findings a GENERIC-lane row carries as ONE aggregate warning per class instead of a
-#: per-row ERROR. A generic body references no research, so "no verdict / no relation /
-#: no dossier" and research-record findings (signal-*, agent-kind-*) say what the row lacks
-#: for a PERSONALISED send, not that this send is unsafe. Every other class — competitor,
-#: academic domain, stale artifact — stays ERROR in every lane.
-GENERIC_LANE_ADVISORY = frozenset({"no-dossier", "verdict-missing", "relation-unresolved"})
+#: per-row ERROR. A generic body references no research, so a research record that is
+#: ABSENT or unresolved — no dossier, no verdict, no relation, no source / date / evidence /
+#: subject, an unclassified agent kind — says what the row lacks for a PERSONALISED send,
+#: not that this send is unsafe. Every other class — competitor, academic domain, stale
+#: artifact, an inadmissible verdict — stays ERROR in every lane.
+#:
+#: An EXPLICIT set, never a `signal-` / `agent-kind-` prefix. Until 2026-09-21 it was the
+#: prefix, which also demoted `signal-stale`, `signal-observed-future` and
+#: `signal-source-is-search`: a row carrying a dated signal past the freshness window was
+#: waved through the generic lane as "advisory". Absent and wrong are different defects.
+GENERIC_LANE_ADVISORY = frozenset(
+    {
+        "no-dossier",
+        "verdict-missing",
+        "relation-unresolved",
+        "signal-clause-underivable",
+        "signal-source-missing",
+        "signal-observed-missing",
+        "signal-evidence-missing",
+        "signal-subject-missing",
+        "agent-kind-unresolved",
+        "agent-kind-unused",
+    }
+)
+#: The other half: record rules that mean the record is present and WRONG — stale, dated in
+#: the future, sourced from a search page or a non-URL, contradicted by its own evidence,
+#: about a different company, or classifying the "agents" as people. Freshness and truth
+#: are an ERROR in every lane: the row carries a false record whether or not this body
+#: quotes it, and the next lane it is re-routed into will. Listed (rather than "everything
+#: not advisory") so a rule added later must be classified — a test pins advisory + this
+#: set to exactly the `signal-*` / `agent-kind-*` members of `_ROW_LEVEL_RULES`.
+GENERIC_LANE_STAYS_ERROR = frozenset(
+    {
+        "signal-source-malformed",
+        "signal-source-is-search",
+        "signal-observed-future",
+        "signal-stale",
+        "signal-evidence-unsupported",
+        "signal-number-unsourced",
+        "signal-subject-mismatch",
+        "signal-subject-absent-from-evidence",
+        "agent-kind-unknown",
+        "agent-kind-human",
+        "agent-kind-contradiction",
+    }
+)
 
 
 def _is_generic_advisory(rule: str) -> bool:
-    return (
-        rule in GENERIC_LANE_ADVISORY
-        or rule.startswith("signal-")
-        or rule.startswith("agent-kind-")
-    )
+    return rule in GENERIC_LANE_ADVISORY
 
 
 def filter_by_verdict(
@@ -695,6 +630,37 @@ def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
         )
 
 
+def _competitor_finding(
+    a: AccountAudit,
+    r: dict,
+    tok: str,
+    competitors: dict[str, CompetitorHit],
+    flagged: set[tuple[str, str]],
+) -> None:
+    """Record this row's competitor hit, once per (account, entry).
+
+    Read for every ROW, ahead of the account dedupe: a row's own email is one of its
+    identities, so the second contact on an account can be the one whose address is the
+    competitor's.
+    """
+    company = r.get("company", "")
+    hit = competitor_match(
+        company, r.get("company_domain", ""), competitors, email=r.get("email", "")
+    )
+    if not hit or (tok, hit.summary) in flagged:
+        return
+    flagged.add((tok, hit.summary))
+    a.competitor += 1
+    if hit.direct:
+        a.competitor_direct += 1
+        a.errors.append(
+            f"competitor-direct: {company!r} — {hit.summary} — a direct competitor is "
+            f"not a framing problem; there is no cold pitch that survives it"
+        )
+    else:
+        a.warnings.append(f"competitor-flag: {company!r} — {hit.summary}")
+
+
 def audit_rows(
     rows: list[dict],
     profile: str,
@@ -728,6 +694,14 @@ def audit_rows(
     else:
         a.errors.extend(rec.errors)
         a.warnings.extend(rec.warnings)
+    # A named lane is a claim about which verdicts may be in this list. Checked here, not
+    # only under --require-verdict: until 2026-09-21 `--lane generic` alone looked at no
+    # verdict, so a `drop` row audited PASS. (After the filter none remain — a no-op.)
+    if lane.strip():
+        lane_key = lane.strip().lower()
+        a.errors.extend(
+            inadmissible_findings(rows, lane_key, LANE_VERDICTS.get(lane_key, frozenset()))
+        )
 
     # Row-level checks: every contact carries its own email, so these run per row.
     for r in rows:
@@ -782,33 +756,24 @@ def audit_rows(
     # Account-level checks: dedupe by org identity so one company with several
     # contacts doesn't produce a repeated dossier/competitor finding per contact.
     seen: set[str] = set()
+    flagged: set[tuple[str, str]] = set()
     for r in rows:
         company = r.get("company", "")
         domain = r.get("company_domain", "")
         tok = org_token(domain, company)
-        if not tok or tok in seen:
-            continue
-        seen.add(tok)
-        a.accounts += 1
+        if tok and tok not in seen:
+            seen.add(tok)
+            a.accounts += 1
+            has, folder_name = account_has_dossier(profile, company, domain, content_root)
+            if not has:
+                a.no_dossier += 1
+                a.errors.append(
+                    f"no-dossier: {company!r} has no research behind its Why Now clause"
+                )
+            elif classify_dossier_folder(profile, folder_name, content_root) == DossierDepth.BRIEF:
+                a.leadership_unverified += 1
 
-        has, folder_name = account_has_dossier(profile, company, domain, content_root)
-        if not has:
-            a.no_dossier += 1
-            a.errors.append(f"no-dossier: {company!r} has no research behind its Why Now clause")
-        elif classify_dossier_folder(profile, folder_name, content_root) == DossierDepth.BRIEF:
-            a.leadership_unverified += 1
-
-        hit = competitor_match(company, domain, competitors)
-        if hit and hit.direct:
-            a.competitor += 1
-            a.competitor_direct += 1
-            a.errors.append(
-                f"competitor-direct: {company!r} — {hit.summary} — a direct competitor is "
-                f"not a framing problem; there is no cold pitch that survives it"
-            )
-        elif hit:
-            a.competitor += 1
-            a.warnings.append(f"competitor-flag: {company!r} — {hit.summary}")
+        _competitor_finding(a, r, tok, competitors, flagged)
 
     # Two checks whose finding is the SAME sentence with a different name in it, and
     # which by construction fire on most of a bulk run: the dossier variant is chosen
@@ -837,7 +802,7 @@ def audit_rows(
     return a
 
 
-def render(a: AccountAudit) -> str:
+def render(a: AccountAudit, *, pass_text: str = "PASS") -> str:
     lines = [f"account-integrity audit — {a.rows} row(s), {a.accounts} account(s)", ""]
     if a.record_missing_columns:
         # One file-level finding, and the OTHER checks still run and still print. A
@@ -876,7 +841,7 @@ def render(a: AccountAudit) -> str:
         lines.append("")
     if not a.errors and not a.warnings:
         lines.append("  PASS — no account-integrity findings.")
-    lines.append("FAIL" if a.failed else "PASS")
+    lines.append("FAIL" if a.failed else pass_text)
     return "\n".join(lines)
 
 
@@ -958,19 +923,40 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted(LANE_VERDICTS),
         help=(
             "which lane this list is being enrolled into (gtm_core.lane_router). Widens "
-            "--require-verdict to the lane's admissible verdicts and, for `generic`, reports "
-            "no-dossier/verdict-missing/relation-unresolved as one advisory line each. A CSV "
-            "whose own `lane` column disagrees is refused: a list routed into one lane must "
-            "not be enrolled into another."
+            "--require-verdict to the lane's admissible verdicts; WITHOUT --require-verdict "
+            "a row whose verdict the lane does not admit is a `verdict-inadmissible` ERROR. "
+            "For `generic`, an ABSENT research record (no-dossier, verdict-missing, "
+            "relation-unresolved, signal-*-missing, agent-kind-unresolved) is one advisory "
+            "line per class; a WRONG one (signal-stale, signal-observed-future, "
+            "signal-source-is-search, ...) stays an ERROR in every lane. A CSV whose own "
+            "`lane` column disagrees is refused: a list routed into one lane must not be "
+            "enrolled into another."
+        ),
+    )
+    p.add_argument(
+        "--write-kept",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "with --require-verdict: write the rows that survived suppression and the "
+            "verdict filter to PATH (same columns, atomic) when the gate passes — the file "
+            "to load. Never the input path: PASS is a verdict on the kept rows, and the "
+            "input still contains the refused ones."
         ),
     )
     args = p.parse_args(argv)
     lane = args.lane.strip().lower()
+    refusal = flag_refusal(args)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return 2
 
-    with args.csv.open(newline="", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
-        fieldnames = list(reader.fieldnames or [])
-        rows = list(reader)
+    fieldnames, rows, empty = read_list(args.csv, bool(args.require_verdict))
+    in_file = len(rows)
+    if empty:  # PASS over zero rows reads as "this list may be enrolled"
+        print(empty)
+        return 0 if args.warn_only else 1
     if args.require_verdict:
         want = args.require_verdict.strip().lower()
         refusal, lane = check_enrollment_lanes(rows, args.profile, lane, fieldnames, want=want)
@@ -1004,6 +990,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"suppressed: skipped {before - len(rows)} row(s) (ledger + column)\n")
     if args.require_verdict:
         want = args.require_verdict.strip().lower()
+        unfiltered = rows
         rows, vstats = filter_by_verdict(rows, want, lane=lane)
         admitted = "/".join(sorted(v or "(empty)" for v in LANE_VERDICTS[lane])) if lane else want
         print(
@@ -1017,6 +1004,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"  judge flagged {vstats.judge_advisory} row(s) `drop` but is NOT calibrated — "
                 f"kept, and reported below. Seal a holdout to make these binding."
             )
+        wanted = LANE_VERDICTS[lane] if lane else frozenset({want})
+        for line in refused_lines(unfiltered, rows, wanted):
+            print(line)
         print()
 
     a = audit_rows(
@@ -1028,7 +1018,14 @@ def main(argv: list[str] | None = None) -> int:
         as_of=args.as_of,
         lane=lane,
     )
-    print(render(a))
+    # PASS is a verdict on the rows that were KEPT. The input still holds the refused
+    # ones, so the kept rows are written only beside a pass, and the line says so.
+    if args.write_kept and a.failed:
+        print("kept file NOT written — the gate failed; a kept file beside a FAIL gets loaded\n")
+    elif args.write_kept:
+        write_kept(args.write_kept, fieldnames, rows)
+    final = pass_line(len(rows), in_file, args.write_kept) if args.require_verdict else "PASS"
+    print(render(a, pass_text=final))
     return 0 if (args.warn_only or not a.failed) else 1
 
 

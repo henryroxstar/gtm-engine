@@ -77,6 +77,7 @@ from .accounts import (  # noqa: F401
     _account_id_index,
     _account_item_of,
     _account_key_of,
+    _account_keys_of,
     _account_record_index,
     _disqualified_account_keys,
     _verdict_at_least_as_strict,

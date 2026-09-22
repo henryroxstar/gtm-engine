@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from ..role_vocabulary import DEFAULT_SEGMENTS as _DEFAULT_SEGMENTS
+from ..role_vocabulary import load as _load_vocabulary
 from .names import _has_letters
 
 # --- company -------------------------------------------------------------
@@ -62,7 +64,26 @@ _TRANSACTION_ENTITY_RE = re.compile(
 #: (``segment_mix`` in ``PROFILE.md``) but that this tuple does not know is a segment whose rows
 #: are measured as noise. ``tests/lint/test_profile_targeting_invariants.py`` now pins the two
 #: together so the next segment cannot be added in the profile alone.
-SEGMENTS = ("enterprise", "startup", "builder", "unspecified")
+#:
+#: MOVED 2026-09-21 — the values now live in :mod:`gtm_core.role_vocabulary` beside the
+#: persona and seat vocabulary, because they are the same KIND of fact: which segments a
+#: tenant sells to is an ICP decision, and a tenant that had to edit this module to add one
+#: could not. The paragraph above is exactly the argument for making it overridable: a
+#: segment this tuple does not know degrades silently, so the tenant that needs a new one is
+#: the tenant least able to see why its coverage reads zero. This name stays as the DEFAULT
+#: view, re-exported unchanged so every existing importer is untouched; a run that knows its
+#: profile should call :func:`segments_for` instead.
+SEGMENTS = _DEFAULT_SEGMENTS
+
+
+def segments_for(profile: str | None = None) -> tuple[str, ...]:
+    """This profile's segment vocabulary, falling back to :data:`SEGMENTS`.
+
+    ``profile=None`` resolves the session's bound profile from the environment, the same
+    way :func:`gtm_core.role_vocabulary.load` does — so a caller that never learned about
+    profiles keeps working and a caller that knows one gets the right answer.
+    """
+    return _load_vocabulary(profile).segments
 
 
 # --- qualification score ---------------------------------------------------

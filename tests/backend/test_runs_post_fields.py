@@ -1,7 +1,7 @@
 """Unit tests for RT-15: Populate known fields on POST /v1/runs.
 
 Verifies that POST /v1/runs 202 Accepted response returns `pack`, `variant`,
-and a timezone-aware ISO-8601 UTC `created_at` timestamp for both pack-mode
+and a timezone-aware ISO-8601 timezone.utc `created_at` timestamp for both pack-mode
 and prompt-mode runs, avoiding unnecessary follow-up GET requests.
 """
 

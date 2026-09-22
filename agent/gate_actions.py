@@ -271,6 +271,94 @@ def clear_enroll_draft(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
+# --------------------------------------------------------------------------- DNC add (SC9)
+#
+# The third draft kind, alongside `plan` and `enroll`. Same shape and the same reason: the
+# operator approves the exact ADDRESSES before anything reaches the provider's Do Not
+# Contact list, and the write happens in Python (`agent/dnc_dispatch.py`), never through a
+# tool the brain holds.
+#
+# What the draft may contain is deliberately tiny — a list of addresses and the ledger
+# evidence for each. There is no list id (resolved by the dispatcher), no removal field,
+# and no free-form provider payload. A draft is a request to suppress people the ledger
+# already says asked to be left alone; anything wider is refused at dispatch.
+
+
+class DncDraftError(ValueError):
+    """Raised when a DNC draft is missing, malformed, or names something it may not."""
+
+
+def dnc_draft_path(cfg, profile: str, run_id: str) -> Path:
+    """This run's DNC draft: ``.pending/<run_id>.dnc-draft.json``.
+
+    Named by run for the same reason the enroll draft is: the profile lock is released
+    while a run waits at its gate, so ``.pending`` can also hold another run's draft or a
+    leftover from one that timed out (client issue #245).
+    """
+    return _enroll_pending_dir(cfg, profile) / f"{_safe_segment(run_id, 'run_id')}.dnc-draft.json"
+
+
+def parse_dnc_draft(raw: str, source: str) -> dict:
+    """Parse + shape-validate a DNC draft. Raises :class:`DncDraftError`.
+
+    Validates SHAPE only. Whether each address is actually entitled to be suppressed is
+    settled at dispatch against the ledger (`agent.dnc_dispatch.open_candidates`) — the
+    draft cannot widen that set, so this does not need to police it twice.
+    """
+    try:
+        draft = json.loads(raw)
+    except ValueError as exc:
+        raise DncDraftError(f"{source}: not valid JSON ({exc})") from exc
+    if not isinstance(draft, dict):
+        raise DncDraftError(f"{source}: draft must be a JSON object")
+
+    addresses = draft.get("addresses")
+    if not isinstance(addresses, list) or not addresses:
+        raise DncDraftError(f"{source}: draft must carry a non-empty 'addresses' list")
+    cleaned: list[str] = []
+    for i, addr in enumerate(addresses):
+        if not isinstance(addr, str) or "@" not in addr or not addr.strip():
+            raise DncDraftError(f"{source}: addresses[{i}] is not an email address: {addr!r}")
+        cleaned.append(addr.strip().lower())
+    if len(set(cleaned)) != len(cleaned):
+        raise DncDraftError(f"{source}: the same address appears more than once")
+
+    # A draft that names a list id would let the brain choose WHERE a suppression lands,
+    # which is a destination — the one thing a gate artifact never carries here.
+    for forbidden in ("dnc_list_id", "list_id", "dncListId"):
+        if forbidden in draft:
+            raise DncDraftError(
+                f"{source}: a draft may not name {forbidden!r} — the DNC list is resolved by "
+                "the dispatcher, never chosen by the draft"
+            )
+    # Add-only, asserted on the artifact as well as in the dispatcher.
+    for forbidden in ("remove", "removals", "delete", "unsuppress"):
+        if forbidden in draft:
+            raise DncDraftError(
+                f"{source}: a draft may not name {forbidden!r} — DNC is add-only, and "
+                "nothing in this system may un-suppress a person who opted out"
+            )
+
+    return {"addresses": cleaned, "evidence": draft.get("evidence") or {}}
+
+
+def promote_dnc_draft(draft_path: Path | None, *, edited_content: str | None = None) -> dict:
+    """The approved DNC draft, from disk or from the operator's edited bytes."""
+    if edited_content is not None:
+        return parse_dnc_draft(edited_content, "edited DNC draft")
+    if draft_path is None or not draft_path.is_file():
+        raise DncDraftError("no DNC draft on disk for this run")
+    return parse_dnc_draft(draft_path.read_text(encoding="utf-8"), str(draft_path))
+
+
+def discard_dnc_draft(cfg, profile: str, *, path: Path) -> bool:
+    """Remove a declined DNC draft. Returns True if a file was removed."""
+    if path.is_file():
+        path.unlink()
+        return True
+    return False
+
+
 def promote_gate_draft(
     cfg,
     profile: str,
@@ -299,10 +387,21 @@ def promote_gate_draft(
         except EnrollDraftError as exc:
             return None, str(exc)
         return enroll_draft, None
+    if draft_kind == "dnc":
+        # SC9. Returned in the same slot as the enroll draft: the caller dispatches on the
+        # gate's KIND, so one draft object per gate is enough and a second field would let
+        # a caller dispatch the wrong effect with the right bytes.
+        try:
+            dnc_draft = promote_dnc_draft(draft_path, edited_content=edited_content)
+        except DncDraftError as exc:
+            return None, str(exc)
+        return dnc_draft, None
     return None, None
 
 
-def gate_draft(cfg, profile: str, *, run_id: str, enroll: bool) -> tuple[Path, str] | None:
+def gate_draft(
+    cfg, profile: str, *, run_id: str, enroll: bool, dnc: bool = False
+) -> tuple[Path, str] | None:
     """The draft this gate shows, or ``None`` for a gate with none on disk.
 
     One lookup for ``_execute_pack_run``'s awaiting_approval branch and the VPS CLI's
@@ -312,6 +411,11 @@ def gate_draft(cfg, profile: str, *, run_id: str, enroll: bool) -> tuple[Path, s
     issue #245). Every other gate reads the plan draft, and never an enroll draft. Returns
     ``(path, "plan")`` or ``(path, "enroll")``.
     """
+    if dnc:
+        # SC9: only this run's DNC draft, never a plan or enroll draft — the same
+        # per-run isolation client issue #245 forced on the enroll path.
+        dnc_path = dnc_draft_path(cfg, profile, run_id)
+        return (dnc_path, "dnc") if dnc_path.is_file() else None
     if enroll:
         path = enroll_draft_path(cfg, profile, run_id)
         return (path, "enroll") if path.is_file() else None

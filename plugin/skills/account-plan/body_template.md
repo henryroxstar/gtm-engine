@@ -22,7 +22,8 @@ Produce a **CRO-grade strategic account plan** for one named company — the art
 4. **`profiles/<active>/knowledge/product.md`** — product suite, competitive differentiation table (vs. hyperscaler), deployment options, discovery questions, **and commercial/pricing model if one is documented**.
 5. **`profiles/<active>/knowledge/company.md`** — company narrative, open-source credentials, team, investors, certifications held (never overclaim a cert not listed here — e.g. don't say SOC 2 if only ISO 27001 is held).
 6. **`docs/sales-questions-by-deal-phase.md`** — the evidence-based method behind discovery sequencing, multi-threading, and the indecision/de-risking play used throughout this plan.
-7. **Prior prospect/outreach files** — look for `prospects-*-[company].md` or `outreach-*-[company].md` in the account folder `content/<active>/accounts/<account-slug>/`. If found, note whether any touch was actually **sent** (not just drafted) — a drafted-but-unsent pack means the account is still genuinely cold; don't treat it as a prior touch.
+7. **`deck-research-*[company]*.md` / `account-dossier-*[company]*` in the account folder** — the reusable Layer 1. Read it before the research sweep; the field map and the three reuse rules are in the next section.
+8. **Prior prospect/outreach files** — look for `prospects-*-[company].md` or `outreach-*-[company].md` in the account folder `content/<active>/accounts/<account-slug>/`. If found, note whether any touch was actually **sent** (not just drafted) — a drafted-but-unsent pack means the account is still genuinely cold; don't treat it as a prior touch.
 
 ## Gather inputs
 
@@ -35,7 +36,49 @@ In one short message ask:
 
 If the colleague has already provided this in their request, use it.
 
-## Research (if no fresh prior file)
+## Reuse before you research — `deck-research` Layer 1 and the account dossier
+
+**Read Layer 1 before you research anything.** `deck-research` writes eleven persona-agnostic,
+sourced fields (`L1-1`…`L1-11`) to `deck-research-[company]-[YYYY-MM-DD].md` in the same account
+folder, and `account-dossier` writes the walked-through version of the same account. Both are built
+to be reused — Layer 1's whole reason for existing is that it is *persona-agnostic*, so re-running
+the sweep here does not produce better facts, it produces a **second set** of facts that can
+disagree with the ones already in front of the customer.
+
+| You need | Layer 1 field |
+|---|---|
+| company overview, size, segment, ICP score | `L1-1` firmographics_icp |
+| agent maturity — do they run agents in production | `L1-2` agentic_maturity |
+| stack, frameworks, cloud, IAM | `L1-3` tech_stack |
+| regulatory exposure and certifications | `L1-4` regulatory_posture |
+| the live threats specific to their deployment | `L1-5` threat_hypotheses |
+| concrete agent scenarios from their own portfolio | `L1-6` use_case_scenarios |
+| incumbent / build-vs-buy / lock-in | `L1-7` incumbent_competitive |
+| the matched proof story | `L1-8` proof_story |
+| the dated why-now trigger | `L1-9` why_now |
+| named buying committee → persona → primary pain | `L1-10` buying_committee |
+| the numbered sources behind every external claim | `L1-11` sources |
+
+Three rules when you reuse it:
+
+- **Freshness is per-file, not per-account.** Fresh (≤30 days) → use it and sweep only for what it
+  marks `null`, plus anything dated after it was written. Stale → still read it, still carry its
+  `L1-11` numbering, and re-verify only the **time-sensitive** claims rather than starting over.
+- **Carry the sourcing, do not launder it.** An `L1-11` footnote travels with the fact. A claim
+  that arrives here without one is not promoted to sourced by being restated in a different
+  document — that is how an unverified signal becomes a number in a QBR.
+- **Never upgrade a flagged claim.** A field tagged unverified stays unverified here. If `L1-2` is
+  empty the account was flagged as possibly not deck-ready, and that is a finding for this
+  document, not a gap to quietly fill with a fresh guess.
+
+For this plan specifically: `L1-10` is the seed of §7's buying-influence table, not a substitute
+for it. Layer 1 names people and their pain; §7 adds response mode, rating and coverage, which are
+**our** read of the relationship and cannot come out of a research file. A role that arrives from
+`L1-10` with no contact is Coverage = Researched and Rating = 0, always.
+
+---
+
+## Research (only for what Layer 1 does not already answer)
 
 Run a targeted web sweep — free paths only (web search + browser), no metered tools.
 
@@ -125,6 +168,25 @@ For every real role in the deal — not a wishlist, only roles that plausibly ex
 - **Coverage** — Known (we have a real point of contact) / Researched (named, but no contact) / Unknown (role not yet identified, or not yet filled at the account).
 
 Flag **single-threaded risk** explicitly if fewer than two buying influences are at Coverage = Known — deals with only one engaged contact are the ones that stall (`docs/sales-questions-by-deal-phase.md`, Phase 3). Note wherever **control-function influences (security, procurement, TPRM/legal) are in Even Keel or Overconfident mode while business-side influences are in Growth** — that asymmetry is common in regulated enterprise and should shape sequencing in §14: move fast on the receptive side, pre-empt the control functions before they discover the deal unprompted.
+
+**The influence map is a diagram, and the table is its source.** Once the rows above are settled,
+draw them — who reports to whom, who we have reached, where the single thread runs — as Mermaid,
+then render:
+
+```
+uv run python -m gtm_core.diagrams render --input <influence-map.mmd> --out <influence-map.svg> \
+    --format svg --profile <active> \
+    --title "Buying influences — who we have reached" \
+    --desc "<one sentence: the coverage gap the map makes visible>"
+```
+
+Draw the map **from the table, never from memory of the account**: a role that is not a row does
+not belong on it, and a rating the table records as 0 is not drawn as a warm contact because the
+picture looked lopsided. Single-threading is a shape — one line from us into the account — and it
+is the thing a reader sees in a diagram and argues with in a table. Brand tokens resolve through
+`gtm_core.brandkit`; `--title`/`--desc` are the SVG's own accessibility layer and are not optional.
+The MEDDPICC scorecard in §6 is a **table**, not a diagram: it is eight named fields with evidence
+per field, and a picture of it loses the evidence column, which is the only part that is load-bearing.
 
 ### Section 8 — Champion Development Plan
 

@@ -455,7 +455,58 @@ CREDIT_VERDICT_RE = re.compile(
     r"|\bthat[''`]?s (?:a|an) (?:real|genuine|rare|remarkable|impressive|unusual|serious"
     r"ly good)\b"
     # the stem shape only: a determiner-led noun phrase graded by a bare "lands"
-    r"|^[^.?!]{0,60}\blands\b\s*[:.]",
+    r"|^[^.?!]{0,60}\blands\b\s*[:.]"
+    # ----------------------------------------------------------------- 2026-09-22
+    # Second-person competence attribution. All five specs in the 2026-08-25 batch opened
+    # on one, every one passed this rule at zero errors, and the operator's objection on
+    # reading them back was not "this is flattery" but something sharper: *it reads as
+    # grading someone likely more senior than the sender.*
+    #
+    # READ THIS AS A SPECIMEN LIST, NOT A CATEGORY DETECTOR. Four alternations fitted to
+    # five examples from one batch. It catches the shape that shipped; it does not catch
+    # "you have solved the interesting bit", "you've got the foundations down", or any
+    # other paraphrase, and it was never able to. The vocabulary
+    # (hard|hardest|difficult|tricky x part|bit|piece|work) is deliberately FROZEN: this
+    # rule's own history is prose ban (2026-08-19, unenforced) -> phrase list (2026-09-04,
+    # missed comparatives) -> comparative branch (2026-09-04, missed this) -> here. Each
+    # round caught the batch just read and missed the next. Widening the list is another
+    # round of that; a genuinely new shape is evidence for the reading pass, not for a
+    # fifth alternation.
+    #
+    # THE GENERAL CASE IS SEMANTIC AND DOES NOT LIVE HERE. "Is this sentence grading the
+    # reader" needs a judge, and the judge is held behind its calibration rebuild (the
+    # backlog names the design doc; it is withheld from the public carve, so no path
+    # here). A structural version was built and measured on 2026-09-22 and is
+    # NOT used: voice.md rule 9 REQUIRES beat 1 to be a flat, unhedged, second-person
+    # claim from their public copy ("you have agents in production today"), so a detector
+    # for unhedged second-person claims convicts the required shape and the defect alike
+    # — it sees grammatical form, never verifiability, which is the whole distinction. It
+    # also measured 40% on the second-person v2 batch against 5% corpus-wide, i.e. it was
+    # calibrated by the corpus being impersonal rather than by being right.
+    #
+    # What makes THESE specimens verdicts is not "you have X" — that is the legal
+    # observation above. It is a judgement about the DIFFICULTY or CORRECTNESS of what
+    # they built. Both halves are required, which is why the mandated hedge "You may
+    # already have this covered" is untouched by construction: no difficulty noun, and
+    # "covered" is not a correctness verdict. Were it convicted, `hedge-missing` and this
+    # rule would be unsatisfiable together and every body would fail one of them.
+    #
+    # "right" must end its clause (`right.` / `right:`) — "you have the right to" and
+    # "you have until Friday" are not verdicts, and a bare \bright\b would convict both.
+    #
+    # Measured before landing: 5 of 117 shipped touch bodies (4.3%), all five the openers
+    # the operator objected to — under the 0.40 saturation threshold `rule_lifecycle_report`
+    # treats as "describes the list, doesn't screen it". RE-MEASURE after the copy shape
+    # changes (PENDING.md EC-series): this rate was taken on copy that barely uses second
+    # person, so a climb means it was fitted to the old style rather than to the defect.
+    r"|\byou(?:'ve|’ve| have)\b[^.?!]{0,40}?\bthe (?:hard|hardest|difficult|tricky) "
+    r"(?:part|bit|piece|work)\b"
+    r"|\bthe (?:hard|hardest|difficult|tricky) (?:part|bit|piece|work)\b[^.?!]{0,40}?"
+    r"\byou(?:'ve|’ve| have)\b"
+    r"|\byou(?:'ve|’ve| have)\b[^.?!]{0,40}?\b(?:right|nailed|handled well|down cold)"
+    r"\s*[.,:;]"
+    r"|\byou(?:'ve|’ve| have)\s+(?:done|built|solved|cracked|nailed)\b[^.?!]{0,30}?"
+    r"\b(?:work|part|piece)\b",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -515,399 +566,47 @@ _ARTIFACT_NOUNS = (
 # 2026-08-17 batch sent audit/examiner framing to eight CEOs and a revenue lead to a real CISO.
 #
 # Seat -> (title cues, stakes vocabulary that belongs to this seat).
-# --- the persona axis (one vocabulary, two views) ------------------------------------
+# --------------------------------------------------------------------------- persona axis
 #
-# ONE ordered title vocabulary resolves a recipient to a PERSONA; a small map folds those
-# personas into the coarser SEAT that ``lint_persona_lead`` reasons about. Defining it once
-# is the point: before 2026-08-20 this module had three seats and
-# ``gtm_core.hook_coverage`` had its own ten-persona list, and two cue lists for one
-# question drift apart — the finer one already knew titles the coarser one did not
-# ("Chief AI Officer" resolved to a seat but to no persona, and vice versa).
+# THE VOCABULARY ITSELF NOW LIVES IN TENANT DATA — :mod:`gtm_core.role_vocabulary`.
 #
-# ORDER IS LOAD-BEARING, and every omission below carries its reason:
-#   * ``data-compliance`` precedes ``compliance`` — "Data / Compliance Leader" and
-#     "CRO / Compliance" both contain "compliance" and are different buyers.
-#   * ``ciso`` precedes ``cloud-architect`` — "chief information security" must not be
-#     claimed by "chief information".
-#   * every seat-bearing persona precedes ``ceo`` — "Senior Vice President, Chief
-#     Technology Officer" is a CTO, not an exec. 70 of the 123 live titles containing
-#     "president" are VICE-presidents; ordering resolves the ones carrying a seat marker
-#     and ``_ANTI_CUES`` catches the rest.
-#   * bare "cro" is absent (Chief Revenue vs Chief Risk sit in opposite seats), bare "coo"
-#     is absent (substring of "coordinator"), bare "cio" is absent (substring of ordinary
-#     words) — the prefixed forms that actually occur are listed instead.
-
-#: Titles that disqualify a persona even when one of its cues matched. "Executive Vice
-#: President, Engineering" is not a CEO; without this, the bare "president" cue makes every
-#: VP an exec — the same substring trap as coo/coordinator, found 2026-08-20 mis-seating 28
-#: CTOs into the exec bucket.
-_ANTI_CUES: dict[str, tuple[str, ...]] = {
-    "ceo": ("vice president", "vice-president", "evp", "svp", "avp"),
-}
-
-#: The exec cues that name the JOB rather than a seniority band. ``_PERSONA_RULES`` puts
-#: ``ceo`` last on purpose, so a lower functional cue anywhere in a compound title wins the
-#: whole title: measured 2026-09-09, "Founder, chief executive officer, head of ai
-#: innovations" resolved to ``ai-platform`` and "Chief Operating Officer / Chief Compliance
-#: Officer" to ``compliance``. Both are execs, and the tempting reading of the resulting
-#: `seat-stakes-missing` is that the COPY is wrong. Across the 1,145-title content corpus
-#: this reclaims 14 titles (548 occurrences), including "Chief Executive Officer (former
-#: CTO, promoted 2026-05-20)" — seated by its own parenthetical.
-#:
-#: RANK cues stay out, and that is the whole design. "managing director" and "president"
-#: are bands a functional chief also holds ("Group CISO Managing Director" is a CISO), so
-#: promoting them would trade this mis-seat for a wider one. OWNERSHIP cues stay out too:
-#: "founder" says who owns the company, not which copy is owed, and 33 pooled
-#: "Co-Founder & CTO" rows are technical buyers whose current ``cto`` seat is correct.
-_CEO_TITLE_CUES = ("ceo", "chief executive", "chief operating", "chief operations")
-
-_PERSONA_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "data-compliance",
-        (
-            "chief data",
-            "data governance",
-            "data protection officer",
-            "data / compliance",
-            "data and compliance",
-            "data privacy",
-            "head of data",
-            "chief analytics",
-            "data & analytics",
-            "data and analytics",
-            "dpo",
-        ),
-    ),
-    (
-        "ciso",
-        (
-            "ciso",
-            "chief information security",
-            "chief security",
-            "head of security",
-            "head of infosec",
-            "security officer",
-            "vp security",
-            "director of security",
-            # Recovered by the word-boundary fix: "Director of Information Security" used
-            # to be claimed by the bare "cto" cue inside the word "director" before any
-            # security cue was reached. It is a CISO and always was.
-            "information security",
-            "security engineering",
-            "head of cyber",
-            "cyber security",
-            "cybersecurity",
-        ),
-    ),
-    (
-        "compliance",
-        (
-            "cro / compliance",
-            "chief risk",
-            "chief compliance",
-            "head of compliance",
-            "head of risk",
-            "compliance officer",
-            "risk officer",
-            "regulatory affairs",
-            "head of audit",
-            "internal audit",
-            "financial crimes",
-            "compliance",
-        ),
-    ),
-    (
-        "ai-platform",
-        (
-            "chief ai",
-            "chief a.i.",
-            "head of ai platform",
-            "ai platform",
-            "head of ai",
-            "head of applied ai",
-            "ai engineering",
-            "machine learning platform",
-            "ml platform",
-            "head of ml",
-            "vp of ai",
-            "vp ai",
-            "genai",
-            "generative ai",
-        ),
-    ),
-    # Resolver-only personas: recognised so they are never invisible, but mapped to NO
-    # seat below, so no copy is owed to them. Measured 2026-08-20 across the whole
-    # 870-title pool: finops 0 recipients, partnership 1. Writing an argument for a
-    # persona nobody holds is how a message portfolio gets padded instead of aimed.
-    (
-        "partnership",
-        (
-            "ecosystem / partnership",
-            "head of partnerships",
-            "head of partnership",
-            "head of ecosystem",
-            "partner platform",
-            "platform bd",
-            "business development",
-            "alliances",
-        ),
-    ),
-    (
-        "finops",
-        (
-            "finops",
-            "fin ops",
-            "cloud economics",
-            "cloud cost",
-            "cost optimisation",
-            "cost optimization",
-        ),
-    ),
-    (
-        "cloud-architect",
-        (
-            "cloud architect",
-            "enterprise architect",
-            "principal architect",
-            "chief architect",
-            "solutions architect",
-            "solution architect",
-            "head of architecture",
-            "chief information officer",
-            "chief information and digital",
-            "chief digital",
-            "group cio",
-            # "chief information" is safe here only because ``ciso`` is evaluated FIRST
-            # and claims "chief information security" — order is load-bearing.
-            "chief information",
-        ),
-    ),
-    (
-        "cto",
-        (
-            "cto",
-            "chief technology",
-            "technology officer",
-            "head of technology",
-            "founding engineer",
-            "head of platform",
-            "head of engineering",
-            "vp engineering",
-            "vp of engineering",
-            "director of engineering",
-            "head of infrastructure",
-        ),
-    ),
-    (
-        "cpo",
-        (
-            "cpo",
-            "chief product",
-            "head of product",
-            "vp product",
-            "vp of product",
-            "director of product",
-            "product management",
-            "product lead",
-        ),
-    ),
-    (
-        "ceo",
-        (
-            "ceo",
-            "chief executive",
-            "founder",
-            "co-founder",
-            "cofounder",
-            "managing director",
-            "chief operating",
-            "chief operations",
-            "president",
-            "owner",
-        ),
-    ),
-    # LAST on purpose, so it only ever catches what the named seats did not. This is the
-    # DEFAULT seat for an owner-operator title, not a seat of its own: below a certain
-    # headcount there is no functional split, and the person who signed the company up is
-    # the buyer, the architect and the security reviewer at once. It maps to the ``ceo``
-    # SEAT below, so it is owed no new copy — the hook matrix's CEO / Founder row is
-    # already the right argument for this reader.
-    #
-    # It exists as a distinct PERSONA rather than as more ``ceo`` cues so that "resolved
-    # because the title says CEO" and "resolved because nothing else fit and this is an
-    # SME" stay countable apart. The first is a fact about the person; the second is an
-    # inference about the company, and only one of them should survive contact with an
-    # enterprise list.
-    (
-        "founder-operator",
-        (
-            "executive director",
-            "managing partner",
-            "founding partner",
-            "senior partner",
-            "managing principal",
-            "proprietor",
-            "business owner",
-            "co-owner",
-        ),
-    ),
+# It moved on 2026-09-21. Which personas a tenant sells to, which seat each reads, and what
+# that seat's stakes sound like are ICP facts, and while they were literals here no tenant
+# could change them: measured that day, one profile had 5 of its 7 matrix personas and
+# another 4 of its 8 normalising onto nothing, which does not raise — ``hook_coverage``
+# books those rows as unassignable and the tenant reads a coverage report showing zero.
+#
+# What did NOT move is the resolver. :func:`persona_of` / :func:`seat_of` stay here beside
+# the rules they police, and every consumer still imports them from this module. Two
+# implementations of "which seat is this person" would drift, and the drift would be
+# invisible — the page would report cells the gate never checked.
+#
+# The names below are the DEFAULT vocabulary, re-exported so the boundary tests that pin
+# the substring traps (``test_persona_cue_boundaries.py``) keep asserting against the
+# shipped default. A profile that ships ``knowledge/role-vocabulary.toml`` overrides it, and
+# the functions resolve per call — so read these as "what a tenant gets before it
+# customises", never as "what this run is using".
+from gtm_core.role_vocabulary import (  # noqa: E402
+    DEFAULT_VOCABULARY as _DEFAULT_VOCABULARY,
 )
-# A BARE "Director" is deliberately absent. It is the owner at a ten-person agency and a
-# mid-level manager at a bank, and as a cue it matched every functional director in the
-# pool — "Sales Director" and "Director of Talent Acquisition" both resolved here, which is
-# the same over-reach the "cto"-in-"director" bug was made of, arriving from the other
-# direction. An ambiguous title stays unrecognised and is handled by
-# :data:`SEGMENT_DEFAULT_PERSONA` at routing time, where the caller knows the segment and
-# this vocabulary does not.
-
-#: Titles that are recognisably NOT a buyer for this product — see :func:`non_buyer_of`.
-#: Kept small and unambiguous on purpose: the cost of a missing entry is one wasted send,
-#: and the cost of an over-broad one is a dropped account that was never given a chance.
-_NON_BUYER_CUES: tuple[str, ...] = (
-    "administrative assistant",
-    "executive assistant",
-    "personal assistant",
-    "office manager",
-    "receptionist",
-    "intern",
-    "recruiter",
-    "talent acquisition",
-    "office administrator",
+from gtm_core.role_vocabulary import (  # noqa: E402
+    RoleVocabulary as RoleVocabulary,
+)
+from gtm_core.role_vocabulary import (  # noqa: E402
+    load as _load_vocabulary,
 )
 
-#: Where a recipient goes when :func:`persona_of` cannot see their seat. The point of a
-#: default is that the None bucket stops being silently handed whatever persona a spec
-#: declared: on the 2026-09-04 SG-builder roster, 10 of 18 merge-lane recipients held a
-#: title the matrix had no row for, and each was sent an argument written for a seat
-#: nobody had checked they held.
-SEGMENT_DEFAULT_PERSONA = "founder-operator"
+_ANTI_CUES = _DEFAULT_VOCABULARY.anti_cues
+_CEO_TITLE_CUES = _DEFAULT_VOCABULARY.ceo_title_cues
+_PERSONA_RULES = _DEFAULT_VOCABULARY.persona_rules
+_NON_BUYER_CUES = _DEFAULT_VOCABULARY.non_buyer_cues
+SEGMENT_DEFAULT_PERSONA = _DEFAULT_VOCABULARY.default_persona
+_SEAT_RULES = _DEFAULT_VOCABULARY.seat_rules
+_SECURITY_ONLY = _DEFAULT_VOCABULARY.security_only
 
-#: ``(seat, personas it covers, the seat's own stakes vocabulary)``.
-#:
-#: Six seats, sized to where recipients actually are (measured on the 397 live rows,
-#: 2026-08-20): ceo 113 · cto 106 · security 97 · cloud-architect 30 · cpo 11 ·
-#: ai-platform 3. The old three-seat split put 156 people in one "exec" bucket that held
-#: CEOs, CPOs, data leaders and — through the bare "president" cue — 28 CTOs.
-#:
-#: ``finops`` and ``partnership`` resolve as personas but map to NO seat, so
-#: ``lint_persona_lead`` stays silent on them: they have 0 and 1 recipients respectively
-#: in the entire pool, and a seat with no recipients is a copy obligation with no reader.
-_SEAT_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    (
-        "security",
-        ("ciso", "compliance", "data-compliance"),
-        (
-            "auditor",
-            "examiner",
-            "regulator",
-            "audit",
-            "evidence",
-            "policy",
-            "breach",
-            "incident",
-            "control",
-            "attestation",
-        ),
-    ),
-    (
-        "ceo",
-        # `founder-operator` shares this seat deliberately: an SME owner reads the CEO /
-        # Founder argument, so the default costs no new copy. The two stay distinct as
-        # PERSONAS so the inference is countable; they are one SEAT because the stakes are.
-        ("ceo", "founder-operator"),
-        (
-            "deal",
-            "customer",
-            "enterprise",
-            "procurement",
-            "buyer",
-            "revenue",
-            "review stalls",
-            "security review",
-            "sales",
-            "contract",
-            "adoption",
-            "rollout",
-        ),
-    ),
-    (
-        "product",
-        ("cpo",),
-        (
-            "roadmap",
-            "feature",
-            "ship",
-            "backlog",
-            "product",
-            "launch",
-            "customer",
-            "adoption",
-            "differentiat",
-            "build",
-        ),
-    ),
-    (
-        "cto",
-        ("cto",),
-        (
-            "engineer",
-            "build",
-            "rebuild",
-            "integration",
-            "framework",
-            "stack",
-            "per deployment",
-            "per customer",
-            "fragment",
-            "maintain",
-            "wire",
-            "retrofit",
-            "ship",
-        ),
-    ),
-    (
-        "architect",
-        ("cloud-architect",),
-        (
-            "standard",
-            "standardise",
-            "standardize",
-            "platform",
-            "estate",
-            "multi-cloud",
-            "portable",
-            "lock-in",
-            "interoperab",
-            "topology",
-            "reference architecture",
-            "stack",
-        ),
-    ),
-    (
-        "ai-platform",
-        ("ai-platform",),
-        (
-            "model",
-            "agent",
-            "framework",
-            "orchestrat",
-            "production",
-            "observability",
-            "guardrail",
-            "evaluation",
-            "latency",
-            "pipeline",
-        ),
-    ),
-)
-
-#: ``persona -> seat``, derived so the two views can never disagree.
-_PERSONA_TO_SEAT: dict[str, str] = {
-    persona: seat for seat, personas, _ in _SEAT_RULES for persona in personas
-}
-
-# Vocabulary that belongs to security and reads as borrowed in any other seat's email.
-_SECURITY_ONLY = ("auditor", "examiner", "audit trail", "attribution", "attributable")
+#: ``persona -> seat`` for the DEFAULT vocabulary, derived so the two views can never
+#: disagree. Per-run callers should use ``_load_vocabulary(profile).persona_to_seat``.
+_PERSONA_TO_SEAT: dict[str, str] = _DEFAULT_VOCABULARY.persona_to_seat
 
 TIME_ASK_TOKENS = (
     "15 minutes",
@@ -1550,7 +1249,7 @@ def _matches(cues: tuple[str, ...], low: str) -> bool:
     return any(_cue_re(c).search(low) for c in cues)
 
 
-def persona_of(header: str) -> str | None:
+def persona_of(header: str, profile: str | None = None) -> str | None:
     """Which matrix persona this recipient's title names, or None if unrecognised.
 
     The finer of the two views. Fail-quiet: an unrecognised title says nothing about the
@@ -1565,21 +1264,22 @@ def persona_of(header: str) -> str | None:
     spec happened to declare, which is how a body written for a CISO reached an SME owner.
     """
     low = (header or "").lower()
+    vocab = _load_vocabulary(profile)
     # An explicit exec TITLE outranks a lower functional cue elsewhere in the same compound
-    # title; see :data:`_CEO_TITLE_CUES` for why rank and ownership cues are excluded. The
+    # title; see ``ceo_title_cues`` for why rank and ownership cues are excluded. The
     # anti-cues still veto, so "Executive Vice President, Engineering" is unaffected.
-    if _matches(_CEO_TITLE_CUES, low) and not _matches(_ANTI_CUES["ceo"], low):
+    if _matches(vocab.ceo_title_cues, low) and not _matches(vocab.anti_cues.get("ceo", ()), low):
         return "ceo"
-    for persona, cues in _PERSONA_RULES:
+    for persona, cues in vocab.persona_rules:
         if not _matches(cues, low):
             continue
-        if _matches(_ANTI_CUES.get(persona, ()), low):
+        if _matches(vocab.anti_cues.get(persona, ()), low):
             continue
         return persona
     return None
 
 
-def non_buyer_of(header: str) -> str | None:
+def non_buyer_of(header: str, profile: str | None = None) -> str | None:
     """The cue that marks this title as someone who cannot act on a governance pitch.
 
     Deliberately SEPARATE from :func:`persona_of`, and deliberately small. ``persona_of``
@@ -1598,38 +1298,41 @@ def non_buyer_of(header: str) -> str | None:
     was checking, because ``lint_persona_lead`` cannot fire on a title it does not recognise.
     """
     low = (header or "").lower()
-    for cue in _NON_BUYER_CUES:
+    for cue in _load_vocabulary(profile).non_buyer_cues:
         if _cue_re(cue).search(low):
             return cue
     return None
 
 
-def seat_of(header: str) -> str | None:
+def seat_of(header: str, profile: str | None = None) -> str | None:
     """Which seat's copy this recipient should receive, or None if unrecognised.
 
     The coarser view, derived from :func:`persona_of` so the two cannot drift. Returns
     None for a persona that has no seat (``finops``, ``partnership``) exactly as it does
     for an unrecognised title — in both cases nothing is owed and nothing is claimed.
     """
-    persona = persona_of(header)
-    return _PERSONA_TO_SEAT.get(persona) if persona else None
+    persona = persona_of(header, profile)
+    return _load_vocabulary(profile).persona_to_seat.get(persona) if persona else None
 
 
-def lint_persona_lead(b: EmailBlock) -> list[Violation]:
+def lint_persona_lead(b: EmailBlock, profile: str | None = None) -> list[Violation]:
     """Fail an email that leads on a different seat's pain than its recipient holds.
 
     Only fires when the seat is recognised AND the body carries security-seat stakes vocabulary
     AND carries none of its own seat's. An unrecognised title says nothing — silence is the safe
     default, exactly as with the city gazetteer in email_compliance.
     """
-    seat = seat_of(b.header)
+    vocab = _load_vocabulary(profile)
+    seat = seat_of(b.header, profile)
     if seat is None or seat == "security":
         return []
     low = b.body.lower()
-    borrowed = [t for t in _SECURITY_ONLY if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", low)]
+    borrowed = [
+        t for t in vocab.security_only if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", low)
+    ]
     if not borrowed:
         return []
-    own = next(words for name, _, words in _SEAT_RULES if name == seat)
+    own = vocab.stakes_for(seat)
     if any(re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", low) for w in own):
         return []
     return [
@@ -1887,6 +1590,56 @@ def lint_declared_capability(
             f"declares {capability!r} but argues observability ({hits} evidence-words vs {own} of "
             "its own) — the record is the past; this product governs the action. Name what the "
             "AGENT may do and under whose authority",
+        )
+    ]
+
+
+def lint_seat_altitude(b: EmailBlock, sentences: list[str]) -> list[Violation]:
+    """``seat-stakes-not-in-problem`` (WARN) — the seat's own vocabulary appears in the body,
+    but never in the PROBLEM beat (2026-09-22, PENDING.md EC15).
+
+    :func:`lint_seat_stakes` above asks whether a seat word is present *anywhere*. A word in
+    the opening fact or in the ask satisfies it while the problem itself is still stated at
+    mechanism altitude — which is precisely how this author passed that gate on 2026-09-22 by
+    inserting "integration", "customer" and "evidence" into a recut as vocabulary rather than
+    as stakes. The operator's own labelling round named the same thing from the other side:
+    *"the president of this company will not be thinking about this narrow small problem"*.
+
+    So: the seat word has to land between the fact and the ask, where the problem is. Measured
+    on 572 live touch-1 renders with a resolvable seat before building — 27 (5%) carry a seat
+    word that never reaches the problem beat, against 206 (36%) that `seat-stakes-missing`
+    already catches for having none at all. 5% discriminates; it is not another way of saying
+    the same thing.
+
+    WARN, not ERROR. This is a proxy for altitude and not a measure of it: a body can put
+    "deal" in the problem sentence and still argue a protocol. Judging whether a problem is
+    strategic ENOUGH for a given seat is semantic, and belongs to the judge — the same line
+    EC5 stopped at. See `voice.md`'s persona-axis table, which has asked for this since
+    2026-07 with nothing checking the position.
+    """
+    seat = seat_of(b.header)
+    if seat is None or len(sentences) < 3:
+        return []
+    own = next((w for name, _, w in _SEAT_RULES if name == seat), ())
+    if not own:
+        return []
+
+    def carries(text: str) -> bool:
+        low = text.lower()
+        return any(re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", low) for w in own)
+
+    # `lint_seat_stakes` owns the "no seat word at all" case; this one is only about POSITION.
+    if not carries(" ".join(sentences)) or carries(" ".join(sentences[1:-1])):
+        return []
+    return [
+        Violation(
+            "WARN",
+            b.label,
+            "seat-stakes-not-in-problem",
+            f"the {seat} seat's vocabulary appears only outside the problem beat — the fact "
+            f"or the ask carries it and the problem itself is still stated as a mechanism. "
+            f"See voice.md persona-axis: LEAD on the seat's own pain, then name why their "
+            f"stack cannot close it",
         )
     ]
 
@@ -2299,12 +2052,38 @@ def lint_email(
     # Persona lead pain: the seat sets what the email leads on (voice.md persona-axis table).
     v.extend(lint_persona_lead(b))
     v.extend(lint_seat_stakes(b))
+    v.extend(lint_seat_altitude(b, sentences))
     v.extend(lint_declared_capability(b, capability, capability_rules))
     v.extend(lint_offer_scope(b, sentences, capability_rules))
     v.extend(lint_problem_is_generalised(b, sentences))
     v.extend(lint_offer_is_strategic(b, sentences))
 
     # Specificity anchors (dossier-fact proxy)
+    #
+    # WHOLE BODY, not the opener. Moving this to POSITION — "an anchor in the first two
+    # sentences" — was planned on 2026-09-22 to encode the measured root cause (August copy
+    # opens on named dated facts, September copy opens on abstractions) and to make a rule
+    # that fires on ~88% of rows discriminate again. It was measured before it was built and
+    # is NOT being made. Two proxies, both refuted, in opposite directions:
+    #
+    #   * BY POSITION (anchors in the greeting-stripped first two sentences, same
+    #     MIN_ANCHORS floor): 1032 of 1783 live renders become ERROR, up from 10 — 845 of
+    #     them clean today. A rule that ERRORs on 58% of a list describes the list; that is
+    #     the saturation this change existed to cure, made worse. Splitting by batch, the
+    #     zero-anchor-opener rate is 0% on the September generic batch and 8% on the August
+    #     v2/recut batch — backwards from the premise.
+    #   * BY PROVENANCE (opener anchors the row's merged values did not supply, i.e. the
+    #     TEMPLATE's own referents): 100% of the August batch scores zero and 6% of the
+    #     September batch does — backwards again, and for a structural reason. The August
+    #     opener is `Hi {{First Name}}, {{Why Now}}`, so every named fact in it arrives from
+    #     the ROW; the September opener is template prose that happens to name things.
+    #
+    # The two proxies disagree because neither measures what the root cause is about.
+    # `_anchors` counts a capitalised mid-sentence token: a rendered company name and a
+    # named external standard are the same token to it. Telling "AWS AgentCore, 10 August"
+    # from "{{Company}}" is a judgement about what the token REFERS TO, which is semantic
+    # and belongs to the judge, held behind its calibration rebuild. Until then the count
+    # over the whole body is the honest proxy, saturation and all. See PENDING.md EC5.
     anchors = _anchors(b.body)
     if len(anchors) < MIN_ANCHORS:
         v.append(
@@ -2536,6 +2315,94 @@ def lint_hedge_stem(
             f"max {ceiling} per sequence — vary the construction, not just the noun",
         )
     ]
+
+
+#: A sentence shorter than this is boilerplate a thread may legitimately repeat ("Thanks
+#: for the time.") — only a substantive sentence recurring reads as a template showing
+#: through. Tokens, not characters, so a long stock phrase cannot slip under a char cap.
+MIN_REPEAT_TOKENS = 6
+
+
+def _threads(touches: list[tuple[str, str, str]]) -> list[list[tuple[str, str, str]]]:
+    """Group `(label, subject, body)` in send order into threads.
+
+    A touch with a subject opens a new thread; a subject-less one is a same-thread
+    follow-up. That is not a new convention — `lint_touch_personalisation` already reads
+    an absent subject exactly this way.
+    """
+    out: list[list[tuple[str, str, str]]] = []
+    cur: list[tuple[str, str, str]] = []
+    for t in touches:
+        if (t[1] or "").strip() and cur:
+            out.append(cur)
+            cur = []
+        cur.append(t)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def lint_thread_repetition(touches: list[tuple[str, str, str]]) -> list[Violation]:
+    """Defects no rule reading ONE body can see (2026-09-22, PENDING.md EC6).
+
+    `(label, subject, body)` per touch, in send order, from the UNRENDERED templates — the
+    same input contract as :func:`lint_hedge_stem`, and for the same reason: recurrence is a
+    property of the template, not of the row that fills it. Reported once per sequence,
+    `SPEC`-scoped, because the fix is to rewrite a touch and not to annotate every render.
+
+    * ``thread-sentence-repeat`` — the same substantive sentence appears in more than one
+      touch landing in ONE thread, where the reader has the earlier message directly above.
+      Measured on 37 live specs before building: 3 carry it (8%), comfortably under the 0.40
+      rate at which `rule_lifecycle_report` calls a rule saturated.
+    * ``thread-reply-prefix`` — a touch that OPENS a thread carries a ``Re:``/``Fwd:``
+      subject, which claims a conversation that never happened. Zero live specs do this
+      today; it is a guard on a shape nothing else gates, not a cleanup.
+
+    **Deliberately NOT gated here: offer repetition.** The plan that produced this rule also
+    named "~38 CTAs are variants of one offer". Measured the same way, the same artifact noun
+    recurs across touches in 26 of 37 specs (70%) — a class firing on 70% of a population
+    describes the population. Gating it would fail almost every sequence for a property the
+    portfolio has, not a defect this sequence introduced.
+    """
+    v: list[Violation] = []
+    for thread in _threads(touches):
+        if len(thread) < 2:
+            continue
+        seen: dict[tuple[str, ...], list[str]] = {}
+        for label, _subject, body in thread:
+            for sentence in _sentences(body):
+                tokens = tuple(sorted(set(_norm_tokens(sentence))))
+                if len(tokens) < MIN_REPEAT_TOKENS:
+                    continue
+                where = seen.setdefault(tokens, [])
+                if label not in where:
+                    where.append(label)
+        for tokens, where in seen.items():
+            if len(where) > 1:
+                v.append(
+                    Violation(
+                        "ERROR",
+                        "SPEC",
+                        "thread-sentence-repeat",
+                        f"the same sentence runs in {', '.join(where)}, which land in one "
+                        f"thread — the reader sees it twice in the same window "
+                        f"({' '.join(tokens[:8])}...)",
+                    )
+                )
+                break
+    for thread in _threads(touches):
+        label, subject, _body = thread[0]
+        if re.match(r"\s*(?:re|fwd|fw)\s*:", subject or "", re.IGNORECASE):
+            v.append(
+                Violation(
+                    "ERROR",
+                    "SPEC",
+                    "thread-reply-prefix",
+                    f"{label} opens a thread with subject {subject!r} — a Re:/Fwd: prefix "
+                    f"claims a conversation the recipient never had",
+                )
+            )
+    return v
 
 
 def lint_pack(

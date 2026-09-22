@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -116,7 +117,7 @@ def test_invalid_stage_names_rejected() -> None:
 
 
 def test_get_or_create_run_state_expiration(tmp_path: Path) -> None:
-    from datetime import UTC, datetime, timedelta
+    from datetime import datetime, timedelta
 
     from gtm_core.run_state import get_or_create_run_state
 

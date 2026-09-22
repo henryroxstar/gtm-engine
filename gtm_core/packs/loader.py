@@ -33,7 +33,16 @@ _VALID_MIN_ENTITLEMENTS = frozenset(e.value for e in Entitlement if e is not Ent
 # change as adding one of these two: it needs its own Python dispatcher, its own tool-level
 # denial in agent/permissions.py, and backend Gate-2 branching in
 # backend/services/runs/pack_executor.py — never just flipping this set.
-_ALLOWED_EXTERNAL_EFFECTS = frozenset({"publish", "email_enroll"})
+# The closed set of declared external effects. Widening it is the same class of change as
+# adding a publish path, never a rule tweak: each value pairs with its OWN Python-only
+# dispatcher and its OWN tool-level denial in agent/permissions.py, and it must be widened
+# in all FOUR places that hardcode it — here, `backend/services/runs/gate_kinds.py`, the
+# `run_gates.gate` SQL CHECK, and `schemas/run-event.schema.json`. Widening three of four
+# is a silent approve-and-skip on the fourth (`tests/contracts/test_closed_sets_agree.py`).
+#
+# `dnc_add` added 2026-09-21 (SC9), ADD ONLY: no removal effect exists or may be added,
+# because nothing in this system may un-suppress a person who opted out.
+_ALLOWED_EXTERNAL_EFFECTS = frozenset({"publish", "email_enroll", "dnc_add"})
 
 
 class PackValidationError(ValueError):
@@ -160,6 +169,26 @@ def validate_node_semantics(nodes: tuple[PackNode, ...]) -> None:
                 "a gate may only pause for review, or dispatch through one of "
                 f"{sorted(_ALLOWED_EXTERNAL_EFFECTS)}, never another irreversible side effect",
             )
+        if n.gate and not n.external_effect:
+            # SC9. A gate's approval promotes exactly ONE draft, and the draft's SHAPE is
+            # what says which effect it is for (a plan, an enroll list, a DNC address
+            # list). A gated node with two differently-effected successors would hand that
+            # one draft to two dispatchers, and the VPS path (which loops over successors)
+            # and the backend path (which takes the first match) would not even agree on
+            # which. No shipped pack does this; refusing at load is what keeps it that way.
+            effects = {
+                m.external_effect
+                for m in nodes
+                if n.id in m.depends_on and m.external_effect is not None
+            }
+            if len(effects) > 1:
+                raise PackValidationError(
+                    "ambiguous_gate_dispatch",
+                    f"node {n.id!r} is a gate whose successors declare more than one "
+                    f"external_effect ({sorted(effects)}) — one approval promotes one draft, "
+                    "so the effect it dispatches would be ambiguous. Split them into "
+                    "separate gates.",
+                )
         if not n.gate and n.external_effect is not None:
             raise PackValidationError(
                 "unsafe_external_effect",

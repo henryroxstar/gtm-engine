@@ -207,6 +207,14 @@ def plan_rows(
             cell = UNATTRIBUTED
 
         tags = [f"cell:{cell}", f"seq:{seq}"]
+        # The overlay is already the first field of the cell id, but it gets its own tag too:
+        # `outcomes.summarize()` groups `by_tag` on the exact string, so an arm-level rollup
+        # would otherwise have to parse cell ids — and a rollup that parses an id is one that
+        # breaks silently the next time the id gains a field. Unattributed rows are left
+        # without one rather than defaulted to `base`, because "we could not join this reply"
+        # and "this reply came from the live targeting" are different facts.
+        if cell != UNATTRIBUTED:
+            tags.append(f"overlay:{cell.split(':', 1)[0]}")
         lane = (email_to_lane or {}).get(email) if email else None
         if lane:
             tags.append(f"lane:{lane}")

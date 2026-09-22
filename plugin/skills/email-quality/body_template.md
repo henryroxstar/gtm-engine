@@ -177,7 +177,7 @@ uv run python -m gtm_core.prospects adjudication write-verdicts \
 
 uv run python -m gtm_core.prospects adjudication rank --records <records.jsonl> --top 30
 
-uv run python -m gtm_core.prospects integrity --csv <list-judged.csv> --require-verdict send
+uv run python -m gtm_core.prospects integrity --csv <list-judged.csv> --profile <active> --require-verdict send
 ```
 
 `write-verdicts` refuses to run on a partially-judged list rather than writing what it has — a
@@ -510,7 +510,7 @@ two distinguishable *before* the write rather than after.
 **Then prove it survives a rebuild** — this is the step that closes R4:
 
 ```bash
-uv run python -m gtm_core.prospects consolidate --profile <active>
+uv run python -m gtm_core.prospects consolidate consolidate --profile <active>
 uv run python -m gtm_core.prospects suppression verify \
   --ledger "$(uv run python -m gtm_core.prospects paths --profile <active> --name suppression.csv)" \
   --target <regenerated.csv>

@@ -7,6 +7,7 @@ write into profiles/ and that it re-stamps refreshed: to today.
 
 from __future__ import annotations
 
+import tomllib
 from datetime import date, timedelta
 
 import pytest
@@ -137,6 +138,133 @@ def test_topic_path_rejects_traversal():
             ks._safe_topic_relpath(bad)
     # a legitimate subdir topic is allowed
     assert ks._safe_topic_relpath("guidance/01-nist").as_posix() == "guidance/01-nist.md"
+
+
+# --- IC7: .toml topics (the machine-readable targeting files) -----------------
+#
+# The rubric, the hook bank and the persona vocabulary are TOML, not prose. Before IC7 the suffix
+# logic appended .md to anything lacking it, so `icp-scoring.toml` staged as `icp-scoring.toml.md`
+# and those three files had NO staged-review path — they had to be hand-edited in profiles/, which
+# this module's docstring calls read-only at runtime.
+
+_RUBRIC = "[weights]\nseniority = 3\n\n[thresholds]\ntier_a = 8\n"
+
+
+def test_a_toml_topic_keeps_its_extension():
+    assert ks._safe_topic_relpath("icp-scoring.toml").as_posix() == "icp-scoring.toml"
+    assert ks._safe_topic_relpath("role-vocabulary.toml").as_posix() == "role-vocabulary.toml"
+
+
+def test_a_bare_topic_still_defaults_to_md():
+    """NEGATIVE CONTROL: today's behaviour must be byte-identical for every .md caller."""
+    assert ks._safe_topic_relpath("icp-personas").as_posix() == "icp-personas.md"
+    assert ks._safe_topic_relpath("guidance/01-nist").as_posix() == "guidance/01-nist.md"
+
+
+def test_an_unknown_extension_is_refused_never_coerced():
+    with pytest.raises(ValueError, match="extension"):
+        ks._safe_topic_relpath("promote_candidates.json")
+
+
+def test_a_toml_round_trips_stage_diff_promote(tmp_path):
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "icp-scoring.toml")
+    assert live == profiles_root / "acme" / "knowledge" / "icp-scoring.toml"
+    _write(live, _RUBRIC)
+
+    candidate = _RUBRIC.replace("seniority = 3", "seniority = 5")
+    staged = ks.stage(content_root, "acme", "icp-scoring.toml", candidate)
+    assert staged.name == "icp-scoring.toml"  # not icp-scoring.toml.md
+    assert ks.list_staged(content_root, "acme") == ["icp-scoring.toml"]
+
+    d = ks.diff(profiles_root, content_root, "acme", "icp-scoring.toml")
+    assert "seniority = 5" in d and "seniority = 3" in d
+
+    target = ks.promote(profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY)
+    assert target == live
+    assert tomllib.loads(live.read_text())["weights"]["seniority"] == 5
+    assert ks.list_staged(content_root, "acme") == []  # staging cleared
+
+
+def test_a_malformed_staged_toml_is_refused_and_the_live_file_is_untouched(tmp_path):
+    """The load-bearing test: promote is the ONLY writer of profiles/, so a candidate that does
+    not parse must never replace a rubric that does — load_rubric would raise and stop prospecting."""
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "icp-scoring.toml")
+    _write(live, _RUBRIC)
+    before = live.read_bytes()
+
+    ks.stage(content_root, "acme", "icp-scoring.toml", "[weights\nseniority = ")
+    with pytest.raises(ValueError, match="TOML"):
+        ks.promote(profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY)
+
+    assert live.read_bytes() == before  # the working rubric survived, byte for byte
+    assert ks.list_staged(content_root, "acme") == ["icp-scoring.toml"]  # candidate kept for repair
+
+
+def test_a_toml_that_parses_but_is_empty_does_not_bypass_the_gate(tmp_path):
+    """A zero-byte or comment-only file is VALID TOML — parsing alone would silently blank it."""
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "icp-scoring.toml")
+    _write(live, _RUBRIC)
+
+    for blank in ("", "# everything got commented out\n"):
+        assert tomllib.loads(blank) == {}  # the gate a bare parse would wave through
+        ks.stage(content_root, "acme", "icp-scoring.toml", blank)
+        with pytest.raises(ValueError, match="empty"):
+            ks.promote(profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY)
+        assert live.read_text() == _RUBRIC
+
+
+def test_a_toml_promote_records_provenance_as_a_comment_header(tmp_path):
+    """upsert_frontmatter is .md-only (YAML frontmatter would corrupt TOML), so a .toml promote
+    stamps its provenance as a TOML comment instead — and the result must still parse."""
+    profiles_root, content_root = _profile(tmp_path)
+    ks.stage(content_root, "acme", "icp-scoring.toml", _RUBRIC)
+    live = ks.promote(
+        profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY, source="https://x"
+    )
+
+    text = live.read_text()
+    first = text.splitlines()[0]
+    assert first.startswith("#")
+    assert TODAY.isoformat() in first and "https://x" in first
+    assert "---" not in text  # never YAML frontmatter
+    assert tomllib.loads(text)["weights"]["seniority"] == 3  # still parses, content intact
+
+    # the stamp is an UPSERT, like refreshed: in frontmatter — it replaces, never accumulates
+    ks.stage(content_root, "acme", "icp-scoring.toml", text)
+    again = ks.promote(
+        profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY
+    ).read_text()
+    assert len([ln for ln in again.splitlines() if ln.startswith("# refreshed:")]) == 1
+    assert tomllib.loads(again)["weights"]["seniority"] == 3
+
+
+# --- §R18 negative controls: each gate must be shown able to go red -----------
+
+
+def test_dropping_toml_from_the_allowlist_breaks_the_round_trip(monkeypatch):
+    """Proves the closed allowlist is what admits .toml — not an incidental code path."""
+    monkeypatch.setattr(ks, "_ALLOWED_SUFFIXES", frozenset({".md"}))
+    with pytest.raises(ValueError, match="extension"):
+        ks._safe_topic_relpath("icp-scoring.toml")
+
+
+def test_removing_the_parse_gate_lets_a_malformed_rubric_through(tmp_path, monkeypatch):
+    """Without this, 'the gate holds' and 'there is no gate' look identical."""
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "icp-scoring.toml")
+    _write(live, _RUBRIC)
+    broken = "[weights\nseniority = "
+
+    monkeypatch.setattr(ks, "_require_parsable_toml", lambda text, topic: None)
+    ks.stage(content_root, "acme", "icp-scoring.toml", broken)
+    ks.promote(profiles_root, content_root, "acme", "icp-scoring.toml", today=TODAY)
+
+    assert broken in live.read_text()  # the defect the gate exists to prevent
+    with pytest.raises(tomllib.TOMLDecodeError):
+        tomllib.loads(live.read_text())
 
 
 # --- Phase 3b: the refresh pack wires to a registered, ungated, side-effect-free skill ---

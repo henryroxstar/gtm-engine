@@ -360,6 +360,34 @@ def unusable_for(content_root):
     return unusable
 
 
+def test_unusable_is_a_property_of_the_copy_not_of_the_sheet_budget(profile_fixture):
+    """`unusable` answers "which recipes' defects a labeler could never see". That is a fact
+    about the recipes and the copy; it must not move when the operator asks for a smaller
+    sheet.
+
+    It did. The emission sweep stops at `n_injected` successes, and `unusable` was derived
+    as "every recipe minus the ones that produced a row" — so every recipe the round-robin
+    had not yet reached was reported as invisible. Measured on the live corpus 2026-09-22,
+    one copy and one recipe list: 11 unusable at `--n-injected 12`, 7 at 16, 5 at 18, 3 at
+    20. The number is passed to `eval_calibration --not-human-visible`, which exempts those
+    rules from every human-evidence band — so a smaller sheet silently hid more working
+    rules from the only report that can retire them.
+
+    Every other test in this file calls with `n_injected=len(INJECTION_RECIPES)`, which is
+    the one budget at which the bug is invisible."""
+    rows, touches_by_spec = all_live_rows("demo", profile_fixture)
+
+    def unusable_at(n: int) -> list[str]:
+        return build_injected_golden_rows(rows, touches_by_spec, INJECTION_RECIPES, n)[1]
+
+    full = unusable_at(len(INJECTION_RECIPES))
+    for n in (1, 3, len(INJECTION_RECIPES) // 2):
+        assert unusable_at(n) == full, (
+            f"--n-injected {n} reports {len(unusable_at(n))} unusable recipe(s) where the "
+            f"full sweep reports {len(full)} — the budget is deciding, not the copy"
+        )
+
+
 def test_unusable_recipes_are_reported_not_silently_dropped(profile_fixture):
     """The bug this guards: a mutation that changes nothing a labeler can see (field not
     in the copy, or withheld as PII) used to be recorded as a planted defect anyway. The
@@ -694,3 +722,35 @@ def test_golden_set_can_draw_from_drafted_cells(draft_fixture):
     )
     specs = {r.spec for r in rows}
     assert any("drafts" in s for s in specs), "sampler never reached the drafted cell"
+
+
+# --- EC14: `main()` had zero coverage -----------------------------------------------------
+
+
+def test_main_builds_a_sheet_end_to_end(tmp_path, monkeypatch, capsys, profile_fixture):
+    """130 statements, never executed by any test. Everything else in this file calls the
+    library functions directly, so the CLI that assembles them — the only way an operator
+    reaches this code — could be broken in any way and the suite stayed green."""
+    from gtm_core.build_eval_sheet import main
+
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(profile_fixture))
+    rc = main(["--profile", "demo", "--n-real", "3", "--n-injected", "3"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert out.strip(), "the CLI printed nothing — an operator would not know what it built"
+
+
+def test_main_reports_the_unusable_recipes_rather_than_hiding_them(
+    tmp_path, monkeypatch, capsys, profile_fixture
+):
+    """The unusable list is the sheet's own statement of what it does NOT cover, and it is
+    what an operator pastes into `eval_calibration --not-human-visible`. Printing it is the
+    whole point (`build_injected_golden_rows`: "reported, never silently kept")."""
+    from gtm_core.build_eval_sheet import main
+
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(profile_fixture))
+    assert main(["--profile", "demo", "--n-real", "3", "--n-injected", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "NOT injectable on this sheet" in out, out
+    for rule in unusable_for(profile_fixture):
+        assert rule in out, f"{rule} is unusable but the operator was never told: {out}"

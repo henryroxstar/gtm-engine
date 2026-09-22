@@ -7,8 +7,23 @@ from typing import Any
 
 from ..paths import _safe_segment, resolve_content_root, resolve_profiles_root
 from ..render_manifest import FinishManifest, load_finish
-from ..video_lint import ERROR, SAFE_AREAS, evaluate
-from ..video_lint import probe as video_probe
+
+try:
+    from ..video_lint import ERROR, SAFE_AREAS, evaluate
+    from ..video_lint import probe as video_probe
+
+    _VIDEO_LINT_AVAILABLE = True
+except ModuleNotFoundError:
+    # gtm_core.video_lint belongs to the video tier, which is withheld from the public
+    # cut. This import was module-level, so its absence killed the WHOLE CLI — including
+    # the text/image half that content-plan, content-publish and content-studio cite and
+    # that has nothing to do with video. Degrading here keeps those gates working;
+    # _video_post_check refuses outright rather than reporting a hollow pass (§R18).
+    ERROR = None
+    SAFE_AREAS = {}
+    evaluate = None
+    video_probe = None
+    _VIDEO_LINT_AVAILABLE = False
 from .guards import (
     _asset_text,
     _load_bans,
@@ -150,6 +165,13 @@ def _video_post_check(
     blocking: list[str] = []
     warnings: list[str] = []
     checks: dict[str, bool | None] = {}
+
+    if not _VIDEO_LINT_AVAILABLE:
+        blocking.append(
+            "video post-check cannot run: the video tier (gtm_core.video_lint) is not "
+            "installed, so caption safe-area and V1-V4 lint are unverifiable here"
+        )
+        return {"proceed": False, "blocking": blocking, "warnings": warnings, "checks": checks}
 
     manifests = _find_video_manifests(content_root, profile, item["id"])
     finish_path = manifests.get("finish")

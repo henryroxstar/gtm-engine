@@ -49,13 +49,15 @@ def test_evaluate_heat_three_feeds_still_double_intent_cap():
 
 
 def test_evaluate_heat_from_list_of_topics():
+    # PSK-004: items with no explicit `feed` key are topics, not feeds — they share the
+    # single "topic-intent" feed, so this stays single-intent (heat 2), never double-intent.
     topics = [
         {"topic": "agentic ai", "score": 86},
         {"topic": "mlops", "score": 62},
     ]
     heat, feeds, is_elevated = evaluate_heat(intent_data=topics)
     assert heat == 2
-    assert feeds == ["agentic ai"]
+    assert feeds == ["topic-intent"]
 
 
 def test_score_candidate_caps_at_ceiling():
@@ -145,8 +147,11 @@ def test_finalist_ranking_order():
 
 
 def test_cli_execution(tmp_path: Path):
+    # PSK-008: the default output is publishable (Tier A/B) rows only. Beta Inc (below the
+    # publish threshold) is not in `ranked` anymore — it's recoverable via --dropped-out.
     input_file = tmp_path / "candidates.json"
     output_file = tmp_path / "ranked.json"
+    dropped_file = tmp_path / "dropped.json"
 
     data = [
         {"company": "Alpha Corp", "segment": "enterprise", "base_score": 8},
@@ -154,12 +159,24 @@ def test_cli_execution(tmp_path: Path):
     ]
     input_file.write_text(json.dumps(data), encoding="utf-8")
 
-    code = main(["--items", str(input_file), "--out", str(output_file)])
+    code = main(
+        [
+            "--items",
+            str(input_file),
+            "--out",
+            str(output_file),
+            "--dropped-out",
+            str(dropped_file),
+        ]
+    )
     assert code == 0
 
     ranked = json.loads(output_file.read_text(encoding="utf-8"))
-    assert len(ranked) == 2
+    assert len(ranked) == 1
     assert ranked[0]["company"] == "Alpha Corp"
     assert ranked[0]["tier"] == "A"
-    assert ranked[1]["company"] == "Beta Inc"
-    assert ranked[1]["tier"] == "drop"
+
+    dropped = json.loads(dropped_file.read_text(encoding="utf-8"))
+    assert len(dropped) == 1
+    assert dropped[0]["company"] == "Beta Inc"
+    assert dropped[0]["tier"] == "drop"

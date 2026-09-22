@@ -47,7 +47,7 @@
           "depends_on": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Ids of nodes this one depends on. Empty = root node (a variant may have several roots — a fan-out batch)." },
           "skill": { "type": ["string", "null"], "description": "Skill slug the node runs, when skill-backed." },
           "gate": { "type": "boolean", "default": false, "description": "True when the node pauses for human approval before the run proceeds." },
-          "external_effect": { "type": ["string", "null"], "description": "Declared external side effect, if any. Loader rule: a GATED node may carry no external effect other than 'publish'. The pack API additionally rejects, at load, any external_effect on a NON-gated node — so through this API, a node with an external effect is always gated, and gate=false nodes are side-effect-free by construction." }
+          "external_effect": { "type": ["string", "null"], "description": "Declared external side effect, if any. Loader rule: a GATED node may carry no external effect outside the closed set {'publish', 'email_enroll', 'dnc_add'} (gtm_core.packs.loader._ALLOWED_EXTERNAL_EFFECTS); each value pairs with its own Python-only dispatcher and its own tool-level denial. The pack API additionally rejects, at load, any external_effect on a NON-gated node — so through this API, a node with an external effect is always gated, and gate=false nodes are side-effect-free by construction." }
         }
       }
     },

@@ -27,8 +27,23 @@ from .radar import seen_ids_from_history
 # These are *suggestions* for the operator/skill; nothing here sends or books.
 SUGGESTED_ACTIONS: dict[str, str] = {
     "reply_received": "draft_reply",
+    # SC9. A detected opt-out is not a reply to answer — it is a suppression to mirror to
+    # the provider, which is an irreversible third-party write and therefore a gate. The
+    # verb names the intent; `agent/signal_dispatch.py` maps it to the one pack whose
+    # second node carries `external_effect = "dnc_add"`, and the write itself happens in
+    # Python after a human approves the exact addresses.
+    "optout_detected": "suppress_on_provider",
+    "optout_unreadable": "suppress_on_provider",
     "meeting_request": "propose_booking_link",
     "buyer_intent": "escalate_to_operator",
+    # A soft no. SC12 split this OUT of the opt-out matcher: "not interested" is not a
+    # suppression request, and routing it through the opt-out path spent a same-day
+    # compliance alert on a reply that carries no deadline. It maps to `review` — recorded
+    # and deduped, no draft, nobody woken — because the PRD's conservatism ladder puts
+    # "no draft" below "a human reads it", and waking someone for every soft no is the
+    # cockpit-fatigue failure the test plan names. `meta.reshow_after` carries the date to
+    # re-approach; nothing here suppresses anyone.
+    "not_now": "review",
     "high_intent": "escalate_to_operator",
     "pricing_question": "escalate_to_operator",
     "job_change": "draft_reply",
@@ -146,5 +161,9 @@ def record_signals(ledgers, signals: list[dict]) -> None:
                 "source": s.get("source"),
                 "suggested_action": s.get("suggested_action"),
                 "source_items": [s.get("id")],
+                # The signal's own context, persisted rather than dropped. SC12's
+                # `reshow_after` lives here: a re-approach date that only existed in
+                # memory would be a date nobody can read, which is no date at all.
+                "meta": s.get("meta") or {},
             }
         )

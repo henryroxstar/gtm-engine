@@ -33,9 +33,11 @@ import pytest
 
 from agent.profiles import list_profiles, read_profile_field
 from gtm_core.email_compliance import normalize_market
+from gtm_core.experiments import list_overlays
 from gtm_core.hook_coverage.fit import _norm_segment
 from gtm_core.hook_coverage.matrix import MatrixShape, parse_matrix
 from gtm_core.merge_hygiene import SEGMENTS
+from gtm_core.paths import resolve_knowledge_file
 
 REPO = Path(__file__).resolve().parents[2]
 PROFILES = REPO / "profiles"
@@ -68,9 +70,50 @@ def _segment_mix(profile: str) -> set[str]:
     return out
 
 
-def _rubric(profile: str) -> dict | None:
-    path = PROFILES / profile / "knowledge" / "icp-scoring.toml"
+def _rubric(profile: str, overlay: str | None = None) -> dict | None:
+    """The rubric a run would actually score against, overlay included.
+
+    Resolved rather than constructed since 2026-09-21. Reading
+    ``<profile>/knowledge/icp-scoring.toml`` directly is what made this whole file blind to an
+    experiment overlay: every assertion below would have passed while the file a run really
+    used went unchecked, which is precisely the silent drift the module docstring is about —
+    one layer up from where it was written.
+    """
+    path = resolve_knowledge_file(PROFILES, profile, "icp-scoring.toml", overlay=overlay)
     return tomllib.loads(path.read_text()) if path.is_file() else None
+
+
+def _overlays() -> list[tuple[str, str]]:
+    """Every (profile, overlay) committed to the tree."""
+    return [(profile, slug) for profile in _profiles() for slug in list_overlays(profile, PROFILES)]
+
+
+def cohort_inversions(rubric: dict) -> list[str]:
+    """Cohorts whose weight is lower than the one below them, described.
+
+    A pure function over the rubric so the rule can be exercised on both a good and a bad
+    input. An assertion that only ever sees the real tree cannot be shown to discriminate:
+    it passes today whether it checks the right thing or nothing at all (§R18).
+    """
+    cohorts = rubric.get("cohort", [])
+    return [
+        f"{a.get('name')} ({a.get('weight')}) is above {b.get('name')} ({b.get('weight')})"
+        for a, b in zip(cohorts, cohorts[1:], strict=False)
+        if int(a.get("weight", 0)) < int(b.get("weight", 0))
+    ]
+
+
+def missing_geo_keys(rubric: dict, markets: set[str]) -> list[str]:
+    """Target markets with no ``[geo_bonus]`` key — scored 0, not left unranked."""
+    have = {normalize_market(k) for k in rubric.get("geo_bonus", {})}
+    return sorted(markets - have)
+
+
+def _markets_of(profile: str) -> set[str]:
+    raw = read_profile_field((PROFILES / profile / "PROFILE.md").read_text(), "target_markets")
+    if not raw:
+        return set()
+    return {normalize_market(m) for m in raw.strip().strip("[]").split(",") if m.strip()}
 
 
 # --- segment vocabulary ---------------------------------------------------------------
@@ -183,3 +226,87 @@ def test_every_target_market_has_a_geo_bonus_key(profile: str) -> None:
         f"{missing}.\nA missing key scores 0, which ranks that market below every other allowed "
         "one. Add an explicit weight even if it is deliberately the lowest."
     )
+
+
+# --- the same invariants, against an experiment overlay --------------------------------
+#
+# An overlay may replace `icp-scoring.toml` and `hook-matrix.md` wholesale, so every property
+# above can be broken by one without touching a single file this module used to read. These
+# re-run the two that are pure functions of the rubric against the MERGED result.
+#
+# Scoped to (profile, overlay) pairs found on disk, so a tree with no experiments yields
+# nothing rather than failing — the same posture as every other check here.
+
+
+@pytest.mark.parametrize("profile,overlay", _overlays())
+def test_overlay_cohorts_are_in_non_increasing_weight_order(profile: str, overlay: str) -> None:
+    """An overlay's rubric obeys the first-match-wins ordering rule, or its heavier cohorts
+    are unreachable exactly as they would be in the tenant's own file.
+
+    Worth stating plainly: an experiment is the MOST likely place for this defect, because a
+    new cohort is usually appended to the bottom of a copied file, and appending is how a
+    weight-30 cohort ends up below a weight-20 one.
+    """
+    rubric = _rubric(profile, overlay)
+    if rubric is None:
+        pytest.skip(f"{profile}/{overlay} ships no icp-scoring.toml")
+    cohorts = rubric.get("cohort", [])
+    inversions = [
+        f"{a.get('name')} ({a.get('weight')}) is above {b.get('name')} ({b.get('weight')})"
+        for a, b in zip(cohorts, cohorts[1:], strict=False)
+        if int(a.get("weight", 0)) < int(b.get("weight", 0))
+    ]
+    assert not inversions, (
+        f"profiles/{profile}/experiments/{overlay}/icp-scoring.toml cohorts are not in "
+        f"non-increasing weight order:\n  " + "\n  ".join(inversions)
+    )
+
+
+@pytest.mark.parametrize("profile,overlay", _overlays())
+def test_overlay_geo_bonus_covers_every_target_market(profile: str, overlay: str) -> None:
+    """`target_markets` is NOT overlayable, so an overlay rubric still has to cover the
+    profile's markets.
+
+    A market with no `geo_bonus` key is not neutral — `.get(market, 0)` scores it zero, so an
+    entire market ranks below every other allowed one by the full spread of the table and the
+    backlog quietly never enriches it. An overlay copied from an older rubric is the easiest
+    way to reintroduce that, because the market it forgets is the one added most recently.
+    """
+    rubric = _rubric(profile, overlay)
+    if rubric is None or "geo_bonus" not in rubric:
+        pytest.skip(f"{profile}/{overlay} declares no geo_bonus")
+    raw = read_profile_field((PROFILES / profile / "PROFILE.md").read_text(), "target_markets")
+    if not raw:
+        pytest.skip(f"{profile} declares no target_markets")
+    markets = {normalize_market(m) for m in raw.strip().strip("[]").split(",") if m.strip()}
+    have = {normalize_market(k) for k in rubric["geo_bonus"]}
+    missing = sorted(markets - have)
+    assert not missing, (
+        f"profiles/{profile}/experiments/{overlay}/icp-scoring.toml `[geo_bonus]` has no key "
+        f"for target market(s) {missing}. A missing key scores 0, which demotes the whole "
+        f"market rather than leaving it unranked."
+    )
+
+
+# --- do these checks discriminate? -------------------------------------------------------
+#
+# Every assertion above currently passes. That is exactly why these exist: a check that has
+# only ever seen a clean tree cannot be distinguished from a check that never fires. Each
+# pair below feeds the helper one input it must reject and one it must accept, differing
+# only in the field under test.
+
+
+def test_cohort_order_check_rejects_an_inversion_and_accepts_the_fix() -> None:
+    bad = {"cohort": [{"name": "light", "weight": 10}, {"name": "heavy", "weight": 30}]}
+    good = {"cohort": [{"name": "heavy", "weight": 30}, {"name": "light", "weight": 10}]}
+    assert cohort_inversions(bad) == ["light (10) is above heavy (30)"]
+    assert cohort_inversions(good) == []
+    # Equal weights are legal: first match wins, and the tie costs only the cohort LABEL.
+    tie = {"cohort": [{"name": "a", "weight": 30}, {"name": "b", "weight": 30}]}
+    assert cohort_inversions(tie) == []
+
+
+def test_geo_bonus_check_rejects_a_missing_market_and_accepts_the_fix() -> None:
+    markets = {normalize_market("United States"), normalize_market("Singapore")}
+    assert missing_geo_keys({"geo_bonus": {"united states": 5}}, markets) == ["singapore"]
+    assert missing_geo_keys({"geo_bonus": {"united states": 5, "singapore": 4}}, markets) == []

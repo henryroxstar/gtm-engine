@@ -61,6 +61,30 @@ It is the still frames held for exactly as long as each shot will run, with the 
 **Can it help if I want to film the video myself rather than generate it?**
 Yes, and it writes a different document for that. A generated video needs prompts; a filmed one needs a shoot list — how to set each shot up, whether the camera has to stay locked down, which part of the frame to keep empty so captions have somewhere to sit, how many takes to get, and what to keep consistent between shots so the edit actually cuts together. You get it as a page you can read on your phone on the day. The point is blunt: a generated video that comes out wrong is regenerated for pennies, and a filmed one that comes out wrong is a second filming session, after the light has changed and the shirt is in the wash.
 
+**It checked my solution design and gave me a list. What blocks and what doesn't?**
+Two kinds of finding, and they are different. **Errors** are structural — a missing section, a part
+in the wrong order, a sentence saying "three things" above a list of two. They stop the document,
+and they are not opinions about quality: the document is not the shape it claims to be. **Warnings**
+are judgement calls, and they come to you with the reason so you can fix them or say why not. There
+is also a **coverage line** every time, which is not a finding at all — it counts how many of the
+twelve questions a solution design should answer this one actually answers. It prints every run
+because coverage is the one thing you cannot see by scrolling: a design reads complete right up
+until their architect asks the question it never answered.
+
+**Why did it refuse to answer part of my security questionnaire?**
+Because nothing you have written down backs that answer, and it will not write one that sounds
+right. A security questionnaire answer is a written representation to somebody's risk function, and
+the person who signs it is not the person who drafted it. You get the question, why nothing backs
+it, and who should own writing the entry — which is a to-do list, not a failure. Answer it once,
+into your security answers, and every future questionnaire that asks it in different words gets the
+same answer automatically.
+
+**It says a CRM isn't connected. Did something break?**
+No. The pipeline and CRM-hygiene tasks check for a connected CRM before they run, and this copy of
+the engine does not ship one. It stops and says so rather than producing a confident pipeline
+report built over nothing — which would look exactly like one built from real data. Same idea
+behind *"no baseline from the customer, so here are the questions to ask"* on a value case.
+
 **Where are my files and drafts?**
 On your own computer, inside the engine folder. Ask *"where did you save that?"* and the assistant points you to the exact file.
 

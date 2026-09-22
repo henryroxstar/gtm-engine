@@ -398,6 +398,9 @@ _GATE_LABELS = {
     "plan": "Plan ready for review",
     "publish": "Post ready to approve",
     "email_enroll": "Contacts ready to load into your sender",
+    # SC9. Says what will happen, not what the field is called: approving this writes
+    # people onto the provider's do-not-contact list, and it is add-only.
+    "dnc_add": "Opt-outs ready to add to your do-not-contact list",
     "review": "Ready for your review",
 }
 

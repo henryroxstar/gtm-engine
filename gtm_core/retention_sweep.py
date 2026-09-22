@@ -1,34 +1,53 @@
-"""Deterministic PII data retention sweeper for prospecting state.
+"""Manual, report-first PII retention sweep for prospecting state.
 
-Enforces data retention policies by archiving and purging temporary cleartext
-prospect CSVs (e.g. prospects-*-hubspot.csv, ready-to-load.csv) after a configurable
-TTL (default 7 days). Closes SECURITY-SELF-ASSESSMENT §D-04 and EU AI Act Art. 12 residual gap.
+Archives aged cleartext prospect exports and account files, and — only when asked — purges
+aged rows from the account ledger. **Nothing calls this module.** It is an operator's command:
 
-**Unenrolled-file guard (2026-09-19).** ``ready-to-load*.csv`` files in the sequences
-directory are the operator's staging area — they contain contacts that have been
-enriched, scored, and routed but may not yet have been loaded into the email sequencer.
-Archiving one of these before enrollment means the next ``email-sequence`` call finds
-the file missing and must re-route from the ledger: extra work, operator confusion, and
-(if the ledger was edited in the meantime) potentially different routing. The sweep now
-**refuses to archive any ``ready-to-load*.csv``** unless the caller passes ``force=True``
-(CLI ``--force``), and reports them separately as ``guarded`` so the operator can see
-exactly which files were held back and why.
+    python -m gtm_core.retention_sweep --profile P              # a PLAN: prints, writes nothing
+    python -m gtm_core.retention_sweep --profile P --apply      # acts, if every campaign is over
+
+The policy is the product owner's decision (2026-09-21); each rule is the shape of a way the
+first version of this sweep would have destroyed something:
+
+* **Never automatic.** It was wired into the tail of the routine ``consolidate`` — unconditional,
+  silent, result discarded. A build step must not delete, so the call is gone and the default
+  here is a dry run: reaching a deletion takes an explicit ``--apply``.
+* **Never while a campaign is unfinished.** ``--apply`` is refused unless every campaign
+  manifest says, in so many words, that it is finished — ``draft``, paused, blank and unknown
+  all block, as does campaign work with no manifest (:mod:`gtm_core.retention_campaign_gate`).
+  There is deliberately no override flag (docs/RULES.md §R13) — closing the campaign IS it.
+* **An exclusion row is never purged.** A ledger row whose status blocks enrollment (retired,
+  replied, engaged, opted out) is the only home of that account-level exclusion. Deleting it
+  does not forget the account: it re-admits it, next run, as a brand-new prospect.
+* **A row's age is the date the code maintains** (``added_at``) — never ``signal_observed``,
+  which dates the NEWS (the prospect skill admits a 210-day-old signal the day it is found),
+  and never ``latest.json``'s mtime, which dates the last write to any row at all.
+* **A campaign's record is kept.** A roster export named by ANY manifest, finished or not, the
+  files of an account in a live relationship, and (without ``--force``) the operator's
+  unenrolled ``ready-to-load*.csv`` staging files are guarded rather than archived.
+* **No symlink is followed**, every target is confined under the profile's own content tree,
+  and the apply path holds the profile lock.
+
+"Archived" is not "erased": the gzip copies under ``prospects/.archive/`` are cleartext, and a
+purged ledger row survives in ``prospects/.snapshots/``. The report says so.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gzip
-import json
-import re
 import shutil
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from gtm_core.confine import ConfinementError, confined_dir, confined_source_file
+from gtm_core.enrollment_gate import BLOCKED_ACCOUNT_STATUSES, DEFAULT_ENGAGED_STATUSES
+from gtm_core.locks import LockBusy, profile_lock
+from gtm_core.paths import resolve_content_root
 from gtm_core.prospect_paths import (
     accounts_dir,
     archive_dir,
@@ -36,7 +55,10 @@ from gtm_core.prospect_paths import (
     prospects_dir,
     sequences_dir,
 )
-from gtm_core.prospects_state import RETIRED_STATUSES, _atomic_write, load_latest, snapshot
+from gtm_core.prospects_lock import ledger_lock
+from gtm_core.prospects_state import _atomic_write, load_latest, snapshot
+from gtm_core.retention_campaign_gate import CampaignGate, UnfinishedCampaignRefusal, campaign_gate
+from gtm_core.slugify import slug
 
 PROTECTED_NAMES: frozenset[str] = frozenset(
     {
@@ -55,14 +77,51 @@ PROTECTED_NAMES: frozenset[str] = frozenset(
 
 @dataclass
 class SweepResult:
-    """Outcome of a PII retention sweep."""
+    """A sweep's outcome. With ``applied`` False every list is what WOULD happen (source
+    paths); with it True, ``archived``/``archived_dossiers`` are the gzip copies written."""
 
+    applied: bool = False
+    campaigns: CampaignGate = field(default_factory=CampaignGate)
     archived: list[Path] = field(default_factory=list)
     guarded: list[tuple[Path, str]] = field(default_factory=list)
     skipped: list[tuple[Path, str]] = field(default_factory=list)
     errors: list[tuple[Path, str]] = field(default_factory=list)
     archived_dossiers: list[Path] = field(default_factory=list)
+    ledger_examined: bool = False
     purged_accounts: list[str] = field(default_factory=list)
+    protected_accounts: list[str] = field(default_factory=list)
+    undatable: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _Sweep:
+    """What every pass needs — one value instead of seven positional arguments."""
+
+    profile: str
+    content_root: Path
+    tree: Path  # content_root/<profile>, unresolved: the confinement root and the symlink-walk stop
+    now: datetime
+    apply: bool
+    force: bool
+    rosters: dict[Path, str]  # resolved roster export -> the campaign that names it
+    result: SweepResult
+
+
+def _roster_files(profile: str, content_root: Path) -> dict[Path, str]:
+    """Every roster export a manifest names (finished OR not), resolved -> its campaign.
+
+    Globbed exactly as ``email_campaign_dashboard.roster`` globs them — relative to
+    ``prospects/`` — so "the files this campaign's page is built from" has one answer.
+    """
+    from gtm_core.campaigns_dashboard import _load_manifests
+
+    base = prospects_dir(profile, content_root)
+    out: dict[Path, str] = {}
+    for manifest in _load_manifests(profile, content_root):
+        for pattern in manifest.get("roster_globs") or []:
+            for path in base.glob(pattern):
+                out.setdefault(path.resolve(), str(manifest["slug"]))
+    return out
 
 
 def _is_target_pii_file(path: Path) -> bool:
@@ -83,326 +142,316 @@ def _is_target_pii_file(path: Path) -> bool:
 
 
 def _is_unenrolled_load_file(path: Path) -> bool:
-    """A ready-to-load file that may not have been enrolled in the sequencer yet.
-
-    These files are the operator's staging area: enriched, scored, routed contacts
-    waiting to be loaded into the email sequencer. Archiving them before enrollment
-    means the operator loses a file they expected to find, and re-routing from the
-    ledger may produce different results if the ledger was edited since the route.
-    """
+    """A ready-to-load file that may not be enrolled yet — the operator's staging area. Archive
+    one early and ``email-sequence`` must re-route from a ledger that may have been edited since."""
     return path.name.startswith("ready-to-load")
 
 
-def _sweep_account_dossiers(
-    profile: str,
-    content_root: Path | None,
-    arc_dir: Path,
-    dossier_ttl_days: int,
-    now: float,
-    dry_run: bool,
-    result: SweepResult,
-) -> None:
-    acc_dir = accounts_dir(profile, content_root)
-    if not acc_dir.exists():
-        return
+def _refusal(path: Path, tree: Path) -> str | None:
+    """Why ``path`` must not be touched at all, or None.
 
-    dossier_ttl_seconds = dossier_ttl_days * 86400.0
-    for account_folder in acc_dir.iterdir():
-        if not account_folder.is_dir():
-            continue
-
-        for file_path in account_folder.iterdir():
-            if not file_path.is_file():
-                continue
-
-            try:
-                mtime = file_path.stat().st_mtime
-                age_s = now - mtime
-                if age_s < dossier_ttl_seconds:
-                    result.skipped.append(
-                        (
-                            file_path,
-                            f"fresh dossier (age={age_s / 86400:.1f}d < {dossier_ttl_days}d)",
-                        )
-                    )
-                    continue
-
-                if dry_run:
-                    result.archived_dossiers.append(file_path)
-                    continue
-
-                arc_accounts = arc_dir / "accounts" / account_folder.name
-                arc_accounts.mkdir(parents=True, exist_ok=True)
-                timestamp_str = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-                dest_name = f"{file_path.stem}-{timestamp_str}{file_path.suffix}.gz"
-                dest_path = arc_accounts / dest_name
-
-                with file_path.open("rb") as f_in, gzip.open(dest_path, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-
-                file_path.unlink()
-                result.archived_dossiers.append(dest_path)
-
-            except OSError as err:
-                result.errors.append((file_path, str(err)))
-
-        if not dry_run and account_folder.exists() and not any(account_folder.iterdir()):
-            try:
-                account_folder.rmdir()
-            except OSError as err:
-                result.errors.append((account_folder, str(err)))
-
-
-def _extract_record_date(item: dict[str, Any]) -> date | None:
-    for field_name in ("last_touched", "source_run_date", "signal_observed", "added_at"):
-        val = item.get(field_name)
-        if val:
-            m = re.search(r"(\d{4})-?(\d{2})-?(\d{2})", str(val))
-            if m:
-                try:
-                    return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                except ValueError:
-                    pass
+    Walks the UNRESOLVED path up to the profile tree and refuses on the first symlink — a
+    linked file, a linked account folder, a linked ``accounts/`` — before anything is resolved:
+    the first version iterated ``is_dir()`` (which follows links) and would have gzipped and
+    unlinked whatever a linked account folder pointed at, inside the content root or not.
+    ``tree`` itself is exempt: ``content/<profile>`` is legitimately a link on some hosts, and
+    the confinement below resolves both sides.
+    """
+    for part in (path, *path.parents):
+        if part == tree:
+            break
+        if part.is_symlink():
+            return f"symlink ({part.name}) — never followed"
+    try:
+        confined_source_file(path, content_root=tree, action="archive a file")
+    except ConfinementError as exc:
+        return str(exc)
     return None
 
 
-def _sweep_latest_json(
-    profile: str,
-    content_root: Path | None,
-    dossier_ttl_days: int,
-    now: float,
-    dry_run: bool,
-    result: SweepResult,
-) -> None:
-    l_path = latest_json(profile, content_root)
-    if not l_path.exists():
-        return
+def _triage(path: Path, sweep: _Sweep, ttl_days: int) -> tuple[str, str]:
+    """``(archive | guard | skip, why)`` for one candidate — every keep-rule in one place."""
+    why = _refusal(path, sweep.tree)
+    if why:
+        return "skip", why
+    age_days = (sweep.now.timestamp() - path.lstat().st_mtime) / 86400
+    if age_days < ttl_days:
+        return "skip", f"fresh (age={age_days:.1f}d < {ttl_days}d)"
+    campaign = sweep.rosters.get(path.resolve())
+    if campaign:
+        # Not overridable by --force: that flag is a statement about staging files, and a
+        # roster export is the record a campaign's status page is rebuilt from.
+        return "guard", f"roster export of campaign '{campaign}' — a campaign's record is kept"
+    if _is_unenrolled_load_file(path) and not sweep.force:
+        return "guard", (
+            f"unenrolled load file (age={age_days:.0f}d) — "
+            "pass --force to archive, or load into the sequencer first"
+        )
+    return "archive", ""
 
+
+def _archive(path: Path, dest_dir: Path, sweep: _Sweep) -> Path:
+    """gzip ``path`` into ``dest_dir``, then remove the original. The copy is CLEARTEXT."""
+    dest_dir = confined_dir(dest_dir, content_root=sweep.tree)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = sweep.now.strftime("%Y%m%d-%H%M%S")
+    dest = dest_dir / f"{path.stem}-{stamp}{path.suffix}.gz"
+    # "x": two same-named exports (prospects/ and sequences/) archived in the same second
+    # must not overwrite each other — the second fails, is reported, and keeps its original.
+    with path.open("rb") as f_in, gzip.open(dest, "xb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
+    path.unlink()
+    return dest
+
+
+def _process(path: Path, dest_dir: Path, bucket: list[Path], sweep: _Sweep, ttl: int) -> None:
+    result = sweep.result
     try:
-        current_data = load_latest(profile, content_root)
-        items = current_data.get("items", [])
-        if not items:
-            return
+        verdict, why = _triage(path, sweep, ttl)
+        if verdict == "skip":
+            result.skipped.append((path, why))
+        elif verdict == "guard":
+            result.guarded.append((path, why))
+        else:
+            bucket.append(_archive(path, dest_dir, sweep) if sweep.apply else path)
+    except (OSError, ConfinementError) as err:
+        result.errors.append((path, str(err)))
 
-        today = datetime.now(UTC).date()
-        file_age_days = int((now - l_path.stat().st_mtime) / 86400)
 
-        kept_items: list[dict[str, Any]] = []
-        purged_names: list[str] = []
-
-        for item in items:
-            item_date = _extract_record_date(item)
-            if item_date:
-                age_days = (today - item_date).days
+def _sweep_exports(sweep: _Sweep, ttl_days: int) -> None:
+    arc_dir = archive_dir(sweep.profile, sweep.content_root)
+    for folder in (
+        prospects_dir(sweep.profile, sweep.content_root),
+        sequences_dir(sweep.profile, sweep.content_root),
+    ):
+        for path in sorted(folder.glob("*.csv")):
+            if _is_target_pii_file(path):
+                _process(path, arc_dir, sweep.result.archived, sweep, ttl_days)
             else:
-                age_days = file_age_days
+                sweep.result.skipped.append((path, "protected or non-target"))
 
-            status = str(item.get("status") or "").lower()
-            is_disqualified = status in RETIRED_STATUSES
-            is_stale_age = age_days >= dossier_ttl_days
 
-            is_active_relationship = status in (
-                "customer",
-                "partner",
-                "meeting",
-                "engaged",
-                "in-conversation",
-                "replied",
-            )
-            should_purge = (is_disqualified and is_stale_age) or (
-                not is_active_relationship and is_stale_age
-            )
+def _engaged_folders(sweep: _Sweep) -> dict[str, str]:
+    """Account-folder slug -> ledger status, for accounts in a live relationship.
 
-            if should_purge:
-                name = str(item.get("company") or item.get("id") or "unknown")
-                purged_names.append(name)
-            else:
-                kept_items.append(item)
+    A folder is named ``slug(company)`` and the ledger stamps the same value as ``id``; both are
+    offered so a row missing one still protects its folder. Raises on an unreadable ledger.
+    """
+    out: dict[str, str] = {}
+    for item in load_latest(sweep.profile, sweep.content_root).get("items", []):
+        record = item if isinstance(item, dict) else {}
+        status = str(record.get("status") or "").strip().lower().replace("_", "-")
+        if status in DEFAULT_ENGAGED_STATUSES:
+            out[str(record.get("id") or "").strip().lower()] = status
+            out[slug(str(record.get("company") or ""))] = status
+    out.pop("", None)
+    return out
 
-        result.purged_accounts.extend(purged_names)
 
-        if purged_names and not dry_run:
-            snapshot(profile, content_root)
-            current_data["items"] = kept_items
-            _atomic_write(l_path, current_data)
+def _sweep_account_files(sweep: _Sweep, ttl_days: int) -> None:
+    acc_dir = accounts_dir(sweep.profile, sweep.content_root)
+    if not acc_dir.is_dir():
+        return
+    result = sweep.result
+    try:
+        engaged = _engaged_folders(sweep)
+    except (OSError, ValueError) as err:
+        # "Which accounts are in a live relationship" has no answer, so nothing here moves.
+        result.errors.append((latest_json(sweep.profile, sweep.content_root), str(err)))
+        return
+    arc_dir = archive_dir(sweep.profile, sweep.content_root) / "accounts"
+    for folder in sorted(acc_dir.iterdir()):
+        if folder.is_symlink():
+            result.skipped.append((folder, f"symlink ({folder.name}) — never followed"))
+            continue
+        if not folder.is_dir():
+            continue
+        if folder.name in engaged:
+            why = f"account status '{engaged[folder.name]}' — a live relationship's files are kept"
+            result.guarded.append((folder, why))
+            continue
+        for path in sorted(folder.iterdir()):
+            if path.is_symlink() or path.is_file():
+                _process(path, arc_dir / folder.name, result.archived_dossiers, sweep, ttl_days)
+        try:
+            if sweep.apply and not any(folder.iterdir()):
+                folder.rmdir()
+        except OSError as err:
+            result.errors.append((folder, str(err)))
 
-    except (OSError, json.JSONDecodeError) as err:
-        result.errors.append((l_path, str(err)))
+
+def _added_on(item: dict[str, Any]) -> date | None:
+    """The day the code first recorded this row (``upsert_latest`` stamps ``added_at`` once and
+    never moves it), or None — and a row with no admissible date is kept, never guessed at."""
+    try:
+        return datetime.fromisoformat(str(item.get("added_at") or "").strip()).date()
+    except ValueError:
+        return None
+
+
+def _sweep_ledger(sweep: _Sweep, ttl_days: int) -> None:
+    result = sweep.result
+    path = latest_json(sweep.profile, sweep.content_root)
+    if not path.is_file():
+        return
+    why = _refusal(path, sweep.tree)
+    if why:
+        result.skipped.append((path, why))
+        return
+    try:
+        # The ledger's own write lock, nested inside profile_lock: every other ledger writer
+        # takes this one, so a do-not-contact landing mid-sweep is ordered, never lost. A plan
+        # takes no lock at all: it must not create even a lock file.
+        with ledger_lock(path) if sweep.apply else contextlib.nullcontext():
+            data = load_latest(sweep.profile, sweep.content_root)
+            kept: list[Any] = []
+            purged: list[str] = []
+            for item in data.get("items", []):
+                record = item if isinstance(item, dict) else {}
+                name = str(record.get("company") or record.get("id") or "unknown")
+                status = str(record.get("status") or "").strip().lower().replace("_", "-")
+                added = _added_on(record)
+                if status in BLOCKED_ACCOUNT_STATUSES:
+                    # Every status the enrollment gate refuses on. This row IS the exclusion.
+                    result.protected_accounts.append(name)
+                elif added is None:
+                    result.undatable.append(name)
+                elif (sweep.now.date() - added).days >= ttl_days:
+                    purged.append(name)
+                    continue
+                kept.append(item)
+            result.purged_accounts.extend(purged)
+            if purged and sweep.apply:
+                snapshot(sweep.profile, sweep.content_root)
+                data["items"] = kept
+                _atomic_write(path, data)
+    except (OSError, ValueError) as err:
+        result.errors.append((path, str(err)))
 
 
 def sweep_stale_pii(
     profile: str,
+    *,
     ttl_days: int = 7,
     dossier_ttl_days: int = 60,
-    dry_run: bool = False,
     force: bool = False,
     content_root: Path | None = None,
+    apply: bool = False,
+    include_ledger: bool = False,
+    now: datetime | None = None,
 ) -> SweepResult:
-    """Archive and purge cleartext prospect CSVs, aged dossiers, and stale ledger records.
+    """Plan — or, with ``apply=True``, perform — a retention sweep of one profile.
 
-    Args:
-        profile: Tenant profile name.
-        ttl_days: Retention threshold in days for temporary CSVs (default 7).
-        dossier_ttl_days: Retention threshold in days for account dossiers and
-            retired ledger records (default 60).
-        dry_run: If True, discover targets without modifying files.
-        force: If True, also archive unenrolled ready-to-load files.
-            Without this flag, ready-to-load*.csv files are guarded
-            and reported separately.
-        content_root: Optional content root override.
+    ``ttl_days`` ages export CSVs; ``dossier_ttl_days`` ages account files and ledger rows.
+    ``force`` also archives unenrolled ready-to-load files and overrides nothing else. Without
+    ``apply`` nothing on disk changes — not even a lock file. ``include_ledger`` is opt-in
+    because ``latest.json`` is the record of record. ``now`` is the clock (tests).
 
-    Returns:
-        SweepResult detailing archived, guarded, skipped, errors, dossiers, and purged accounts.
+    Raises :class:`UnfinishedCampaignRefusal` on ``apply`` while the campaign gate blocks (nothing
+    has been written), and ``LockBusy`` on ``apply`` while another process holds the profile lock.
     """
-    result = SweepResult()
-    p_dir = prospects_dir(profile, content_root)
-    arc_dir = archive_dir(profile, content_root)
-    now = time.time()
-
-    if p_dir.exists():
-        ttl_seconds = ttl_days * 86400.0
-
-        candidates: list[Path] = []
-        for item in p_dir.glob("*.csv"):
-            if item.is_file():
-                candidates.append(item)
-
-        seq_dir = sequences_dir(profile, content_root)
-        if seq_dir.exists():
-            for item in seq_dir.glob("*.csv"):
-                if item.is_file():
-                    candidates.append(item)
-
-        for path in candidates:
-            if not _is_target_pii_file(path):
-                result.skipped.append((path, "protected or non-target"))
-                continue
-
-            try:
-                mtime = path.stat().st_mtime
-                age_s = now - mtime
-                if age_s < ttl_seconds:
-                    result.skipped.append((path, f"fresh (age={age_s / 86400:.1f}d < {ttl_days}d)"))
-                    continue
-
-                if _is_unenrolled_load_file(path) and not force:
-                    age_d = age_s / 86400
-                    result.guarded.append(
-                        (
-                            path,
-                            f"unenrolled load file (age={age_d:.0f}d) — "
-                            f"pass --force to archive, or load into the sequencer first",
-                        )
-                    )
-                    continue
-
-                if dry_run:
-                    result.archived.append(path)
-                    continue
-
-                arc_dir.mkdir(parents=True, exist_ok=True)
-                timestamp_str = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-                dest_name = f"{path.stem}-{timestamp_str}.csv.gz"
-                dest_path = arc_dir / dest_name
-
-                with path.open("rb") as f_in:
-                    with gzip.open(dest_path, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-
-                path.unlink()
-                result.archived.append(dest_path)
-
-            except OSError as err:
-                result.errors.append((path, str(err)))
-
-    # 60-day account dossier sweep
-    _sweep_account_dossiers(
+    root = content_root if content_root is not None else resolve_content_root()
+    tree = prospects_dir(profile, root).parent
+    result = SweepResult(applied=apply, campaigns=campaign_gate(profile, root))
+    if apply and result.campaigns.blocks_apply:
+        raise UnfinishedCampaignRefusal(profile, result.campaigns)
+    if not tree.is_dir():
+        return result  # nothing to sweep — and taking the lock would invent the tenant folder
+    sweep = _Sweep(
         profile=profile,
-        content_root=content_root,
-        arc_dir=arc_dir,
-        dossier_ttl_days=dossier_ttl_days,
-        now=now,
-        dry_run=dry_run,
+        content_root=root,
+        tree=tree,
+        now=now or datetime.now(UTC),
+        apply=apply,
+        force=force,
+        rosters=_roster_files(profile, root),
         result=result,
     )
-
-    # 60-day latest.json purge
-    _sweep_latest_json(
-        profile=profile,
-        content_root=content_root,
-        dossier_ttl_days=dossier_ttl_days,
-        now=now,
-        dry_run=dry_run,
-        result=result,
-    )
-
+    # Non-blocking: an operator's command that hangs behind a pipeline run explains nothing.
+    lock = profile_lock(root, profile, blocking=False) if apply else contextlib.nullcontext()
+    with lock:
+        _sweep_exports(sweep, ttl_days)
+        _sweep_account_files(sweep, dossier_ttl_days)
+        if include_ledger:
+            result.ledger_examined = True
+            _sweep_ledger(sweep, dossier_ttl_days)
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI for purging/archiving stale PII prospect CSVs, dossiers, and records."""
+def _print_section(title: str, entries: list[Any]) -> None:
+    print(f"  {title}: {len(entries)}")
+    for entry in entries:
+        print(f"    - {entry[0]}: {entry[1]}" if isinstance(entry, tuple) else f"    - {entry}")
+
+
+def _print_report(res: SweepResult, profile: str) -> None:
+    arc = archive_dir(profile)
+    note = "(gzip, still cleartext) — not erased"
+    if res.applied:
+        print(f"Retention sweep APPLIED for profile '{profile}':")
+        files, accts = f"archived to {arc} {note}", f"archived to {arc / 'accounts'} {note}"
+        rows = "purged (still in prospects/.snapshots — not erased)"
+    else:
+        print(f"[DRY RUN — nothing was changed; pass --apply to act] Plan for '{profile}':")
+        files = accts = "that would be archived"
+        rows = "that would be purged"
+    # The campaign verdict comes FIRST: whether anything may be purged at all outranks what would be.
+    verdict = res.campaigns.report_lines()
+    print("\n".join(verdict[:-1] if res.applied else verdict))
+    _print_section(f"Export CSVs {files}", res.archived)
+    _print_section(f"Account files {accts}", res.archived_dossiers)
+    if res.ledger_examined:
+        _print_section(f"Ledger rows {rows}", res.purged_accounts)
+        _print_section("Ledger rows kept — exclusion or live relationship", res.protected_accounts)
+        _print_section("Ledger rows undatable — kept", res.undatable)
+    else:
+        print("  Ledger: not examined (pass --include-ledger)")
+    _print_section("Guarded — kept", res.guarded)
+    print(f"  Skipped (fresh / protected / symlink): {len(res.skipped)}")
+    total = len(res.archived) + len(res.archived_dossiers)
+    print(f"  Total: {total} file(s), {len(res.purged_accounts)} ledger row(s)")
+
+
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+    """CLI: print a retention plan; with ``--apply``, carry it out. 2 = refused, 1 = errors."""
     parser = argparse.ArgumentParser(
         prog="gtm_core.retention_sweep",
-        description="Archive and purge stale prospect CSVs, account dossiers, and ledger records past TTL.",
+        description="Plan (default) or apply the archiving of stale prospect CSVs and account "
+        "files, and optionally the purge of aged ledger rows. Refused until every campaign is over.",
     )
-    parser.add_argument("--profile", required=True, help="Tenant profile name")
-    parser.add_argument(
-        "--ttl-days",
-        type=int,
-        default=7,
-        help="Retention TTL in days for temporary CSVs (default: 7)",
-    )
-    parser.add_argument(
-        "--dossier-ttl-days",
-        type=int,
-        default=60,
-        help="Retention TTL for account dossiers and retired records in days (default: 60)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate sweep without archiving or deleting files",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Also archive unenrolled ready-to-load files (default: guard them)",
-    )
+    add = parser.add_argument
+    add("--profile", required=True, help="Tenant profile name")
+    add("--ttl-days", type=int, default=7, help="Age in days to archive an export CSV (7)")
+    add("--dossier-ttl-days", type=int, default=60, help="Age for account files, ledger rows (60)")
+    mode = parser.add_mutually_exclusive_group()
+    # No flag overrides an unfinished campaign, on purpose (§R13): closing it is the override.
+    mode.add_argument("--apply", action="store_true", help="Act. Exit 2 until campaigns are closed")
+    mode.add_argument("--dry-run", action="store_true", help="The default; kept as a no-op alias")
+    add("--force", action="store_true", help="Also archive unenrolled ready-to-load files")
+    add("--include-ledger", action="store_true", help="Also purge aged, non-exclusion ledger rows")
     args = parser.parse_args(argv)
 
-    res = sweep_stale_pii(
-        profile=args.profile,
-        ttl_days=args.ttl_days,
-        dossier_ttl_days=args.dossier_ttl_days,
-        dry_run=args.dry_run,
-        force=args.force,
-    )
-
-    mode_label = "[DRY RUN] " if args.dry_run else ""
-    print(f"{mode_label}Retention sweep for profile '{args.profile}':")
-    print(f"  Archived / Purged CSVs: {len(res.archived)} file(s)")
-    for p in res.archived:
-        print(f"    - {p.name}")
-    if res.archived_dossiers:
-        print(f"  Archived Dossiers: {len(res.archived_dossiers)} file(s)")
-        for p in res.archived_dossiers:
-            print(f"    - {p.name}")
-    if res.purged_accounts:
-        print(f"  Purged Ledger Records: {len(res.purged_accounts)} account(s)")
-        for a in res.purged_accounts:
-            print(f"    - {a}")
-    if res.guarded:
-        print(f"  Guarded (unenrolled — use --force to override): {len(res.guarded)} file(s)")
-        for p, reason in res.guarded:
-            print(f"    - {p.name}: {reason}")
-    print(f"  Skipped (fresh/protected): {len(res.skipped)} file(s)")
-    if res.errors:
-        print(f"  Errors: {len(res.errors)}")
-        for p, err in res.errors:
-            print(f"    - {p}: {err}", file=sys.stderr)
+    try:
+        res = sweep_stale_pii(
+            args.profile,
+            ttl_days=args.ttl_days,
+            dossier_ttl_days=args.dossier_ttl_days,
+            force=args.force,
+            apply=args.apply,
+            include_ledger=args.include_ledger,
+            now=now,
+        )
+    except UnfinishedCampaignRefusal as refusal:
+        print(str(refusal), file=sys.stderr)
+        return 2
+    except LockBusy as busy:
+        print(f"{busy} — nothing was changed; try again when the run finishes", file=sys.stderr)
         return 1
 
-    return 0
+    _print_report(res, args.profile)
+    for path, err in res.errors:
+        print(f"  ERROR {path}: {err}", file=sys.stderr)
+    return 1 if res.errors else 0
 
 
 if __name__ == "__main__":

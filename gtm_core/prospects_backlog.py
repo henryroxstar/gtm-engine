@@ -33,7 +33,7 @@ import tomllib
 from pathlib import Path
 
 from gtm_core.email_compliance import normalize_market, read_target_markets
-from gtm_core.paths import resolve_content_root, resolve_profiles_root
+from gtm_core.paths import resolve_content_root, resolve_knowledge_file, resolve_profiles_root
 from gtm_core.prospects_consolidate import MarketGate, _pool_dir
 from gtm_core.prospects_consolidate import org_token as _org_token
 from gtm_core.prospects_import import (
@@ -81,19 +81,37 @@ QUEUE_COLS = [
 # --- rubric (profile-owned ICP weights) -------------------------------------
 
 
-def rubric_path(profile: str, profiles_root: Path | None = None) -> Path:
+def rubric_path(
+    profile: str,
+    profiles_root: Path | None = None,
+    product: str | None = None,
+    overlay: str | None = None,
+) -> Path:
+    """Where this run's ICP weights live — overlay, then product, then profile.
+
+    Resolved rather than constructed since 2026-09-21. It used to be a hardcoded
+    ``<profile>/knowledge/icp-scoring.toml``, which made the one file that decides where
+    enrichment CREDITS go the only targeting file a tenant could not vary per product or per
+    experiment. Everything else about an experiment was expressible; the thing it costs money
+    to get wrong was not.
+    """
     root = profiles_root or resolve_profiles_root()
-    return root / profile / "knowledge" / "icp-scoring.toml"
+    return resolve_knowledge_file(root, profile, "icp-scoring.toml", product, overlay)
 
 
-def load_rubric(profile: str, profiles_root: Path | None = None) -> dict:
+def load_rubric(
+    profile: str,
+    profiles_root: Path | None = None,
+    product: str | None = None,
+    overlay: str | None = None,
+) -> dict:
     """Read the profile's ICP scoring rubric.
 
     A missing rubric is a hard error, not a silent neutral default — an unscored selection would
     spend enrichment credits in arbitrary order, the exact failure this module exists to prevent
     (mirrors :func:`read_target_markets`, which also fails closed on a missing profile fact).
     """
-    path = rubric_path(profile, profiles_root)
+    path = rubric_path(profile, profiles_root, product, overlay)
     if not path.is_file():
         raise FileNotFoundError(
             f"no ICP scoring rubric for profile {profile!r} at {path}. Selection needs cohort "
@@ -151,16 +169,26 @@ def load_resolved_org_tokens(profile: str, content_root: Path | None = None) -> 
     return resolved
 
 
-def load_backlog_accounts(profile: str, content_root: Path | None = None) -> list[dict]:
+def load_backlog_accounts(
+    profile: str, content_root: Path | None = None, *, strict: bool = False
+) -> list[dict]:
     """Every unique account across ``imports/*.csv`` that carries a ``business_id``.
 
     Deduped twice: by ``business_id`` (the same account pulled into more than one import file) and
     by org token (two ids at the same root domain — e.g. a conglomerate's sub-brands). On a
     collision the row with the stronger intent signal wins, so we keep the richest copy.
+
+    ``strict`` controls what happens to a non-UTF-8 byte: the default (``False``, unchanged
+    behaviour) repairs it silently (``errors="ignore"``), because this loader feeds
+    :func:`select_backlog` and a raise here would stop real credit spend on a byte glitch.
+    ``strict=True`` (used by :mod:`gtm_core.icp_check`) raises instead — a critique tool must
+    refuse an unreadable row rather than skip it, because skipping LOWERS a hit count, and a
+    lower count reads as "safe to add" (the failure would invert the verdict, not shrink it).
     """
     by_id: dict[str, dict] = {}
+    errors = "strict" if strict else "ignore"
     for path in sorted(_imports_dir(profile, content_root).glob("*.csv")):
-        with path.open(newline="", encoding="utf-8", errors="ignore") as f:
+        with path.open(newline="", encoding="utf-8", errors=errors) as f:
             reader = csv.DictReader(f)
             if not reader.fieldnames or "business_id" not in reader.fieldnames:
                 continue
@@ -283,6 +311,7 @@ def select_backlog(
     include_unknown_country: bool = False,
     content_root: Path | None = None,
     profiles_root: Path | None = None,
+    overlay: str | None = None,
 ) -> dict:
     """Rank the not-yet-enriched, in-market backlog and write ``enrichment-queue.csv``.
 
@@ -290,7 +319,7 @@ def select_backlog(
     an un-targetable account is wasted enrichment spend. The count is always reported so the gap
     stays visible; pass ``True`` to include them (they still face the market gate at consolidation).
     """
-    rubric = load_rubric(profile, profiles_root)
+    rubric = load_rubric(profile, profiles_root, overlay=overlay)
     markets = read_target_markets(profile, profiles_root)
     gate = MarketGate(markets, strict=not include_unknown_country)
     resolved = load_resolved_org_tokens(profile, content_root)
@@ -414,6 +443,15 @@ def _cli(argv: list[str] | None = None) -> int:
     s.add_argument("--profile", required=True)
     s.add_argument("--limit", type=int, default=None, help="cap the queue to the top N accounts")
     s.add_argument(
+        "--overlay",
+        default=None,
+        help=(
+            "experiment overlay slug — scores against that experiment's icp-scoring.toml "
+            "instead of the tenant's. Admit it first with `python -m gtm_core.experiments "
+            "--profile P --overlay SLUG`; this flag resolves a rubric, it does not validate one"
+        ),
+    )
+    s.add_argument(
         "--include-unknown-country",
         action="store_true",
         help="keep accounts with a blank country (default: drop them as un-targetable spend)",
@@ -434,6 +472,7 @@ def _cli(argv: list[str] | None = None) -> int:
             args.profile,
             limit=args.limit,
             include_unknown_country=args.include_unknown_country,
+            overlay=args.overlay,
         )
     else:
         result = {"batches": batches(args.profile, batch_size=args.batch_size, limit=args.limit)}

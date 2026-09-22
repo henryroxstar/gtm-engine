@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import sys
 from pathlib import Path
 
 from ..page_inputs import Report, verify_inventory, write_inventory
@@ -15,6 +17,98 @@ from .views_status import _status_view
 from .views_what import _what_view
 from .views_who import _who_view
 from .views_worklist import _worklist_view
+
+#: A lane review sheet, as ``gtm_core.lanes`` names one: ``hold-<YYYY-MM-DD>.csv`` and the
+#: ``.html`` rendered beside it. Anchored at both ends so the sibling artifacts in the same
+#: directory — ``hold-decisions.jsonl``, ``hold-decisions-<date>-filled.csv`` — cannot match:
+#: those are the operator's ANSWERS, and linking one as the sheet to fill in would send a
+#: reader to a file whose decisions are already made.
+_SHEET_RE = re.compile(r"^hold-(\d{4}-\d{2}-\d{2})\.(html|csv)$")
+_LABELER_RE = re.compile(r"^labeler-(\d{4}-\d{2}-\d{2})-[a-z0-9]+\.html$")
+
+
+def _review_sheet(m: dict) -> dict | None:
+    """The newest lane review sheet on disk — its href, its date, and its own row count.
+
+    Derived rather than written. The banner used to carry a hardcoded
+    ``evals/lanes-hold-sheet.csv``, which was wrong twice over: no file has ever been
+    written under that name (``gtm_core.lanes`` writes ``hold-<stamp>.csv``), and the page
+    sits at ``content/<profile>/`` while the evals directory is one level further down at
+    ``prospects/evals/`` — so even the correct filename would not have resolved. A dead link
+    in an ``[ACTION REQUIRED]`` banner is worse than no link: it reads as "the work is
+    somewhere over there" and costs the operator the search to find out it is not.
+
+    Prefers the rendered ``.html`` over the ``.csv`` of the same date — that is the sheet a
+    person reviews; the CSV is the data behind it. The row count comes from the CSV either
+    way, because counting ``<tr>`` in a rendered page counts its header and group rows too.
+
+    Every scope's page is written to ``_prospects_dir(...).parent`` (see :func:`page_path`),
+    so one relative prefix is correct for the rollup and the per-campaign pages alike.
+    """
+    evals = _prospects_dir(m["profile"], m.get("_content_root")) / "evals"
+    if not evals.is_dir():
+        return None
+    dated: dict[str, dict[str, Path]] = {}
+    for p in evals.iterdir():
+        hit = _SHEET_RE.match(p.name)
+        if hit:
+            dated.setdefault(hit.group(1), {})[hit.group(2)] = p
+    if not dated:
+        return None
+    stamp = max(dated)
+    pick = dated[stamp].get("html") or dated[stamp]["csv"]
+    csv = dated[stamp].get("csv")
+    rows = None
+    if csv:
+        # Header excluded. A blank trailing line would otherwise count as a row and report
+        # a sheet one bigger than it is.
+        rows = max(
+            len([ln for ln in csv.read_text(encoding="utf-8").splitlines() if ln.strip()]) - 1, 0
+        )
+    return {"href": f"prospects/evals/{pick.name}", "stamp": stamp, "rows": rows}
+
+
+def _eval_labeler(m: dict) -> dict | None:
+    """The newest email-eval labeling page on disk, and how much of it is still unanswered.
+
+    The sibling of :func:`_review_sheet`, added 2026-09-22 for the reason that one exists:
+    the lane hold sheet has carried an ``[ACTION REQUIRED]`` banner for months, and the eval
+    round — the round that decides whether a rule is KEPT or RETIRED — had none. It was
+    invoked from memory, so it ran roughly never, and four rules sat reading
+    ``delete-candidate`` for want of a single afternoon nobody was ever prompted to spend.
+
+    Counts come from the markdown sheet rather than the rendered page, because a pre-filled
+    answer is a literal ``Y``/``N`` on the ``send_it:`` line there and an unanswered one is
+    ``___`` — cheap to read and impossible to confuse with page markup. The two numbers are
+    reported separately on purpose: the blind rows are the only ones that can tell you
+    whether the pre-filled ones were any good.
+    """
+    evals = _prospects_dir(m["profile"], m.get("_content_root")) / "evals"
+    if not evals.is_dir():
+        return None
+    pages: dict[str, Path] = {}
+    for p in evals.iterdir():
+        hit = _LABELER_RE.match(p.name)
+        if hit:
+            pages.setdefault(hit.group(1), p)
+    if not pages:
+        return None
+    stamp = max(pages)
+    prefilled = blind = 0
+    sheet = evals / f"sheet-{stamp}.md"
+    if sheet.is_file():
+        for line in sheet.read_text(encoding="utf-8").splitlines():
+            if line.startswith("`send_it:`"):
+                if "___" in line:
+                    blind += 1
+                else:
+                    prefilled += 1
+    return {
+        "href": f"prospects/evals/{pages[stamp].name}",
+        "stamp": stamp,
+        "prefilled": prefilled,
+        "blind": blind,
+    }
 
 
 def render_html(m: dict) -> str:
@@ -37,20 +131,54 @@ def render_html(m: dict) -> str:
             + ". Refresh before trusting anything below.</p></div>"
         )
 
-    ps = m.get("prospect_status") or {}
-    counts = ps.get("counts") or {}
-    held_count = counts.get("waiting_on_you", 0)
-    if not held_count:
-        ar = m.get("attrition_receipt") or {}
-        held_count = ar.get("held", 0)
-
-    if held_count > 0:
-        plural = "s" if held_count != 1 else ""
-        require = "require" if held_count != 1 else "requires"
+    labeler = _eval_labeler(m)
+    if labeler and labeler["blind"] + labeler["prefilled"]:
+        total = labeler["prefilled"] + labeler["blind"]
+        detail = (
+            f"{labeler['prefilled']:,} row(s) arrive pre-filled for you to correct and "
+            f"{labeler['blind']:,} are blank"
+            if labeler["prefilled"]
+            else f"{total:,} row(s), none pre-filled"
+        )
         banners += (
             '<div class="card banner action-required"><h2>[ACTION REQUIRED]</h2><p>'
-            f"<strong>{held_count}</strong> account{plural} {require} routing decisions in the "
-            '<a href="evals/lanes-hold-sheet.csv" class="review-sheet-link">Review Sheet</a>.</p></div>'
+            f'An email-eval round is waiting: <a href="{_e(labeler["href"])}" '
+            f'class="review-sheet-link">labeler-{_e(labeler["stamp"])}</a> &mdash; '
+            f"{_e(detail)}. Until it is labeled, every rule it plants a defect for reports "
+            "<code>delete-candidate</code> &mdash; no evidence, not no value.</p></div>"
+        )
+
+    # The banner count IS the "Waiting on you" contact count — the same figure the tile below
+    # and the terminal's ACTION REQUIRED line print, never a second derivation. It used to
+    # fall back to the account receipt's "held" when nobody was waiting, which announced work
+    # (in accounts) that the contact table beside it (in contacts) said did not exist.
+    waiting = ((m.get("prospect_status") or {}).get("counts") or {}).get("waiting_on_you", 0)
+    if waiting > 0:
+        people = "contact is" if waiting == 1 else "contacts are"
+        sheet = _review_sheet(m)
+        if not sheet:
+            # No link rather than a dead one, and the command that makes the missing file.
+            where = (
+                "<strong>No review sheet has been built yet.</strong> Write one with "
+                f"<code>python -m gtm_core.lanes hold-sheet --profile {_e(m['profile'])} "
+                "--hold &lt;hold-&lt;date&gt;.csv&gt;</code>."
+            )
+        else:
+            size = f" &mdash; {sheet['rows']:,} rows" if sheet["rows"] is not None else ""
+            # The two counts come from different places and NEED NOT AGREE, so the banner
+            # says so rather than letting the reader infer that one describes the other.
+            # `waiting_on_you` is the pool's status right now; the sheet is a dated export
+            # of the rows held when it was written. On a live tenant rollup they read 102
+            # and 103 — close enough to look like the same number and not be one.
+            where = (
+                f'The newest review sheet is <a href="{_e(sheet["href"])}" '
+                f'class="review-sheet-link">hold-{_e(sheet["stamp"])}</a>{size}, exported '
+                f"{_e(sheet['stamp'])}. That count is the sheet's own size when it was "
+                "built, not a second reading of the figure above."
+            )
+        banners += (
+            '<div class="card banner action-required"><h2>[ACTION REQUIRED]</h2><p>'
+            f"<strong>{waiting:,}</strong> {people} waiting on your decision. {where}</p></div>"
         )
 
     # A page-level banner shows on every tab.
@@ -221,6 +349,23 @@ def page_path(profile: str, content_root: Path | None, sc: Scope) -> Path:
     return _prospects_dir(profile, content_root).parent / f"campaign-{sc.stem}.html"
 
 
+def _mode(scope: str | None, campaign: str | None, campaigns: list[dict]) -> str:
+    """The scope mode to resolve. ``open`` on a profile with NO campaign manifest at all
+    means "everything", said once on stderr.
+
+    ``--scope open`` is the mandatory last step of the prospect skill, and a tenant's first
+    runs have no manifest — so the step every run ends on exited 1 with instructions to edit
+    a TOML file. With no manifest there is no campaign to confuse the rollup with, which is
+    the only thing the refusal protects. When manifests exist and none is open, ``resolve``
+    still refuses and names each one's status.
+    """
+    mode = scope or ("campaign" if campaign else "all")
+    if mode == "open" and not any(c.get("slug") for c in campaigns):
+        print("no campaign manifest yet — showing everything (--scope all)", file=sys.stderr)
+        return "all"
+    return mode
+
+
 def render_dashboard(
     profile: str,
     content_root: Path | None = None,
@@ -236,9 +381,8 @@ def render_dashboard(
     the no-argument refresh at the tail of `consolidate` — keeps its behaviour exactly.
     """
     model = build_model(profile, content_root)
-    sc = resolve(
-        scope or ("campaign" if campaign else "all"), campaign, model["campaigns"]["campaigns"]
-    )
+    campaigns = model["campaigns"]["campaigns"]
+    sc = resolve(_mode(scope, campaign, campaigns), campaign, campaigns)
     if sc.is_scoped:
         model = scope_to_campaign(model, sc.csv)
         if model.get("campaign_scope") != sc.csv:
@@ -288,10 +432,60 @@ def check_fresh(
     """
     from ..campaigns_dashboard import _load_manifests
 
-    sc = resolve(
-        scope or ("campaign" if campaign else "all"),
-        campaign,
-        _load_manifests(profile, content_root),
-    )
+    manifests = _load_manifests(profile, content_root)
+    sc = resolve(_mode(scope, campaign, manifests), campaign, manifests)
     root, _ = input_globs(profile, content_root)
     return verify_inventory(page_path(profile, content_root, sc), root)
+
+
+def refresh_all(
+    profile: str, content_root: Path | None = None, *, stubs: bool = True
+) -> list[Path]:
+    """Re-render **every page that already exists**, each under its own recorded scope.
+
+    The refresh that runs after a consolidation only ever rendered the profile rollup —
+    ``render_dashboard`` with no scope, which is ``--scope all``. Every scoped page ever
+    built (``campaign-open.html``, ``campaign-<slug>.html``) was left exactly as it was, and
+    nothing else re-renders them either: there is no timer, and the only other automated
+    trigger is a pack prompt that also names the unscoped command.
+
+    So they went stale silently, which is the failure ``page_inputs`` exists to describe —
+    a stale page renders identically to a current one. Measured on a live tenant profile
+    2026-09-21: of five pages on disk, the rollup was fresh and the other four were behind
+    the same ``history.jsonl``, still showing a worklist whose grouping bug had already been
+    fixed.
+
+    Scope is READ BACK from each page's ``.inputs.json`` rather than guessed from the
+    filename, because ``campaign-open.html`` and a two-slug page are both ``campaign-*`` on
+    disk and only the inventory knows which mode built them. A page whose inventory is
+    missing is skipped rather than rendered under an assumed scope — rendering the wrong
+    scope over it would replace one campaign's numbers with another's, which is worse than
+    leaving it stale and is the one thing this package refuses everywhere else.
+
+    This re-renders what is there; it never invents a page. Returns the paths written.
+    """
+    written = [render_dashboard(profile, content_root, stubs=stubs)]
+    seen = {written[0].name}
+    base = _prospects_dir(profile, content_root).parent
+    for inv in sorted(base.glob("*.inputs.json")):
+        try:
+            rec = json.loads(inv.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        page, mode = rec.get("page") or "", rec.get("scope") or ""
+        if not page or page in seen or mode not in ("open", "campaign"):
+            continue
+        slugs = [s for s in (rec.get("slugs") or []) if s]
+        if mode == "campaign" and not slugs:
+            continue
+        seen.add(page)
+        written.append(
+            render_dashboard(
+                profile,
+                content_root,
+                stubs=False,  # the redirect stubs belong to the rollup, written above
+                campaign=",".join(slugs) if mode == "campaign" else None,
+                scope=mode,
+            )
+        )
+    return written

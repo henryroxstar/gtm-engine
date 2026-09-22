@@ -37,10 +37,14 @@ def _render(draft):
 # existing product silently acquires a second folder on the next onboarding run — this
 # repo's known duplicate-slug failure mode. Pin the exact key set first.
 
+# The knowledge/ segment these two once carried was dropped deliberately (2026-09-21): it put the
+# files one level below where resolve_knowledge_file() reads a product override, so they were
+# written and never read. The pin's JOB is unchanged — it still catches the slug normaliser moving
+# anybody's files — only the layout it pins was corrected.
 EXPECTED_PRODUCT_KEYS = {
     "products/acme-deploy/PRODUCT.md",
-    "products/acme-deploy/knowledge/icp-personas.md",
-    "products/acme-deploy/knowledge/market-scan-config.md",
+    "products/acme-deploy/icp-personas.md",
+    "products/acme-deploy/market-scan-config.md",
 }
 
 

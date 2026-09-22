@@ -28,6 +28,7 @@ from gtm_core.email_campaign_dashboard.views_worklist import (
     GROUPS,
     _group_of,
     _provider_enrolled,
+    _reconcile,
     _staged_candidates,
     _worklist_view,
 )
@@ -68,8 +69,8 @@ def test_a_refused_row_on_a_candidate_list_is_not_staged():
     """THE regression. `drop` enrols in no lane, so a drop sitting on a recipient CSV is an
     excluded account that happens to be in a file — never a staged one."""
     candidates = {
-        "ok@northgate.example": {"sequence": "seqA", "admissible": True},
-        "no@stonebridge.example": {"sequence": "seqA", "admissible": False},
+        "ok@northgate.example": {"sequences": ("seqA",), "admissible": True},
+        "no@stonebridge.example": {"sequences": (), "admissible": False},
     }
     assert _group_of(_row("Northgate", email="ok@northgate.example"), set(), candidates) == "staged"
     assert (
@@ -82,11 +83,36 @@ def test_a_refused_row_on_a_candidate_list_is_not_staged():
 
 def test_membership_alone_never_makes_a_row_staged():
     """Positive control for the test above: the same row, same file, differing only in
-    whether the gate admits it, must land in different groups."""
-    row = _row("Brightpath", email="team@brightpath.example", verdict="drop")
-    admitted = {"team@brightpath.example": {"sequence": "s", "admissible": True}}
-    refused = {"team@brightpath.example": {"sequence": "s", "admissible": False}}
+    whether the gate admits it, must land in different groups.
+
+    The row carries a SENDABLE verdict on purpose. Written with `drop` this control could
+    not discriminate once `_group_of` began reading the account's own verdict too — both
+    sides land in `excluded` for that reason rather than the one the test is about, and it
+    would pass or fail for nothing to do with membership.
+    """
+    row = _row("Brightpath", email="team@brightpath.example", verdict="send")
+    admitted = {"team@brightpath.example": {"sequences": ("s",), "admissible": True}}
+    refused = {"team@brightpath.example": {"sequences": (), "admissible": False}}
+    assert _group_of(row, set(), admitted) == "staged"
     assert _group_of(row, set(), admitted) != _group_of(row, set(), refused)
+
+
+def test_a_stale_blank_on_the_list_cannot_outrank_a_recorded_drop():
+    """The account's own verdict is read alongside the recipient file's, and the file is the
+    older of the two.
+
+    A recipient CSV written before the research pass carries a BLANK verdict, which the
+    generic lane admits by design — blank means "this lane makes no per-row claim", not
+    "this account was cleared". Reading only the file let an account the researcher had
+    since dropped render as "On the recipient list. Nothing sent.", which is the exact
+    sentence `_staged_candidates` calls the most dangerous thing this panel can say.
+    """
+    blank_list = {"a@northgate.example": {"sequences": ("seqA",), "admissible": True}}
+    assert _group_of(_row("Northgate", email="a@northgate.example"), set(), blank_list) == "staged"
+    assert (
+        _group_of(_row("Northgate", email="a@northgate.example", verdict="drop"), set(), blank_list)
+        == "excluded"
+    ), "a recorded drop must outrank an admissible-but-stale recipient row"
 
 
 @pytest.mark.parametrize(
@@ -188,7 +214,7 @@ def test_the_panel_reports_a_list_provider_gap_rather_than_resolving_it():
 
     orig = v._staged_candidates
     v._staged_candidates = lambda _m: {
-        r["email"].lower(): {"sequence": "seqA", "admissible": True} for r in rows
+        r["email"].lower(): {"sequences": ("seqA",), "admissible": True} for r in rows
     }
     try:
         html = v._worklist_view(m)
@@ -216,7 +242,7 @@ def test_enrolment_outranks_a_pack_file_on_disk():
     """
     row = _row("Northgate Labs", email="a@northgate.example")
     packs = {"northgate-labs"}
-    enrolled = {"a@northgate.example": {"sequence": "seqA", "admissible": True}}
+    enrolled = {"a@northgate.example": {"sequences": ("seqA",), "admissible": True}}
 
     assert _group_of(row, packs, enrolled) == "staged"
     # Control: with no enrolment the same row is still a pack, so this is a precedence
@@ -284,3 +310,84 @@ def test_the_worklist_table_carries_a_status_column_and_marks_research_verdict_t
     # stands = 7) — the group-header row's colspan must grow with the table or it will not
     # span every column.
     assert 'colspan="7"' in html
+
+
+# --------------------------------------------- one address, several lists (ordering)
+
+
+def _two_list_model(tmp_path):
+    """One address on two sequences' lists, plus one address unique to each."""
+    seq = tmp_path / "acme" / "prospects" / "sequences"
+    seq.mkdir(parents=True, exist_ok=True)
+    for name, rows in (
+        ("a.csv", [("both@northgate.example", "send"), ("onlya@ashfield.example", "send")]),
+        ("b.csv", [("both@northgate.example", ""), ("onlyb@quaymark.example", "send")]),
+    ):
+        with (seq / name).open("w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=["email", "verdict"])
+            w.writeheader()
+            for email, verdict in rows:
+                w.writerow({"email": email, "verdict": verdict})
+    return {
+        "profile": "acme",
+        "_content_root": tmp_path,
+        "messages": [
+            {"sequence_id": "seqA", "csv": "a.csv"},
+            {"sequence_id": "seqB", "csv": "b.csv"},
+        ],
+    }
+
+
+def test_the_candidate_reader_is_independent_of_the_order_the_lists_are_read(tmp_path):
+    """THE regression. `out[email] = {...}` per file meant the LAST list read silently
+    overwrote every earlier one, so which sequence an address was attributed to depended on
+    `m["messages"]` order. Reversing that order on a live profile moved sequence
+    `Mgw47XpZzA` from "41 admissible against 45 enrolled" to "0 against 45" — a five-alarm
+    drift warning manufactured out of iteration order, on the panel whose job is to report
+    drift honestly.
+    """
+    m = _two_list_model(tmp_path)
+    forward = _staged_candidates(m)
+    reversed_ = _staged_candidates({**m, "messages": list(reversed(m["messages"]))})
+    assert forward == reversed_, "candidate map must be a property of the files, not their order"
+    assert forward["both@northgate.example"]["sequences"] == ("seqA", "seqB")
+
+
+def test_an_address_on_two_lists_is_admissible_work_on_both(tmp_path):
+    """Positive control: it is not enough for the map to be stable — it must carry BOTH
+    memberships. A stable map that still kept one label would pass the test above."""
+    c = _staged_candidates(_two_list_model(tmp_path))
+    assert len(c["both@northgate.example"]["sequences"]) == 2
+    assert c["onlya@ashfield.example"]["sequences"] == ("seqA",)
+    assert c["onlyb@quaymark.example"]["sequences"] == ("seqB",)
+
+
+def test_reconcile_counts_a_shared_address_under_every_sequence_that_lists_it(tmp_path):
+    """`admissible on the list` is a fact about a (row, sequence) PAIR, which is what the
+    provider's own per-sequence enrolled count is counting on the other side. Attributing a
+    shared address to one sequence left the other short against a provider number that
+    included it — drift on the page, arithmetic in the code."""
+    m = _two_list_model(tmp_path)
+    m["campaigns"] = {
+        "campaigns": [
+            {
+                "sequences": [
+                    {"sequence_id": "seqA", "enrolled": 2},
+                    {"sequence_id": "seqB", "enrolled": 2},
+                ]
+            }
+        ]
+    }
+    candidates = _staged_candidates(m)
+    staged = [
+        _row("Northgate", email="both@northgate.example", verdict="send"),
+        _row("Ashfield", email="onlya@ashfield.example", verdict="send"),
+        _row("Quaymark", email="onlyb@quaymark.example", verdict="send"),
+    ]
+    html = _reconcile(m, staged, candidates)
+    # Each sequence lists 2 admissible rows (the shared one plus its own) and the provider
+    # reports 2 — so both must reconcile. Counting the shared row once would read 1 vs 2.
+    assert "they agree" in html
+    assert "but 2 enrolled" not in html, (
+        f"a shared address was counted under only one sequence:\n{html}"
+    )

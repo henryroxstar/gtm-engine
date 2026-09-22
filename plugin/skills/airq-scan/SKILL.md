@@ -204,6 +204,15 @@ On a re-render append `-v2`, `-v3` — never overwrite.
 > and never present the product as itself certified). Say what evidence exists, not
 > that compliance is achieved.
 
+> **The quadrant and the scores are drawn, not diffused.** Invoke the `diagram-design` skill and
+> follow `references/type-quadrant.md` for the A×D quadrant and `references/type-heatmap.md` for the
+> per-factor scorecard, and ship them as **SVG**. An image model asked for "D=5" draws a plausible
+> digit, which is why Step 7 below has to read every number back off the picture — and it caught
+> exactly that. A number that was never diffused cannot be misdrawn, the text stays selectable and
+> searchable, the palette comes from the profile's `BRAND.toml` rather than a prompt, and a
+> correction is an edit instead of a re-render and a second paid call. Keep the diffusion call for
+> the **non-informational** parts of the card only: no letters, no digits, no logos in the prompt.
+
 ## Step 7 — Accuracy check (mandatory — do not skip)
 
 After each PNG is saved, **Read the saved image** and compare against its spec: every number, heading,
@@ -278,6 +287,12 @@ are the durable artifacts; generation is additive.
 - **Product-accuracy discipline** — tag any claim that the product breaks an attack leg SHIPPED/CONDITIONAL/ROADMAP (never present a roadmap control as shipped), and verify cited external facts: `docs/product-accuracy.md`.
 - **Indicative, never official.** Always print/state the "public signals — not an official AIRQ audit"
   caveat. We improve the inputs AIRQ measures; we don't issue an AIRQ score.
+<!-- lint-ok SD11: the maturity-tag rule stated twice, not two rules. Step 6's blockquote says
+     "do NOT show a Design-target as a met control"; this guardrail says "keep what it tags
+     Design-target as roadmap". Same obligation, restated for the reader who lands here first —
+     which is the residual class SD11's own docstring names, a prohibition and its positive
+     restatement sharing an object. Adjudicated 2026-09-22; delete this exemption if either
+     sentence is ever rewritten so they could genuinely diverge. -->
 - **Mitigation crosswalk = evidence, not certification.** When the card's "with our products" delta
   cites the verifiable-identity / VC story against W3C VC / DID, eIDAS 2.0 / EUDI, NIST AI RMF, or the
   EU AI Act, claim only what the product's reference pack tags as **Enforced** on the current build,

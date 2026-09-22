@@ -18,9 +18,14 @@ Three append-only files under ``content/<profile>/prospects/evals/``:
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import datetime
 import json
+import os
+import re
+import tempfile
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,6 +72,54 @@ def state_path(profile: str, content_root: Path | None = None) -> Path:
     return evals_dir(profile, content_root) / "lanes-state.jsonl"
 
 
+def state_lock_path(profile: str, content_root: Path | None = None) -> Path:
+    return state_path(profile, content_root).with_name(".lanes-state.lock")
+
+
+@contextlib.contextmanager
+def state_lock(profile: str, content_root: Path | None = None) -> Iterator[Path]:
+    """Hold an exclusive advisory lock (``flock``) over ``lanes-state.jsonl`` for the block.
+
+    ``lanes route`` reads the state, routes against it and replaces it; without this, two
+    routes on one profile each carry forward from a read the other has already overwritten.
+    Blocking: the holder is another route, which finishes in seconds, and the second one MUST
+    read what the first wrote.
+
+    Deliberately NOT :func:`gtm_core.locks.profile_lock`. A pack or cron run holds that lock
+    for its whole duration and the prospect skill runs ``lanes route`` inside it, from a child
+    process — ``flock`` is per open file, not per process tree, so the child would wait on its
+    own parent forever. Not re-entrant either: nothing called under it may take it again.
+    """
+    import fcntl  # POSIX-only; lazy so the module imports anywhere (as `gtm_core.locks` does)
+
+    path = state_lock_path(profile, content_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield path
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def sheet_path(profile: str, stamp: str, content_root: Path | None = None) -> Path:
+    """The HTML review sheet ``route`` writes beside ``hold-<stamp>.csv``."""
+    return hold_path(profile, stamp, content_root).with_suffix(".html")
+
+
+_SHEET_RE = re.compile(r"^hold-(\d{4}-\d{2}-\d{2})\.html$")
+
+
+def newest_sheet(profile: str, content_root: Path | None = None) -> Path | None:
+    """The newest review sheet actually on disk, or ``None`` — so a caller that points a
+    person at "the review sheet" names a file that exists, or says how to build one."""
+    folder = evals_dir(profile, content_root)
+    if not folder.is_dir():
+        return None
+    dated = sorted(p.name for p in folder.iterdir() if _SHEET_RE.match(p.name) and p.is_file())
+    return folder / dated[-1] if dated else None
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -90,12 +143,73 @@ def read_decisions(path: Path) -> dict[tuple[str, str], dict]:
     return out
 
 
+class StateError(ValueError):
+    """``lanes-state.jsonl`` holds a line that is not a JSON object."""
+
+
+def read_state_records(path: Path) -> list[dict]:
+    """Every record in ``lanes-state.jsonl``, in file order. The file is data (§R5): a line
+    that is not a JSON object — or a file that is not UTF-8 text — raises :class:`StateError`
+    naming it. Skipping a broken line would silently drop that person: from the lane carried
+    forward here, and from the count ``prospects status`` prints to the operator."""
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise StateError(f"{path.name} is not UTF-8 text (byte {exc.start})") from None
+    out: list[dict] = []
+    for n, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            row = None
+        if not isinstance(row, dict):
+            raise StateError(f"{path.name} line {n} is not a JSON object")
+        out.append(row)
+    return out
+
+
 def read_state(path: Path) -> dict[str, dict]:
-    return {row["email"]: row for row in _read_jsonl(path) if row.get("email")}
+    """email → its last routed record (:func:`read_state_records`, keyed)."""
+    out: dict[str, dict] = {}
+    for row in read_state_records(path):
+        email = str(row.get("email") or "").strip().lower()
+        if email:
+            out[email] = row
+    return out
 
 
-def write_state(result: RoutingResult, path: Path, stamp: str) -> None:
-    """Replace the state file wholesale — it describes the LAST run, not a history.
+def carry_forward(
+    previous: dict[str, dict], routed_emails: set[str], pool_emails: set[str] | None
+) -> list[dict]:
+    """The previous records this route must NOT lose: everyone it did not route.
+
+    Routing a subset CSV used to rewrite the state file with only that subset, blanking every
+    other row's lane — a competitor exclusion and a hold included. A record is dropped only
+    when ``pool_emails`` is known and no longer contains the address: that person has left
+    the list, and a record kept for them would go on counting as a contact forever.
+    """
+    return [
+        rec
+        for email, rec in previous.items()
+        if email not in routed_emails and (pool_emails is None or email in pool_emails)
+    ]
+
+
+def write_state(
+    result: RoutingResult, path: Path, stamp: str, *, carried: Iterable[dict] = ()
+) -> None:
+    """Replace the state file: this run's records, plus any ``carried`` forward unchanged.
+
+    Atomic — written beside the target and renamed over it — so a failed write leaves the
+    previous state intact rather than a truncated file every reader then trusts.
+
+    ``company``/``company_domain``/``account_id`` are what ``prospects status`` joins a
+    contact to its ledger account on; ``email`` alone cannot say which account a person
+    belongs to.
 
     ``reason`` (PS5) is additive: ``trigger`` keeps its existing meaning and its existing
     blank-when-none-fired behaviour unchanged, since nothing reading this file today should
@@ -104,22 +218,30 @@ def write_state(result: RoutingResult, path: Path, stamp: str) -> None:
     verdict-branch code that put the row in personalised/repair/generic.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        for r in result.routed:
-            fh.write(
-                json.dumps(
-                    {
-                        "email": r.email,
-                        "lane": r.lane,
-                        "trigger": r.trigger,
-                        "reason": r.stable_reason,
-                        "judge_verdict": r.judge_verdict,
-                        "body_hash": r.body_hash,
-                        "stamp": stamp,
-                    }
-                )
-                + "\n"
-            )
+    records = [
+        {
+            "email": r.email,
+            "lane": r.lane,
+            "trigger": r.trigger,
+            "reason": r.stable_reason,
+            "judge_verdict": r.judge_verdict,
+            "body_hash": r.body_hash,
+            "stamp": stamp,
+            "company": (r.row.get("company") or "").strip(),
+            "company_domain": (r.row.get("company_domain") or "").strip().lower(),
+            "account_id": (r.row.get("account_id") or "").strip(),
+        }
+        for r in result.routed
+    ]
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for rec in [*records, *carried]:
+                fh.write(json.dumps(rec) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def write_hold_csv(holds: list[Routed], path: Path, decisions: dict[tuple[str, str], dict]) -> Path:

@@ -118,6 +118,19 @@ GOOD_SPEC = f"""
 """
 
 
+def _spec_with_body_1(body: str) -> str:
+    """``GOOD_SPEC`` with touch 1's body swapped — the smallest-deviation helper for the
+    per-body rules that arrive through the imported ``lint_email``. Touch 2 is left untouched so
+    a mutation cannot accidentally be proven by a second, unrelated render."""
+    return f"""
+**Step 1 — Day 1** · Subject: `identity in production`
+{_blockquote(body)}
+
+**Step 2 — Day 4** (same thread, no subject)
+{_blockquote(GOOD_BODY_2)}
+"""
+
+
 def _touches(spec: str = GOOD_SPEC) -> list[Touch]:
     return parse_spec(spec)
 
@@ -1368,6 +1381,312 @@ def test_premise_thin():
     assert hits[0].email == "SPEC"
 
 
+def test_credit_is_verdict():
+    """`voice.md`: credit is an observation, never a verdict — "you do not know them well
+    enough to grade it". Fires from inside the imported `lint_email`, and has done since it was
+    written, while being absent from RULE_CATALOGUE until 2026-09-22.
+
+    Both branches are exercised: the lexical one pins that the rule reaches this path at all,
+    and the competence-attribution one (2026-09-22) is the shape that actually shipped — in all
+    five 2026-08-25 specs, on the path where no credit rule was catalogued.
+    """
+    for credit in ("Smart move.", "You have built the hard part."):
+        _fires(
+            "credit-is-verdict",
+            _touches(
+                _spec_with_body_1(GOOD_BODY_1.replace("{{Why Now}}.", f"{{{{Why Now}}}}. {credit}"))
+            ),
+            [_row()],
+        )
+
+
+def test_the_mandated_hedge_is_not_a_credit_verdict():
+    """The negative control the competence branch most needed.
+
+    `hedge-missing` REQUIRES a body to carry some form of "you may already have this covered".
+    A credit rule that convicted that sentence would make the two rules unsatisfiable together
+    and force every body to fail one of them. GOOD_BODY_1 already carries the hedge, so the
+    baseline staying clean IS the assertion — stated as its own test because it is load-bearing
+    and would otherwise only be implied by the suite's general baseline check.
+    """
+    violations, _ = lint_merge_render(_touches(), [_row()], signoff="Henry")
+    assert not [v for v in violations if v.rule == "credit-is-verdict"]
+
+
+def test_problem_asserts_internals():
+    """The banned shape from the five-beat spine: a claim about an architecture the sender
+    cannot see, rather than a predicted question. `voice.md` — "Predict the question; never
+    assert their internals"."""
+    _fires(
+        "problem-asserts-internals",
+        _touches(
+            _spec_with_body_1(
+                GOOD_BODY_1.replace(
+                    "your logs capture which account touched a record, not which agent "
+                    "held the authority to act.",
+                    "your agent holds a credential into Epic and keeps it after the job closes.",
+                )
+            )
+        ),
+        [_row()],
+    )
+
+
+def test_cta_omits_gap():
+    """An ask that shares no vocabulary with the problem the body just named reads as
+    unrelated to the reason for writing."""
+    _fires(
+        "cta-omits-gap",
+        _touches(
+            _spec_with_body_1(
+                GOOD_BODY_1.replace(
+                    "Would the one-pager on how another team mapped that to "
+                    "{{Company}}'s agent path be useful?",
+                    "Want me to send over a quarterly newsletter about payments?",
+                )
+            )
+        ),
+        [_row()],
+    )
+
+
+def test_offer_not_a_solution_overview():
+    """An offer to go and look inside the reader's own system is unpaid labour worth less than
+    an hour of their own engineer, and presumes they had not looked."""
+    _fires(
+        "offer-not-a-solution-overview",
+        _touches(
+            _spec_with_body_1(
+                GOOD_BODY_1.replace(
+                    "Would the one-pager on how another team mapped that to "
+                    "{{Company}}'s agent path be useful?",
+                    "Want me to map your dispatch path against your own settlement logs?",
+                )
+            )
+        ),
+        [_row()],
+    )
+
+
+#: Rules `lint_email` can emit that are UNREACHABLE on the merge-render path, and so must not be
+#: catalogued: cataloguing one would put it in `checks_run` and assert a check ran when it did
+#: not. `capability-unargued` comes from `lint_declared_capability`, which returns early when its
+#: word list is empty — and `lint_merge_render` never passes `capability_rules`.
+def test_seat_stakes_not_in_problem():
+    """Seat vocabulary in the ASK but not in the problem. GOOD_ROW is a CISO, so the security
+    seat's words are what count; the body states the problem as a mechanism and only reaches
+    for `audit` in the closing question."""
+    body = (
+        "Hi {{First Name}},\n\n"
+        "{{Why Now}}. When an agent at {{Company}} calls a partner over A2A, the transport "
+        "credential names the company rather than the agent. A shared token cannot say which "
+        "agent acted, and nothing in that path carries the delegation. Tell me if you've got "
+        "this covered.\n\n"
+        "Would the one-pager on how another team structured that audit trail be useful?\n\n"
+        "Henry"
+    )
+    hits = _fires("seat-stakes-not-in-problem", _touches(_spec_with_body_1(body)), [GOOD_ROW])
+    assert hits[0].level == "WARN", "a proxy for altitude must not block a run"
+
+
+def test_a_seat_word_inside_the_problem_clears_it():
+    """Off-state, and the one that makes the rule about POSITION rather than presence: the
+    same body with the seat's word moved into the problem beat passes. Without this the rule
+    would be a second, noisier `seat-stakes-missing`."""
+    body = (
+        "Hi {{First Name}},\n\n"
+        "{{Why Now}}. When an agent at {{Company}} calls a partner over A2A, your audit trail "
+        "names the company rather than the agent. A shared token cannot say which agent "
+        "acted, and nothing in that path carries the delegation. Tell me if you've got this "
+        "covered.\n\n"
+        "Would the one-pager on how another team structured that trail be useful?\n\n"
+        "Henry"
+    )
+    violations, _ = lint_merge_render(
+        _touches(_spec_with_body_1(body)), [GOOD_ROW], signoff="Henry"
+    )
+    assert not [v for v in violations if v.rule == "seat-stakes-not-in-problem"]
+
+
+def test_opener_undated():
+    """GOOD_BODY_1's opener carries no year or month. Opt-in, so the flag is passed here —
+    which is the point: the firing state is only reachable deliberately."""
+    hits = _fires("opener-undated", _touches(), [GOOD_ROW], require_dated_opener=True)
+    assert hits[0].level == "WARN" and hits[0].email == "SPEC"
+
+
+def test_opener_undated_is_off_unless_asked():
+    """The off-state, pinned as hard as the firing state. Zero of 596 live openers carry a
+    date, so a rule that quietly defaulted to ON would fail the entire fleet — and
+    `cta-unstaged-artifact` is the precedent in the other direction, a correct rule nobody
+    had opted into."""
+    violations, _ = lint_merge_render(_touches(), [GOOD_ROW], signoff="Henry")
+    assert not [v for v in violations if v.rule == "opener-undated"]
+
+
+def test_a_dated_opener_clears_the_warning():
+    """And it must actually read the opener: a body whose date sits in a later paragraph is
+    still undated where it counts."""
+    dated = (
+        "Hi {{First Name}},\n\n"
+        "The AARM working group published its agent-identity draft in April 2026. Once agents "
+        "at {{Company}} move from retrieving data inside Epic to acting on it, identity becomes "
+        "the question an auditor asks first. Tell me if you've got this covered: your logs "
+        "capture which account touched a record, not which agent held the authority to act.\n\n"
+        "Would the one-pager on how another team mapped that to {{Company}}'s agent path be "
+        "useful?\n\n"
+        "Henry"
+    )
+    violations, _ = lint_merge_render(
+        _touches(_spec_with_body_1(dated)),
+        [GOOD_ROW],
+        signoff="Henry",
+        require_dated_opener=True,
+    )
+    assert not [v for v in violations if v.rule == "opener-undated"]
+
+
+def test_signal_column_undeclared():
+    """GOOD_SPEC's touch 1 opens on the standalone `{{Why Now}}.` beat and its front block
+    declares no `signal_column:` — the migration state every live spec is in."""
+    hits = _fires("signal-column-undeclared", _touches(), [GOOD_ROW], spec_text=GOOD_SPEC)
+    assert hits[0].level == "WARN", "a field no live spec carries yet must not block a run"
+    assert hits[0].email == "SPEC"
+
+
+def test_a_declared_signal_column_clears_the_warning():
+    """Off-state. Without this the rule could ignore the front block entirely and the test
+    above would still pass — which is how a field becomes decorative."""
+    spec = "```\nsignal_column: compliance_event\n```\n" + GOOD_SPEC
+    violations, _ = lint_merge_render(_touches(spec), [GOOD_ROW], signoff="Henry", spec_text=spec)
+    assert not [v for v in violations if v.rule == "signal-column-undeclared"]
+
+
+def test_thread_sentence_repeat():
+    """The same sentence in two touches that land in ONE thread. GOOD_SPEC's step 2 carries
+    no subject, so it is a same-thread follow-up — the mutation is to echo one of step 1's
+    sentences there, and nothing else."""
+    echoed = (
+        "Hi {{First Name}},\n\n"
+        # A short opener of its own, so the echoed sentence is not glued to the greeting by
+        # `_sentences` — glued, its token set differs from step 1's and nothing repeats.
+        "Following up on the note below.\n\n"
+        "Once agents at {{Company}} move from retrieving data inside Epic to acting on it, "
+        "identity becomes the question an auditor asks first.\n\n"
+        "Want their before-and-after, mapped to {{Company}}'s agent path?\n\n"
+        "Henry"
+    )
+    spec = f"""
+**Step 1 — Day 1** · Subject: `identity in production`
+{_blockquote(GOOD_BODY_1)}
+
+**Step 2 — Day 4** (same thread, no subject)
+{_blockquote(echoed)}
+"""
+    hits = _fires("thread-sentence-repeat", _touches(spec), [GOOD_ROW])
+    assert hits[0].email == "SPEC", "a sequence-wide defect reported against one render"
+
+
+def test_a_repeat_across_two_threads_is_not_a_repeat():
+    """Off-state. The rule is about what the reader sees in ONE window: give step 2 its own
+    subject and the same echo is a fresh thread, which is a different (legal) shape. Without
+    this the rule could be `any sentence twice` and every test above would still pass."""
+    echoed = (
+        "Hi {{First Name}},\n\n"
+        # A short opener of its own, so the echoed sentence is not glued to the greeting by
+        # `_sentences` — glued, its token set differs from step 1's and nothing repeats.
+        "Following up on the note below.\n\n"
+        "Once agents at {{Company}} move from retrieving data inside Epic to acting on it, "
+        "identity becomes the question an auditor asks first.\n\n"
+        "Want their before-and-after, mapped to {{Company}}'s agent path?\n\n"
+        "Henry"
+    )
+    spec = f"""
+**Step 1 — Day 1** · Subject: `identity in production`
+{_blockquote(GOOD_BODY_1)}
+
+**Step 2 — Day 4** · Subject: `a second look`
+{_blockquote(echoed)}
+"""
+    violations, _ = lint_merge_render(_touches(spec), [GOOD_ROW], signoff="Henry")
+    assert not [v for v in violations if v.rule == "thread-sentence-repeat"]
+
+
+def test_thread_reply_prefix():
+    """A touch that OPENS a thread claiming to continue one."""
+    spec = f"""
+**Step 1 — Day 1** · Subject: `Re: identity in production`
+{_blockquote(GOOD_BODY_1)}
+
+**Step 2 — Day 4** (same thread, no subject)
+{_blockquote(GOOD_BODY_2)}
+"""
+    hits = _fires("thread-reply-prefix", _touches(spec), [GOOD_ROW])
+    assert hits[0].email == "SPEC"
+
+
+_INERT_ON_THIS_PATH = frozenset({"capability-unargued"})
+
+
+def _rules_emitted_by(func_names: tuple[str, ...]) -> set[str]:
+    """Rule-id literals passed to ``Violation(...)`` inside these `outreach_pack_linter`
+    functions, plus the in-module ``lint_*`` helpers they call.
+
+    Static rather than dynamic because the point is coverage of every branch, including ones no
+    fixture in this suite happens to reach. A rule guarded behind an opt-in argument still has
+    to be either catalogued or named in `_INERT_ON_THIS_PATH`.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path(__file__).with_name("outreach_pack_linter.py").read_text())
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+
+    def literals(node):
+        out = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "Violation":
+                if len(n.args) >= 3 and isinstance(n.args[2], ast.Constant):
+                    out.add(n.args[2].value)
+                for kw in n.keywords:
+                    if kw.arg == "rule" and isinstance(kw.value, ast.Constant):
+                        out.add(kw.value.value)
+        return out
+
+    reached = set(func_names)
+    for name in func_names:
+        for n in ast.walk(funcs[name]):
+            if isinstance(n, ast.Call) and getattr(n.func, "id", "").startswith("lint_"):
+                reached.add(n.func.id)
+    return {r for name in reached if name in funcs for r in literals(funcs[name])}
+
+
+def test_every_emitted_rule_is_catalogued():
+    """The backstop in the direction that was missing until 2026-09-22.
+
+    ``test_every_catalogue_rule_has_a_mutation`` walks catalogue -> test. Nothing walked
+    emitted -> catalogue, so four rules fired on this path for weeks while absent from
+    ``checks_run`` — and a rule absent from ``checks_run`` has no denominator in
+    ``rule_lifecycle_report`` and can never earn keep/recalibrate/delete. The module docstring
+    already claimed this property ("fails closed if a future rule is added to either call
+    path"); this test is what makes the claim true.
+    """
+    emitted = _rules_emitted_by(("lint_email", "lint_hedge_stem"))
+    missing = sorted(emitted - set(RULE_CATALOGUE) - _INERT_ON_THIS_PATH)
+    assert not missing, (
+        f"emitted on the merge-render path but not in RULE_CATALOGUE: {missing}. "
+        f"Add an entry (and a mutation), or name it in _INERT_ON_THIS_PATH with the reason "
+        f"it cannot fire here."
+    )
+
+
+def test_the_inert_list_stays_honest():
+    """An exemption nobody rechecks becomes a hiding place. If a rule named inert is later
+    wired up here, it must be catalogued rather than left exempt."""
+    stale = sorted(_INERT_ON_THIS_PATH & set(RULE_CATALOGUE))
+    assert not stale, f"catalogued but still listed as inert: {stale}"
+
+
 def test_every_catalogue_rule_has_a_mutation():
     """The backstop: every ``RULE_CATALOGUE`` entry must have exactly one test function
     above named ``test_<rule with '-' -> '_'>``. Fails the moment a 65th rule is added to
@@ -1383,7 +1702,10 @@ def test_every_catalogue_rule_has_a_mutation():
     ]
     assert not missing, f"no mutation test for: {sorted(missing)}"
     # 77 -> 79 on 2026-09-04: seat-stakes-missing + offer-does-their-work.
-    assert len(RULE_CATALOGUE) == 79, (
+    # 79 -> 83 on 2026-09-22: credit-is-verdict, offer-not-a-solution-overview, cta-omits-gap,
+    # problem-asserts-internals — all four already firing here, none catalogued. Found by the
+    # new `test_every_emitted_rule_is_catalogued`, which is the reverse of this check.
+    assert len(RULE_CATALOGUE) == 88, (
         f"RULE_CATALOGUE grew or shrank to {len(RULE_CATALOGUE)} rules without this "
         f"suite's docstring/comment being updated to match"
     )

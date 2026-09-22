@@ -378,11 +378,23 @@ async def _dispatch_gate_successors(
     Returns an error string when the caller should fail/abort, else ``None``.
     """
     from . import gate_actions
+    from .dnc_dispatch import dispatch_approved_dnc_add
     from .email_dispatch import dispatch_approved_enrollment
 
     successors = [n for n in engine_graph.nodes if gated_node_id in n.depends_on]
     for succ in successors:
-        if succ.external_effect == "email_enroll":
+        if succ.external_effect == "dnc_add":
+            # SC9, third effect. Same shape as the enrollment branch above it: the
+            # approved draft names addresses, the dispatcher narrows them against the
+            # ledger and writes inside `dnc_context()`. The brain never runs this node.
+            if enroll_draft is None:
+                return f"{succ.id!r} needs an approved DNC draft, found none"
+            outcome = await dispatch_approved_dnc_add(cfg, runner.ledgers, draft=enroll_draft)
+            print(f"[pack-gate] {succ.id!r}: {outcome.operator_line()}", flush=True)
+            if not outcome.ok:
+                return f"{succ.id!r} dispatch failed: {outcome.detail or outcome.status}"
+            gate_actions.discard_dnc_draft(cfg, runner.ledgers.profile, path=draft_path)
+        elif succ.external_effect == "email_enroll":
             if enroll_draft is None:
                 return f"{succ.id!r} needs an approved enrollment draft, found none"
             outcome = await dispatch_approved_enrollment(cfg, runner.ledgers, draft=enroll_draft)
@@ -461,12 +473,12 @@ async def _pack_gate_decision(
         return 1
     gated_node_id = gated.get("name", "")
 
-    enroll = any(
-        n.external_effect == "email_enroll"
-        for n in engine_graph.nodes
-        if gated_node_id in n.depends_on
-    )
-    found = gate_actions.gate_draft(cfg, profile, run_id=run_id, enroll=enroll)
+    successor_effects = {
+        n.external_effect for n in engine_graph.nodes if gated_node_id in n.depends_on
+    }
+    enroll = "email_enroll" in successor_effects
+    dnc = "dnc_add" in successor_effects
+    found = gate_actions.gate_draft(cfg, profile, run_id=run_id, enroll=enroll, dnc=dnc)
     draft_path, draft_kind = found if found is not None else (None, None)
 
     if decision == "reject":
@@ -474,6 +486,8 @@ async def _pack_gate_decision(
             gate_actions.discard_plan_draft(cfg, profile)
         elif draft_kind == "enroll":
             gate_actions.discard_enroll_draft(cfg, profile, path=draft_path)
+        elif draft_kind == "dnc":
+            gate_actions.discard_dnc_draft(cfg, profile, path=draft_path)
         print(
             f"[pack-gate] run {run_id!r} node {gated_node_id!r} REJECTED — draft "
             "discarded, run not resumed",

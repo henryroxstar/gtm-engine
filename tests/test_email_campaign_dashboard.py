@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospects_consolidate as pc
 
@@ -335,7 +337,11 @@ def test_status_tiles_sum_to_the_derived_total_and_hold_out_the_unmapped(tmp_pat
     assert model["prospect_status"]["unmapped"] == 1
     page = gd.render_html(model)
     assert "These five sum to <strong>5</strong>" in page
-    assert "1 more row(s)" in page and "does not recognise" in page
+    # The terminal prints the unmapped record as an "Unrecognised" row inside ITS total, so
+    # the page names the same label and the same whole-list figure rather than a private
+    # "1 more row(s)" sentence that made the two totals disagree (5 here, 6 there).
+    assert '<div class="stat-value">1</div><div class="stat-label">Unrecognised</div>' in page
+    assert "with the 1 unrecognised, <strong>6</strong> people in the current list" in page
 
 
 def test_needs_address_is_kept_out_of_the_five_tile_total(tmp_path):
@@ -493,9 +499,35 @@ def test_i10_status_tiles_scope_note_on_campaign_page_and_provenance(tmp_path):
     check_tiles(scoped, status_tiles)
 
 
-def test_m15_m16_lane_state_malformed_and_unmapped_status(tmp_path):
-    """M15 & M16: _read_lane_state handles malformed and non-dict lines gracefully;
-    unmapped rows are recorded as 'unmapped' in by_email and rendered as
+@pytest.mark.parametrize("bad", ["not json", "null", "42"])
+def test_a_malformed_lane_state_line_is_refused_never_quietly_skipped(tmp_path, bad):
+    """Until 2026-09-21 these lines were skipped, so every lane-derived figure on the page came
+    out short with nothing saying so — while the terminal block refused the same file."""
+    from gtm_core.email_campaign_dashboard.cli import _cli
+    from gtm_core.email_campaign_dashboard.model import (
+        LaneStateUnreadable,
+        prospect_status_model,
+    )
+
+    profile = _seed(tmp_path)
+    state_file = tmp_path / profile / "prospects" / "evals" / "lanes-state.jsonl"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        '{"email": "good@example.com", "lane": "personalised", "reason": "personalised"}\n'
+        f"{bad}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(LaneStateUnreadable):
+        prospect_status_model(profile, tmp_path)
+    page = tmp_path / profile / "email_campaign_status.html"
+    before = page.read_text(encoding="utf-8") if page.exists() else None
+    assert _cli(["--profile", profile, "--content-root", str(tmp_path), "--scope", "all"]) == 2
+    after = page.read_text(encoding="utf-8") if page.exists() else None
+    assert after == before, "a page must not be rewritten from a list that could not be read"
+
+
+def test_m16_unmapped_status(tmp_path):
+    """M16: an unmapped row is recorded as 'unmapped' in by_email and rendered as
     '<span class="pill warn">status unmapped</span>'."""
     from gtm_core.email_campaign_dashboard.format import _row_status
     from gtm_core.email_campaign_dashboard.model import prospect_status_model
@@ -505,9 +537,7 @@ def test_m15_m16_lane_state_malformed_and_unmapped_status(tmp_path):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(
         '{"email": "good@example.com", "lane": "personalised", "reason": "personalised"}\n'
-        "not json\n"
-        "null\n"
-        "42\n"
+        "\n"
         '{"email": "unmapped@example.com", "lane": "hold", "reason": "not-a-real-trigger"}\n',
         encoding="utf-8",
     )

@@ -31,7 +31,10 @@ from .paths import PathConfig, resolve_knowledge_file
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m gtm_core.resolve_knowledge",
-        description="Resolve a profile knowledge file, product overriding profile.",
+        description=(
+            "Resolve a profile knowledge file: experiment overlay beats product, "
+            "product beats profile."
+        ),
     )
     parser.add_argument("filename", help="bare knowledge filename, e.g. icp-personas.md")
     parser.add_argument("--profile", required=True, help="active profile slug")
@@ -39,6 +42,15 @@ def main(argv: list[str] | None = None) -> int:
         "--product",
         default=None,
         help="active product slug; omit for profile-wide resolution",
+    )
+    parser.add_argument(
+        "--overlay",
+        default=None,
+        help=(
+            "experiment overlay slug; omit unless the operator asked for that experiment "
+            "by name. Admission (kill switch, expiry, allowlist) is gtm_core.experiments' "
+            "job and happens once per run — this flag only resolves a path"
+        ),
     )
     parser.add_argument(
         "--profiles-root",
@@ -59,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        path = resolve_knowledge_file(profiles_root, args.profile, args.filename, args.product)
+        path = resolve_knowledge_file(
+            profiles_root, args.profile, args.filename, args.product, args.overlay
+        )
     except ValueError as exc:
         print(f"[resolve-knowledge] {exc}", file=sys.stderr)
         return 2

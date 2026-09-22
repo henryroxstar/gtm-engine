@@ -14,20 +14,22 @@
 > specific reason** in the run header (a failed call, a null/empty result, a confirmed disconnect) —
 > not just "unavailable" or "narrow cohort."
 
-## Standard mode vs bulk mode — which one this run uses
+## Which mode this run uses
 
-This file documents **two modes** over the same two data sources. Pick one at the top of the run and
+This file documents **three modes** over the same data sources. Pick one at the top of the run and
 say which in the run header:
 
-| | **Standard mode** (default) | **Bulk mode** (opt-in) |
-|---|---|---|
-| When | routine weekly ~10-account run, or any target the ~30-row `fetch-entities` intake can plausibly reach | operator states an explicit large target (e.g. "300 accounts") that standard mode's ~20–30-row-per-pass intake cannot reach |
-| Candidate intake | `fetch-entities` rows treated directly as the candidate pool (≤30/pass) | `export-to-csv` materializes a much larger qualified slice to a file; the skill scores it from disk in batches |
-| Qualification | web sweep runs per-row, before the set is finalized | firmographic + why-now gating happens **in-query** (Vibe filters); the web sweep only confirms/dates Tier-A finalists |
-| Section to follow | everything below except "Bulk mode" | §"Bulk mode" below, using the same filter library + budget discipline |
+| | **Standard mode** (default) | **Bulk mode** (opt-in) | **List mode** (operator supplies the accounts) |
+|---|---|---|---|
+| When | routine weekly ~10-account run, or any target the ~30-row `fetch-entities` intake can plausibly reach | operator states an explicit large target (e.g. "300 accounts") that standard mode's ~20–30-row-per-pass intake cannot reach | the account universe already exists and arrives from outside — a curated spreadsheet, a partner list, accounts colleagues added during an internal review |
+| Candidate intake | `fetch-entities` rows treated directly as the candidate pool (≤30/pass) | `export-to-csv` materializes a much larger qualified slice to a file; the skill scores it from disk in batches | no discovery and no provider call at all: `prospects_import ingest` reads the supplied CSV straight from disk, 0 credits |
+| Qualification | web sweep runs per-row, before the set is finalized | firmographic + why-now gating happens **in-query** (Vibe filters); the web sweep only confirms/dates Tier-A finalists | same rubric, scored from disk; **heat is 0** until a Re-score pass, because a curated sheet carries no intent topics |
+| Section to follow | everything below except "Bulk mode" and "List mode" | §"Bulk mode" below, using the same filter library + budget discipline | §"List mode" below |
 
-Bulk mode is **additive** — it does not replace or change standard-mode behavior. If the operator
-hasn't stated a large target, use standard mode.
+Both bulk and list mode are **additive** — neither replaces or changes standard-mode behavior. If the
+operator hasn't stated a large target, use standard mode; if they handed you the accounts, use list
+mode. The three compose: a list-mode import lands in `latest.json` like any other run, so a later
+standard/bulk run excludes those accounts through the normal exclude set.
 
 ## Bulk mode (target-driven large runs)
 
@@ -111,7 +113,10 @@ skill's call; only firmographic/heat filtering and set materialization move into
    cost to `costs.jsonl`** (Vibe doesn't self-meter, unlike the in-repo RocketReach/vision workers —
    this call is the only place the spend gets recorded).
 7. **Score in the skill, from the file, in batches.** Read `candidates-<run-id>.json` and apply the
-   rubric (`gates-and-scoring.md`) — this stays LLM judgment, never mechanical. Heat is already on
+   rubric (`gates-and-scoring.md`) — the fit judgment stays yours, never mechanical; record it as
+   `fit_score` and let `python -m gtm_core.score_prospects --items <f> --out <scored.json>
+   --dropped-out <dropped.json>` (no `--profile` flag) own heat cap, tier and rank. Only the `--out`
+   rows go to `finalize`. Heat is already on
    each candidate from ingest; the firmographic gate is already satisfied by the query filters, so
    scoring here is fit + why-now + tier, not re-deriving heat. **Enrich finalists only**: RocketReach
    export for Tier-A verified contacts, Vibe `enrich-prospects` bulk for Tier-B, and the web sweep
@@ -120,7 +125,8 @@ skill's call; only firmographic/heat filtering and set materialization move into
 8. **Merge to state.** Run `python -m gtm_core.prospects_import finalize --profile <active> --items
    <scored-items.json> --source-run <run-id>` — this merges the scored items into `latest.json` via
    the safe, snapshot-taking writer (`gtm_core.prospects_state`, same merge-only guarantee as standard
-   mode's Step 7) and writes the run's HubSpot CSV in one call.
+   mode's Step 10) and writes the run's HubSpot CSV in one call. It fabricates no defaults: `verdict`,
+   `category_relation`, the signal record and `lane` stay blank unless the item carries them.
 
 **Relaxed-gate labeling still applies.** If a bulk run relaxes the why-now gate (e.g. intent-only
 qualification, per an explicit operator instruction) exactly as the 2026-07-19 run did, label every
@@ -133,6 +139,77 @@ changes its download host, or the export itself fails — bulk mode has no way t
 candidate set: fall back to standard mode rather than guessing at a larger `fetch-entities`
 `number_of_results` (the MCP wrapper caps inline rows at 5 regardless of what's requested), and never
 substitute a summarising fetch for the real rows.
+
+## List mode (the operator supplies the accounts)
+
+Standard and bulk mode both *find* the universe. List mode is for when it already exists and arrives
+from outside: a curated spreadsheet, a partner list, or — the common one — accounts that colleagues
+added during an internal review of a previous run. There is **no discovery step, no provider call and
+no credit spend**; the run starts at ingest and uses the same rubric, the same writer and the same
+state file as every other mode.
+
+1. **Save the sheet as CSV.** Excel's "CSV UTF-8" is fine — `ingest` opens with `utf-8-sig`, so a BOM
+   is handled. One row per account.
+2. **Ingest it.**
+   ```bash
+   python -m gtm_core.prospects_import ingest --profile <active> --csv <path> \
+     --source-run <run-id> --source curated-sheet [--exclude <exclude.json>]
+   ```
+3. **Score from the file**, exactly as bulk mode does — read `candidates-<run-id>.json`, apply
+   `gates-and-scoring.md`, then `python -m gtm_core.score_prospects`.
+4. **Merge to state** with `python -m gtm_core.prospects_import finalize` — the same safe, merge-only
+   writer, which also emits the run's HubSpot CSV.
+5. **Fill the heat axis** with a **Re-score mode** pass (`references/heat-rescore.md`). This is also
+   the answer to "people added more accounts, score them again": re-ingest the updated sheet (the
+   merge is additive, so previously-scored accounts are not clobbered), then re-score.
+
+**Five things that are not obvious:**
+
+- **`--source curated-sheet` is not optional on a list you did not buy.** That flag stamps provenance
+  *and* switches billing off. The default, `vibe-export`, logs `rows × EXPORT_CREDITS_PER_ROW` to
+  `costs.jsonl` — correct for a metered export, and fabricated spend for a sheet: ~$16 of phantom cost
+  on 400 rows, charged against the profile's §R2 monthly cap, which then blocks real paid calls.
+  Provenance and billing move together on purpose — a row claiming a metered origin is a row that was
+  billed for one.
+- **`ingest` is not Vibe-only, despite the function name.** Its `_FIELD_ALIASES` table already accepts
+  plain human headers, case-insensitively, alongside Vibe's `business_*` names: `Company`,
+  `Domain`/`Website`, `Country`/`Market`, `City`, `Region`/`State`, `Industry`, `Employees`,
+  `Revenue`. A hand-curated sheet ingests unchanged.
+- **`Company` is the only required column** — a row without one is skipped silently. Dedup is
+  **domain-first**, so supply `Domain`/`Website` wherever you have it; without a domain, two similar
+  company names are deliberately *not* collapsed.
+- **Heat comes back 0, and that is correct, not a bug.** A curated sheet carries no Bombora topics, so
+  there is nothing to derive heat from until step 5.
+- **A `verdict` column is REQUIRED on a sheet you did not research.** Standard mode fills it at
+  Step 8 because research happened inside the run; list mode has no research step, so nothing
+  fills it and every row arrives blank. A blank verdict is enrollable in the **generic** lane
+  (`gtm_core.lane_verdicts`), which means an unreviewed curated sheet can flow to a sequencer on
+  a body that makes no account-specific claim — safe copy, but nobody decided these accounts
+  were worth contacting. Either carry the sheet owner's own column through the ingest, or run
+  the rows past a researcher before `lanes route`. State in the run header which of the two
+  happened: "N rows arrived with a verdict" and "N rows are unreviewed" are different lists.
+- **Never drop a curated sheet into `prospects/imports/` and expect the backlog queue to see it.**
+  `gtm_core.prospects_backlog` skips any import CSV whose header lacks `business_id` — **silently, with
+  no error** — and `ingest` does not emit one. Curated lists reach state through `ingest` → `finalize`,
+  never through `backlog select`.
+
+## Provider hard caps — one table, one home
+
+Every number here is a **structural cap on one call**, not a rate and not a price. They were
+scattered across three files and a skill body; a cap restated in four places is a cap that is
+wrong in three of them. **Cite this table; do not restate a number from it.**
+
+| Call | Cap | What happens at the edge |
+|---|---|---|
+| Vibe `match-business` | **50 businesses per call** | Hard error: `Array must contain at most 50 element(s)`. Batch a longer list and chain through one `session_id`. |
+| Vibe `business_intent_topics` filter | **20 topics per call** | Hard error at 21. A profile with more topics **cannot be covered by one query** — run the passes separately and union. Do **not** silently truncate to the first 20: on 2026-08-11 a single pass concluded "SG enterprise is only 108 companies" while two passes found 152. |
+| Any Vibe `fetch-entities` preview | **5 rows in the agent's response** | Not an error — the rest is simply unreadable to the agent, paid or not. `show-sample` charges for the full table and still returns 5 to the agent (the rest unmasks into a human widget). Never read a 5-row preview as the population. |
+| RocketReach `rocketreach_bulk_lookup` | **25 finalists per call** | — |
+| Apollo `apollo_bulk_person_enrich` | **10 per call** | Apollo's documented batch cap. |
+
+Two further limits are **not** caps and live elsewhere because they move: RocketReach's per-action
+**rate limits** (read them from `account` → `rate_limits`, per §"Preflight") and every provider's
+credit pricing (§"Budget"). A cap is a property of the API; a rate limit is a property of today.
 
 ## Three data sources — who does what, and how to toggle
 
@@ -152,7 +229,7 @@ substitute a summarising fetch for the real rows.
 
 Discovery + enrichment engine (OAuth connector "Vibe Prospecting"; an Explorium product). Tools seen in the registry: `autocomplete`, `fetch-entities`, `fetch-entities-statistics`, `fetch-businesses-events`, `enrich-prospects`, `enrich-business`, `estimate-cost`, `export-to-csv`. Reserve Vibe for **cold ICP discovery + the in-market pass** (Step 3), **company topic-intent + events**, and **fallback persona enrichment** (Step 6). Signal-only fetches are dropped — web search handles "why now" (Step 4) at zero credit cost.
 
-**Topic-intent mechanics (Bombora):** `business_intent_topics` is a `fetch-entities` filter — object form **`{topics: [...]}`** (topic strings only; the old `topic_intent_level` key is **rejected** as of 2026-07-18 — do not send it). Topic strings MUST come from `autocomplete` (field `business_intent_topics`); take the list to run from the profile's `market-scan-config.md` → "Intent topics" section, re-verifying against autocomplete on the first run each month (the taxonomy drifts). **Vibe hard-caps this filter at 20 topics** (`Array must contain at most 20 element(s)`) — a profile whose topic list exceeds 20 **cannot be covered by one query**, so run the profile's documented passes separately and union the results. Do not silently truncate to the first 20: on 2026-08-11 a single hybrid pass concluded "SG enterprise is only 108 companies", when the agentic pass alone returned 85 at 1,000+ and the governance/identity pass returned a further 67 that the agentic pass missed entirely (a Big Four consultancy, a public health cluster). A single-pass topic query systematically under-counts the market and will read as a market-size fact. The filter returns every company surging on **any** of the topics, and **each row carries the per-topic scores inline** — `business_business_intent_topics` is a JSON array of `{topic, score}` (0–100). Use the real number for heat: **score ≥75 = high intent (+2)**, 60–74 = elevated. Filtering/preview costs nothing; the usual export pricing applies to rows you export.
+**Topic-intent mechanics (Bombora):** `business_intent_topics` is a `fetch-entities` filter — object form **`{topics: [...]}`** (topic strings only; the old `topic_intent_level` key is **rejected** as of 2026-07-18 — do not send it). Topic strings MUST come from `autocomplete` (field `business_intent_topics`); take the list to run from the profile's `market-scan-config.md` → "Intent topics" section, re-verifying against autocomplete on the first run each month (the taxonomy drifts). This filter is **topic-capped per call** — see §"Provider hard caps" for the number and for why truncating to fit it silently under-counts a market. A single-pass topic query systematically under-counts the market and will read as a market-size fact. The filter returns every company surging on **any** of the topics, and **each row carries the per-topic scores inline** — `business_business_intent_topics` is a JSON array of `{topic, score}` (0–100). Use the real number for heat: **score ≥75 = high intent (+2)**, 60–74 = elevated. Filtering/preview costs nothing; the usual export pricing applies to rows you export.
 
 ## RocketReach — contact resolution + company intent, trigger signals & job-change timing
 
@@ -384,26 +461,47 @@ Personas to fetch per account (see `profiles/<active>/knowledge/icp-personas.md`
 - **Enterprise:** Champion = Head of AI Platform; Economic buyer = CISO (alt CIO); Co-signers = CRO/Compliance, Cloud/Platform Architect, FinOps; Influencer = Security Architect.
 - **Startup:** Primary buyer = CEO/Founder (pre-Series B) or CPO (Series B+); Co-decider = CTO/Founding Engineer; Influencer = Head of Security/Engineering.
 
+**Resolve the CHAMPION first, not the most senior person.** For Enterprise the champion is the
+Head of AI Platform / VP AI Eng / Dir Applied AI — the seat that books the demo and runs the pilot;
+the CISO is the co-signer. The AUG26 deck states this explicitly ("the CDO/Chief AI Officer is the
+entry point and the CISO is the co-signer, **not the reverse**"). It is easy to get backwards
+because the economic buyer is always the easier person to find, and a resolver that takes whoever
+it can see will hand you a CISO every time.
+
 Depth:
-- **Contact (email + phone) → RocketReach** for the **top-1 persona per account** (champion-tier / primary-buyer-tier) — one **export** each, finalists only. `BulkLookup` all finalists in one call.
+- **Contact (email + phone) → RocketReach**, finalists only, `BulkLookup` in one call. Depth is
+  **per segment, because committee size is a property of the segment, not of the budget**:
+  - **Enterprise — up to 3 seats: champion, economic buyer, technical evaluator.** A 6–12 month
+    cycle with a 4–6 seat committee cannot be worked through one contact. The technical evaluator
+    (Security Architect / Platform Engineer) is the seat `icp-personas.md` calls "runs the PoC;
+    **makes or breaks the deal**", and it is *more* findable than the exec seats, not less —
+    measured on RocketReach 2026-09-21 for US banking 1,000+: **159 Security Architects against
+    109 CISOs**, **150 identity/access specialists against 28 Head-of-AI**, with C-level only 1.8%
+    of that population. Resolve them with `management_levels` + `current_title`; searches are
+    credit-free, so the extra seats cost search time, not quota — only the export is metered.
+  - **Startup / Builder — 1 seat.** The founder is champion, evaluator and economic buyer at once
+    (`icp-personas.md` § Builder: "One seat: the technical founder"). A second contact here is
+    waste, not coverage.
+  - The person-level export already carries several people per company, so multi-threading needs
+    no new field — only the extra lookups.
 - **Profiles → Vibe `enrich-prospects`** for the **top 2 personas per account** (title/seniority context), and as the **contact fallback** when RocketReach has no hit.
 - `enrich-business` — **skip by default**; only if web search can't yield the firmographics needed to score. Cap 3/run.
 
 **New-in-role check (finalists only, credit-free):** for each finalist's champion/economic-buyer personas, check whether the person is new in seat — RocketReach `person_search` scoped to the company with `job_change_signal: ["Company Change::three_months", "Promotion::three_months"]`, or (Vibe path) `current_role_months` 1–6 as a prospect filter. Mark hits **🆕 new-in-role** on the contact and the account: 🆕 accounts jump the Tier-A queue (the conversion premium decays inside ~90 days) and take the hook matrix's new-in-role column instead of the default signal column.
 
-**Acceptance:** an account is "complete" when ≥1 verified contact (champion / primary-buyer tier) has an email — RocketReach-verified where possible, Vibe- or web-sourced (marked unverified) otherwise. **One exception:** a generic inbox (`hello@`, `enquiries@`, `info@`) pulled directly off the company's own official site also satisfies acceptance for **Builder/Startup accounts only** — see "Site-published generic inboxes" in the web-search fallback section below. Enterprise never gets this exception; a named contact or explicit web-sourced-unverified status is still required.
+**Acceptance:** an account is "complete" when its segment's seats are resolved — **Enterprise: the champion, plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 is the floor); **Startup / Builder: ≥1 verified contact** (champion / primary-buyer tier) has an email — RocketReach-verified where possible, Vibe- or web-sourced (marked unverified) otherwise. **One exception:** a generic inbox (`hello@`, `enquiries@`, `info@`) pulled directly off the company's own official site also satisfies acceptance for **Builder/Startup accounts only** — see "Site-published generic inboxes" in the web-search fallback section below. Enterprise never gets this exception; a named contact or explicit web-sourced-unverified status is still required.
 
 ## "Why now" signal hunt — fixed 6-source web sweep (0 credits)
 
-Run the same six sources per candidate, in order. Tag every hit `[type | date | source URL | strength H/M/L]`:
+Run the same six sources per candidate, in order. `python -m gtm_core.web_sweep queries --company "<company>" --profile <active> --segment <enterprise|startup>` generates the actual queries from the profile's `web-sweep.toml` (the strings below illustrate the shape), and `web_sweep normalize` validates, dates and ranks the hits (SKILL.md Step 6). Tag every hit `[type | date | source URL | strength H/M/L]`:
 1. **Newsroom / PR** — `"{company}" (agentic OR "AI governance" OR "agent identity")`
 2. **Hiring (= building)** — `"{company}" ("AI platform" OR agent OR "ML platform") site:linkedin.com/jobs`
 3. **Eng signal** — GitHub org + engineering blog → MCP / A2A / framework adoption
 4. **Regulatory / standards** — earnings call + regulator/standards participation (e.g. MAS, IMDA, W3C, DIF; adapt regulators to the market)
-5. **Funding (startup)** — `"{company}" (raised OR "Series")` — within 18 months
+5. **Funding (startup)** — `"{company}" (raised OR "Series")` — a why-now only within 210 days; up to 18 months it is returned as `context_hits` (background, never the why-now — the load gate refuses a `signal_observed` older than 210 days)
 6. **Pressure / incident** — breach · audit finding · EU AI Act mention · enterprise-deal stall
 
-Keep the single strongest hit as the 🔥 signal — it must map to an ICP enterprise/startup "why now" trigger. **Drop** the candidate if no dated hit <90 days (enterprise) / <18 months (startup), or if it fails a gate Step 3 couldn't catch. Write the 🔥 line + date + URL into the output — provenance travels into outreach. If intent/trigger feeds are live (Vibe `events` + topic-intent, RocketReach news/job-posting signals), let them pre-flag sources 1, 2, 5 & 6 so web search **confirms and dates** rather than discovers. The 🔥 line always cites the public source, never the feed.
+Keep the single strongest hit as the 🔥 signal — it must map to an ICP enterprise/startup "why now" trigger. A candidate with no dated hit ≤90 days (enterprise) / ≤210 days (startup) is **routed, not dropped** — `verdict: re-angle`, generic-lane candidate (SKILL.md Step 6); **drop** only on a gate failure. Write the 🔥 line + date + URL into the output — provenance travels into outreach. If intent/trigger feeds are live (Vibe `events` + topic-intent, RocketReach news/job-posting signals), let them pre-flag sources 1, 2, 5 & 6 so web search **confirms and dates** rather than discovers. The 🔥 line always cites the public source, never the feed.
 
 ## Web-search fallback (when Vibe genuinely isn't usable this run)
 

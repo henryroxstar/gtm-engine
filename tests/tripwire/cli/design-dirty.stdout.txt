@@ -1,0 +1,61 @@
+
+dirty.md
+  ✗ [SD1 tier missing] document: Executive summary
+      → the three-tier read needs Executive summary — an exec, the customer overview, then the appendix the customer copy drops
+  ✗ [SD2 coverage gap COV-01] document: Goals and the problem — What outcome is this for, and whose problem does it solve?
+      → add a section that answers it; ours normally does so as: Executive summary, and the 'what we heard' recap
+  ✗ [SD2 coverage gap COV-03] document: Context and scope — What sits outside the boundary, and where does the boundary run?
+      → add a section that answers it; ours normally does so as: Tier 1 architecture, current-state diagram
+  ✗ [SD2 coverage gap COV-04] document: Solution strategy — What is the shape of the answer, and why this shape rather than another?
+      → add a section that answers it; ours normally does so as: Tier 1 solution, and the architecture selection
+  ✗ [SD2 coverage gap COV-05] document: Building blocks — What gets configured or built, component by component?
+      → add a section that answers it; ours normally does so as: A3 Component inventory
+  ✗ [SD2 coverage gap COV-06] document: Runtime behaviour — What actually happens on one request, end to end?
+      → add a section that answers it; ours normally does so as: Tier 1 how-it-works, request-sequence diagram
+  ✗ [SD2 coverage gap COV-11] document: Risks and open questions — What could still go wrong, and what is genuinely undecided?
+      → add a section that answers it; ours normally does so as: A2 Open questions and dependencies, plus the V1/V2 cut
+  ✗ [SD1 tier order] section 2: Tier 2 (technical appendix) precedes Tier 1 (customer overview)
+      → order is exec summary → Tier 1 → Tier 2; the appendix comes last so the customer copy can drop it whole
+  ✗ [SD12 count drift] section 2: “Three limits worth stating:” introduces 2, not 3
+      → re-count after every cut — merging two bullets into one leaves the number wrong and nothing else notices
+  WARNINGS — 7 finding(s) across 7 class(es), within the readability budget of 15. Needs one explicit operator acknowledgment.
+
+  [UNACKED] SD13 diagram without walkthrough: 1/5 sections (20.0%)
+  [UNACKED] SD2 coverage gap COV-02: 1/5 sections (20.0%)
+  [UNACKED] SD2 coverage gap COV-07: 1/5 sections (20.0%)
+  [UNACKED] SD2 coverage gap COV-08: 1/5 sections (20.0%)
+  [UNACKED] SD2 coverage gap COV-09: 1/5 sections (20.0%)
+  [UNACKED] SD3 quality requirements absent: 1/5 sections (20.0%)
+  [UNACKED] SD4 glossary absent: 1/5 sections (20.0%)
+
+  Judgement calls — these block nothing, and there is no lint-ok to write for
+  them: disagreeing with one costs you nothing and leaves no linter comment in
+  a document the customer reads. The linter reads structure; you know what
+  shipped this week. Where it is wrong it is usually because a tag or a limit
+  moved and it has not learnt yet — so read each one, then fix it or drop it.
+
+  ~ SD6 untagged capability — reads tag position, not the product — a claim may be tagged elsewhere
+    · section 5: 1 row(s) leave “Status” blank where 2 fill it in — first: “| Discrepancy report | | shown from fixtures |”
+        → tag it Enforced / Simulated / Design-target like its neighbours. An untagged row in a tagged matrix reads as live to a customer's architect. The linter is reading the cell, not the product — if this shipped since, the cell is the stale half
+
+  ~ SD7 design-target as live — if the capability shipped since, the label is the stale half, not the sentence
+    · section 5: stated in the present tense, while section 5 labels it ahead of the build — both about: cross-region, reconciliation — “Cross-region reconciliation validates every leg of the booking, in all four regions.”
+        → move the prose to the conditional — “would”, “once built”, “planned for” — or carry the tag into the sentence. If it shipped since, the matrix row is the stale half: “| Cross-region reconciliation | Design-target | one region today |”
+
+  ~ SD8 constraint contradiction — a lifted beta constraint looks exactly like an overclaim from here
+    · section 5: this writes to something “Guardrails” freezes — both about: rule, store — “The gateway writes each verdict into the rule store on every booking.”
+        → one of the two moved. Either the limit lifted (update “Guardrails”) or the claim overreaches (cut it, or say who writes instead). The stated limit reads: “The rule store is read-only to us and stays in place for the whole engagement.”
+
+  ~ SD9 actor drift — two correct sentences about two different operations read alike to this rule
+    · document: “present” is done by us and by the principal, in section 5 — “we present it when the wallet is offline.” · “The customer presents a session reference;”
+        → say which one acts, and if the operator acts because the tooling cannot yet make the principal the actor, say that and give the V2 path (Step 2). Two correct sentences about two different operations read alike to this rule — if that is the case here, they are worth distinguishing in the prose too
+
+  Coverage: 0/12 dimensions answered
+    not answered: COV-01 Goals and the problem · COV-02 Constraints · COV-03 Context and scope · COV-04 Solution strategy · COV-05 Building blocks · COV-06 Runtime behaviour · COV-07 Deployment · COV-08 Crosscutting concerns · COV-09 Decisions · COV-10 Quality requirements · COV-11 Risks and open questions · COV-12 Glossary
+
+  Errors block delivery. Warnings do not, but they are graded: read them,
+  then either fix or say why not, and where one is genuinely wrong about a
+  document suppress it with <!-- lint-ok SD4: reason --> in that section.
+  Judgement calls (~) are neither — they block nothing, --strict does not
+  promote them, and they take no lint-ok. Three tiers, three answers: two
+  that contradict each other train a reader to ignore both.

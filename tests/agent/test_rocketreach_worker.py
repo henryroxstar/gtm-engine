@@ -21,7 +21,7 @@ pytest.importorskip("httpx", reason="httpx not installed")
 
 import httpx  # noqa: E402
 
-from agent.mcp.rocketreach import server  # noqa: E402
+from agent.mcp.rocketreach import resilience, server  # noqa: E402
 
 # ── fake httpx client ─────────────────────────────────────────────────────────
 
@@ -30,6 +30,7 @@ class _FakeResp:
     def __init__(self, payload, status: int = 200) -> None:
         self._payload = payload
         self.status_code = status
+        self.headers: dict[str, str] = {}  # real responses have these; the guard reads Retry-After
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -54,6 +55,27 @@ class _FakeClient:
     async def post(self, url, json=None, headers=None):  # noqa: A002
         self._captured.update(method="POST", url=url, json=json, headers=headers)
         return _FakeResp(self._payload, self._status)
+
+    async def request(self, method, url, json=None, headers=None, params=None):  # noqa: A002
+        """The `httpx.AsyncClient.request` form `resilience.request` calls through.
+
+        This double previously implemented only `post`, so it stopped standing in for
+        httpx the moment the worker routed its calls through the rate-limit guard.
+        Delegating keeps the captured shape identical either way.
+        """
+        if str(method).upper() == "POST":
+            return await self.post(url, json=json, headers=headers)
+        self._captured.update(method="GET", url=url, params=params, headers=headers)
+        return _FakeResp(self._payload, self._status)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rocketreach_breaker():
+    """The rate-limit breaker is process-shared; keep error-status tests from leaking
+    an open circuit into later tests in this file."""
+    resilience.reset()
+    yield
+    resilience.reset()
 
 
 def _patch_client(monkeypatch, captured, payload, status=200) -> None:
@@ -136,10 +158,27 @@ def test_search_rejects_empty_query(monkeypatch):
 
 
 def test_search_http_error_degrades(monkeypatch):
+    """A plain HTTP error still degrades to a one-line message. 500 rather than 429:
+    429 is no longer a plain error, it is the rate-limit path covered below."""
     _set_key(monkeypatch)
+    _patch_client(monkeypatch, {}, {}, status=500)
+    out = _company_search({"intent": "AI Security"})
+    assert out == "[rocketreach-error] HTTP 500"
+
+
+def test_search_rate_limit_is_named_not_generic(monkeypatch):
+    """429 must come back SAYING it was rate-limited. The old behaviour surfaced it as
+    an anonymous 'HTTP 429' with no retry, which is how a run walked into the wall."""
+    _set_key(monkeypatch)
+
+    async def _no_sleep(_seconds):  # the guard backs off; don't spend it in the suite
+        return None
+
+    monkeypatch.setattr(resilience.asyncio, "sleep", _no_sleep)
     _patch_client(monkeypatch, {}, {}, status=429)
     out = _company_search({"intent": "AI Security"})
-    assert out == "[rocketreach-error] HTTP 429"
+    assert "rate-limited" in out, out
+    assert "do not retry in a loop" in out
 
 
 # ── person search contract ────────────────────────────────────────────────────

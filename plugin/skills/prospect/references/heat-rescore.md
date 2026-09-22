@@ -24,12 +24,16 @@
 - **Intentsify has no backfill.** It only accrues data from when the topics were set; for ~1 weekly
   cycle after a topic change `rr-intent` stays empty. Expected, not a bug — Vibe/Bombora carries the
   re-score until Intentsify populates.
-- **The agent only ever sees 5 rows per table, paid or not (verified 2026-07-18).** This is the
-  limitation to plan around — see the "Coverage vs cost" callout in step 3 for the mechanics. In
-  practice: a re-score is a **spot-check against whatever 5 rows the in-market pass happens to
-  surface per market/segment pass, not a guaranteed per-account probe.** Report it that way — "N
-  accounts reconfirmed via spot-check, full coverage not mechanically available at this population
-  size" — rather than implying every open account was individually verified.
+- **A discovery cross-match sees 5 preview rows; a per-account probe does not have that problem.**
+  The agent's own tool response is capped at a handful of preview rows per table regardless of
+  `number_of_results` or `database_total`, and `show-sample` does not buy more (see
+  `discovery-and-budget.md` §"Provider hard caps"). That caps the *in-market cross-match* path — but step 3's
+  per-account probe filters to the accounts you asked about, so a batch of ≤5 surging hits is
+  fully visible for free, and larger batches export at ~2 credits/row. Say which path produced
+  the reading: "N accounts probed individually" and "a 5-row spot-check of the in-market pass"
+  are different claims, and only one of them is per-account coverage.
+- **Intent coverage is not uniform across segments, so one surge rate is not a finding.** See
+  step 3's "read a zero by segment" note and step 8's reporting rule.
 
 ## Procedure
 
@@ -43,45 +47,57 @@
    a re-score unless the operator specifically wants its corroborating check; Vibe + RocketReach
    alone keep this mode ~$0.
 
-3. **Account-level intent — the Vibe tool reality (verified 2026-07-18):** Vibe has **no per-company
-   intent lookup**. `business_id` as a filter routes to *prospects (people)*, not company intent, and
-   it **cannot** be combined with `business_intent_topics` (they conflict). The only call that returns
-   `business_business_intent_topics` (the scored `{topic,score}` array) is the **discovery** path:
-   `fetch-entities(business_intent_topics={topics:[…]}, company_country_code, company_size)`. So a
-   re-score is a **discovery cross-match**, not a per-account probe:
-   - **Vibe/Bombora (primary):** run the in-market discovery pass for the profile's markets + segment
-     size bands (topics from `market-scan-config.md` → §Intent topics). It returns companies surging
-     on those topics, each with inline scores. **Cross-match by name/domain against the open account
-     set;** a match with score ≥75 → `vibe-topic` (+2). The free preview already unmasks
-     `business_name` + `business_business_intent_topics` (only employee/revenue ranges stay masked)
-     — no need to call `show-sample` just to reveal those two fields.
-     **Coverage vs cost (verified 2026-07-18 — read carefully, this cost real credits to learn):**
-     the agent's own tool response is **hard-capped at 5 preview rows per table, regardless of
-     `number_of_results` or `database_total`, and regardless of whether you pay.** `show-sample`
-     does **not** buy the agent more rows — it charges roughly 2 cr/row for the table's *full* row
-     count (a 66-row table cost 132 credits) but still only returns 5 rows in the response; the rest
-     is unmasked into an interactive **widget for a human**, which the agent cannot read. So:
-     - When `database_total` ≤ your `number_of_results` (a small/niche population, e.g. a single
-       secondary market), you technically pulled the *entire* surging set in one free call — you
-       just can't see past row 5 of it yourself. Treat this as "the population is small enough to
-       plausibly contain your open accounts" context, not as verified per-account coverage.
-     - When `database_total` is in the thousands (typical for a large primary market), a real
-       full-coverage cross-match means exporting the *entire* surging population
-       (~1–2 cr/row × thousands of rows = tens of thousands of credits) — not "near-zero cost" and
-       not what this mode is for. Don't do it without the operator explicitly asking for that scale
-       of spend.
-     - **Do not try the `business_id` filter as a workaround** to fetch a specific company's intent
-       record directly — confirmed (again, 2026-07-18) that it silently routes to *prospects*
-       (people) even when `entity_type: "businesses"` is set, exactly as the paragraph above already
-       warned. `match-business` (free) resolves a name/domain to a `business_id`, but that ID still
-       can't be turned into a company-level intent lookup. `match-business` also **hard-caps at 50
-       businesses per call** (`Array must contain at most 50 element(s)`) — batch a longer list and
-       chain the batches through the same `session_id`, which yields one table per call.
-     - **Practical default:** run the in-market pass per market/segment band, read the 5 free preview
-       rows, cross-match by name against the open set, and report exactly what that spot-check found
-       — do not claim broader coverage than 5 rows/pass actually gives you. `enrich-business` per
-       company also returns intent but is the paid escape hatch (≤3/run) — not for bulk, and still
-       not a way past the 5-row cap for any one *discovery* table.
+3. **Account-level intent — there IS a per-account probe (re-verified 2026-09-22).** Two filters
+   that this file said "conflict" in fact **combine**, and that combination is the only real
+   per-account intent read available. Three claims that lived here until 2026-09-22 were wrong,
+   and each carried a `verified 2026-07-18` marker:
+
+   | Claim that was here | What a live probe returns |
+   |---|---|
+   | "Vibe has **no** per-company intent lookup" | It has one — the three calls below |
+   | "`business_id` silently routes to *prospects* (people)" | With `entity_type: businesses` it returns **businesses** |
+   | "`business_id` **cannot** be combined with `business_intent_topics` (they conflict)" | They combine, and only the surging subset comes back |
+
+   **A dated verification marker is not a warranty.** All three were re-tested in one session
+   because the calls are free; the re-test cost nothing and recovered a capability the file had
+   told two sessions not to attempt. **Re-probe a documented blocker whenever the probe is free**
+   — provider surfaces drift, and a blocker is the most expensive kind of claim to leave wrong.
+
+   **The working three-call sequence:**
+
+   ```bash
+   # 1. autocomplete  -> the EXACT topic strings (see the trap below)
+   # 2. match-business -> domains/names to business_id   (free; capped per call —
+   #                      see discovery-and-budget.md §"Provider hard caps")
+   # 3. fetch-entities -> entity_type: businesses, filtered on BOTH business_id AND
+   #                      business_intent_topics; returns each company's surging topics WITH scores
+   ```
+
+   Measured 2026-09-22: three `business_id`s probed against two identity topics returned **two**
+   rows, each carrying `business_business_intent_topics` as `[{topic, score}]`; the third company
+   was simply not surging. **Only surging companies come back**, so `records_matching_filters` is
+   the hit count for the batch — and it is *upstream headroom*, never a delivered-row count, so
+   never do arithmetic on it. A result of ≤5 is fully readable in the free preview; beyond that,
+   export at ~2 credits/row and download with `gtm_core.dataset_fetch`.
+
+   **The trap that makes a broken probe look like a cold account.** Topic strings are
+   **category-prefixed** — `security: non-human identity management`, not
+   `non-human identity management`. A bare string is not rejected; it silently matches nothing,
+   and the call returns `records_matching_filters: 0`, which reads exactly like "this account has
+   no intent". On 2026-09-22 that produced a zero result *and a zero positive control* before the
+   strings were corrected. **Always take topic values from `autocomplete`, and always run one
+   unfiltered positive control** so a zero can be told apart from a typo.
+
+   **`enrich-business` does not return intent at all** — it has no intent enrichment type. It was
+   listed here as a paid per-company intent fallback; it is not one, at any price.
+
+   **Read a zero by segment, never as "cold".** Bombora surge is size-dependent — measured
+   2026-09-22 on this tenant, 35–46% of large enterprises surged against **2.6%** of SME/agent
+   factories (n=374). A small builder reading heat 0 is a coverage limit of the feed, not a fact
+   about the account, and some accounts have **no Explorium business record at all**, which is a
+   third state distinct from "probed and cold". Report surge rate **by segment** and refuse to
+   call a small-company cohort cold on a feed that cannot see it.
+
    - **RocketReach (corroborating):** Tier 1 — cross-check the domain against the tracked-topic
      `intent` facet (`company_search`, credit-free) → boolean `rr-intent`. Tier 2 — if
      `content/<active>/prospects/intent/rr-intentsify-latest.json` exists and `week_of` is <10 days
@@ -112,7 +128,24 @@
    If Tier-A membership changed, offer to regenerate the outreach log
    (`python -m gtm_core.outreach_log build --profile <active>`) — do not auto-draft outreach.
 
-8. **Report:** open vs frozen count, accounts that gained/lost heat, Tier-A delta (promoted/demoted),
-   which feeds fired, spend, and the three limitations above — including how many rows were actually
-   spot-checked vs the true size of the open set, so "no change found" reads as "not found in what we
-   could see," not "confirmed absent everywhere."
+8. **Report — by segment, and never call a cohort cold on a feed that cannot see it.**
+   Open vs frozen count, accounts that gained/lost heat, Tier-A delta (promoted/demoted), which
+   feeds fired, spend, and the limitations above — including how many accounts were probed
+   individually versus reached only by a 5-row spot-check, so "no change found" reads as "not
+   found in what we could see," not "confirmed absent everywhere."
+
+   **Break the surge rate out per segment.** One blended number hides the only thing that
+   matters here: measured 2026-09-22 on this tenant, large enterprises surged at **35–46%** and
+   SME/agent-factory accounts at **2.6%** (n=374). A single figure averaged over both describes
+   neither, and reading the low half as "cold" buries an entire segment behind a feed that cannot
+   see it.
+
+   **`intent_coverage_floor` (default 0.10, in `content/<active>/settings.json`) is a REPORTING
+   guard, not a spend guard.** When a segment's surge rate falls below it, the report must say
+   *"coverage too thin to characterise"* and name the floor — not "this cohort is cold". Below
+   the floor the reading is about the feed, not the accounts, and for a small-company or
+   owner-operator cohort the timing signal has to come from somewhere else entirely (hiring
+   triggers, funding, a named client win, founder activity). Record **three** states, not two: surging, probed-and-not-
+   surging, and **no Explorium business record at all** — the third is not a cold reading, it is
+   an account this feed cannot answer for, and collapsing it into "cold" is how a whole segment
+   silently scores zero.

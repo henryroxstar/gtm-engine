@@ -112,18 +112,26 @@ def _safe_segment(value: str, label: str) -> str:
     return value
 
 
+#: Directory under a profile that holds temporary, run-scoped targeting overlays.
+#: One subdirectory per experiment; see :mod:`gtm_core.experiments`.
+EXPERIMENTS_DIRNAME = "experiments"
+
+
 def resolve_knowledge_file(
     profiles_root: Path,
     profile: str,
     filename: str,
     product: str | None = None,
+    overlay: str | None = None,
 ) -> Path:
-    """Resolve a profile knowledge file, honouring a product-level override.
+    """Resolve a profile knowledge file, honouring overlay- and product-level overrides.
 
-    Resolution order:
-      1. ``profiles/<profile>/products/<product>/<filename>`` — if ``product`` is
+    Resolution order (first existing file wins):
+      1. ``profiles/<profile>/experiments/<overlay>/<filename>`` — a temporary,
+         run-scoped experiment. Most specific, so it wins outright.
+      2. ``profiles/<profile>/products/<product>/<filename>`` — if ``product`` is
          given AND that file exists (the product overrides the profile default).
-      2. ``profiles/<profile>/knowledge/<filename>`` — the profile-level fallback,
+      3. ``profiles/<profile>/knowledge/<filename>`` — the profile-level fallback,
          returned whether or not it exists so callers get a stable path to read
          or to report as missing.
 
@@ -132,12 +140,25 @@ def resolve_knowledge_file(
     it for profiles whose products share one knowledge pack — those always resolve
     to the profile level, so no per-product files are needed.
 
-    This is the single source of truth for the product→profile fallback; skills
-    reach it via ``python -m gtm_core.resolve_knowledge`` and Python callers
+    Pass ``overlay`` only when the operator explicitly asked for that experiment.
+    It is deliberately an argument and never an environment variable: an experiment
+    that could be bound ambiently would outlive the run that asked for it, and a
+    week of work would quietly be done against targeting nobody chose that morning.
+    **This function does not validate the overlay** — it is a path resolver. Whether
+    the experiment exists, has expired, or contains a file it may not override is
+    decided once at admission by :func:`gtm_core.experiments.admit`, before any
+    model call; resolving is what happens afterwards.
+
+    This is the single source of truth for the overlay→product→profile fallback;
+    skills reach it via ``python -m gtm_core.resolve_knowledge`` and Python callers
     import it directly.
     """
     base = profiles_root / _safe_segment(profile, "profile")
     name = _safe_segment(filename, "filename")
+    if overlay is not None:
+        staged = base / EXPERIMENTS_DIRNAME / _safe_segment(overlay, "overlay") / name
+        if staged.is_file():
+            return staged
     if product is not None:
         candidate = base / "products" / _safe_segment(product, "product") / name
         if candidate.is_file():
@@ -169,6 +190,29 @@ class PathConfig:
             or _clean_env_path("GTM_PROFILE")
             or "template",
         )
+
+
+def resolve_vfs(
+    workspace_id: str | None = None,
+    profile: str | None = None,
+    backend: str = "local",
+    repo_root: Path | None = None,
+):
+    """Return a VFS instance scoped to the workspace or content root.
+
+    Honours GTM_VFS_BACKEND env var (default: "local").
+    """
+    from gtm_core.vfs import get_vfs
+
+    env_backend = clean_env_var("GTM_VFS_BACKEND") or backend
+    if workspace_id:
+        root = workspace_content_root(workspace_id, repo_root)
+        prefix = f"workspaces/{workspace_id}"
+    else:
+        root = resolve_content_root(repo_root)
+        prefix = f"profiles/{profile}" if profile else "content"
+
+    return get_vfs(root=root, backend=env_backend, prefix=prefix)
 
 
 if __name__ == "__main__":

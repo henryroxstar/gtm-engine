@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,6 +22,9 @@ from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
 from ..prospects_state import load_latest
 from .format import _rate_of
+from .lane_state import LaneStateUnreadable as LaneStateUnreadable
+from .lane_state import _read_lane_state
+from .loadfiles import load_files
 from .sources import (  # noqa: F401  (re-exported: model is the package's assembly point)
     packs_model,
     roster_model,
@@ -35,39 +37,6 @@ from .sources import (  # noqa: F401  (re-exported: model is the package's assem
 #: is the sixth `STATUSES` id but comes from `latest.json`, not from a routed row — see
 #: `prospect_status_model`, which gives it its own key rather than folding it into this tuple.
 _LANE_STATUSES: tuple[str, ...] = tuple(s for s in STATUSES if s != "needs_address")
-
-
-def _read_lane_state(profile: str, content_root: Path | None) -> list[dict]:
-    """The router's last routing per email — `lanes route`'s own `lanes-state.jsonl`.
-
-    Read directly rather than through `gtm_core.lanes.decisions.read_state`: that helper
-    lives in the `lanes` package, whose `__init__` pulls in the router, the hold-decisions
-    ledger and the hold sheet — dragging that in here to read one JSONL is the opposite of
-    what this leaf-ish read needs. `evals_dir` is the same path resolver
-    `prospect_status_cli` and `account_integrity` already use for this file — reused rather
-    than re-spelled.
-
-    A missing file returns no rows rather than raising: the page already has a "no data
-    yet" contract for this (`views_status`'s status tiles), and a profile that has never
-    run `lanes route` is not a broken page, it is a page with nothing routed yet. A
-    malformed line is skipped for the same reason `prospect_status_cli` skips one: this is
-    a best-effort read of a router-owned side file, not the record of truth a gate enforces.
-    """
-    path = evals_dir(profile, content_root) / "lanes-state.jsonl"
-    if not path.is_file():
-        return []
-    out: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            val = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(val, dict):
-            out.append(val)
-    return out
 
 
 def prospect_status_model(profile: str, content_root: Path | None = None) -> dict:
@@ -202,6 +171,38 @@ def prospecting_runs(profile: str, content_root: Path | None = None, limit: int 
         )
     runs.sort(key=lambda r: r["ts"], reverse=True)
     return runs[:limit]
+
+
+def inbound_health(profile: str, content_root: Path | None = None) -> dict:
+    """The inbound lane's own answer to "is anything watching, and does it agree?".
+
+    Three facts, all from `history.jsonl`, none of them a provider call:
+
+    * the newest `capability_asserted` — was this sequencer's contract checked, and when;
+    * the newest `dnc_reconciled` / `dnc_sync_skipped` / `dnc_sync_refused` — is the
+      suppression mirror current, and does the ledger agree with the provider;
+    * how many replies the sweep could not read (`optout_unreadable`), which is a coverage
+      gap in OUR matcher rather than anything the sender did wrong.
+
+    The point of surfacing these is that a sweep or a sync that quietly stopped looks
+    identical to one that is working — the same failure `prospecting_runs` exists to catch.
+    """
+    from gtm_core.prospects_import import _ledgers
+
+    latest: dict = {"capability": None, "dnc": None, "unreadable": 0, "unreadable_recent": []}
+    for ev in _ledgers(profile, content_root).iter_history():
+        event = ev.get("event")
+        if event == "capability_asserted":
+            latest["capability"] = ev
+        elif event in ("dnc_reconciled", "dnc_sync_skipped", "dnc_sync_refused"):
+            latest["dnc"] = ev
+        elif event == "optout_unreadable":
+            latest["unreadable"] += 1
+            latest["unreadable_recent"].append(
+                {"email": ev.get("email", ""), "ts": (ev.get("ts") or "")[:10]}
+            )
+    latest["unreadable_recent"] = latest["unreadable_recent"][-5:]
+    return latest
 
 
 def _lint_records(profile: str, content_root: Path | None) -> dict[str, dict]:
@@ -386,6 +387,13 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
 
 
 def build_model(profile: str, content_root: Path | None = None) -> dict:
+    """Everything one page renders, read once — the views read this dict, never the disk.
+
+    Profile-wide; ``scope_to_campaign`` narrows a copy of it to named campaigns. Four keys —
+    ``prospect_status``, ``attrition_receipt``, ``load_files``, ``go_live_status`` — are the
+    operator's answers ("who is waiting on me, what do I load, is anything live") and are all
+    derived from the same routed state and ledger that ``prospects status`` prints from.
+    """
     status = build_status(profile, content_root)
     campaigns = build_campaigns(profile, content_root)
     rows = read_outcomes(content_root or resolve_content_root(), profile)
@@ -427,56 +435,39 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         for src in cellmodel["sources"]
     ]
 
-    latest_items = load_latest(profile, content_root).get("items", [])
-    if latest_items:
-        attrition_receipt = compute_attrition_receipt(latest_items).to_dict()
+    # ONE SOURCE PER CLAIM (UX-02 / PSK-029). The accounts card is the routed state joined to
+    # the ledger — the same call, with the same arguments, `prospects status` makes — so the
+    # page and the terminal cannot disagree about "Held" or "Ready". Until 2026-09-21 this
+    # passed no routed state, so every account was classified from its ledger row's own
+    # wording and the page read "Held 0" under a terminal block reading "Held 3".
+    # `routed=None` only when `lanes-state.jsonl` does not exist at all (never sorted): the
+    # receipt then falls back to the ledger's wording, and the card says that it did.
+    from ..prospect_status_cli import _routed_contacts  # deferred: it imports the lanes package
+
+    lane_records = _read_lane_state(profile, content_root)
+    sorted_once = (evals_dir(profile, content_root) / "lanes-state.jsonl").is_file()
+    ledger_items = [
+        it for it in load_latest(profile, content_root).get("items", []) if isinstance(it, dict)
+    ]
+    attrition_receipt = compute_attrition_receipt(
+        ledger_items, _routed_contacts(lane_records) if sorted_once else None
+    ).to_dict()
+    prospect_status = prospect_status_model(profile, content_root)
+
+    # GO-LIVE IS EVIDENCE, NEVER A DEFAULT (UX-05). "staged" used to be the fall-through, so
+    # a tenant that had never staged anything read "Go-Live Status: STAGED". It now needs a
+    # sequence on record: the live snapshot's own status first, else a `sequence_staged`
+    # event in the ledger (linked to a campaign or not). No record at all is "none".
+    live = {str(s.get("status", "")).lower() for s in status.get("sequences", [])}
+    on_record = campaigns.get("unlinked_sequences") or any(
+        c.get("sequences") for c in campaigns["campaigns"]
+    )
+    if live & {"active", "running"}:
+        go_live_status = "active"
+    elif "paused" in live:
+        go_live_status = "paused"
     else:
-        lane_records = _read_lane_state(profile, content_root)
-        items = (
-            [
-                {"company": r.get("email", ""), "lane": r.get("lane"), "status": r.get("lane")}
-                for r in lane_records
-            ]
-            if lane_records
-            else []
-        )
-        attrition_receipt = (
-            compute_attrition_receipt(items).to_dict()
-            if items
-            else {
-                "total_intake": 0,
-                "failed_fit": 0,
-                "failed_intent": 0,
-                "failed_enrichment": 0,
-                "held": 0,
-                "ready": 0,
-                "rejected": 0,
-            }
-        )
-
-    now, ttl_seconds, safe_downloads = time.time(), 7 * 86400, []
-    if seq_dir.exists():
-        for item in sorted(seq_dir.glob("ready-to-load*.csv")):
-            if item.is_file() and not item.name.startswith("."):
-                try:
-                    age_s = now - item.stat().st_mtime
-                    if age_s < ttl_seconds:
-                        rel = str(item.relative_to(_prospects_dir(profile, content_root).parent))
-                        safe_downloads.append(
-                            {"name": item.name, "path": rel, "age_days": round(age_s / 86400, 1)}
-                        )
-                except OSError:
-                    continue
-
-    active_seqs = [
-        s
-        for s in status.get("sequences", [])
-        if str(s.get("status", "")).lower() in ("active", "running")
-    ]
-    paused_seqs = [
-        s for s in status.get("sequences", []) if str(s.get("status", "")).lower() == "paused"
-    ]
-    go_live_status = "active" if active_seqs else ("paused" if paused_seqs else "staged")
+        go_live_status = "staged" if on_record else "none"
 
     return {
         "profile": profile,
@@ -501,11 +492,16 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         # re-deriving it from the profile name alone would cross that boundary.
         "_content_root": content_root,
         "runs": prospecting_runs(profile, content_root),
+        # Profile-wide, like `runs`: the inbound lane is not scoped to one campaign.
+        "inbound": inbound_health(profile, content_root),
         "reconciliation": reconcile_snapshot(campaigns, status),
         # Profile-wide, like `market`/`supply`/`intent` above — the router's last route
         # is not scoped to one campaign, so `scope_to_campaign` leaves this key untouched.
-        "prospect_status": prospect_status_model(profile, content_root),
+        "prospect_status": prospect_status,
         "attrition_receipt": attrition_receipt,
-        "safe_downloads": safe_downloads,
+        # What to load, one file per sending list — see `loadfiles` for the rule (UX-04).
+        "load_files": load_files(
+            profile, content_root, lane_records, waiting=prospect_status["counts"]["waiting_on_you"]
+        ),
         "go_live_status": go_live_status,
     }

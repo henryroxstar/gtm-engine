@@ -1788,3 +1788,251 @@ def test_intra_rater_reproduces_the_twelve_row_shape_and_excludes_changed_bytes(
     assert res["n"] == 12 and res["fingerprint_mismatch"] == 1
     assert res["agreement"] == 0.25 and res["yes_to_no"] == 4 and res["no_to_yes"] == 5
     assert round(res["kappa"], 2) == -0.5
+
+
+# --- EC14: the `rules` subcommand had zero coverage ---------------------------------------
+#
+# `python -m gtm_core.eval_calibration rules` is the CLI that turns persisted QA records into
+# keep / recalibrate / delete-candidate verdicts — the report an operator acts on when
+# deciding to retire a rule. `rule_lifecycle_report` itself is well tested; the command that
+# reads the files, scopes them, and renders the bands was never executed.
+
+
+def _cli_qa_dir(tmp_path, name: str, *, checks: list[str], fires: dict[str, int], renders: int):
+    import json
+
+    qa = tmp_path / "qa"
+    qa.mkdir(exist_ok=True)
+    (qa / f"{name}.json").write_text(
+        json.dumps(
+            {
+                "sequence_id": name,
+                "renders": renders,
+                "checks_run": {r: {} for r in checks},
+                "by_rule": {r: {"ERROR": n} for r, n in fires.items()},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return qa
+
+
+def test_rules_cli_reports_a_verdict_for_every_catalogued_rule(tmp_path, capsys):
+    from gtm_core.eval_calibration import main
+
+    qa = _cli_qa_dir(
+        tmp_path,
+        "seq-a",
+        checks=["specificity", "word-count"],
+        fires={"specificity": 9},
+        renders=10,
+    )
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("", encoding="utf-8")
+
+    rc = main(["rules", "--profile", "demo", "--qa-dir", str(qa), "--labels", str(labels)])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    # 9/10 is over the 0.40 saturation threshold; zero fires with one record is not yet
+    # evidence of uselessness, which is what `min_records_for_deletion` exists to say.
+    assert "specificity" in out and "word-count" in out, out
+    # Assert the verdict SECTION headers ("RECALIBRATE (1)"), not the words: the preamble
+    # line "N rule(s) marked not-human-visible" contains a verdict name on every run.
+    assert "RECALIBRATE (" in out and "INSUFFICIENT-DATA (" in out, out
+
+
+def test_rules_cli_honours_not_human_visible(tmp_path, capsys):
+    """The escape hatch that stops a rule being retired for a defect no labeler could see.
+    It is passed by hand from `build_eval_sheet`'s unusable list, so a CLI that accepted the
+    flag and dropped it would retire working rules silently — and nothing was checking."""
+    from gtm_core.eval_calibration import main
+
+    qa = _cli_qa_dir(
+        tmp_path,
+        "seq-b",
+        checks=["specificity", "last-name-symbols"],
+        fires={"specificity": 9},
+        renders=10,
+    )
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("", encoding="utf-8")
+    argv = ["rules", "--profile", "demo", "--qa-dir", str(qa), "--labels", str(labels)]
+
+    assert main(argv) == 0
+    without = capsys.readouterr().out
+    assert main(argv + ["--not-human-visible", "last-name-symbols"]) == 0
+    with_flag = capsys.readouterr().out
+
+    assert "NOT-HUMAN-VISIBLE (" not in without, without
+    assert "NOT-HUMAN-VISIBLE (1)" in with_flag, with_flag
+
+
+def test_rules_cli_scopes_to_one_sequence(tmp_path, capsys):
+    """`--sequence-id` exists because "a directory holding two campaigns' records
+    aggregates them into one confident, wrong fire rate". Two records, same rule, opposite
+    fire rates: unscoped they average to a different band than either one alone.
+
+    Added after the scoping filter was mutated to a no-op and the first two CLI tests
+    stayed green — they only ever wrote one record, which is the case where scoping and
+    not scoping agree."""
+    import json
+
+    from gtm_core.eval_calibration import main
+
+    qa = tmp_path / "qa"
+    qa.mkdir()
+    for name, fires in (("hot", 10), ("cold", 0)):
+        (qa / f"{name}.json").write_text(
+            json.dumps(
+                {
+                    "sequence_id": name,
+                    "renders": 10,
+                    "checks_run": {"specificity": {}},
+                    "by_rule": {"specificity": {"ERROR": fires}} if fires else {},
+                }
+            ),
+            encoding="utf-8",
+        )
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text("", encoding="utf-8")
+    base = ["rules", "--profile", "demo", "--qa-dir", str(qa), "--labels", str(labels)]
+
+    assert main(base) == 0
+    both = capsys.readouterr().out
+    assert main(base + ["--sequence-id", "cold"]) == 0
+    cold_only = capsys.readouterr().out
+
+    # 10/20 across both records is over the 0.40 threshold; 0/10 on `cold` alone is not.
+    assert "RECALIBRATE (" in both, both
+    assert "RECALIBRATE (" not in cold_only, cold_only
+    assert "read 1 QA record(s)" in cold_only, cold_only
+
+
+def test_an_injected_label_is_what_moves_a_rule_off_delete_candidate():
+    """The EC11 chain, end to end: a rule with a recipe but no label reads
+    `delete-candidate`; the operator's label is the only thing that changes that.
+
+    Built 2026-09-22 because the four rules catalogued that day had no recipe, so they could
+    never accumulate evidence and the report recommended retiring `credit-is-verdict` — the
+    rule the operator had just asked for. Recipes closed the structural half. This pins the
+    other half: that a label actually lands, and lands in BOTH directions. A round where
+    "would send" and "would not send" produced the same verdict would be a labelling round
+    that cost the operator an afternoon and decided nothing.
+    """
+    rule = "credit-is-verdict"
+    records = [
+        {
+            "renders": 50,
+            "checks_run": {rule: {}, "specificity": {}},
+            "by_rule": {"specificity": {"ERROR": 40}},
+        }
+        for _ in range(2)
+    ]
+
+    def verdict_for(labels):
+        return {v.rule: v.verdict for v in rule_lifecycle_report(records, labels)}[rule]
+
+    def planted(send_it: bool) -> Label:
+        return Label(
+            row_id="row-1",
+            send_it=send_it,
+            injected=True,
+            injected_rule=rule,
+            spec_sha256="0" * 64,
+            csv_sha256="0" * 64,
+        )
+
+    assert verdict_for([]) == "delete-candidate", "unlabelled is the state the sheet exists to fix"
+    assert verdict_for([planted(False)]) == "keep", (
+        "an operator penalising a planted instance must rescue the rule, or the labelling "
+        "round cannot close EC11"
+    )
+    assert verdict_for([planted(True)]) == "delete-candidate", (
+        "an operator who would SEND the planted row must leave the rule a delete candidate — "
+        "otherwise labelling rubber-stamps whatever was planted"
+    )
+
+
+def test_prefill_formatter_refuses_a_string_rather_than_inverting_it():
+    """`_fmt` was `"Y" if value else "N"`, so a suggestions file written in the sheet's OWN
+    vocabulary — `"N"` — rendered as `Y`, because a non-empty string is truthy. Every
+    negative sub-check silently flipped positive on the page the operator then corrects,
+    and the only way to notice was to compare the sheet against the file by hand.
+
+    Found 2026-09-22 building the first pre-filled round; the inverted value was visible in
+    the rendered sheet and nothing else would have caught it.
+    """
+    from gtm_core.eval_calibration import _fmt
+
+    assert (_fmt(True), _fmt(False), _fmt(None)) == ("Y", "N", "-")
+    for bad in ("N", "Y", "-", 0, 1):
+        try:
+            _fmt(bad)
+        except TypeError:
+            continue
+        raise AssertionError(f"_fmt({bad!r}) was coerced instead of refused")
+
+
+def test_rules_cli_joins_the_answer_key_or_no_rule_can_earn_a_keep(tmp_path, capsys):
+    """The first live labeling round (2026-09-22): 53 labels, 21 on planted rows covering 18
+    rules, and the report called every one of them `delete-candidate`.
+
+    Because the HTML labeler writes `injected: false` on every row BY DESIGN — the labeler
+    must not see the answer key — `Label.injected` is dead on any label this tooling
+    produces. `eval_writeback` has documented and worked around that since it let a planted
+    row reach `suppress-person`; `rules` read the dead flag straight and so its `keep` band
+    was unreachable from a real round. `--internal` joins the answer key on `row_id`.
+
+    Same records, same labels, with and without the join: the verdict must differ."""
+    import json
+
+    from gtm_core.eval_calibration import main
+
+    qa = tmp_path / "qa"
+    qa.mkdir()
+    for n in ("a", "b"):
+        (qa / f"{n}.json").write_text(
+            json.dumps(
+                {
+                    "sequence_id": n,
+                    "renders": 10,
+                    "checks_run": {"credit-is-verdict": {}},
+                    "by_rule": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+    # What the HTML labeler actually exports: the operator penalised the row, and the
+    # answer-key fields are blank.
+    labels = tmp_path / "labels.jsonl"
+    labels.write_text(
+        json.dumps(
+            {
+                "row_id": "r1",
+                "send_it": False,
+                "injected": False,
+                "injected_rule": None,
+                "spec_sha256": "0" * 64,
+                "csv_sha256": "0" * 64,
+                "touch": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    internal = tmp_path / "internal.jsonl"
+    internal.write_text(
+        json.dumps({"row_id": "r1", "injected": True, "injected_rule": "credit-is-verdict"}) + "\n",
+        encoding="utf-8",
+    )
+    base = ["rules", "--profile", "demo", "--qa-dir", str(qa), "--labels", str(labels)]
+
+    assert main(base) == 0
+    without = capsys.readouterr().out
+    assert main(base + ["--internal", str(internal)]) == 0
+    with_join = capsys.readouterr().out
+
+    assert "KEEP (" not in without, "a label with a dead injected flag must not earn a keep"
+    assert "no --internal passed" in without, "the CLI must say why nothing can earn a keep"
+    assert "KEEP (1)" in with_join and "credit-is-verdict" in with_join, with_join
+    assert "1 of 1 label(s) sit on a planted row" in with_join
