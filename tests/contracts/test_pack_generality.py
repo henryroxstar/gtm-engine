@@ -94,25 +94,44 @@ SOLUTION_ARCHITECTURE = (
 
 
 def test_solution_architecture_pack_loads_and_shapes_correctly():
-    """A DAG since 2026-09-22 (SA7): `design` fans out, and the commercial half is on the graph.
+    """A DAG since 2026-09-22 (SA7), rewired 2026-09-22 (SA8) to match the chain
+    `solution-scope-check` itself documents: pre-design AND post-design, not post-design only.
 
-    `scope-check` after the design, not before it — post-design is the richer mode, with a
-    concrete solution to simplify. `proposal` after `scope-check`, because a price quoted before
-    the buyer confirms scope is a price for work nobody agreed to.
+    `scope-check-pre`/`scope-check-post` are the SAME skill on two node ids (the loader has no
+    uniqueness check on `skill`) — it resolves its own mode from what's in the account folder at
+    that point in the chain. `demo` hangs off `scope-check-pre`, not `design`/`runbook`: a runbook
+    is derived FROM a design, so a runbook->demo edge would force a design before every demo,
+    backwards from the usual order. `deck` depends on `design` directly, not `runbook` — that edge
+    was a fossil of the original linear chain. `commercial-proposal` is off the graph entirely: its
+    own skill header names its counterparty as the AE's (exec sponsor, finance, procurement,
+    legal), not the SA's.
     """
     pack = load_pack_graph(SOLUTION_ARCHITECTURE)
-    assert pack.ids == ("discovery", "design", "runbook", "deck", "scope-check", "proposal")
+    assert pack.ids == (
+        "discovery",
+        "scope-check-pre",
+        "demo",
+        "design",
+        "scope-check-post",
+        "runbook",
+        "deck",
+    )
     assert all(not n.gate for n in pack.nodes)  # produces docs, no external gate
     by_id = {n.id: n for n in pack.nodes}
-    assert by_id["scope-check"].depends_on == ("design",)
-    assert by_id["proposal"].depends_on == ("scope-check",)
+    assert by_id["scope-check-pre"].depends_on == ("discovery",)
+    assert by_id["demo"].depends_on == ("scope-check-pre",)
+    assert by_id["design"].depends_on == ("scope-check-pre",)
+    assert by_id["scope-check-post"].depends_on == ("design",)
+    assert by_id["runbook"].depends_on == ("design",)
+    assert by_id["deck"].depends_on == ("design",)
 
 
 def test_solution_architecture_design_fans_out_into_the_frontier(cfg):
     """Engine-side, and the reason this is a separate test: that the TOML parses proves the file
-    is well-formed, never that the runner treats the two new nodes as a fan-out. Once `design`
-    completes, `runbook` and `scope-check` are both runnable in ONE frontier and are dispatched
-    concurrently — asserting only on `pack.ids` would pass on a graph the runner walks linearly.
+    is well-formed, never that the runner treats the fan-outs as fan-outs. `scope-check-pre`
+    fans out into `demo` and `design`; once `design` completes, `scope-check-post`, `runbook`,
+    and `deck` are all runnable in ONE frontier — asserting only on `pack.ids` would pass on a
+    graph the runner walks linearly.
     """
     from agent.pipeline import OK, new_manifest, runnable_frontier
 
@@ -120,19 +139,25 @@ def test_solution_architecture_design_fans_out_into_the_frontier(cfg):
     manifest = new_manifest("r-sa", "cron", PROFILE, graph=engine_graph)
     assert set(runnable_frontier(engine_graph, manifest)) == {"discovery"}
     stages = {s["name"]: s for s in manifest["stages"]}
-    for stage in ("discovery", "design"):
-        stages[stage]["status"] = OK
-    assert set(runnable_frontier(engine_graph, manifest)) == {"runbook", "scope-check"}
-    stages["scope-check"]["status"] = OK
-    assert set(runnable_frontier(engine_graph, manifest)) == {"runbook", "proposal"}
+    stages["discovery"]["status"] = OK
+    assert set(runnable_frontier(engine_graph, manifest)) == {"scope-check-pre"}
+    stages["scope-check-pre"]["status"] = OK
+    assert set(runnable_frontier(engine_graph, manifest)) == {"demo", "design"}
+    stages["demo"]["status"] = OK
+    stages["design"]["status"] = OK
+    assert set(runnable_frontier(engine_graph, manifest)) == {
+        "scope-check-post",
+        "runbook",
+        "deck",
+    }
 
 
 def test_solution_architecture_stays_free_and_stub_free(cfg):
-    """SA7's pricing half, verified rather than assumed.
+    """SA7/SA8's pricing half, verified rather than assumed.
 
     Adding a node above `free` reprices the WHOLE graph, and an `oss = "private"` node makes the
     pack stub-bearing — which then needs a `[carve].stub_bearing_graphs` declaration and an entry
-    in the pinned roster. Both new skills derive `free` + `public`, so neither happens; this is
+    in the pinned roster. All seven skills derive `free` + `public`, so neither happens; this is
     what fails the day one of them is repriced.
     """
     from gtm_core import gating

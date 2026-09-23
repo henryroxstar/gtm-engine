@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -51,18 +51,16 @@
 2. **企業ごとのデータは、各社専用のProfile（プロファイル）ディレクトリ内に完全に物理隔離されます**。
 3. **エージェントにはRaw HTTPやターミナルShellの自由な実行権限がありません**。すべて検証済みのMCP（Model Context Protocol）ツール経由でのみ動作します。
 
-![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
-
 ---
 
-### なぜ gtm-engine なのか？（アーキテクチャ比較）
+### なぜ GTM Engine なのか？（アーキテクチャ比較）
 
-| 比較項目 | ブラックボックス「AI SDR」商用SaaS (11x, Artisan等) | 単純なPrompt対話 (ChatGPT / Claude) | 汎用Agentフレームワーク (CrewAI / LangChain等) | **gtm-engine (本システム)** |
+| 比較項目 | ブラックボックス「AI SDR」商用SaaS (11x, Artisan等) | 単純なPrompt対話 (ChatGPT / Claude) | 汎用Agentフレームワーク (CrewAI / LangChain等) | **GTM Engine (本システム)** |
 |---|---|---|---|---|
 | **導入コスト** | 月額 $500 – $3,000 | 月額 $20（ただし手動コピペの嵐） | Token従量課金 ＋ サーバーホスティング費用 | **基本 $0**（既存のAIワークスペースサブスクリプションで動作） |
 | **外部発信の安全性** | コールドメールの自動送信（ドメイン失墜リスク） | 手作業によるコピー＆レビュー | ツール実行権限が広範に委譲される | **回避不能な人間承認ゲート**（プログラム上自動送信不可） |
 | **自社コンテキスト理解**| 画一的なWebスクレイピング | 毎回チャットに会社概要を再貼り付け | ベクトルDBやパイプラインの独自構築が必要 | **Profile セカンドブレイン**（1度のオンボーディングで全スキルへ自動継承） |
-| **対応ワークフロー** | コールドメールに限定 | テキスト生成に限定 | 複雑なコードやノードグラフの自作が必要 | **63種類のスキル ＆ 10大ワークフローパック**（動画・スライド・記事・SDR） |
+| **対応ワークフロー** | コールドメールに限定 | テキスト生成に限定 | 複雑なコードやノードグラフの自作が必要 | **78種類のスキル ＆ 11大ワークフローパック**（動画・スライド・記事・SDR） |
 | **データ主権とプライバシー**| 第三者クラウドSaaSへのロックイン | 学習データへの流用懸念 | 構築環境のセキュリティ依存 | **100% ローカル完結 / Gitignore**（データは手元のマシンから出ません） |
 
 ---
@@ -106,34 +104,20 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 
 ## 4つの実行・統合モード
 
-gtm-engine は、1つの共通コアエンジン (`gtm_core`) を4つの実行サーフェスで提供します：
+共通のコアエンジン（`gtm_core`）は1つ、統合サーフェスは4つ。**いずれか1つを選び、混在させないでください。**
 
-**1 · Chat モード（デフォルト推奨 — インフラ不要）**
-お好みのAIワークスペース —— **Claude Desktop**、**Google Antigravity**、**Cursor**、または **Codex** で本フォルダを開き、`"set me up"` とチャットするだけ。すべてのGTMスキルがローカルで実行され、自社のProfileを参照し、あなたの声で動作します。VPSやDocker、データベースは不要です。→ [はじめに（Chat モード）](#はじめにchat-モード)
-
-**2 · 自律型セルフホストAgent（24/7 自動巡航）**
-**Claude Agent SDK** ベースのランタイムを、ローカル常駐または自社 **VPS** にデプロイ。ニュース監視 → 企画 → リサーチ → 制作 → 配信準備を24時間コンテナで稼働させ、Telegramの承認ゲートで人間の合図を待ちます。詳細は [`docs/DEPLOY.md`](docs/DEPLOY.md) を参照。
-
-**3 · クライアント REST API 開発**
-ローカルのFastAPIバックエンド（`./scripts/stack.sh start`、ポート `:8000`）をPostgres・Redisとともに起動。独自の管理画面、ダッシュボード、モバイルアプリ等を開発するエンジニア向け。
-
-**4 · 外部連携用 GTM MCP サーバー**
-HTTP FastMCPコンテナ（`deploy/Dockerfile.mcp`、ポート `:8001`、APIキー認証 `sk-...`）を立ち上げ、厳選されたGTMツールを外部エージェント（外部Claudeインスタンス、LangChain、AutoGen、CrewAI等）へリモート提供。
-
-### 実行パスの選択（混同を避けるために）
-
-| パス | 対象ユーザー | 実行方法 | やってはいけないこと |
+| モード | 対象ユーザー | 実行方法 | してはいけないこと |
 |---|---|---|---|
-| **Chat モード (デフォルト)** | 創業者、営業、マーケター | AIワークスペースで開いて `"set me up"` | **Dockerの起動や `./scripts/stack.sh` の実行は不要です。** |
-| **自律型セルフホストAgent** | 24/7自動化を求めるチーム | [`docs/DEPLOY.md`](docs/DEPLOY.md) に従ってDocker Compose起動 | このモードで即興のチャットはできません。Telegram通知で承認を行います。 |
-| **クライアント API 開発** | カスタムUI/API連携を開発するエンジニア | `./scripts/stack.sh start` でローカルAPIを起動 | スキルをチャットで使いたいだけなら不要です。 |
-| **外部連携用 MCP サーバー** | 外部エージェントからGTMツールを呼び出したい場合 | 8001番ポートでFastMCPコンテナを起動 | APIキー認証や予算上限の設定なしで外部公開しないでください。 |
+| **1 · Chat モード**（デフォルト・インフラ不要） | チャットから操作する創業者・営業・マーケター。ほとんどの方はこれで十分です | **Claude Desktop**、**Google Antigravity**、**Cursor**、**Codex** のいずれかでこのフォルダを開き、`"set me up"` と入力。すべてのスキルがローカルで、あなたのプロファイルとトーンで動作します → [はじめに](#はじめにchat-モード) | **Docker の起動、`./scripts/stack.sh` の実行、VPS のデプロイは不要です。**Chat モードにバックグラウンドサーバーは一切要りません |
+| **2 · 自己ホスト型エージェント** | 24時間365日の無人グラフ実行を求めるチーム | **Claude Agent SDK** ランタイムをローカルまたは自身の VPS で稼働させ、有効化した任意の pack を実行し、Telegram の人間承認ゲートで停止します。実行はタイマー・シグナル・あなたのメッセージから開始。Docker とシークレット管理が必要 → [`docs/DEPLOY.md`](docs/DEPLOY.md) | このモードでのアドホックな対話は**期待しないでください**。Telegram のゲート越しに無人で動作します |
+| **3 · クライアント REST API** | 独自フロントエンド・ダッシュボード・モバイルクライアントを開発するエンジニア | Postgres + Redis 付きのローカル FastAPI バックエンドをポート `:8000` で起動（`./scripts/stack.sh start`）。OpenAPI ルート `/v1/runs`、`/v1/packs`、`/v1/gates` を利用 | チャットでスキルを使いたいだけなら**起動不要**です。モード1はサーバーレスです |
+| **4 · インバウンド MCP サーバー** | 第三者の外部エージェント（他の Claude インスタンス、LangChain、AutoGen、CrewAI）を GTM ツールに接続する場合 | 厳選した GTM Engine ツールを streamable-HTTP FastMCP（`deploy/Dockerfile.mcp`、ポート `:8001`）で公開し、`sk-...` API キーで認証。公開デプロイでは Cloudflare Workers 上のエッジ MCP ゲートウェイ（`deploy/mcp-gateway/`）をサブスクリプション検証と KV キャッシュ付きで前段に配置 | API キー認証・予算上限・エッジのレート制限なしに**公開しないでください** |
 
 ### ワークスペースと実行環境のサポート
 
 | ワークスペース / ランタイム | サポート状況 | スキルの読み込み方式 | 備考 |
 |---|---|---|---|
-| **Claude Desktop / Code** | ネイティブ対応 | プラグイン形式 (`plugin/`) | 全63スキル、MCP連携、インタラクティブ承認を完全サポート |
+| **Claude Desktop / Code** | ネイティブ対応 | プラグイン形式 (`plugin/`) | 全78スキル、MCP連携、インタラクティブ承認を完全サポート |
 | **Google Antigravity** | ネイティブ対応 | `.agents/` による自動検出 | マルチエージェント協調、ネイティブコマンド・ファイル操作 |
 | **Cursor / Codex** | 完全互換 | `.agents/AGENTS.md` + 設定ルール | チャット対話形式で各スキルを自然言語呼び出し |
 | **Headless VPS (Agent SDK)** | 専用ランタイム | コンテナ化エージェントループ | Telegram承認ボットと連携した24/7自律巡航 |
@@ -179,16 +163,15 @@ uv run python -m gtm_core.check_env
 
 ## アーキテクチャの特徴と安全設計
 
-1. **二重の人間承認ゲート（Gate 1 / Gate 2）は構造的にバイパス不可**
-   エージェントは企画フェーズ（Gate 1: 切り口の選択）と完成原稿フェーズ（Gate 2: 送信・投稿の最終承認）で必ず停止します。システム全体で `autopublish: false` が強制されており、外部への自動送信は物理的に遮断されています。
-2. **完全なテナント・プロファイル隔離**
-   企業ごとのデータは `profiles/<profile_name>/` に独立して保持され、同一のエンジンで複数社を安全に運用できます。
-3. **AIモデルは頭脳、MCPツールは唯一の手足**
-   エージェントは直接外部ネットワーク通信を行わず、認可されたMCPツール経由でのみ外部リソースと対話します。APIキー等の認証情報はエージェントのコンテキスト内には露出されません。
-4. **コードと自社情報の完全分離**
-   自社名、製品情報、ターゲット像などのハードコードは一切なく、すべて実行時にProfileから安全に注入されます。
+![最悪のケースが「却下できる下書き」で済む理由：公開も送信もモデルのツールスキーマに存在しない](docs/assets/capability-boundary.png)
 
----
+| 特性 | 意味するところ | 設計理由 |
+|---|---|---|
+| **人間のゲートは迂回不可能** | 公開・送信・リード登録のいずれも自動では起こりません。`autopublish` は常に `false`、公開先はサーバー側に固定されエージェントからは触れられません。pack がゲートを*宣言*すれば、スキルの協力に依らず構造的に停止します。**すべてのワークフローに2つのゲートがあるわけではありません**——11 個の pack のうち 5 個は文書のみを生成し、外部ゲートを持ちません | GTM の成果物はあなたの名前と顧客のデータを伴います。人間が正確なバイト列を承認します |
+| **テナント状態は構造的に分離** | 各社が独自のプロファイル・状態・台帳・顧客データを持ち、パス解決の基盤がすべての自動読み書きをアクティブなテナントに束縛します。ホスト型バックエンドではデータベース層の行レベルセキュリティが加わります | 1つのエンジンで多数の企業に対応しても、データが混ざりません。GTM 自動化で最も危険な誤りは「内容は正しいが会社が違う」です |
+| **モデルは頭脳、MCP だけが手** | エージェントは生の HTTP を一切発行しません。スクレイプ・検索・レンダリング・公開はすべて MCP ツール経由です | 構造による最小権限。認証情報はツール側にあり、モデルのコンテキストには入りません。スクレイプしたページ内の悪意ある指示では、鍵も、ツールが公開していないエンドポイントにも到達できません |
+| **すべてがプロファイル駆動** | ブランド、ICP、ペルソナ、トーン、市場、予算はすべて実行時にアクティブなプロファイルから読み込まれます。企業固有の文字列はコードに一切なく、CI で検証されます | 1つのエンジンで多数の企業に対応でき、「内容は正しいが会社が違う」という誤りが静かに起きにくくなります |
+| **新しいワークフローはコードではなくデータ** | ワークフローの追加とは pack を書くこと——既存スキルを繋ぐノードのグラフで、エンジンが検証してそのまま実行します。エンジンの改修もデプロイも不要です | 最も頻繁に変わるドメインロジックはレビュー可能なバージョン管理された設定に残り、決して壊してはならないガバナンスはエンジンに固定されます |
 
 ## スター履歴（Star History）
 

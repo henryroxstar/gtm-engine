@@ -160,10 +160,29 @@ class AccountMatcher:
 
     def find(self, item: dict) -> tuple[int | None, tuple[str, ...]]:
         """``(position, fields the account keeps)`` — ``(None, ())`` for a new account."""
-        pos = next((self._index[k] for k in self._keys_of(item) if k in self._index), None)
-        if pos is not None:
-            return pos, ()
         domain = _domain(item)
+        for key in self._keys_of(item):
+            pos = self._index.get(key)
+            if pos is None:
+                continue
+            # A ``c:<company>`` hit rests on a NAME and nothing else. Two legal entities
+            # can share an exact name — a subsidiary and its parent, or two unrelated
+            # firms — so it gets the SAME domain guard the legal-name fallback below
+            # already applies: a candidate whose domain differs is a different company.
+            # Without it, two rows with one name and two domains merged and a domain was
+            # silently discarded; merging onto an existing row also carried the
+            # operator's status/notes onto the other company. The precise keys
+            # (``d:``/``i:``/``a:``) are identifiers, not names, and keep matching as
+            # before — including a domainless row that later gains a domain, since the
+            # guard only fires when BOTH sides carry one.
+            if (
+                key.startswith("c:")
+                and domain
+                and _domain(self.rows[pos])
+                and _domain(self.rows[pos]) != domain
+            ):
+                continue
+            return pos, ()
         hits = [
             p
             for p in self._names.get(legal_name_key(item.get("company") or ""), [])

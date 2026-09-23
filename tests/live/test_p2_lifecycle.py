@@ -389,15 +389,19 @@ def test_real_executor_cancel_mid_node_stops_further_dispatch(
     completion (the pack runner's contract), so the property is the same narrow one: no node
     reaches `running` after the cancel, and the run ends `canceled`.
 
-    Variant: `solution-architecture/solution-architecture`. It is a strict chain of four
-    nodes (discovery -> design -> runbook -> deck), so "the next node" is well defined and a
-    concurrent fan-out cannot put two nodes in flight before the cancel; its floor is `free`
-    and it asks for no settings, so a freshly onboarded profile runs it unblocked; and its
-    first node, `solution-discovery`, runs on free paths by default and reaches its metered
-    tools (Firecrawl, Vibe) only on an explicit `deep` opt-in this run never gives — no
-    RocketReach/Vibe/Apollo/crawl spend. Every other multi-node chain a pro workspace may run
-    starts on a paid provider (`prospect`) or a subscription feed (`community-signal-analysis`
-    on Syften); `planning` is a concurrent fan-out.
+    Variant: `solution-architecture/solution-architecture`. Since SA8 (2026-09-22) it is a
+    7-node DAG with two fan-outs (`scope-check-pre` -> {`demo`, `design`}, then `design` ->
+    {`scope-check-post`, `runbook`, `deck`}), not a strict chain — but its single root,
+    `discovery`, is still the graph's ONLY node in the initial frontier, so capturing the
+    first `running` event and cancelling immediately after still targets exactly one in-flight
+    node: the downstream fan-outs never get a chance to start before the cancel lands. Its
+    floor is `free` and it asks for no settings, so a freshly onboarded profile runs it
+    unblocked; and its first node, `solution-discovery`, runs on free paths by default and
+    reaches its metered tools (Firecrawl, Vibe) only on an explicit `deep` opt-in this run
+    never gives — no RocketReach/Vibe/Apollo/crawl spend. Every other multi-node chain a pro
+    workspace may run starts on a paid provider (`prospect`) or a subscription feed
+    (`community-signal-analysis` on Syften); `planning` is a concurrent fan-out from its very
+    first frontier.
 
     Expected spend: one onboarding extraction (cents) plus one brain-plan node, well under
     the 1.0 USD cap, which bounds it regardless. A real node can take minutes, hence the

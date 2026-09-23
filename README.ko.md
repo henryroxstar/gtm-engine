@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -51,18 +51,16 @@
 2. **기업별 데이터는 각 사 전용 Profile(프로필) 디렉토리 내에 물리적으로 완벽히 격리됩니다.**
 3. **에이전트는 통제되지 않은 원시 HTTP 호출이나 터미널 쉘 임의 실행 권한을 갖지 않습니다.** 모든 외부 접근은 검증된 MCP(Model Context Protocol) 툴을 통해서만 수행됩니다.
 
-![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
-
 ---
 
-### 왜 gtm-engine인가? (아키텍처 비교)
+### 왜 GTM Engine인가? (아키텍처 비교)
 
-| 핵심 항목 | 블랙박스 "AI SDR" 상용 플랫폼 (11x, Artisan 등) | 단순 프롬프트 대화 (ChatGPT / Claude) | 일반 범용 에이전트 프레임워크 (CrewAI / LangChain) | **gtm-engine (본 시스템)** |
+| 핵심 항목 | 블랙박스 "AI SDR" 상용 플랫폼 (11x, Artisan 등) | 단순 프롬프트 대화 (ChatGPT / Claude) | 일반 범용 에이전트 프레임워크 (CrewAI / LangChain) | **GTM Engine (본 시스템)** |
 |---|---|---|---|---|
 | **기본 비용** | 월 $500 – $3,000 | 월 $20 (반복적인 수동 복사/붙여넣기 수반) | 토큰 종량제 비용 + 서버 호스팅 비용 | **기본 $0** (보유 중인 기존 AI 워크스페이스 구독 활용) |
 | **발송 안전성** | 콜드 메일 자동 발송 (도메인 평판 훼손 위험) | 수동 복사 및 검토 | 도구 권한의 광범위한 위임 | **우회 불가능한 휴먼 승인 게이트** (자동 발송 기능 원천 차단) |
 | **회사 맥락 이해**| 기계적인 외부 웹 스크래핑 | 대화할 때마다 회사 소개 재입력 필요 | 복잡한 벡터 DB 및 파이프라인 구축 필요 | **Profile 세컨드 브레인** (한 번 설정으로 모든 스킬에 자동 반영) |
-| **지원 워크플로우**| 콜드 이메일에 국한 | 텍스트 생성에 국한 | 복잡한 노드 그래프 코딩 필요 | **63개 전문 스킬 & 10대 패키지** (영상, 덱, 게시물, SDR) |
+| **지원 워크플로우**| 콜드 이메일에 국한 | 텍스트 생성에 국한 | 복잡한 노드 그래프 코딩 필요 | **78개 전문 스킬 & 11대 패키지** (영상, 덱, 게시물, SDR) |
 | **데이터 주권과 보안**| 서드파티 클라우드 벤더 종속 | 데이터가 모델 학습에 활용될 우려 | 사용자 구축 환경에 따라 상이함 | **100% 로컬 환경 / Gitignore** (데이터가 내 컴퓨터를 벗어나지 않음) |
 
 ---
@@ -106,34 +104,20 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 
 ## 4가지 실행 및 연동 모드
 
-gtm-engine는 하나의 공통 핵심 엔진(`gtm_core`)을 4가지 인터페이스로 제공합니다:
+공유 코어 엔진(`gtm_core`)은 하나, 연동 방식은 넷입니다. **하나만 선택하고 섞지 마세요.**
 
-**1 · Chat 모드 (기본 권장 — 인프라 불필요)**
-선호하는 AI 워크스페이스(**Claude Desktop**, **Google Antigravity**, **Cursor**, **Codex**)에서 본 폴더를 열고 `"set me up"`을 입력하세요. 모든 GTM 스킬이 로컬에서 실행되며, 내 프로필을 기반으로 내 목소리를 담아냅니다. VPS, Docker, 데이터베이스가 필요 없습니다. → [시작하기 (Chat 모드)](#시작하기-chat-모드)
-
-**2 · 자율형 셀프 호스팅 Agent (24/7 자동 순항)**
-**Claude Agent SDK** 기반 런타임을 로컬 백그라운드 또는 자체 **VPS**에 배포하여 뉴스 모니터링 → 기획 → 심층 조사 → 콘텐츠 작성 → 배포 준비를 24시간 자율 수행하며, Telegram 승인 게이트에서 사람의 지시를 기다립니다. 자세한 내용은 [`docs/DEPLOY.md`](docs/DEPLOY.md)를 참조하세요.
-
-**3 · 클라이언트 REST API 개발**
-FastAPI 로컬 백엔드(`./scripts/stack.sh start`, 포트 `:8000`)를 PostgreSQL 및 Redis와 함께 실행합니다. 커스텀 프론트엔드 UI, 대시보드 또는 모바일 클라이언트를 개발하는 엔지니어를 위해 제공됩니다.
-
-**4 · 외부 연동용 GTM MCP 서버**
-스트리밍 HTTP FastMCP(`deploy/Dockerfile.mcp`, 포트 `:8001`, API 키 인증 `sk-...`)로 선별된 GTM 도구를 노출하여 외부 에이전트(외부 Claude 인스턴스, LangChain, AutoGen, CrewAI 등)가 원격 도구 제공자로 연결할 수 있습니다.
-
-### 실행 경로 선택 (혼선 방지)
-
-| 경로 | 대상 사용자 | 실행 방법 | 하지 말아야 할 것 |
+| 모드 | 대상 | 실행 방법 | 하지 말아야 할 것 |
 |---|---|---|---|
-| **Chat 모드 (기본)** | 창업자, 영업 및 마케팅 실무자 | AI 워크스페이스에서 열고 `"set me up"` 입력 | **Docker 실행이나 `./scripts/stack.sh`를 실행할 필요가 없습니다.** |
-| **셀프 호스팅 Agent** | 24/7 백그라운드 자동화를 원하는 팀 | [`docs/DEPLOY.md`](docs/DEPLOY.md)에 따라 Docker Compose 배포 | 실시간 대화를 기대하지 마세요. Telegram 승인 게이트로 동작합니다. |
-| **클라이언트 API 개발** | 프론트엔드나 클라이언트를 개발하는 엔지니어 | `./scripts/stack.sh start` 실행 | 대화창에서 스킬을 쓰려는 목적이라면 실행하지 마세요. |
-| **외부 연동 MCP 서버** | 외부 에이전트에서 GTM 도구를 원격 호출할 때 | 8001 포트에 FastMCP 컨테이너 배포 | API 키 인증 및 예산 상한 설정 없이 공개하지 마세요. |
+| **1 · Chat 모드**(기본값, 인프라 불필요) | 채팅으로 업무를 진행하는 창업자·영업·마케터. 대부분의 사용자에게 적합합니다 | **Claude Desktop**, **Google Antigravity**, **Cursor**, **Codex** 중 하나로 이 폴더를 열고 `"set me up"`이라고 입력하세요. 모든 스킬이 로컬에서, 당신의 프로필과 목소리로 실행됩니다 → [시작하기](#시작하기-chat-모드) | Docker 실행, `./scripts/stack.sh` 실행, VPS 배포 **모두 불필요합니다.** Chat 모드에는 백그라운드 서버가 전혀 필요 없습니다 |
+| **2 · 자체 호스팅 에이전트** | 24시간 무인 그래프 실행이 필요한 팀 | **Claude Agent SDK** 런타임을 로컬 또는 자체 VPS에서 구동하여 활성화한 pack을 실행하고, Telegram의 사람 승인 게이트에서 일시 정지합니다. 실행은 타이머, 신호, 또는 사용자가 보낸 메시지로 시작됩니다. Docker와 시크릿 관리자가 필요합니다 → [`docs/DEPLOY.md`](docs/DEPLOY.md) | 이 모드에서 즉석 대화를 **기대하지 마세요.** Telegram 게이트 뒤에서 무인으로 동작합니다 |
+| **3 · 클라이언트 REST API** | 자체 프런트엔드, 대시보드, 모바일 클라이언트를 만드는 엔지니어 | Postgres + Redis를 포함한 로컬 FastAPI 백엔드를 `:8000`에서 실행(`./scripts/stack.sh start`)하고 OpenAPI 라우트 `/v1/runs`, `/v1/packs`, `/v1/gates`를 사용합니다 | 채팅에서 스킬만 쓰려면 **실행하지 마세요.** 모드 1은 서버리스입니다 |
+| **4 · 인바운드 MCP 서버** | 서드파티 외부 에이전트(다른 Claude 인스턴스, LangChain, AutoGen, CrewAI)를 GTM 도구에 연결할 때 | 엄선된 GTM Engine 도구를 streamable-HTTP FastMCP(`deploy/Dockerfile.mcp`, 포트 `:8001`)로 노출하고 `sk-...` API 키로 인증합니다. 공개 배포 시에는 Cloudflare Workers 기반 엣지 MCP 게이트웨이(`deploy/mcp-gateway/`)가 구독 확인과 KV 캐싱을 제공합니다 | API 키 인증, 예산 상한, 엣지 레이트 리밋 없이 **공개적으로 노출하지 마세요** |
 
 ### 지원하는 AI 워크스페이스 및 환경
 
 | 워크스페이스 / 하네스 | 지원 수준 | 스킬 로드 방식 | 비고 |
 |---|---|---|---|
-| **Claude Desktop / Code** | 네이티브 지원 | 플러그인 시스템 (`plugin/`) | 63개 전체 스킬, MCP 도구, 대화형 승인 완벽 지원 |
+| **Claude Desktop / Code** | 네이티브 지원 | 플러그인 시스템 (`plugin/`) | 78개 전체 스킬, MCP 도구, 대화형 승인 완벽 지원 |
 | **Google Antigravity** | 네이티브 지원 | `.agents/` 자동 탐색 메커니즘 | 멀티 에이전트 협업, 네이티브 커맨드 및 파일 도구 매핑 |
 | **Cursor / Codex** | 완벽 호환 | `.agents/AGENTS.md` + 룰셋 설정 | 대화형 인터랙션; 프롬프트 규칙에 따른 스킬 호출 |
 | **Headless VPS (Agent SDK)**| 전용 런타임 | 컨테이너화된 에이전트 루프 | Telegram 봇 승인을 통한 24/7 자율 순항 실행 |
@@ -173,22 +157,21 @@ uv run python -m gtm_core.check_env
 | **핵심 계정 공략 전략 수립** | `"build an account plan for [회사명]"` | `account-plan` | MEDDPICC 스코어카드, 구매 영향력 맵, 실행 로드맵 |
 | **시스템 구동 환경 및 예산 점검** | `"run environment check"` | `check_env` CLI | 프로필 무결성, API 연동 상태, 예산 보호 종합 리포트 |
 
-> 63개 전체 스킬 목록은 [`docs/SKILLS.md`](docs/SKILLS.md)를 참조하세요.
+> 78개 전체 스킬 목록은 [`docs/SKILLS.md`](docs/SKILLS.md)를 참조하세요.
 
 ---
 
 ## 이러한 구조로 설계된 이유
 
-1. **우회 불가능한 2단계 휴먼 게이트(Gate 1 / Gate 2)**
-   기획 단계(Gate 1: 각도 및 훅 선택)와 최종 결과물 단계(Gate 2: 내용 최종 승인)에서 무조건 멈추도록 강제되어 있습니다. 전역적으로 `autopublish: false`가 설정되어 사람의 승인 없이 외부로 발송되는 일이 없습니다.
-2. **멀티 테넌트 프로필 물리적 격리**
-   각 회사의 데이터는 `profiles/<프로필명>/` 디렉토리에 개별 격리되어 한 엔진으로 여러 회사를 안전하게 전환하며 운영할 수 있습니다.
-3. **모델은 두뇌, MCP 툴은 유일한 손발**
-   에이전트는 원시 HTTP 요청을 직접 날리지 않으며, 인가된 MCP 도구만을 거쳐 외부와 상호작용합니다. 인증 키는 모델의 컨텍스트에 노출되지 않습니다.
-4. **엔진 코드 내 하드코딩 배제**
-   회사명이나 도메인 정보가 코드 내에 하드코딩되지 않고, 런타임 시 프로필에서 안전하게 주입됩니다.
+![최악의 경우가 "거절하면 그만인 초안"인 이유: 게시와 발송은 애초에 모델의 도구 스키마에 없습니다](docs/assets/capability-boundary.png)
 
----
+| 특성 | 의미 | 이렇게 설계한 이유 |
+|---|---|---|
+| **사람 게이트는 우회 불가** | 무엇도 스스로 게시·발송·등록되지 않습니다. `autopublish`는 어디서나 `false`이고, 게시 대상은 서버 측에 고정되어 에이전트가 건드릴 수 없으며, pack이 게이트를 *선언*하면 스킬의 협조와 무관하게 구조적으로 멈춥니다. **모든 워크플로에 게이트가 둘씩 있는 것은 아닙니다** — 11개 pack 중 5개는 문서만 생성하며 외부 게이트가 전혀 없습니다 | GTM 결과물에는 당신의 이름과 고객의 데이터가 실립니다. 정확한 바이트를 사람이 승인합니다 |
+| **테넌트 상태는 구조적으로 격리** | 회사마다 고유한 프로필·상태·원장·고객 데이터를 가지며, 경로 해석 체계가 모든 자동 읽기·쓰기를 활성 테넌트에 묶습니다. 호스팅 백엔드는 데이터베이스 계층의 행 수준 보안을 더합니다 | 하나의 엔진이 여러 회사를 담당하면서도 데이터가 조용히 섞이지 않습니다. GTM 자동화에서 가장 위험한 오류는 *내용은 맞지만 회사가 틀린* 경우입니다 |
+| **모델은 두뇌, MCP만이 손** | 에이전트는 원시 HTTP 호출을 전혀 하지 않습니다. 모든 스크래핑·조회·렌더링·게시가 MCP 도구를 거칩니다 | 구조에 의한 최소 권한. 자격 증명은 도구와 함께 있고 모델 컨텍스트에는 들어가지 않으므로, 스크래핑한 페이지의 악의적 지시로는 키를 빼낼 수도, 도구 표면에 없는 엔드포인트에 닿을 수도 없습니다 |
+| **모든 것이 프로필 기반** | 브랜드, ICP, 페르소나, 목소리, 시장, 예산이 모두 런타임에 활성 프로필에서 로드됩니다. 코드에 하드코딩된 회사 문자열은 없으며 CI가 이를 검증합니다 | 하나의 엔진으로 여러 회사를 담당하고, *회사가 틀리는* 오류를 조용히 저지르기 구조적으로 어려워집니다 |
+| **새 워크플로는 코드가 아니라 데이터** | 워크플로 추가란 pack을 작성하는 일입니다 — 기존 스킬을 연결한 노드 그래프이며, 엔진이 검증한 뒤 그대로 실행합니다. 엔진 수정도 배포도 필요 없습니다 | 가장 자주 바뀌는 도메인 로직은 검토 가능한 버전 관리 설정에 남고, 절대 깨져선 안 될 거버넌스는 엔진에 고정됩니다 |
 
 ## 스타 히스토리 (Star History)
 

@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -22,7 +22,7 @@
   <a href="#workspace--harness-support"><img src="https://img.shields.io/badge/workspaces-Claude%20%7C%20Antigravity%20%7C%20Cursor%20%7C%20Codex-orange.svg" alt="Harness Support" /></a>
 </p>
 
-![GTM Content OS & Outbound Pipeline](docs/assets/gtm-pipeline-flow.png)
+![How a run works: signal → plan → human gate → studio → human gate → out](docs/assets/gtm-pipeline-flow.png)
 
 *The open-source Go-To-Market agent harness for B2B software startups. Built to 10x early-stage startups across their sales, pre-sales, and field-marketing activities.*
 
@@ -44,7 +44,7 @@ toward you.
 That's five jobs. The playbook says hire five people. You have a laptop, your existing AI workspace
 (Claude, Google Antigravity, Cursor, or Codex), and this week.
 
-**gtm-engine is the harness that runs those five jobs with you.** Cold prospecting, call prep, account
+**GTM Engine is the harness that runs those five jobs with you.** Cold prospecting, call prep, account
 plans, decks, market scans, and on-brand multi-platform content (LinkedIn posts, blog articles,
 podcasts, images) — all driven from a sentence you type, all in your voice, off your real company
 knowledge. And it runs as an AI agent that _structurally cannot_ publish, send, or leak on its own.
@@ -55,9 +55,9 @@ data stays isolated in its own profile, and the agent has no raw HTTP or shell a
 frameworks ask you to trust broad permissions; this one is built so there's nothing broad to trust.
 (The [how and why](#why-its-built-this-way) is spelled out further down.)
 
-### Why gtm-engine? (The Architectural Contrast)
+### Why GTM Engine? (The Architectural Contrast)
 
-| Capability | Black-Box "AI SDR" Platforms | Raw Prompts (ChatGPT / Claude) | Generic Agent Frameworks | **gtm-engine** |
+| Capability | Black-Box "AI SDR" Platforms | Raw Prompts (ChatGPT / Claude) | Generic Agent Frameworks | **GTM Engine** |
 |---|---|---|---|---|
 | **Cost** | \$500–\$3,000 / mo | \$20 / mo (heavy manual copy-paste) | Token spend + hosting fees | **\$0 base** (runs on your existing workspace — Claude, Antigravity, Cursor, or Codex) |
 | **Outbound Safety** | Auto-sends cold emails (reputation risk) | Manual review | Broad tool permissions | **Non-bypassable human gates** (cannot auto-send) |
@@ -68,24 +68,6 @@ frameworks ask you to trust broad permissions; this one is built so there's noth
 **You onboard once.** Say `"set me up"` and point it at your website; it reads your site and drafts
 your whole company profile (brand, ICP, voice, competitors, products), so every skill after that
 already knows who you are and you never paste your company into a prompt again.
-
-> **Not technical?** You never have to open a terminal or type a command.
-> [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) is the same setup written for someone who
-> sells rather than ships — install to first output, in plain English.
-
-**Then choose how you want to run it** — **Chat mode** (the default: open this folder in your AI
-workspace — Claude Desktop, Google Antigravity, Cursor, or Codex — and type prompts in chat,
-everything local), a **24/7 self-hosted agent**, a **local REST API**, or as an **inbound MCP server**
-for external agents. [Four ways to run & integrate](#four-ways-to-run-and-integrate) has the
-full comparison. But first, the fun part:
-
-> **Reading the code?** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the technical companion to
-> this README — the layering, the four runtimes, the data contracts, and the invariants the system
-> is built to hold.
-
-![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
-
----
 
 ### 30-Second Quickstart
 
@@ -107,7 +89,7 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 No install command, no config file to fill out first. You open the folder and type one sentence.
 Watch what a Monday-morning "I should really post something" turns into:
 
-![The GTM Engine Workflows](docs/assets/see-it-work-workflows.png)
+![Three workflows, one rule: a pack pauses only where something would leave the system](docs/assets/see-it-work-workflows.png)
 
 Sixty seconds ago you had a blank feed and a nagging to-do. Now you have a post that sounds like you
 wrote it on a good day, backed by real research, and you signed off on every word before it left your
@@ -153,8 +135,8 @@ every run gets.
 [Getting started](#getting-started-chat-mode) · [Workspace support](#workspace--harness-support) · [Tools & keys](#tools--keys) ·
 [What it does out of the box](#what-it-does-out-of-the-box) ·
 [GTM skill suite](#gtm-skill-suite-78-skills--all-profile-driven) ·
+[Content craft](#content-craft--what-makes-the-output-land) ·
 [Profiles](#profiles-multi-company) ·
-[Content craft](#content-craft--the-details-that-make-output-land) ·
 [How it works](#how-it-works) · [Repo layout](#repo-layout) ·
 [Self-hosting](#self-hosting--publishing-advanced-mode) · [Development](#development)
 
@@ -162,42 +144,14 @@ every run gets.
 
 ## Four ways to run and integrate
 
-gtm-engine exposes one shared core engine (`gtm_core`) across four primary integration surfaces:
+One shared core engine (`gtm_core`), four integration surfaces. **Pick one — do not mix them.**
 
-**1 · Chat mode (default — zero infrastructure).**
-Download this repo and open the folder in your workspace of choice — the **Claude Desktop app**,
-**Google Antigravity**, **Cursor**, or **Codex** — then say `"set me up"`. All
-the GTM skills run locally, against your profile, in your voice, driven by ad hoc prompts you type
-turn by turn. No VPS, no Docker, no database, and no standing agent — you're the one calling each
-skill. This is what most people want. → [Getting started](#getting-started-chat-mode)
-
-**2 · Autonomous self-hosted agent.**
-Deploy the self-hosted **Claude Agent SDK** runtime — locally or on your own **VPS** — that runs any
-pack graph you have activated on your behalf, 24/7 as containerized services, pausing only at the
-human approval gates in Telegram. A run starts from a clock, a signal, or a message you send —
-prospecting from your ICP, inbound from a reply that landed, content from a news signal. Needs
-Docker and a secret manager. → [`docs/DEPLOY.md`](docs/DEPLOY.md)
-
-**3 · Client REST API development.**
-Spin up the local FastAPI backend (`./scripts/stack.sh start` on `:8000`) with Postgres and Redis.
-Built for engineers developing custom frontends, web dashboards, or mobile clients
-against standard OpenAPI routes (`/v1/runs`, `/v1/packs`, `/v1/gates`). → [Local Backend Stack](#local-backend-stack-fastapi--postgres--redis--mcp)
-
-**4 · Inbound GTM MCP server.**
-Expose curated GTM Engine tools over streamable-HTTP FastMCP (`deploy/Dockerfile.mcp` on `:8001`) with
-API-key authentication (`sk-...`). Lets third-party external agents (such as external Claude instances,
-LangChain, AutoGen, or CrewAI fleets) connect directly to GTM Engine as a remote tool provider. For
-public deployments, an edge MCP Gateway (`deploy/mcp-gateway/`) runs on Cloudflare Workers with
-RevenueCat subscription checks and Cloudflare Workers KV caching.
-
-### Pick your path (do not mix them)
-
-| Path | Who it's for | How you run it | What NOT to do |
+| Mode | Who it's for | How you run it | What NOT to do |
 |---|---|---|---|
-| **Chat Mode (Default)** | Founders, sales, and marketers driving from chat | Open repo in your AI workspace $\rightarrow$ say `"set me up"` | **Do not** start Docker, run `./scripts/stack.sh`, or deploy a VPS. Zero background servers required. |
-| **Self-Hosted Agent** | Teams wanting 24/7 background graph execution | Deploy Docker Compose + Doppler via [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Do not** expect ad-hoc chat in this mode; it runs unattended behind Telegram gates. |
-| **Client API Dev** | Engineers building a custom frontend against the FastAPI REST API | Run `./scripts/stack.sh start` to spin up local Postgres + Redis + API | **Do not** run this if you just want to use the GTM skills in chat; Chat mode is completely serverless. |
-| **Inbound MCP Server** | Connecting 3rd-party external agents to GTM tools | Deploy FastMCP container on port 8001 with API key auth (or front with `deploy/mcp-gateway/` for public RevenueCat monetization) | **Do not** expose this publicly without API key auth (`sk-...`), budget caps, or edge gateway rate-limiting. |
+| **1 · Chat mode** *(default, zero infrastructure)* | Founders, sales and marketers driving from chat. This is what most people want | Open this folder in the **Claude Desktop app**, **Google Antigravity**, **Cursor** or **Codex** → say `"set me up"`. Every skill runs locally, against your profile, in your voice → [Getting started](#getting-started-chat-mode) | **Do not** start Docker, run `./scripts/stack.sh`, or deploy a VPS. Chat mode needs no background server at all |
+| **2 · Self-hosted agent** | Teams wanting 24/7 unattended graph execution | The **Claude Agent SDK** runtime, local or on your own VPS, running any pack you have activated and pausing at the human gates in Telegram. A run starts from a clock, a signal, or a message you send. Needs Docker and a secret manager → [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Do not** expect ad hoc chat here; it runs unattended behind Telegram gates |
+| **3 · Client REST API** | Engineers building a custom frontend, dashboard or mobile client | Local FastAPI backend with Postgres + Redis on `:8000` (`./scripts/stack.sh start`), against OpenAPI routes `/v1/runs`, `/v1/packs`, `/v1/gates` → [Local Backend Stack](#local-backend-stack-fastapi--postgres--redis--mcp) | **Do not** run this just to use the skills in chat — mode 1 is serverless |
+| **4 · Inbound MCP server** | Connecting third-party external agents (external Claude instances, LangChain, AutoGen, CrewAI) to GTM tools | Curated GTM Engine tools over streamable-HTTP FastMCP (`deploy/Dockerfile.mcp` on `:8001`) with `sk-...` API-key auth. For public deployments an edge MCP Gateway (`deploy/mcp-gateway/`) runs on Cloudflare Workers with subscription checks and KV caching | **Do not** expose this publicly without API-key auth, budget caps, and edge rate-limiting |
 
 ### Workspace & harness support
 
@@ -211,10 +165,6 @@ RevenueCat subscription checks and Cloudflare Workers KV caching.
 ---
 
 ## Getting started (Chat mode)
-
-> **This page assumes you're comfortable in a repo.** If you're not — no terminal, no commands —
-> follow [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) instead. Same destination, ~30 minutes
-> including the install and handing over your materials.
 
 **Prerequisites:** Python 3.11+ and [`uv`](https://docs.astral.sh/uv/). In Chat mode the agent installs
 these for you in Step 1 — you don't run anything by hand.
@@ -314,8 +264,25 @@ work depends on is what makes the output strong. Setup handles the connection; n
 | **Apollo** | last-resort contact backstop (verified email, never phone), company buying-intent, job-posting signals (`prospect`) | OAuth connector (or `APOLLO_API_KEY` for the local tool). **Needs a PAID Apollo plan** — you can connect on free, but Apollo returns `API_INACCESSIBLE` for every data endpoint until you upgrade (verified 2026-07-27) | Both | falls back to public web (unverified) |
 | **Firecrawl** | structured, JS-rendered web scraping (`content-radar`, `deck-research`, `events-tracker`) | `FIRECRAWL_API_KEY` | Both | built-in web tools |
 | **DeepSeek** | cheap bulk first drafts (Claude always reviews) | `DEEPSEEK_API_KEY` | **Mode 2** (advanced) | a Claude worker drafts instead |
-| **Media connectors** (Higgsfield · HeyGen) | carousel and infographic visuals, short-form video renders, the synthetic presenter (`carousel-visuals`, `video-render`, `video-avatar`) | OAuth connector in Claude — no key stored | Both | nothing is generated — the run routes to the live-action lane, which writes a phone-readable shoot list you film yourself |
+| **Media connectors** (Higgsfield · HeyGen) | carousel and infographic visuals, short-form video renders, the synthetic presenter (`carousel-visuals`, `video-render`, `video-avatar`) | OAuth connector in Claude — no key stored. **HeyGen is connector-only**: there is no headless HeyGen path, so the presenter lane needs Mode 1 | Both (HeyGen: Mode 1) | nothing is generated — the run routes to the live-action lane, which writes a phone-readable shoot list you film yourself |
 | **Media API keys** (Gemini · Higgsfield · ElevenLabs) | the same renders on the *headless* path, plus podcast/voice TTS | keys in `.env` | **Mode 2** (advanced) | Mode 1 uses the connectors above instead |
+| **Saleshandy** | the email sequencer — where `email-sequence` stages a multi-step sequence **paused**, and where the prospecting pack's `sequence-enroll` node pushes leads after you approve. Also the Do-Not-Contact list an opt-out is mirrored to | `SALESHANDY_API_KEY`, `SALESHANDY_DNC_LIST_ID` | Both | sequences are drafted as files; nothing is staged in a sender |
+| **Syften** | community and social listening (`community-signal-analysis`, the Engagement pack, inbound signals) | `SYFTEN_API_KEY` | Both | keyless web search covers far less of the long tail |
+| **Telegram** | **where you approve the gates in Mode 2.** Effectively required for the self-hosted agent — an unattended run with nowhere to ask simply stops at its gate | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` | **Mode 2** (advanced) | not needed for Chat mode — you are the gate |
+| **Google Workspace** | reading and writing Docs/Drive deliverables | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | **Mode 2** (advanced) | files stay on local disk |
+| **Your own deck renderer** *(optional)* | automatic PDF/PNG export for `build-deck` / `carousel-pdf` / `carousel-auto`. The skills always write the deck as **[Slidev](https://sli.dev) markdown** — an open format you own. Pointing `DECK_RENDERER_URL` at a renderer you run lets the agent export it without you leaving the chat | `DECK_RENDERER_URL` → a small HTTP service you host that accepts `POST /export` and shells out to Slidev's CLI. The host must be on the SSRF allowlist (localhost and a `deck-renderer` service name are allowed by default) | Both | **you still get the whole deck** — just export it yourself with `npx slidev export` (add `--format png` for images). Nothing about the deck's content depends on this |
+
+**Two notes on the Claude key.** `ANTHROPIC_API_KEY` also powers the **email judge**, which scores
+every staged outreach row before enrollment. It is **key-first with an OAuth fallback**, chosen
+automatically: with a key it calls the Messages API once per row; without one it runs through the
+Agent SDK on your workspace auth and batches rows. Both stay on Claude — the judge reads rendered
+bodies carrying prospect names and companies, so that binding is a privacy rule, not a cost one —
+but the two paths are **not interchangeable for measurement**. The same key powers the **vision
+worker**, a cheap image→text step so the brain never spends vision tokens.
+
+**Budget caps** (`PER_RUN_CAP_USD`, `GTM_ONBOARDING_CAP_USD`, plus the monthly cap `setup` records
+in your profile) are what Step 2 means by "set your budget caps" — every paid call is checked
+against them *before* it runs.
 
 Metered skills **estimate cost and check your cap before every paid call** — see
 [`plugin/skills/prospect/references/discovery-and-budget.md`](plugin/skills/prospect/references/discovery-and-budget.md)
@@ -326,10 +293,10 @@ for the prospecting budget model.
 ## What it does out of the box
 
 **11 packs ship in-repo, spanning 24 workflow variants** — each a wired **workflow graph** on the
-same unmodified engine. A pack is just which skills run, in what order, under which gates. Most are
-sequential chains; `planning` is a **batch** of independent nodes that run side by side, and
-`creator` fans out and rejoins — proving a pack is a *graph*, not necessarily a pipeline. All skills
-are shared, so a pack composes existing skills rather than owning them.
+same unmodified engine. A pack is just which skills run, in what order, under which gates. All
+skills are shared, so a pack composes existing skills rather than owning them.
+
+![A pack is a graph, not a pipeline: sequential, batch, and fan-out-and-rejoin shapes on one engine](docs/assets/pack-shapes.png)
 
 **A pack pauses only where your decision matters:** to commit a direction before work is spent
 (approve the plan), to protect an expensive step (sign off frames before a video renders), or to
@@ -345,12 +312,15 @@ pause that guards something.
 | **[Prospecting](#prospecting)** | Reach the right prospect, at the right time, with the right message | 1 | staged paused — you activate |
 | **[Solution architecture](#solution-architecture)** | Use case → technical solution (pre-sales / SA) | 1 | — documents only |
 | **Engagement** | Show up where buyers already are: `call-prep`, LinkedIn + Reddit replies (gated), community listening | 4 | reply variants gated |
-| **Inbound** | A reply landed — `inbound-triage` classifies it and drafts a response behind the same human gate | 1 | gated draft, never auto-sends |
+| **Inbound** | A reply landed — `inbound-triage` classifies it and drafts a response behind the same human gate. A second variant handles the other kind of reply: someone asking to be left alone | 2 | gated draft, never auto-sends |
 | **Knowledge refresh** | Re-reads your corpus and flags what has gone stale before a run leans on it | 1 | — writes to your profile only |
 | **Market intelligence** | Continuous competitor/regulatory signals and weekly internal positioning read | 1 | — documents only |
 | **Outcomes loop** | Feeds real results (replies, engagement) back so the next run is scored against what actually worked | 2 | — reads and records only |
 | **Headless content** | Autonomous end-to-end content production across scan, plan, studio, and publish behind async signal queues | 1 | Gate 2 publish |
 
+
+<details>
+<summary><strong>Per-pack detail — deliverables, flow, and every gate</strong></summary>
 
 ### Planning
 
@@ -388,6 +358,7 @@ pause that guards something.
 | **Data sources** | **Vibe Prospecting** — discovery, firmographics, company-level buyer-intent. **RocketReach** — verified contact email/phone, news & hiring triggers, job-change timing. **Apollo** — last-resort contact backstop (email only), company buying-intent, job-posting signals. Fused into a "why now" heat signal. Free web search is the fallback when none are connected |
 | **Output** | Scored brief · contact-ready outreach packs · HubSpot-ready CSV. Email drafts follow best-practice sequence structure (a real signal as the hook, a matched case study, one clear ask) and cite only public signals — intent times the touch, it never appears in the copy |
 | **After a reply lands** | The `inbound` pack reads it (read-only), classifies intent (P0–P3), and drafts a reply behind the same human gate. Nothing auto-sends |
+| **If they ask to be left alone** | The `optout-suppress` variant mirrors a detected opt-out onto your sender's Do Not Contact list. It is **add-only** — no removal effect exists, and none may be added, because nothing here may un-suppress a person who asked to be left alone |
 | **Scheduling** | Bring-your-own Calendly: paste your booking link and drafts propose a time, the prospect books themselves. Optional CRM sync is your own Calendly upgrade, not a credential this system holds |
 | **Output & gates** | The sequence is staged **PAUSED** in your sender. There is no resume tool on the connector — a human activates it |
 
@@ -396,10 +367,12 @@ pause that guards something.
 | **Solution architecture** | Use case → technical solution (for pre-sales / SA) |
 |---|---|
 | **What it does** | Turns a use case into a technical solution, either mapped onto your flagship product (product-led) or synthesised as a bespoke custom build |
-| **Flow** | discovery question bank → solution design → then a fan-out: scope-check → commercial proposal, and setup runbook → deck |
-| **Under the hood** | Profiles the account's stack, produces brand-token architecture diagrams and a design doc that is lint-gated before it is delivered, and hands off to the deck, the proposal, or the Word skills. Alongside the chain: a security questionnaire answered only from the evidence pack, a quantified value case, a time-boxed POC plan, a demo narrative, and a competitor battlecard |
+| **Flow** | discovery question bank → a pre-design scope check → a fan-out into the demo narrative and the solution design, which itself fans out post-design into a second scope check, the setup runbook, and the deck |
+| **Under the hood** | Profiles the account's stack, produces brand-token architecture diagrams and a design doc that is lint-gated before it is delivered, and hands off to the deck, the runbook, or the Word skills. Alongside the chain: a commercial proposal (the AE's step, priced only after scope is confirmed), a security questionnaire answered only from the evidence pack, a quantified value case, a time-boxed POC plan, and a competitor battlecard |
 | **Output & gates** | Documents only. No external gate; nothing is published |
 
+
+</details>
 ---
 
 ## GTM skill suite (78 skills — all profile-driven)
@@ -452,6 +425,33 @@ target that profile's brand, ICP, and product.
 
 ---
 
+## Content craft — what makes the output land
+
+An AI that writes "on-brand" text is table stakes. What decides whether content gets opened, read
+and shared is a set of specific techniques — and, more importantly, **which of them are enforced
+rather than merely prompted for**.
+
+![What a draft passes through before you see it: hook archetype, trigger stack, then two hard lint gates](docs/assets/content-craft-pipeline.png)
+
+Two of those steps are **hard gates**. A draft that fails the format linter never reaches you at
+all — that is not a style suggestion the model might follow, it is a check a malformed draft fails
+before you see it. So "looks fine" is a floor, not a hope.
+
+| Technique | What it enforces | Why most tools skip it |
+|---|---|---|
+| **Virality engineering** | Six emotional triggers (identity, status, tribal belonging, productive discomfort, curiosity, aspiration), **stacked not checklisted** — one fires mild, two or three compound. Every draft passes a *felt test*; "useful but not felt" gets rewritten. B2B-recalibrated: tribal lines drawn on how well you do the work, never against a named competitor | Most tools optimise for *informative*, which is exactly why it scrolls past. Engineering the feeling on a B2B buyer without sounding like a hype-merchant is the hard part |
+| **Hook optimization** | Every opening drawn from **10 named archetypes** — a shipped artifact, a counterintuitive decision, a named number, a status-quo fault-line. Must be zero-context self-contained and traceable to a real fact in that run's research. At the plan gate you get **3 candidates from 3 different archetypes**, so you choose the angle | A generic prompt produces a generic opening, and the hook is what earns the first three seconds |
+| **Anti-AI prose craft** | **A hard gate.** A linter hunts the tells that make readers discount AI copy: borrowed model vocabulary (*delve, leverage, tapestry, seamless*), em-dash pause addiction, empty intensifiers, antithetical parallelism (*"It's not X, it's Y"*). Output must ground in a decision and its cost, a real number, an honest concession | Style is usually a prompt instruction, so the model complies on average and drifts under pressure |
+| **Format & structure** | **A hard gate.** Exact per-format rules checked *before you see the draft*: LinkedIn needs a ≤140-char hook and a 1,300–2,500-char body; an X thread needs 5–9 tweets with the first standing alone, no link; a carousel needs 8–12 slides at ≤50 words with a re-hook partway | A malformed draft that reaches a human has already wasted the review |
+| **Platform optimization** | Each platform gets its own *shape* from one shared research pack — you never re-research per channel, only re-shape. LinkedIn runs long with the link in the first comment; X opens stand-alone; Facebook caps near 480 characters before the fold; a reel scripts its hook for the first 1–2 seconds | Shrinking one draft to fit every channel is among the most common GTM content mistakes — what earns reach on LinkedIn actively hurts it on X |
+| **News hijacking, safely** | The radar scores every item, then layers two judgment calls that never distort the base score: a **fault-line** check (is there a genuine arguable angle — never naming a competitor, skipped outright where it can't be taken safely, e.g. a tragedy) and a **velocity** check (is attention still rising, or already peaked) | Reacting to news is where brands look either tone-deaf or three days late |
+| **True storytelling** | A theory-derived **9-beat story graph** for founder/builder narratives: a core value paired against its seductive counterfeit, a first decision that was wrong for sound reasons, conflict escalating inward (room → face → hands). Automated checks catch story-washing and unearned bragging | Generic accomplishment formulas read as bragging, which is the opposite of the intended effect |
+| **Performance lexicon** | A prompt grammar for human expression in generated video: active facial regions capped at 1–2, micro-magnitude qualifiers mandated (*a fraction, a beat too long, barely*), positive stillness prescribed, expression kept distinct from body motion and vocal delivery | AI video fails in both directions at once — under-directed faces look numb, over-directed ones grimace in stock-photo melodrama |
+| **Direct-response frameworks** | When the goal is conversion rather than brand affinity, drafts follow 5 B2B-calibrated desire frameworks that diagnose structural bottlenecks | The consumer-influencer version of this is comment-bait, which reads as cheap to a B2B buyer |
+
+
+---
+
 ## Profiles (multi-company)
 
 Each company is a **profile bundle** under `profiles/<slug>/` — the *tenant* layer, pure data:
@@ -482,108 +482,31 @@ call.
 
 ---
 
-## Content craft — the details that make output land
-
-An AI that writes "on-brand" text is table stakes. What actually determines whether content gets
-opened, read, and shared is a set of specific, opinionated techniques — refined over real usage and
-enforced as hard gates, not just prompted for and hoped:
-
-<details>
-<summary><strong>View the 10 rules of GTM Content Craft</strong></summary>
-
-- **Virality engineering — write for what's *felt*, not just what's useful.** Every post is composed
-  against an explicit **emotional-trigger system** ([`docs/virality-engineering.md`](docs/virality-engineering.md)):
-  six triggers (identity validation, status signal, tribal belonging, productive discomfort,
-  curiosity gap, aspiration) that are **stacked, not checklisted** — one fired alone is mild; two or
-  three compound. Every draft must pass a **felt test** ("useful but not felt" gets rewritten) before
-  it ships, and the system is deliberately **B2B-recalibrated**: tribal lines drawn on *how well you
-  do the work* (never against a named competitor), every aspirational claim paired with real proof.
-  *Why it matters:* almost no AI writing tool does this — most optimize for *informative*, which is
-  exactly why it scrolls past. Engineering the *feeling*, on a B2B buyer, without sounding like a
-  hype-merchant, is the hard part.
-- **Hook optimization.** Every opening line is drawn from a named library of **10 hook archetypes**
-  ([`docs/hook-craft.md`](docs/hook-craft.md) — a shipped artifact, a counterintuitive decision, a
-  named number, a status-quo fault-line, reveal the ending, and others) — never a generic template —
-  and must be **zero-context self-contained** and traceable to a real fact in that run's research. At
-  the plan gate you're offered **3 candidates from 3 different archetypes**, so you're choosing the
-  angle, not just approving a single draft. Most AI content reads the same because it starts from a
-  generic prompt instead of a considered rhetorical structure — and the hook is what earns the first
-  three seconds.
-- **Anti-AI prose craft & voice de-slop.** Beyond character limits, every draft runs through a linter
-  and judgment pass ([`docs/prose-craft.md`](docs/prose-craft.md)) hunting the syntactic tells that make
-  readers discount AI copy: borrowed model vocabulary (*delve, leverage, tapestry, seamless, pivotal*),
-  em-dash pause addiction, empty intensifiers, and antithetical parallelism (*"It's not X, it's Y"*).
-  Output is grounded in concrete trade-offs: a decision and its cost, a real number, and honest
-  concessions.
-- **True storytelling — narrative tension, not founder bragging.** When an asset carries a protagonist
-  or founder/builder journey, it bypasses generic accomplishment formulas in favor of a theory-derived
-  **9-beat story graph**.
-  Every true story anchors on a core value paired against its seductive counterfeit (never just
-  absence), features a first decision that was wrong for sound reasons, and escalates conflict inward
-  (room → face → hands) toward a genuine moment of doubt. Automated checks catch "story-washing" and
-  unearned bragging before production.
-- **The performance lexicon — directing emotion small enough to be believed.** AI video generation
-  regularly fails in two directions: under-directed faces look numb, while over-directed faces grimace
-  in stock-photo melodrama. The engine enforces a strict **prompt grammar for human expression**:
-  capping active facial regions to 1–2, mandating micro-magnitude qualifiers (*a fraction, a beat too
-  long, barely*), prescribing positive stillness, and keeping facial expression distinct from body motion
-  and vocal delivery.
-- **Direct-response desire frameworks.** When the goal is conversion (moving the audience off-platform
-  to tools, waitlists, or private DMs) rather than top-of-funnel brand affinity, drafts follow 5
-  B2B-calibrated desire frameworks
-  that diagnose structural bottlenecks without resorting to cheap consumer-influencer comment-bait.
-- **Content quality & structure enforcement.** Every draft is checked by an automated linter against
-  exact, per-format rules **before you ever see it** — a LinkedIn post needs a ≤140-character hook and
-  a 1,300–2,500-character body; an X thread needs 5–9 tweets with the first standing alone, no link;
-  a carousel needs 8–12 slides at ≤50 words each with a re-hook partway through. *Why it matters:*
-  this isn't a style suggestion the model might follow — it's a hard gate a malformed draft fails
-  before it reaches you, so "looks fine" is a floor, not a hope.
-- **News hijacking, done safely.** The content radar scores every real news item, then layers two
-  judgment calls that never distort the base score: a **fault-line** check (does the story have a
-  genuine, arguable angle — never naming a competitor, skipped outright when the angle can't be taken
-  safely, e.g. a tragedy) and a **velocity** check (is attention still rising or already peaked — a
-  peaked story is down-weighted). *Why it matters:* reacting to news is where brands look either
-  tone-deaf or three days late; timing the "why now" is most of the reason a radar exists.
-- **Platform optimization, not reformatting.** Each platform gets its own shape from one shared
-  research pack — you never re-research per channel, only re-shape for it: LinkedIn text runs
-  1,300–2,500 characters with the link moved to the first comment; an X thread opens with a
-  stand-alone tweet; a Facebook post caps near 480 characters before the fold; an Instagram reel
-  scripts its hook for the first 1–2 seconds. What earns reach on LinkedIn actively hurts it on X —
-  and shrinking one draft to fit every channel is one of the most common GTM content mistakes.
-- **Best-practice outreach sequencing (prospecting).** Covered above — email drafts follow
-  proven sequence structure (a real signal as the hook, a matched case study, one clear ask) rather
-  than a generic cold-email template.
-
-</details>
-
----
-
 ## How it works
 
-gtm-engine runs GTM work as a **workflow graph**: the *engine* executes it, a *pack* defines it, and
+GTM Engine runs GTM work as a **workflow graph**: the *engine* executes it, a *pack* defines it, and
 your *profile* feeds it. That three-layer split is the whole design — a shared, domain-agnostic
 engine, declarative domain workflows on top, and your company data underneath.
 
+> **Reading the code?** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the technical companion to
+> this README — the layering, the four runtimes, the data contracts, and the invariants the system
+> is built to hold.
+
 Every pack variant is its own graph with its own starting point — a news signal, an ICP query, an
-account, a reply that landed, a clock. Two of them, side by side:
+account, a reply that landed, a clock. See [Three workflows, one rule](#see-it-work) above for three
+of them side by side, and note what that picture is really arguing: **a gate appears exactly where
+something would otherwise leave the system, and nowhere else.** Five of the eleven packs produce
+documents only and have no external gate at all.
+
+**A run can also be started by a signal, not only by a clock or a person.** A recorded opt-out or
+reply is dispatched as a run of the one-node `inbound` pack, which ends at a gate. That changes what
+*starts* a run and nothing about what a run may *do*: a dispatch target is a `(pack, variant)` pair
+with **no destination field**, so a signal — untrusted data — informs what is drafted and never
+where anything goes. Because run count is then signal-driven rather than calendar-bounded, the
+budget guard runs before **every** dispatch batch and a per-day ceiling bounds the lane; over either
+limit a signal defers and is retried, never dropped.
 
 ```
-  TWO OF THE WORKFLOW GRAPHS   (the "marketing / linkedin-post" and the
-                                "prospecting / prospect-outreach" packs)
-
-      radar ──▶ plan ──▶ research ──▶ studio ──▶ publish
-                  ▲                                  ▲
-               Gate 1                             Gate 2
-          you approve the plan         you approve the exact bytes
-
-      prospect ──▶ dossier ──▶ outreach ──▶ quality ──▶ sequence ──▶ enroll
-                                                          ▲
-                                                    the one gate
-                                     you approve the emails AND the lead list
-                                       together, before either leaves for a
-                                          third-party sender. Nothing sends:
-                                          the sequence is staged PAUSED
-
    HOW EACH NODE RUNS
 
       your profile ──▶ [ AI model — the brain ] ──▶ [ MCP servers — the hands ]
@@ -591,71 +514,51 @@ account, a reply that landed, a clock. Two of them, side by side:
                          every node                   (web · scrape · render · publish)
 ```
 
-**The three layers**:
+![The three layers: a tenant configures a pack, a pack runs on the engine, and all governance lives in the engine](docs/assets/three-layers.png)
 
-- **Engine** *(domain-agnostic — all governance lives here).* Executes any graph: it walks the
-  *frontier* of runnable nodes (a node runs once its dependencies are done), so a graph resumes from
-  failure and can fan out in parallel. The engine — not any workflow — owns the two human gates, the
-  per-node budget cap, the model registry, MCP egress, and the audit ledgers.
-- **Pack** *(declarative workflow — data, not code).* A graph of **nodes** (`depends_on` edges, an
-  optional gate, a model role each) wiring together shared **skills** into one domain workflow.
-  They all ship in-repo, on the *same* unmodified engine — the inventory is in
-  [What it does out of the box](#what-it-does-out-of-the-box). A pack references skills; it never
-  owns them, so `build-deck` can appear in several packs at once. Pack graphs are versioned config: they name *which* skills run in *what*
-  order under *which* gates — they **cannot** name a destination, an egress path, or a credential.
-- **Tenant** *(your data — never logic).* Your profile: settings in `PROFILE.md` and a knowledge
-  corpus in `knowledge/` (the "second brain"). A tenant can make a workflow **stricter** — add a
-  node or turn on a gate — but can **never** remove a safety gate. That's enforced at load, by
-  construction, not by trusting intent.
+Two
+consequences worth spelling out, because they are what the picture is for:
+
+- **A pack references skills; it never owns them**, so `build-deck` can appear in several packs at
+  once and every pack runs on the *same* unmodified engine.
+- **A gate that guards an external effect may name only one of three**: publish, enroll leads, or
+  add to Do Not Contact. That set is closed, each member pairs with its own Python-only dispatcher
+  the agent never calls, and the loader rejects anything else *before* a run starts.
 
 ### Why it's built this way
 
-1. **Two human gates are permanent; nothing publishes itself.** Every workflow pauses at **Gate 1**
-   (approve the plan) and **Gate 2** (approve the exact bytes before they go out); `autopublish` is
-   `false` everywhere, and the publish destination is pinned server-side where the agent can't touch
-   it. *Why:* GTM output carries your name and your customers' data — a human always approves the
-   exact text.
-2. **Tenant state is isolated by construction.** Each company is a separate profile with its own
-   state, ledgers, and customer data; the path-resolution spine binds every automated read and write
-   to the active tenant. The hosted multi-tenant backend additionally enforces this at the database
-   layer (row-level security); the single-operator local/VPS path keeps automated writes in-lane the
-   same way but is not a sandbox against the agent itself, and shared external connector accounts
-   (Syften, HubSpot, etc.) aren't yet scoped per tenant. *Why:* the same engine serves many companies without their data silently mixing.
-3. **The model is the brain; MCP servers are the only hands.** The agent never makes a raw HTTP call —
-   every scrape, lookup, render, and publish goes through an MCP tool. *Why:* least privilege by
-   construction. Credentials live with the tools, not in the model's context, so a bad instruction
-   in a scraped page can't exfiltrate a key or reach an endpoint the tool surface doesn't expose.
-4. **Everything is profile-driven — zero hardcoded company facts.** Brand, ICP, personas, voice,
-   markets, and budget all load from the *active profile* at runtime (CI-gated: no company strings
-   in code). *Why:* one engine serves many companies, and the highest-risk error in GTM automation
-   — *right content, wrong company* — becomes structurally impossible to make silently.
-5. **New workflows are data, not code.** Adding a workflow means writing a pack — a graph of nodes
-   wiring existing skills — which the engine validates and runs unchanged; no engine edits, no new
-   deploy. *Why:* the domain logic you'll change most often lives in reviewable, versioned config,
-   while the governance you must never break stays fixed in the engine.
-6. **Onboarding your knowledge is a first-class step.** Say `"set me up"` and the engine ingests your
-   materials — docs, URLs, notes — condensing them into a structured "second brain" (company, ICP,
-   voice, case studies) that every skill retrieves from; a readiness check flags what's missing or
-   stale before a run leans on it. That includes `market-scan`: it auto-discovers a GTM plan, email
-   sequence, or account plan you've already built and focuses its weekly signal sweep on the
-   industries, use cases, and buyer personas where you're actually selling, instead of just
-   whatever's loudest in the news that week. *Why:* good GTM output needs your real context, and
-   keeping that context fresh shouldn't be manual bookkeeping.
+![Why the worst case is a draft you reject: publish and send sit outside the model's tool schema](docs/assets/capability-boundary.png)
+
+| Property | What it means | Why it exists |
+|---|---|---|
+| **Human gates are non-bypassable** | Nothing publishes, sends, or enrolls itself. `autopublish` is `false` everywhere, the destination is pinned server-side where the agent cannot reach it, and a pack that *declares* a gate pauses structurally — not because the skill cooperated | GTM output carries your name and your customers' data. A human approves the exact bytes |
+| **Tenant state is isolated by construction** | Each company is its own profile with its own state, ledgers and customer data; the path-resolution spine binds every automated read and write to the active tenant. The hosted backend adds row-level security at the database | One engine serves many companies without their data silently mixing. The highest-risk error in GTM automation is *right content, wrong company* |
+| **The model is the brain; MCP is the only hands** | No raw HTTP from the agent — every scrape, lookup, render and publish goes through an MCP tool | Least privilege by construction. Credentials live with the tools, not in the model's context, so a bad instruction in a scraped page cannot exfiltrate a key or reach an endpoint the tool surface does not expose |
+| **Everything is profile-driven** | Brand, ICP, personas, voice, markets and budget all load from the active profile at runtime. Zero hardcoded company strings, CI-gated | One engine, many companies — and the wrong-company error becomes structurally hard to make silently |
+| **New workflows are data, not code** | Adding a workflow means writing a pack — a graph of nodes wiring existing skills — which the engine validates and runs unchanged. No engine edits, no deploy | The domain logic you change most often stays in reviewable versioned config, while the governance you must never break stays fixed in the engine |
+
+**Onboarding your knowledge is a first-class step**, not a property. Say `"set me up"` and the
+engine ingests your materials — docs, URLs, notes — condensing them into a structured "second
+brain" (company, ICP, voice, case studies) that every skill retrieves from, with a readiness check
+that flags what is missing or stale before a run leans on it. That includes `market-scan`: it
+auto-discovers a GTM plan, email sequence or account plan you have already built and focuses its
+weekly sweep on the industries, use cases and buyer personas where you are actually selling,
+instead of whatever is loudest in the news that week.
 
 **In advanced mode** (the self-hosted agent), a cheap worker model (DeepSeek) handles bulk first
-drafts to keep costs down, but **Claude always reviews** anything before it's shown or shipped, and
-every gate-critical or PII-handling node stays on Claude by construction. Model choice resolves
+drafts to keep costs down, but **Claude always reviews** anything before it is shown or shipped,
+and every gate-critical or PII-handling node stays on Claude by construction. Model choice resolves
 through a committed registry (`gtm_core/models.toml`). Chat mode talks directly to your workspace's
-native model (Claude, Gemini, etc.) — this tiering only applies when a self-hosted agent is running
-the workflow unattended.
+native model — this tiering only applies when a self-hosted agent runs the workflow
+unattended.
 
 ### For a technical evaluator
 
 *Skip this if you're here to use it rather than to assess it.*
 
-> gtm-engine is an **outer agent harness**. The
+> GTM Engine is an **outer agent harness**. The
 > [Claude Agent SDK](https://docs.anthropic.com/en/api/agent-sdk/overview) runs the inner loop — one
-> session, model plus tools. gtm-engine owns the loop *around* it: what the model can see, what it can
+> session, model plus tools. GTM Engine owns the loop *around* it: what the model can see, what it can
 > call, what runs next, and what can reach an external system.
 
 Control flow lives in code, not in the model's context. The engine is a DAG scheduler: it advances a

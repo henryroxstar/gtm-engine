@@ -137,7 +137,12 @@ def parse_reply_block(raw: str) -> ReplyDraft | None:
     # routing field which also feeds content_hash — so an inbound message could choose who a
     # reply went to and move the approval binding, while the operator reviewed clean-looking
     # body text. Excising the span closes it for every field at once.
-    outside_reply = raw[: m.start()] + raw[m.end() :]
+    #
+    # Excise EVERY ⟦REPLY⟧ span, not only the chosen one. Removing just `m` left a
+    # second span's contents inside `outside_reply`, so a ⟦TO⟧ quoted in a trailing
+    # ⟦REPLY⟧ block still became the recipient — and beat a genuine trailing ⟦TO⟧,
+    # because it appears earlier in the remaining text.
+    outside_reply = _REPLY_RE.sub("", raw)
 
     def _field(rx: re.Pattern[str]) -> str:
         fm = rx.search(outside_reply)

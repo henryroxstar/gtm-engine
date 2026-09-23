@@ -245,9 +245,13 @@ def parse_publish_block(raw: str) -> PublishDraft | None:
     no field for it. ``⟦SCHEDULE⟧`` carries a **time and nothing else**: it moves
     *when*, never *where*, and a post with one still goes through the identical
     operator gate — scheduling is publishing with a delay, not a lighter action.
-    ``⟦IDENTITY⟧`` is a comma-separated whitelist subset (unknown tokens dropped, never
-    surfaced) naming which render-identity handles are behind this asset — absent means
-    "none", not "unknown".
+    ``⟦IDENTITY⟧`` is a comma-separated list naming which render-identity handles are
+    behind this asset — absent means "none", not "unknown". Unrecognised tokens are
+    RETAINED, not dropped: a token this code does not know still means *some* identity
+    was used, so keeping it makes ``validate_disclosure`` fail closed. Dropping them
+    would let an unknown token read as "no identity" and silently retire the Art. 50
+    duty. (An earlier version of this docstring claimed they were dropped; they are
+    not — see tests/injection/test_second_span_field_promotion.py.)
     """
     if _PUBLISH_GATE not in raw:
         return None
@@ -265,7 +269,15 @@ def parse_publish_block(raw: str) -> PublishDraft | None:
     # as genuine — attaching a media URL, a send time, or an identity claim the
     # operator never saw in the reviewed post text. Excising the POST span first
     # closes that gap for every field at once, not just the one this comment sits on.
-    outside_post = raw[: m.start()] + raw[m.end() :]
+    #
+    # Excise EVERY ⟦POST⟧ span, not only the chosen one. Removing just `m` left a
+    # second span's contents inside `outside_post`, so a forged marker quoted in a
+    # trailing ⟦POST⟧ block was still promoted to a real field — and, appearing
+    # earlier in the remaining text than a genuine trailing marker, it won the
+    # `.search`. An empty ⟦IDENTITY⟧ that way zeroed `identity_used`, and
+    # `validate_disclosure` clears unconditionally on an empty tuple, so the
+    # Art. 50 duty vanished for a post that did use a trained identity.
+    outside_post = _POST_RE.sub("", raw)
 
     media: list[str] = []
     mm = _MEDIA_RE.search(outside_post)

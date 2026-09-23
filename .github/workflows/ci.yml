@@ -299,7 +299,7 @@ jobs:
       - name: pytest (dbtest tier)
         env:
           GTM_TEST_PG_ADMIN_DSN: postgres://gtm_app:postgres@localhost:5432/gtm_backend
-        run: python -m pytest tests/backend/test_rls_live.py tests/backend/test_cost_reservation_live.py tests/backend/test_integrations_rls_live.py tests/backend/test_publish_settings_live.py tests/backend/test_onboard_promote_live.py tests/backend/test_service_principals_live.py tests/backend/test_migrations.py tests/mcp_server/test_mcp_rls_live.py -q
+        run: python -m pytest tests/backend/test_rls_live.py tests/backend/test_cost_reservation_live.py tests/backend/test_integrations_rls_live.py tests/backend/test_publish_settings_live.py tests/backend/test_onboard_promote_live.py tests/backend/test_service_principals_live.py tests/backend/test_headless_signals_rls_live.py tests/backend/test_migrations.py tests/mcp_server/test_mcp_rls_live.py -q
 
   # ── 3. actionlint ───────────────────────────────────────────────────────────
   # Static-analyse the workflow YAML itself (shellcheck on run: blocks, expression

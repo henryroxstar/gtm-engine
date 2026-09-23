@@ -1,18 +1,36 @@
 # packs/solution-architecture/graphs/solution-architecture.toml
 #
-# The third real pack graph (E-4 generality proof). Since 2026-09-22 it is a DAG rather than a
-# chain: `design` fans out to `scope-check` and `runbook`, which run concurrently in one frontier.
+# The third real pack graph (E-4 generality proof). Rewired 2026-09-22 (SA8) to match the chain
+# `solution-scope-check` itself documents — pre-design AND post-design, not post-design only:
 #
-#                        ┌─ scope-check ── proposal
-#   discovery ── design ─┤
-#                        └─ runbook ────── deck
+#   discovery
+#      └─ scope-check-pre ──┬─ demo
+#                           └─ design ──┬─ scope-check-post
+#                                       ├─ runbook
+#                                       └─ deck
 #
-# The two added nodes are the SA chain's missing commercial half. `scope-check` sits AFTER the
-# design (its post-design mode — the richer one: it has a concrete solution to simplify and the
-# design's own residual assumptions to turn into questions), and `proposal` sits after it, because
-# a price quoted before the buyer has confirmed scope is a price for work nobody has agreed to.
+# `scope-check` runs on the SAME skill twice under two node ids (the loader has no uniqueness
+# check on `skill`, so this is legal) — once pre-design, once post-design — because the skill
+# resolves its own mode from what's in the account folder at that point in the chain (discovery
+# only → pre-design; design also present → post-design). Neither node prompt names a mode.
 #
-# No external gate — this pack produces documents, it doesn't publish or send anything. Both new
+# `demo` depends on `scope-check-pre`, not on `design`/`runbook`: a runbook is derived FROM a
+# design, so a runbook→demo edge would force a design before every demo — backwards, since the
+# demo usually precedes the design. `deck` depends on `design` directly (not `runbook` — that was
+# a fossil of the original linear chain: a buyer-facing deck has no reason to wait on a
+# customer-engineer setup doc).
+#
+# `commercial-proposal` is NOT in this graph. Its own skill header names its counterparty as "an
+# exec sponsor, finance, procurement and legal" — it's the AE's artifact, not the SA's. The rule it
+# used to encode structurally (price only after scope is confirmed) now lives as prose in
+# PRESALES.md instead of as a graph edge.
+#
+# Known, unresolved debt: `gateway-runbook` is product-bound (grounded in a specific product's
+# reference architecture) yet is a mandatory node here, in a pack any tenant may activate. Tenant
+# pack overrides are monotone-stricter-only (CLAUDE.md), so a tenant has no way to opt this node
+# out; there is no fix in this graph for that today.
+#
+# No external gate — this pack produces documents, it doesn't publish or send anything. All seven
 # skills derive `free` + `oss = "public"`, so the graph's effective min_entitlement is unchanged
 # at `free` and the pack stays stub-free in the OSS carve (verified with gtm_core.gating, not
 # assumed: a node above `free` reprices the whole graph and an `oss = "private"` one would make it
@@ -28,11 +46,32 @@ skill = "solution-discovery"
 prompt = "Run the solution-discovery skill for the active account/engagement."
 
 [[nodes]]
-id = "design"
+id = "scope-check-pre"
 depends_on = ["discovery"]
+model_role = "brain_plan"
+skill = "solution-scope-check"
+prompt = "Run the solution-scope-check skill for the active account/engagement. It resolves its own mode from what's in the account folder — at this point in the chain, only the discovery brief exists, so it resolves pre-design."
+
+[[nodes]]
+id = "demo"
+depends_on = ["scope-check-pre"]
+model_role = "brain_plan"
+skill = "demo-narrative"
+prompt = "Run the demo-narrative skill to design the demo flow for the active account/engagement."
+
+[[nodes]]
+id = "design"
+depends_on = ["scope-check-pre"]
 model_role = "brain_plan"
 skill = "solution-design"
 prompt = "Run the solution-design skill using the discovery output."
+
+[[nodes]]
+id = "scope-check-post"
+depends_on = ["design"]
+model_role = "brain_plan"
+skill = "solution-scope-check"
+prompt = "Run the solution-scope-check skill for the active account/engagement. It resolves its own mode from what's in the account folder — at this point in the chain, a fresh solution design exists, so it resolves post-design."
 
 [[nodes]]
 id = "runbook"
@@ -43,21 +82,7 @@ prompt = "Run the gateway-runbook skill to produce the implementation runbook."
 
 [[nodes]]
 id = "deck"
-depends_on = ["runbook"]
+depends_on = ["design"]
 model_role = "brain_plan"
 skill = "build-deck"
 prompt = "Run the build-deck skill to produce the solution architecture deck."
-
-[[nodes]]
-id = "scope-check"
-depends_on = ["design"]
-model_role = "brain_plan"
-skill = "solution-scope-check"
-prompt = "Run the solution-scope-check skill in post-design mode against the design just produced."
-
-[[nodes]]
-id = "proposal"
-depends_on = ["scope-check"]
-model_role = "brain_plan"
-skill = "commercial-proposal"
-prompt = "Run the commercial-proposal skill using the design and the confirmed scope."

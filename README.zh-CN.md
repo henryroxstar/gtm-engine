@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -50,18 +50,16 @@
 2. **每家公司的数据在各自专属 profile 中严格物理隔离**；
 3. **Agent 严禁任何原生 HTTP 请求或未经审查的终端 Shell 执行权限**。绝大多数 AI 框架要求你赋予泛化的危险权限；本系统从根本上消除了需要盲目信任的漏洞隐患。
 
-![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
-
 ---
 
-### 为什么选择 gtm-engine？（架构级优势对比）
+### 为什么选择 GTM Engine？（架构级优势对比）
 
-| 核心维度 | 黑盒“AI SDR”商业平台 (如 11x, Artisan) | 原生 Prompt 对话 (ChatGPT / Claude) | 泛化 Agent 框架 (CrewAI / LangChain) | **gtm-engine (本系统)** |
+| 核心维度 | 黑盒“AI SDR”商业平台 (如 11x, Artisan) | 原生 Prompt 对话 (ChatGPT / Claude) | 泛化 Agent 框架 (CrewAI / LangChain) | **GTM Engine (本系统)** |
 |---|---|---|---|---|
 | **使用成本** | 500 – 3,000 美元 / 月 | 20 美元 / 月（伴随大量手工复制粘贴） | 纯 Token 费用 + 服务器部署成本 | **0 美元底价**（完全依赖你现有的 Claude 订阅） |
 | **外发安全性** | 自动向目标客户发送冷邮件（极高声誉风险） | 手动逐条复制与审核 | 赋予模型泛化的工具执行权限 | **不可绕过的人类审批门禁**（模型完全无权自行发送） |
 | **公司业务上下文** | 机械的外部网页爬取 | 每次对话重新粘贴公司背景 | 需要自行搭建向量数据库与外挂管道 | **Profile 第二大脑**（一次录入，全技能自动继承） |
-| **覆盖工作流丰富度**| 仅局限于冷邮件发送 | 仅局限于纯文本生成 | 需自行编写复杂的代码与节点图 | **63 项预置技能 & 10 大工作包**（涵盖视频、PPT、文章、SDR） |
+| **覆盖工作流丰富度**| 仅局限于冷邮件发送 | 仅局限于纯文本生成 | 需自行编写复杂的代码与节点图 | **78 项预置技能 & 11 大工作包**（涵盖视频、PPT、文章、SDR） |
 | **数据隐私与安全** | 第三方商业云厂商锁定与外泄担忧 | 数据可能参与模型训练迭代 | 视用户自建配置而定 | **100% 本地运行 / 物理隔离**（数据绝不脱离你的掌控） |
 
 ---
@@ -105,32 +103,20 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 
 ## 四种运行与集成方式
 
-**1 · Chat 对话模式（默认推荐 — 零环境门槛）**
-在任何你喜欢的 AI 工作区打开本仓库 —— **Claude Desktop**、**Google Antigravity**、**Cursor** 或 **Codex**，直接输入 `"set me up"`。所有 GTM 技能均在本地调用，读取你的 profile，以你的语调生成。无 VPS、无 Docker、无数据库服务，一切由你交互掌控。→ [快速上手指南](#快速上手指南-chat-对话模式)
+一套共享核心引擎（`gtm_core`），四种集成方式。**请只选其一，不要混用。**
 
-**2 · 高级自托管模式（24/7 自主运行 Agent）**
-部署基于 **Claude Agent SDK** 的自动化运行时 —— 可在本地后台或自己的 **VPS** 上运行，24/7 自动巡检新闻 → 规划 → 深度调研 → 创作，在 Telegram 审批门禁前自动等待人类指令。详见 [`docs/DEPLOY.md`](docs/DEPLOY.md)。
-
-**3 · 客户端 REST API 开发**
-启动本地 FastAPI 后端（通过 `./scripts/stack.sh start`，监听 `:8000` 端口）配合 Postgres 与 Redis。专为开发自定义前端界面、仪表盘或移动客户端的工程师设计，提供标准的 OpenAPI 路由。
-
-**4 · 接入型 GTM MCP 服务端**
-通过可流式传输的 HTTP FastMCP（部署 `deploy/Dockerfile.mcp`，监听 `:8001` 端口）对外暴露精选 GTM 引擎工具，支持 API Key 认证 (`sk-...`)。允许第三方外部 Agent（如外部 Claude 实例、LangChain、AutoGen 或 CrewAI 集群）直接连接 GTM 引擎作为远程工具提供方。
-
-### 选择适合你的路径（避免混淆）
-
-| 路径 | 适用人群 | 如何运行 | 严禁的操作（避免走弯路） |
+| 模式 | 适合谁 | 如何运行 | 请勿这样做 |
 |---|---|---|---|
-| **Chat 模式 (默认)** | 创始人、销售代表、市场营销者 | 在 AI 工作区打开仓库 $\rightarrow$ 键入 `"set me up"` | **不要**启动 Docker，**不要**运行 `./scripts/stack.sh`。完全无需本地服务！ |
-| **自托管 Agent 模式** | 需要 24/7 自动化运行的团队 | 按照 [`docs/DEPLOY.md`](docs/DEPLOY.md) 部署 Docker Compose | **不要**指望在此模式下进行即兴即时对话；它运行在后台，由 Telegram 门禁驱动。 |
-| **客户端 API 开发** | 正在为本引擎开发前端界面的工程师 | 运行 `./scripts/stack.sh start` 启动本地 FastAPI 接口 | 如果你只是想在聊天中使用 GTM 技能，**不要**启动这个服务；Chat 模式完全轻量独立。 |
-| **Inbound MCP 服务端** | 连接第三方外部 Agent 到 GTM 工具 | 在 8001 端口部署 FastMCP 容器并配置 API Key | **不要**在未配置 API Key 鉴权 (`sk-...`) 和预算限额时公开暴露。 |
+| **1 · Chat 对话模式**（默认，零基础设施） | 在对话中驱动工作的创始人、销售与市场人员。这是大多数人需要的方式 | 用 **Claude Desktop**、**Google Antigravity**、**Cursor** 或 **Codex** 打开本文件夹，然后说 `"set me up"`。所有技能均在本地运行，读取你的档案，使用你的语气 → [快速上手指南](#快速上手指南-chat-对话模式) | **请勿**启动 Docker、运行 `./scripts/stack.sh` 或部署 VPS。对话模式完全不需要后台服务 |
+| **2 · 自托管自主 Agent** | 需要 7×24 小时无人值守执行工作流图的团队 | 在本地或自有 VPS 上部署 **Claude Agent SDK** 运行时，执行你已启用的任意 pack，并在 Telegram 的人工审批门禁处暂停。运行可由定时器、信号或你发送的消息触发。需要 Docker 与密钥管理器 → [`docs/DEPLOY.md`](docs/DEPLOY.md) | **请勿**期待此模式下的即时对话；它在 Telegram 门禁后无人值守运行 |
+| **3 · 客户端 REST API** | 构建自定义前端、仪表盘或移动客户端的工程师 | 本地 FastAPI 后端 + Postgres + Redis，端口 `:8000`（`./scripts/stack.sh start`），对接 OpenAPI 路由 `/v1/runs`、`/v1/packs`、`/v1/gates` | **请勿**仅为在对话中使用技能而启动它——模式 1 完全无需服务器 |
+| **4 · 入站 MCP 服务器** | 将第三方外部 Agent（其他 Claude 实例、LangChain、AutoGen、CrewAI）接入 GTM 工具 | 通过 streamable-HTTP FastMCP（`deploy/Dockerfile.mcp`，端口 `:8001`）暴露精选的 GTM Engine 工具，使用 `sk-...` API Key 鉴权。公开部署时可用边缘 MCP 网关（`deploy/mcp-gateway/`），运行于 Cloudflare Workers，带订阅校验与 KV 缓存 | **请勿**在没有 API Key 鉴权、预算上限和边缘限流的情况下公开暴露 |
 
 ### 支持的 AI 工作区与环境
 
 | 工作区 / Harness | 支持级别 | 技能加载机制 | 说明 |
 |---|---|---|---|
-| **Claude Desktop / Code** | 原生支持 | 插件系统 (`plugin/`) | 原生支持全部 63 项技能、MCP 工具与审批门禁 |
+| **Claude Desktop / Code** | 原生支持 | 插件系统 (`plugin/`) | 原生支持全部 78 项技能、MCP 工具与审批门禁 |
 | **Google Antigravity** | 原生支持 | `.agents/` 自动发现机制 | 支持多 Agent 编排、原生 `run_command` 与文件工具映射 |
 | **Cursor / Codex** | 完全兼容 | `.agents/AGENTS.md` + 规则配置 | 交互式对话体验；通过提示词直接调用底层技能 |
 | **Headless VPS (Agent SDK)**| 专用容器环境 | 容器化 Agent 运行循环 | 配合 Telegram 审批机器人实现 24/7 自动化无人值守 |
@@ -179,24 +165,21 @@ uv run python -m gtm_core.check_env
 | **制定年度/季度战略客户攻坚计划** | `"build an account plan for [公司名]"` | `account-plan` | 买方委员会角色图谱、MEDDPICC 记分卡、5 步落地执行计划 |
 | **检查系统运行环境状态** | `"run environment check"` | `check_env` CLI | 全套密钥、画像健康度及预算防护审核报告 |
 
-> 完整的 63 项技能目录请参阅 [`docs/SKILLS.md`](docs/SKILLS.md)。
+> 完整的 78 项技能目录请参阅 [`docs/SKILLS.md`](docs/SKILLS.md)。
 
 ---
 
 ## 为什么采用这种架构
 
-1. **两道人类审批门禁是永久性的；任何产物都不可自动对外发送。**
-   每个工作流都在 **门禁 1**（批准方向与钩子）和 **门禁 2**（批准最终发布的每个字节）自动暂停；系统全局硬编码 `autopublish: false`，发布目标端点由底层安全锁死。GTM 动作代表你的商业声誉与客户隐私，关键决策必须由人核准。
-2. **多租户企业画像物理隔离。**
-   每个公司是独立的 Profile，拥有专属的数据沉淀、账本和客户记录。同一个引擎可以安全切换服务多家公司，杜绝数据串扰。
-3. **Claude 作为大脑；MCP 工具作为唯一双手。**
-   Agent 绝不进行原生裸 HTTP 请求，所有外部网络调用、数据爬取与发布均由安全策略拦截器裁决，凭证不暴露在模型上下文内部。
-4. **纯粹由企业画像驱动，代码中零公司硬编码。**
-   品牌风格、ICP、人群画像、话术库全部在运行时动态装载。
-5. **业务流程是数据，而不是代码。**
-   新增或调整工作流只需要配置一个声明式的 Pack 节点拓扑图，无需修改引擎底层核心代码。
+![为什么最坏情况只是一份你可以否决的草稿：发布与发送根本不在模型的工具清单中](docs/assets/capability-boundary.png)
 
----
+| 特性 | 含义 | 为何如此设计 |
+|---|---|---|
+| **人工门禁不可绕过** | 任何内容都不会自行发布、发送或导入。全局 `autopublish: false`，发布目标固定在服务端、Agent 无法触及；pack 一旦*声明*了门禁，就会在结构上暂停——而非依赖技能的配合。**并非每个工作流都有两道门禁**：11 个 pack 中有 5 个只产出文档，完全没有对外门禁 | GTM 产出承载着你的署名与客户数据，必须由人来批准确切内容 |
+| **租户状态天然隔离** | 每家公司拥有独立的档案、状态、账本与客户数据；路径解析中枢将每一次自动读写都绑定到当前租户。托管后端在数据库层面再加一层行级安全 | 同一引擎服务多家公司而数据互不串味。GTM 自动化中风险最高的错误就是「内容对了、公司错了」 |
+| **模型是大脑，MCP 是唯一的手** | Agent 不发起任何原始 HTTP 请求——所有抓取、查询、渲染与发布都经由 MCP 工具 | 结构性最小权限。凭据与工具同在，不进入模型上下文，因此被抓取页面中的恶意指令既拿不到密钥，也够不到工具清单未暴露的端点 |
+| **一切由档案驱动** | 品牌、ICP、人物画像、语气、市场与预算全部在运行时从当前档案加载，代码中零硬编码公司信息（CI 强制校验） | 一套引擎服务多家公司，且「内容对了、公司错了」这类错误在结构上难以悄然发生 |
+| **新工作流是数据而非代码** | 新增工作流意味着编写一个 pack——由节点组成、串联既有技能的图，引擎校验后原样运行。无需改动引擎，也无需重新部署 | 最常变动的领域逻辑留在可审阅的版本化配置中，绝不可破坏的治理逻辑则固定在引擎里 |
 
 ## Star History
 

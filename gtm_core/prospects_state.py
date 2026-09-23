@@ -150,7 +150,12 @@ def _identity_keys(item: dict) -> list[str]:
     Indexing an item under all of its keys, and looking an incoming item up under
     all of its keys, closes that gap in both directions (a key gained *or* lost).
     Two accounts can still never merge by accident: they would have to collide on
-    a domain, an id, or an exact company name to share a bucket at all.
+    a domain, an id, or an exact company name to share a bucket at all — and an
+    exact-name collision is no longer enough on its own. ``AccountMatcher.find``
+    refuses a name-only match whose domain differs from the candidate's, because two
+    legal entities can share one name (a subsidiary and its parent, or two unrelated
+    firms). Only a ``d:``/``i:``/``a:`` key — an identifier rather than a name — can
+    merge rows that carry different domains.
     """
     keys: list[str] = []
     domain = str(item.get("domain") or "").strip().lower()

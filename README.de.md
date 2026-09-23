@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2063%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -51,18 +51,16 @@ Drei unverrückbare Prinzipien:
 2. **Die Daten jedes Unternehmens bleiben strikt getrennt im eigenen Profilverzeichnis.**
 3. **Der Agent besitzt keine unkontrollierten Raw-HTTP- oder Shell-Rechte.** Sämtliche Interaktionen laufen ausschließlich über abgesicherte MCP-Werkzeuge (Model Context Protocol).
 
-![Content OS Architecture](docs/assets/content-os-grade-a-plus-architecture.png)
-
 ---
 
-### Warum gtm-engine? (Architekturvergleich)
+### Warum GTM Engine? (Architekturvergleich)
 
-| Kriterium | Intransparente "AI SDR"-Plattformen (11x, Artisan etc.) | Reine Prompt-Chats (ChatGPT / Claude) | Generische Agent-Frameworks (CrewAI / LangChain) | **gtm-engine (Dieses System)** |
+| Kriterium | Intransparente "AI SDR"-Plattformen (11x, Artisan etc.) | Reine Prompt-Chats (ChatGPT / Claude) | Generische Agent-Frameworks (CrewAI / LangChain) | **GTM Engine (Dieses System)** |
 |---|---|---|---|---|
 | **Kosten** | \$500 – \$3.000 / Monat | \$20 / Monat (verbunden mit hohem manuellem Kopieraufwand) | Token-Verbrauch + Serverkosten | **\$0 Basis** (nutzt dein bestehendes Workspace-Abonnement) |
 | **Outbound-Sicherheit** | Automatischer Kaltversand (hohes Reputationsrisiko) | Manuelles Kopieren & Prüfen | Weitgehende Werkzeug-Berechtigungen | **Verbindliche menschliche Freigabegates** (kein Auto-Versand) |
 | **Unternehmenskontext** | Oberflächliches Web-Scraping | Kontext muss ständig neu eingefügt werden | Aufwendige Vektor-DB-Infrastruktur nötig | **Profil als "Second Brain"** (einmal anlegen, in allen Skills verfügbar) |
-| **Workflows** | Ausschließlich Kaltakquise per E-Mail | Nur reiner Text | Erfordert individuelles Programmieren komplexer Graphen | **63 Skills & 10 Workflows** (Video, Decks, Social Media, SDR) |
+| **Workflows** | Ausschließlich Kaltakquise per E-Mail | Nur reiner Text | Erfordert individuelles Programmieren komplexer Graphen | **78 Skills & 11 Workflows** (Video, Decks, Social Media, SDR) |
 | **Datenschutz & Souveränität**| Bindung an Drittanbieter-Cloud | Daten können für Modelltraining genutzt werden | Stark abhängig vom Setup | **100% lokal & Git-ignoriert** (Daten verbleiben auf deinem Rechner) |
 
 ---
@@ -106,34 +104,20 @@ Das gleiche Prinzip steuert deine gesamte Woche:
 
 ## Vier Betriebs- und Integrationsmodi
 
-gtm-engine stellt einen gemeinsamen Kern (`gtm_core`) über vier Oberflächen bereit:
+Ein gemeinsamer Kern (`gtm_core`), vier Integrationsflächen. **Wählen Sie einen — nicht mischen.**
 
-**1 · Chat-Modus (Standard — Keine Infrastruktur erforderlich)**
-Öffne dieses Verzeichnis in deinem KI-Workspace (**Claude Desktop**, **Google Antigravity**, **Cursor** oder **Codex**) und tippe `"set me up"`. Alle Fähigkeiten laufen lokal, nutzen dein hinterlegtes Profil und formulieren in deiner Stimme. Kein Server, kein Docker, keine Datenbank nötig. → [Erste Schritte (Chat-Modus)](#erste-schritte-chat-modus)
-
-**2 · Autonomer Self-Hosted-Agent (24/7-Betrieb)**
-Betreibe die auf dem **Claude Agent SDK** basierende Umgebung lokal oder auf einem **VPS**: Sie führt den Workflow aus Analyse → Planung → Recherche → Erstellung rund um die Uhr aus und wartet an den Freigabegates in Telegram auf deine Bestätigung. Details in [`docs/DEPLOY.md`](docs/DEPLOY.md).
-
-**3 · Client-REST-API-Entwicklung**
-Starte das lokale FastAPI-Backend (`./scripts/stack.sh start`, Port `:8000`) mit PostgreSQL und Redis. Ausgelegt für Entwickler, die eigene Benutzeroberflächen, Dashboards oder mobile Apps anbinden.
-
-**4 · Eingehender GTM-MCP-Server**
-Stellt ausgewählte Werkzeuge über FastMCP HTTP (`deploy/Dockerfile.mcp`, Port `:8001`) mit API-Key-Authentifizierung (`sk-...`) bereit, um externe Agenten (externe Claude-Instanzen, LangChain, AutoGen oder CrewAI) anzubinden.
-
-### Den richtigen Pfad wählen (Konflikte vermeiden)
-
-| Pfad | Zielgruppe | Ausführung | Was zu vermeiden ist |
+| Modus | Für wen | Wie Sie ihn betreiben | Was Sie NICHT tun sollten |
 |---|---|---|---|
-| **Chat-Modus (Standard)** | Gründer, Vertriebs- und Marketingteams | Repo im Workspace öffnen $\rightarrow$ `"set me up"` eingeben | **Kein** Docker starten, **nicht** `./scripts/stack.sh` ausführen. Komplett serverlos! |
-| **Self-Hosted-Agent** | Teams mit Bedarf an 24/7-Automatisierung | Docker Compose via [`docs/DEPLOY.md`](docs/DEPLOY.md) | Nicht für spontane Chat-Interaktionen gedacht; läuft autonom über Telegram-Gates. |
-| **Client-API-Entwicklung** | Entwickler von Web- oder Mobile-Frontends | `./scripts/stack.sh start` ausführen | Nicht starten, wenn du nur mit den Skills im Chat arbeiten möchtest. |
-| **Eingehender MCP-Server** | Bereitstellung für externe Agenten-Flotten | FastMCP-Container auf Port 8001 bereitstellen | Niemals ohne API-Key-Schutz und Budgetbegrenzung öffentlich freigeben. |
+| **1 · Chat-Modus** *(Standard, keine Infrastruktur)* | Gründerinnen und Gründer, Vertrieb und Marketing, die aus dem Chat heraus arbeiten. Das ist es, was die meisten brauchen | Öffnen Sie diesen Ordner in **Claude Desktop**, **Google Antigravity**, **Cursor** oder **Codex** → sagen Sie `"set me up"`. Alle Skills laufen lokal, gegen Ihr Profil und in Ihrer Stimme → [Erste Schritte](#erste-schritte-chat-modus) | **Starten Sie kein** Docker, führen Sie `./scripts/stack.sh` nicht aus und deployen Sie keinen VPS. Der Chat-Modus braucht überhaupt keinen Hintergrunddienst |
+| **2 · Selbstgehosteter Agent** | Teams, die unbeaufsichtigte Graph-Ausführung rund um die Uhr wollen | Die **Claude Agent SDK**-Laufzeit, lokal oder auf Ihrem eigenen VPS, führt jeden aktivierten Pack aus und pausiert an den menschlichen Gates in Telegram. Ein Lauf startet per Uhr, per Signal oder per Nachricht von Ihnen. Benötigt Docker und einen Secret-Manager → [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Erwarten Sie hier keinen** interaktiven Chat; der Modus läuft unbeaufsichtigt hinter den Telegram-Gates |
+| **3 · Client-REST-API** | Engineers, die ein eigenes Frontend, Dashboard oder einen Mobile-Client bauen | Lokales FastAPI-Backend mit Postgres + Redis auf `:8000` (`./scripts/stack.sh start`), gegen die OpenAPI-Routen `/v1/runs`, `/v1/packs`, `/v1/gates` | **Führen Sie das nicht aus**, nur um die Skills im Chat zu nutzen — Modus 1 ist serverlos |
+| **4 · Eingehender MCP-Server** | Anbindung externer Agenten von Drittanbietern (andere Claude-Instanzen, LangChain, AutoGen, CrewAI) an die GTM-Tools | Ausgewählte GTM-Engine-Tools über streamable-HTTP-FastMCP (`deploy/Dockerfile.mcp` auf `:8001`) mit `sk-...`-API-Key-Authentifizierung. Für öffentliche Deployments läuft ein Edge-MCP-Gateway (`deploy/mcp-gateway/`) auf Cloudflare Workers mit Abo-Prüfung und KV-Caching | **Exponieren Sie das nicht** öffentlich ohne API-Key-Authentifizierung, Budgetgrenzen und Edge-Rate-Limiting |
 
 ### Unterstützte Workspaces und Umgebungen
 
 | Workspace / Harness | Support-Status | Skill-Ladeverfahren | Anmerkungen |
 |---|---|---|---|
-| **Claude Desktop / Code** | Nativ | Plugin-System (`plugin/`) | Vollständige Unterstützung aller 63 Skills, MCPs und interaktiver Gates |
+| **Claude Desktop / Code** | Nativ | Plugin-System (`plugin/`) | Vollständige Unterstützung aller 78 Skills, MCPs und interaktiver Gates |
 | **Google Antigravity** | Nativ | Automatisch via `.agents/` | Multi-Agent-Workflows, native Befehlsausführung und Dateiverwaltung |
 | **Cursor / Codex** | Voll kompatibel | `.agents/AGENTS.md` + Regeln | Interaktiver Dialog; Aufruf der Skills über Standard-Prompts |
 | **Headless VPS (Agent SDK)** | Dedizierte Umgebung | Containerisierte Agent-Schleife | Autonomer 24/7-Betrieb gesteuert über Telegram-Freigaben |
@@ -173,22 +157,21 @@ uv run python -m gtm_core.check_env
 | **Strategischen Account-Plan aufstellen** | `"build an account plan for [Firma]"` | `account-plan` | MEDDPICC-Analyse, Stakeholder-Matrix, Meilensteinplan |
 | **System- und Profilzustand überprüfen** | `"run environment check"` | `check_env` CLI | Statusbericht zu Profilen, API-Schlüsseln und Budgetschutz |
 
-> Eine vollständige Aufstellung aller 63 Skills findest du in [`docs/SKILLS.md`](docs/SKILLS.md).
+> Eine vollständige Aufstellung aller 78 Skills findest du in [`docs/SKILLS.md`](docs/SKILLS.md).
 
 ---
 
 ## Warum das System so aufgebaut ist
 
-1. **Zwei verbindliche Freigabegates verhindern automatischen Versand.**
-   Jeder Durchlauf stoppt automatisch an **Gate 1** (Themenauswahl) und **Gate 2** (Inhaltsfreigabe). Ein systemweites `autopublish: false` stellt sicher, dass keine Information ohne deine Prüfung versendet wird.
-2. **Strikte Trennung mehrerer Unternehmensprofile.**
-   Jedes Profil liegt in einem separaten Verzeichnis (`profiles/<profil>/`). Dieselbe Installation kann gefahrlos für verschiedene Unternehmen genutzt werden.
-3. **Das Sprachmodell denkt; MCP-Server handeln.**
-   Der Agent führt keine direkten Netzwerkanfragen aus. Alle Aktionen laufen über definierte MCP-Schnittstellen. Zugangsdaten gelangen niemals in den Kontext des Sprachmodells.
-4. **Keine fest codierten Firmenangaben.**
-   Der Code ist vollständig generisch; Unternehmenskontext und Stilrichtlinien werden dynamisch aus dem jeweiligen Profil geladen.
+![Warum der schlimmste Fall ein Entwurf ist, den Sie ablehnen: Veröffentlichen und Senden stehen gar nicht im Tool-Schema des Modells](docs/assets/capability-boundary.png)
 
----
+| Eigenschaft | Was es bedeutet | Warum es existiert |
+|---|---|---|
+| **Menschliche Gates sind nicht umgehbar** | Nichts veröffentlicht, sendet oder importiert sich selbst. `autopublish` ist überall `false`, das Ziel ist serverseitig fixiert und für den Agenten unerreichbar, und ein Pack, das ein Gate *deklariert*, pausiert strukturell — nicht weil der Skill mitspielt. **Nicht jeder Workflow hat zwei Gates**: 5 der 11 Packs erzeugen nur Dokumente und haben gar kein externes Gate | GTM-Ergebnisse tragen Ihren Namen und die Daten Ihrer Kundschaft. Ein Mensch genehmigt die exakten Bytes |
+| **Mandantenzustand ist von Grund auf isoliert** | Jedes Unternehmen hat ein eigenes Profil mit eigenem Zustand, eigenen Ledgern und Kundendaten; die Pfadauflösung bindet jeden automatischen Lese- und Schreibzugriff an den aktiven Mandanten. Das gehostete Backend ergänzt Row-Level Security in der Datenbank | Eine Engine bedient viele Unternehmen, ohne dass sich ihre Daten unbemerkt vermischen. Der riskanteste Fehler in der GTM-Automatisierung ist *richtiger Inhalt, falsches Unternehmen* |
+| **Das Modell ist das Gehirn; MCP sind die einzigen Hände** | Der Agent macht keinen einzigen rohen HTTP-Aufruf — jedes Scraping, jede Abfrage, jedes Rendering und jede Veröffentlichung läuft über ein MCP-Tool | Least Privilege by Construction. Zugangsdaten liegen beim Tool, nicht im Kontext des Modells. Eine bösartige Anweisung in einer gescrapten Seite kann also weder einen Schlüssel exfiltrieren noch einen Endpunkt erreichen, den die Tool-Oberfläche nicht anbietet |
+| **Alles ist profilgesteuert** | Marke, ICP, Personas, Tonalität, Märkte und Budget werden zur Laufzeit aus dem aktiven Profil geladen. Keine fest kodierten Unternehmensnamen im Code, CI-geprüft | Eine Engine für viele Unternehmen — und der Fehler „falsches Unternehmen" wird strukturell schwer, unbemerkt zu machen |
+| **Neue Workflows sind Daten, kein Code** | Einen Workflow hinzuzufügen heißt, ein Pack zu schreiben — einen Graphen aus Knoten, der bestehende Skills verdrahtet und den die Engine unverändert validiert und ausführt. Keine Engine-Änderung, kein Deployment | Die Domänenlogik, die Sie am häufigsten ändern, bleibt in überprüfbarer, versionierter Konfiguration, während die Governance, die nie brechen darf, fest in der Engine sitzt |
 
 ## Star History
 

@@ -138,7 +138,14 @@ _TENANT_TABLES = (
     "run_gates",
     "run_events",
     "webhook_events",
+    "headless_signals",
 )
+# NB: this list is hand-maintained and has drifted — the tenant_* tables (V031-V036),
+# prepaid_wallets/unified_credit_ledger (V037/V038) and workspace_publish_settings are
+# absent. TRUNCATE ... CASCADE on `workspaces` reaches them through their FKs, so it is
+# not currently a leak, but a future table with no workspaces FK would not be cleaned.
+# tests/contracts/test_every_tenant_table_has_rls.py derives its own list from the
+# schema for exactly this reason.
 
 
 def _swap_userinfo(dsn: str, user: str, password: str) -> str:

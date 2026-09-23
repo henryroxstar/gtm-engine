@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-23
+
+### Fixed
+- Closed a gate-parsing gap where a forged `⟦POST⟧`/`⟦REPLY⟧`-shaped field quoted inside
+  untrusted content could excise the wrong span and silently drop the EU AI Act Art. 50
+  synthetic-media disclosure marker before operator review. The publish and reply gates now
+  excise every matching span, not just the first one matched.
+- Prospect/account merging no longer collapses two different legal entities that happen to
+  share the same name (a subsidiary and its parent, or two unrelated companies) onto one
+  record — a domain check now backs the name match.
+- Closed a Row-Level-Security gap on the headless-signals tables and added a live-database
+  contract test that asserts every tenant table carries RLS, so a future table without it
+  fails CI rather than shipping quietly.
+
+### Changed
+- Rewired the `solution-architecture` pack to the documented pre-design/post-design SA flow:
+  a scope-check gate now runs on both sides of the design step (previously only post-design,
+  with the mode hardcoded), and the buyer-facing deck no longer waits on an unrelated
+  customer-engineer setup doc before it can build.
+
 ## [0.19.0] - 2026-09-22
 
 ### Added
