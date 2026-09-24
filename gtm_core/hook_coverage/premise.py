@@ -72,7 +72,12 @@ class Premise:
         return len(self.attested_by(text)) >= self.min_distinct
 
 
-def load_premise_vocab(profile: str, profiles_root: Path | None = None) -> dict[str, Premise]:
+def load_premise_vocab(
+    profile: str,
+    profiles_root: Path | None = None,
+    product: str | None = None,
+    overlay: str | None = None,
+) -> dict[str, Premise]:
     """Read the tenant's premise vocabulary, or ``{}`` when it ships none.
 
     Schema (``schema = 1``)::
@@ -84,9 +89,24 @@ def load_premise_vocab(profile: str, profiles_root: Path | None = None) -> dict[
 
     Returns ``{}`` for a missing or malformed file rather than raising: this check is
     opt-in per profile, and a tenant that has not written the file simply does not get it.
+
+    Resolved through :func:`resolve_knowledge_file`, the same rung ladder
+    :func:`capability_vocab` uses two functions below. Until 2026-09-23 this one hand-built
+    ``<root>/<profile>/knowledge/<file>`` instead, so it reached neither the product rung nor
+    the overlay rung: a tenant with a product-level premise vocabulary was silently served the
+    profile-level one, and the two readers in this module disagreed about where a tenant's
+    knowledge lives. The fix is the resolver, never a third rung added by hand here.
     """
-    root = profiles_root or resolve_profiles_root()
-    path = root / profile / "knowledge" / _PREMISE_VOCAB_FILE
+    try:
+        path = resolve_knowledge_file(
+            profiles_root or resolve_profiles_root(),
+            profile,
+            _PREMISE_VOCAB_FILE,
+            product=product,
+            overlay=overlay,
+        )
+    except (OSError, ValueError):
+        return {}
     if not path.is_file():
         return {}
     data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -147,14 +167,55 @@ def capability_slug(label: str) -> str:
     return re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9]+", "-", (label or "").lower())).strip("-")
 
 
+def _knowledge_path(profile: str, profiles_root: Path | None, filename: str) -> Path | None:
+    """One knowledge file's resolved path, or ``None`` when the profile cannot be resolved.
+
+    The resolver is the source of truth for the rung ladder (CLAUDE.md); this only turns its
+    refusals — an unsafe segment, an unreadable root — back into "this tenant has no such file",
+    which is what every opt-in reader in this module already means by a missing path.
+    """
+    try:
+        return resolve_knowledge_file(profiles_root or resolve_profiles_root(), profile, filename)
+    except (OSError, ValueError):
+        return None
+
+
 def capability_vocab(profile: str, profiles_root: Path | None = None) -> dict[str, str]:
-    """``slug -> label`` for the profile's capability taxonomy, read from ``product.md``.
+    """``slug -> label`` for the profile's capability groups.
 
     The vocabulary is **tenant knowledge**, never a list in this module — the same rule
-    ``hook_cell`` follows against ``hook-matrix.md``. A profile whose ``product.md`` has no
-    taxonomy section returns ``{}``, which turns the check off rather than failing every
-    spec: a tenant that has not written a taxonomy has not declared a violation.
+    ``hook_cell`` follows against ``hook-matrix.md``.
+
+    **Two rungs, in that order (FR2, 2026-09-24).** A tenant that ships ``claims.toml`` has
+    stated its capability groups as *facts* (``[[claim]] group``), and that file is the one the
+    outbound linter, the matrix and the angle resolver all derive from; reading a prose taxonomy
+    beside it would be a second answer to "which groups exist". The first tenant migrated in FR1
+    kept the group names its taxonomy already used, so the switch renames nothing there. A
+    tenant with **no** ``claims.toml`` — most profiles in this repo — keeps the ``product.md``
+    behaviour exactly, and a profile whose ``product.md`` has no taxonomy section returns ``{}``,
+    which turns the check off rather than failing every spec: a tenant that has not written a
+    taxonomy has not declared a violation.
+
+    **Failure posture: a broken ``claims.toml`` RAISES.** ``registry.load`` is all-or-nothing, so
+    it is the one caller here that can fail loudly, and it must. The alternatives are both worse
+    in the same way: swallowing the error to ``{}`` disables ``capability-unargued`` and
+    ``capability-unknown`` on every spec in the campaign — a gate that passes by finding nothing,
+    the failure this repo has already paid for — and falling back to ``product.md`` answers from
+    a file the tenant has stopped maintaining, silently. The one caller for which an advisory
+    vocabulary really is optional (``agent/mcp/judge/server.py:judge_context``) already catches
+    and returns ``{}``, so scoring is not blocked by a tenant data defect either way.
     """
+    from ..messaging import registry as _registry
+
+    claims_path = _knowledge_path(profile, profiles_root, _registry.CLAIMS_FILE)
+    if claims_path is not None and claims_path.is_file():
+        groups: dict[str, str] = {}
+        for claim in _registry.load(profile, profiles_root=profiles_root).claims.values():
+            slug = capability_slug(claim.group)
+            if slug:
+                groups.setdefault(slug, claim.group)
+        return groups
+
     try:
         path = resolve_knowledge_file(
             profiles_root or resolve_profiles_root(), profile, "product.md"

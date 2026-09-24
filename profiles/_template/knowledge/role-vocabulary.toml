@@ -96,3 +96,27 @@ name = "exec"
 personas = ["budget-holder", "owner-operator"]
 # The stakes vocabulary this seat's copy is expected to carry.
 stakes = ["margin", "revenue", "risk", "growth"]
+
+# --- the seat's outbound copy (optional; all five default to empty) -----------------------
+#
+# These five are what an outbound email is BUILT from, so they live on the seat rather than
+# in a prose table somewhere. Every one is optional and every one defaults to empty — the
+# shipped default declares none of them on purpose, because a lead pain is a sentence
+# claiming to know what YOUR buyer loses sleep over, and nobody else gets to guess it.
+#
+# The pain this seat's copy OPENS on. One sentence, in the buyer's words, not yours. It is
+# the single most-duplicated fact in a knowledge pack: write it here once and link to it.
+lead_pain = "Every quarter closes on a number nobody can reproduce, and the reconciliation lands on this desk."
+# What they get. The mirror of the pain, phrased as the unlock rather than the feature.
+gain = "One number, produced the same way every month, that survives being asked where it came from."
+# Pains that belong to a DIFFERENT seat and misfire into this one. The failure they prevent
+# is the commonest in outbound: firing the most interesting pain at every seat, because it is
+# the one the SELLER finds interesting. List the phrases, lower-case; a scalar is refused.
+forbidden_pains = ["queue depth", "on-call pages", "integration backlog"]
+# One of: standard · technical · executive. Closed set — an unrecognised register would have
+# to fall back silently to one this tenant did not choose, and that is invisible at send time.
+register = "executive"
+# The segments this seat's copy is aimed at. Each must appear in `segments` above, and
+# `unspecified` is refused — that bucket is where unclassified rows are kept, never a target.
+# Omit the key entirely for a seat that is written to in every segment.
+segments = ["enterprise"]

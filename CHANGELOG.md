@@ -16,6 +16,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-24
+
+### Added
+- An **outbound fact registry**: four statused tables of the claims outreach may make, a loader
+  that refuses an unstatused or retracted claim, and a single linter that treats the registry as
+  a rule source. The hook matrix is now a generated view of it rather than a hand-edited file.
+- **Material intake**: a deterministic classifier that decides what kind of document an operator
+  has submitted before any skill reads it.
+- **Sequencer webhook signals** feed the signal dispatcher, so an opt-out or reply detected by
+  the sequencer can start a run without a person or a clock.
+- An **unused-hook backlog** listing every hook-matrix cell no spec declares, and a funnel report
+  that now extends past discovery through the six gates that refuse a row.
+- `--overlay` now reaches the messaging half of the experiment allowlist (hook matrix, hooks,
+  premise vocabulary), so an experiment can vary what is said as well as who is targeted.
+- An **operator output style** and the `.excalidraw` diagram sources are now carried in the
+  public tree.
+
+### Changed
+- Account folders are resolved to the folder an account already has (by name and domain) rather
+  than re-slugged from whichever name is at hand; ten skills were rewired to use the resolver.
+- `draft-outreach`, `email-sequence`, `email-quality` and `prospect` were reworked around the
+  fact registry and lane-scoped counters; the unlaned gate was removed and `--lane` is required.
+- Seat-title recognition and role vocabulary were extended for additional markets.
+- No lint traverses external-storage symlinks any more, and the local interpreter is pinned to
+  Python 3.13.
+
+### Fixed
+- The DNC read-back used the wrong endpoint and paging; it now reads the right one.
+- `record_actuals` merges into the funnel-yields file instead of rewriting it.
+- An unresolved-title counter is now machine-readable instead of prose-only.
+- `prospects status` no longer crashes when the ready-to-load list contains rows parked on the
+  `hold` or `excluded` lane; parked rows are simply left out of the "passed the checks" count.
+- The outreach linter's proof-status check now treats a figure's unit as part of its identity
+  (`90%` and `90 hours` are different claims), so a claim can no longer pass by matching only the
+  bare number.
+
 ## [0.20.0] - 2026-09-23
 
 ### Fixed

@@ -167,7 +167,14 @@ jobs:
       - name: install test deps
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-xdist
+          # `coverage` is a hard dependency of tests/lint/test_coverage_exclusions_are_anchored.py,
+          # which runs coverage's OWN parser so it measures what coverage will actually do rather
+          # than what an exclude_lines pattern looks like. Reimplementing that block-exclusion
+          # semantics in stdlib would be the drift the test exists to catch, and an importorskip
+          # would silently retire the gate that found 166 wholly-excluded functions on 2026-09-23
+          # (among them agent/publish.py:publish and backend/auth.py:verify_password). Same
+          # reasoning as pillow in the full-suite tier below.
+          pip install pytest pytest-xdist coverage
           if [ -f pyproject.toml ]; then
             pip install -e . || echo "::warning::editable install failed; running stdlib-only tests"
           fi
@@ -177,7 +184,8 @@ jobs:
 
   # ── 2. Python tests (full suite) ───────────────────────────────────────────
   # Full contract, content-linter, media, and integration test suite.
-  # The suite is stdlib-only apart from the test runner itself (pytest);
+  # The suite is stdlib-only apart from the test runner itself (pytest), pillow and coverage
+  # — both installed deliberately so their tests cannot importorskip into silence;
   # minijsonschema is a vendored, dependency-free validator in tests/contracts/.
   # Runs on pushes to main, manual workflow_dispatch, or PRs with 'full-ci' label.
   tests:
@@ -230,7 +238,10 @@ jobs:
           # rendering (F1/F2) — without it the caption tests importorskip into silence, which is
           # coverage that looks green and measures nothing (the §8.1 failure this program exists
           # to fix).
-          pip install pytest pillow pytest-xdist hypothesis
+          # coverage: see the fast tier's note — tests/lint/ runs here too, so this tier would
+          # fail the same way the moment it next runs (it is gated to main/full-ci, so it had
+          # not yet).
+          pip install pytest pillow pytest-xdist hypothesis coverage
           # If the project defines a root package (pyproject.toml — authored by the
           # cockpit component), install it so agent/ + cockpit/ imports resolve.
           # Best-effort: deps like claude-agent-sdk may be unavailable in CI, so a

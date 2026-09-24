@@ -133,3 +133,19 @@ def test_real_brain_radar_resolves_to_haiku_anthropic_path(monkeypatch):
     kw = _build_kwargs(radar, monkeypatch)
     assert kw["model"] == "claude-haiku-4-5"
     assert "ANTHROPIC_BASE_URL" not in kw["env"]  # Anthropic path — no provider override
+
+
+def test_project_setting_source_does_not_load_the_local_settings_file(monkeypatch):
+    """`.claude/settings.local.json` is a SEPARATE source ("local"), and the brain never asks for it.
+
+    The operator-register work puts a personal `outputStyle` in `.claude/settings.local.json` on
+    the grounds that, unlike the tracked `.claude/settings.json`, it does not reshape the headless
+    brain (and therefore Telegram). That holds only while two things stay true: the SDK keeps
+    "local" as a source distinct from "project", and the brain's `setting_sources` never names it.
+    """
+    sdk_types = pytest.importorskip("claude_agent_sdk.types")
+    import typing
+
+    assert {"project", "local"} <= set(typing.get_args(sdk_types.SettingSource))
+    kw = _build_kwargs(resolve_model("brain_plan", registry_path=_REGISTRY), monkeypatch)
+    assert "local" not in kw["setting_sources"]

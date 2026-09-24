@@ -121,11 +121,21 @@ async def _resolve_list_id(api_key: str) -> tuple[str | None, str]:
     One list on the account needs no configuration. Two or more without
     :data:`_LIST_ID_ENV` refuses: writing a suppression to the wrong list suppresses
     nobody, and looks exactly like success.
+
+    FIXED 2026-09-24 (SC9b): this called ``GET /dnc-lists``, which this repo's OWN
+    ``agent/mcp/saleshandy/server.py:list_dnc_lists`` already recorded, live-verified on
+    2026-07-24, as a 404 (`"/dnc-lists and /do-not-contact both 404"`). The correct,
+    verified path is ``GET /dnc`` with a ``pageSize`` param, not ``limit`` — the exact
+    shape ``list_dnc_lists`` already uses. This was never caught because the PENDING SC9
+    note that says "`_resolve_list_id` resolves cleanly" was reasoning from a DIFFERENT,
+    correctly-pathed call (the connected `list_dnc_lists` tool), not from an actual run of
+    this function — the believed-not-read failure this file's own culture warns against,
+    just pointed at itself.
     """
     from agent.mcp.saleshandy.server import NOT_CONFIGURED, _call
 
     configured = (os.getenv(_LIST_ID_ENV) or "").strip()
-    raw = await _call("GET", "/dnc-lists", params={"page": 1, "limit": 100}, api_key=api_key)
+    raw = await _call("GET", "/dnc", params={"page": 1, "pageSize": 100}, api_key=api_key)
     if raw == NOT_CONFIGURED:
         return None, "not_configured"
     try:
@@ -161,6 +171,14 @@ async def _add_items(api_key: str, list_id: str, addresses: list[str]) -> str:
     # run against a live account. The first live add is an operator task; until it passes,
     # this marker stays and `GTM_DNC_ADD_ENABLED` stays closed by default.
     #
+    # SHARPENED 2026-09-24 (SC9b): the sibling GET reads in this module both turned out to
+    # be calling a `/dnc-lists` prefix this repo's own server.py already proved 404s/rejects
+    # (see _resolve_list_id and _read_back). This POST still uses that same `/dnc-lists`
+    # prefix and has NOT been touched — there is no live-tested comment anywhere in this
+    # repo for a working POST DNC-add path, so fixing it on the strength of the GET finding
+    # would be exactly the guess this file's culture refuses to make blind. Treat this
+    # endpoint with LESS confidence than before the GET fix, not more.
+    #
     # NARROWED 2026-09-22, read-only, WITHOUT performing an add. `dncListId` is confirmed as
     # the right key. The `items` SHAPE is genuinely ambiguous and is the thing the live add
     # must settle, because the two available sources disagree:
@@ -185,6 +203,16 @@ async def _add_items(api_key: str, list_id: str, addresses: list[str]) -> str:
     )
 
 
+#: Mirrors get_dnc_items's own documented max (`page_size: Items per page (max 100)`).
+_READ_BACK_PAGE_SIZE = 100
+
+#: A DNC list beyond this many pages (at 100/page) is far larger than any this repo has
+#: observed (57 items at last read) — refusing a partial map is the safe direction, the
+#: same choice :func:`agent.optout_categories._page_to_exhaustion` makes for the same
+#: "a short read looks like a smaller answer" reason.
+_READ_BACK_MAX_PAGES = 20
+
+
 async def _read_back(api_key: str, list_id: str, addresses: list[str]) -> set[str]:
     """Which of ``addresses`` the provider actually holds after the write.
 
@@ -193,40 +221,80 @@ async def _read_back(api_key: str, list_id: str, addresses: list[str]) -> set[st
     real add that we failed to confirm is retried next time, while a phantom add recorded
     as done would leave the person reachable with the ledger claiming otherwise.
 
-    CONFIRMED live 2026-09-22 (read-only): the envelope is
-    ``{"payload": {"dncListDetails": [{"id","value","type",...}], "meta": {...}}}`` and
-    :func:`suppression.normalize_dnc_payload` already keys on ``dncListDetails``, so the
-    parse is right. Note the connected MCP server's own tool description says ``dncDetails``
-    and is WRONG — the live read is the authority.
+    FIXED 2026-09-24 (SC9b), on evidence already sitting in this repo rather than a live
+    call. Three defects, all now corrected:
 
-    UNRESOLVED, and deliberately not "fixed" blind: this sends ``limit``; the documented
-    parameter is ``pageSize``, and the documented ``type`` filter is omitted entirely. If
-    ``limit`` is ignored the page defaults to 25, and the live list already holds 57 items,
-    so a newly added address could sit outside page 1 and never be confirmed. This function
-    also does not page to exhaustion the way :func:`agent.optout_categories._page_to_exhaustion`
-    does for the same "a short read looks like a smaller answer" reason. It fails SAFE — an
-    unconfirmed add is retried, never recorded as done — which is why the fix waits for the
-    live add rather than guessing at request parameters that currently work.
+    1. **Wrong endpoint.** This called ``GET /dnc-lists/{id}/items``.
+       ``agent/mcp/saleshandy/server.py:get_dnc_items`` already recorded, live-verified on
+       2026-07-24, that ``/dnc/{id}/items`` rejects — a different but adjacent path to the
+       one actually used here, and the working, verified path is ``GET /dnc/{id}`` with no
+       ``/items`` suffix. The 2026-09-22 "CONFIRMED live" note above this docstring verified
+       the RESPONSE ENVELOPE shape by a read that evidently did not go through THIS
+       function's own (wrong) path — another instance of the believed-not-read trap.
+    2. **Wrong param name.** ``limit`` is not read by the API; the documented and verified
+       parameter is ``pageSize`` (:func:`agent.mcp.saleshandy.server.get_dnc_items`).
+    3. **No exhaustion paging.** Now pages until ``meta.currentPage >= meta.totalPages`` —
+       literally what that function's own docstring instructs ("Page through until
+       meta.currentPage >= meta.totalPages"). A page with missing or malformed ``meta``
+       cannot be proven complete, so it is treated as unreadable and the WHOLE read-back
+       refuses (returns no confirmations) rather than banking a partial page — matching
+       :func:`agent.optout_categories._page_to_exhaustion`'s "a short read looks like a
+       smaller answer" rule. ``type="email"`` is passed because :func:`_add_items` only
+       ever adds emails; this is the documented ``item_type`` values ("all"/"email"/
+       "domain"), not a guess.
+
+    :func:`_add_items`'s own endpoint (``POST /dnc-lists/items``) is UNTOUCHED here and
+    stays exactly as unverified as before — there is no live-tested comment anywhere in
+    this repo for a POST DNC-add path the way there is for the two GET reads above, and
+    guessing at a write endpoint on the strength of a fixed read endpoint would be the
+    same blind-fix mistake this docstring is correcting. It remains the live add's job.
     """
     from agent.mcp.saleshandy.server import _call
-
-    raw = await _call(
-        "GET",
-        f"/dnc-lists/{list_id}/items",
-        params={"page": 1, "limit": 100},
-        api_key=api_key,
-    )
-    try:
-        body = json.loads(raw)
-    except ValueError:
-        return set()
     from gtm_core import suppression
 
-    emails, domains = suppression.normalize_dnc_payload(body)
     wanted = {a.lower() for a in addresses}
-    confirmed = wanted & emails
-    confirmed |= {a for a in wanted if a.rpartition("@")[2] in domains}
-    return confirmed
+    confirmed: set[str] = set()
+    for page in range(1, _READ_BACK_MAX_PAGES + 1):
+        raw = await _call(
+            "GET",
+            f"/dnc/{list_id}",
+            params={"type": "email", "page": page, "pageSize": _READ_BACK_PAGE_SIZE},
+            api_key=api_key,
+        )
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return set()
+        payload = body.get("payload") if isinstance(body, dict) else None
+        meta = payload.get("meta") if isinstance(payload, dict) else None
+        current_page = meta.get("currentPage") if isinstance(meta, dict) else None
+        total_pages = meta.get("totalPages") if isinstance(meta, dict) else None
+        if not isinstance(current_page, int) or not isinstance(total_pages, int):
+            # No trustworthy page-count signal — cannot tell whether this is the whole
+            # list or page 1 of several, so this is an UNREADABLE read-back, not a
+            # confirmed-empty one. Refuse rather than bank a possibly-partial page.
+            log.warning(
+                "dnc_dispatch: read-back page %d for list %s carried no usable "
+                "meta.currentPage/totalPages — refusing rather than confirming a "
+                "possibly-partial page",
+                page,
+                list_id,
+            )
+            return set()
+
+        emails, domains = suppression.normalize_dnc_payload(body)
+        confirmed |= wanted & emails
+        confirmed |= {a for a in wanted if a.rpartition("@")[2] in domains}
+
+        if current_page >= total_pages:
+            return confirmed
+
+    log.error(
+        "dnc_dispatch: read-back for list %s exceeded %d pages — refusing a partial map",
+        list_id,
+        _READ_BACK_MAX_PAGES,
+    )
+    return set()
 
 
 def _preflight_refusal(cfg: Any) -> DncDispatchOutcome | None:

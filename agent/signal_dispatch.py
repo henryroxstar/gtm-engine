@@ -26,6 +26,15 @@ default 10) bounds an unattended lane whose input volume this repo does not cont
 either limit a signal **defers** — it stays in ``history.jsonl`` and the next sweep sees
 it again. Nothing is ever dropped.
 
+**"Today" is scoped in the profile's timezone (SC14, fixed 2026-09-24), not the ledger's.**
+Every ``ts`` is stamped UTC, and until this fix the daily counter also computed "today" in
+UTC, so the cap reset at whatever local hour the profile's UTC offset happened to land on —
+08:00 for a UTC+8 profile, not local midnight. ``profile_timezone`` reads an optional
+``timezone`` key from the same ``settings.json`` (default UTC, so an unconfigured profile
+counts exactly as before), and ``dispatched_today`` converts each row's UTC ``ts`` into
+that zone before comparing its date, rather than string-matching a UTC-formatted prefix
+against a differently-scoped "today".
+
 Usage::
 
     python -m agent.signal_dispatch --profile <profile> --dry-run
@@ -41,8 +50,9 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from agent.budget import vps_budget_ok
 from agent.config import Config
@@ -60,6 +70,7 @@ __all__ = [
     "PackTarget",
     "NotifyTarget",
     "daily_cap",
+    "profile_timezone",
     "undispatched",
     "dispatched_today",
     "dispatch",
@@ -75,6 +86,12 @@ DISPATCHED_EVENT = "signal_dispatched"
 #: Default per-day ceiling. Enough for a real reply day; low enough that a runaway
 #: producer cannot drain a month's budget overnight while nobody is watching.
 DEFAULT_DAILY_CAP = 10
+
+#: Fallback when a profile has not set its own timezone. Every ledger `ts` is stamped in
+#: UTC (`gtm_core.ledgers._utc_now_iso`), so this is also what "unset" behaves as today —
+#: a profile that never configures `timezone` sees byte-identical counting to before this
+#: was introduced.
+DEFAULT_TIMEZONE = "UTC"
 
 
 @dataclass(frozen=True)
@@ -142,6 +159,32 @@ def daily_cap(cfg: Config, profile: str) -> int:
         return DEFAULT_DAILY_CAP
 
 
+def profile_timezone(cfg: Config, profile: str) -> str:
+    """The IANA zone "today" is scoped in for :func:`dispatched_today` (default UTC).
+
+    Read from the same ``settings.json`` as :func:`daily_cap`, as defensively: a missing
+    or corrupt settings file, or an unrecognised zone name, falls back to
+    :data:`DEFAULT_TIMEZONE` rather than raising mid-dispatch or silently landing on the
+    wrong zone. The zone name is validated HERE, eagerly, so a typo in ``settings.json``
+    (a tenant-writable file) degrades to "counts like UTC" — the same behaviour as never
+    setting it — rather than surfacing as a crash the first time a dispatch runs.
+    """
+    path = cfg.content_root / profile / "settings.json"
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        name = str(stored.get("timezone") or DEFAULT_TIMEZONE)
+        ZoneInfo(name)
+        return name
+    except Exception:  # noqa: BLE001 — matches daily_cap's own posture: a settings.json
+        # that parses to something other than the expected shape (a bad zone name, a
+        # non-dict top level, non-JSON bytes) must degrade to the default, never raise
+        # mid-dispatch and strand pending signals. Found by review: a narrower tuple
+        # (OSError/ValueError/TypeError/ZoneInfoNotFoundError/JSONDecodeError) missed
+        # AttributeError from `stored.get(...)` when settings.json parses as valid JSON
+        # whose top level is a list/number/string rather than an object.
+        return DEFAULT_TIMEZONE
+
+
 def _history_rows(history_path: Path) -> list[dict]:
     if not history_path.is_file():
         return []
@@ -193,21 +236,52 @@ def undispatched(history_path: Path) -> list[dict]:
     return out
 
 
-def dispatched_today(history_path: Path, *, today: str | None = None) -> int:
-    """How many dispatches already happened today.
+def dispatched_today(
+    history_path: Path, *, today: str | None = None, tz: str = DEFAULT_TIMEZONE
+) -> int:
+    """How many dispatches already happened "today", scoped in ``tz`` (default UTC).
 
-    Counted by date prefix over the ledger, the same shape as
-    ``gtm_core.ledgers.month_cost_total`` — durable across restarts, unlike an
-    in-process window, which matters for a lane that runs as a fresh oneshot every hour.
+    Durable across restarts, unlike an in-process window, which matters for a lane that
+    runs as a fresh oneshot every hour — the same reason ``gtm_core.ledgers.month_cost_total``
+    reads the ledger rather than counting in memory.
+
+    SC14 fix (2026-09-24): every ``ts`` is stamped UTC
+    (``gtm_core.ledgers._utc_now_iso``), so counting by a raw ``%Y-%m-%d`` PREFIX match
+    only gives the right answer when "today" is ALSO computed in UTC — which was exactly
+    the bug: the ceiling reset at whatever local hour a profile's UTC offset happened to
+    land on (08:00 for a UTC+8 profile), not that profile's local midnight. Each row's
+    ``ts`` is now parsed and converted into ``tz`` before its date is taken, so ``today``
+    and every row are compared in the SAME zone regardless of which one ``tz`` names.
+    ``tz="UTC"`` (the default) reproduces the old behaviour exactly.
     """
-    day = today or datetime.now(UTC).strftime("%Y-%m-%d")
-    return sum(
-        1
-        for r in _history_rows(history_path)
-        if r.get("event") == DISPATCHED_EVENT
-        and r.get("dispatched") is True
-        and str(r.get("ts", "")).startswith(day)
-    )
+    try:
+        zone = ZoneInfo(tz)
+    except Exception:  # noqa: BLE001 — same posture as `profile_timezone`, for the same
+        # reason: this is a public function and `tz` is whatever a caller passed. A bad
+        # zone NAME raises ZoneInfoNotFoundError/ValueError, but a bad zone TYPE (None,
+        # an int) raises TypeError — and `None` is the likely mistake here, since the
+        # `today` parameter right beside it takes None to mean "default". Degrade to UTC.
+        zone = ZoneInfo(DEFAULT_TIMEZONE)
+    day = today or datetime.now(zone).strftime("%Y-%m-%d")
+    count = 0
+    for r in _history_rows(history_path):
+        if r.get("event") != DISPATCHED_EVENT or r.get("dispatched") is not True:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(r.get("ts", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue  # a row with no parseable ts cannot be dated — matches the old
+            # prefix-match's behaviour on an empty/malformed ts (it never matched either)
+        if ts.tzinfo is None:
+            # A naive datetime is UTC here, never "whatever zone this process happens to
+            # be running in" — datetime.astimezone() on a naive value silently assumes
+            # the LATTER, which would make this function's answer depend on which
+            # machine ran it. Every real writer stamps an explicit Z; this only guards a
+            # hand-edited or third-party-written row.
+            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+        if ts.astimezone(zone).strftime("%Y-%m-%d") == day:
+            count += 1
+    return count
 
 
 def _record(ledgers, signal: dict, action: str, *, dispatched: bool, note: str) -> None:
@@ -250,7 +324,8 @@ async def dispatch(
         return 0
 
     cap = daily_cap(cfg, profile)
-    already = dispatched_today(history_path, today=today)
+    tz = profile_timezone(cfg, profile)
+    already = dispatched_today(history_path, today=today, tz=tz)
     logger.info(
         "signal_dispatch: profile=%s pending=%d dispatched_today=%d cap=%d%s",
         profile,

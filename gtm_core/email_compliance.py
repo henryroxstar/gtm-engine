@@ -44,16 +44,39 @@ CODE_UNSUB_HEADER = 13
 _MARKET_ALIASES = {
     "us": "united states",
     "usa": "united states",
+    # NOTE 2026-09-23: `normalize_market` strips a TRAILING period before this lookup, so a key
+    # written with one ("u.s.") can never match — "U.S." arrives here as "u.s". The dotless
+    # variants below are the ones that actually fire; the dotted keys are kept only so a reader
+    # grepping for "u.s." still finds this note. Same applies to u.k / g.b / u.a.e.
     "u.s.": "united states",
+    "u.s": "united states",
     "u.s.a.": "united states",
+    "u.s.a": "united states",
     "america": "united states",
     "united states of america": "united states",
     "sg": "singapore",
     "uk": "united kingdom",
     "u.k.": "united kingdom",
+    "u.k": "united kingdom",
     "great britain": "united kingdom",
+    # Added 2026-09-23 with the UK re-admission. `gb` is the ISO 3166 alpha-2 code and is what
+    # several enrichment providers return; the constituent-country names show up in
+    # hand-maintained sheets. Without these a row declaring "GB" or "England" normalises to a
+    # string absent from target_markets and is dropped as OUT of market — the same silent,
+    # lead-losing failure documented for "Hong Kong SAR" below.
+    "gb": "united kingdom",
+    "g.b.": "united kingdom",
+    "g.b": "united kingdom",
+    "britain": "united kingdom",
+    "england": "united kingdom",
+    "scotland": "united kingdom",
+    "wales": "united kingdom",
+    "northern ireland": "united kingdom",
+    "united kingdom of great britain and northern ireland": "united kingdom",
     "uae": "united arab emirates",
     "ae": "united arab emirates",
+    "u.a.e.": "united arab emirates",
+    "u.a.e": "united arab emirates",
     "au": "australia",
     "ca": "canada",
     # Hong Kong (in-market since 2026-08-26). Enrichment providers return the SAR suffix far more

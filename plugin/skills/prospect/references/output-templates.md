@@ -71,7 +71,7 @@
 *(Mark emails "unverified" on web-search-only runs. 🆕 = new-in-role ≤6 months. Tier-A accounts: extend to 4–6 rows — add the co-signer, technical evaluator, and influencer personas from `icp-personas.md`; contact-resolve the top 1–2, name the rest for threading.)*
 
 **Recommended opening hook**
-[Pull from the hook matrix — `profiles/<active>/knowledge/hook-matrix.md` — matching the cited 🔥 signal × the persona. Don't free-write.]
+[Pull from the hook matrix — `profiles/<active>/knowledge/hook-matrix.md` — at the cell for the cited 🔥 signal and this persona. The grid comes in two shapes: **persona × signal** in a hand-authored matrix, **seat × (premise × opener kind)** in one generated from `angles.toml` (line 1 carries a `gtm_core.messaging:generated` banner). Read the file's own header row for its axes. A `—` cell means there is no argument there — leave it and pick another cell; don't free-write.]
 
 **Mapped case study**
 [From `profiles/<active>/knowledge/case-studies.md` selection map — closest by shape then industry.]
@@ -87,7 +87,7 @@ Generate one for **every** Tier-A (🔥) account. **Read the voice file first** 
 ````markdown
 # Outreach Pack — [Company] — [Date]
 
-Rules-Version: [the current RULES_VERSION from tests/linter/outreach_pack_linter.py]
+Rules-Version: [the current RULES_VERSION from tests/linter/outreach/model.py]
 
 **Tier:** A 🔥 | **Score:** X/Y (fit + heat) | **Segment:** Enterprise/Startup | **Market:** [geo]
 **Primary persona:** [Name] — [Title] [🆕 if new-in-role]
@@ -95,7 +95,12 @@ Rules-Version: [the current RULES_VERSION from tests/linter/outreach_pack_linter
 **Why-now (🔥):** [exact signal used as hook — date + source URL]
 **Heat / timing:** [heat +n — feed(s); 🆕 new-in-role persona + start month / — . Internal context only — no outreach line references it.]
 **Mapped case study:** [from `profiles/<active>/knowledge/case-studies.md`]
-**Capability:** [ONE of the seven groups in `knowledge/product.md`'s capability taxonomy, as a slug — `identity` / `traffic-management` / `protocol-proxy` / `security-policy` / `credentials-delegation` / `observability` / `payments`. This is the failure the body argues, and it is a DECLARATION, not a label applied afterwards: pick it from the pain the seat owns, before writing. At most **two packs per campaign** may argue the same group — enforced by `gtm_core.hook_coverage` as `argument-monotone`.]
+**Angle:** [the id the `messaging resolve` run below returned for this row. The ONE declared field: the capability group, the hook cell, the premise and the stakes all **derive** from it, so do not also write them down — a second hand-typed copy of a derived fact is `angle-conflict` (ERROR), not a second opinion. At most **two packs per campaign** may argue the same claim group — enforced by `gtm_core.hook_coverage` as `argument-monotone`.]
+**slot_signal:** row.signal_evidence
+**slot_claim:** <claim-id the angle derives>
+**slot_pain:** <seat the angle derives>
+**slot_hedge:** voice-rules.hedge.cues
+**slot_proof:** <proof-id the angle derives>
 **Gift artifact:** [the give-first asset touch 1 offers and touch 2 delivers — teaser one-pager / demo mockup screenshot / custom audit; file path or one-line spec. Omit when the ask is a **help offer** rather than an artifact offer (voice.md → *The help offer*) — the default shape for builder/founder seats.]
 
 ---
@@ -193,6 +198,29 @@ Same signal, same artifact — a different first line per persona (their hook-ma
 [Anything affecting the send — recent competitor partnership, press, sensitivity around the signal, suggested timing.]
 ````
 
+### The pack's front block is machine-read — six lines, unindented
+
+`**Angle:**` plus the five `**slot_*:**` lines above are parsed, one regex per line, and they are
+read **only** at column 0 (or inside a fenced `Key: value` block): an indented copy, or one written
+into an email body, is not a declaration. Resolve the angle rather than picking one —
+
+```bash
+uv run python -m gtm_core.messaging resolve --profile <active> --csv <pool.csv>
+```
+
+— and fill the five slots from what it derives. **`slot-attribution` (ERROR) refuses a pack whose
+`**Angle:**` resolves while any of the five names no source**, one ERROR per missing line, so a pack
+that declares the angle alone fails five times over before a reviewer reads a word of it. Copy whose
+provenance cannot be checked is copy nobody can stand behind. Two of the five are presence-only by
+construction: `slot_signal` is the ROW's researched fact, which varies per recipient, and
+`slot_hedge` is the tenant's own cue table — neither is a registry id. The other three are
+**cross-checked against the angle**. Use `slot_proof: none` only on the no-anchor offer shape — a
+reader whose market the registry records as having no anchor; it is the one sanctioned exception and
+is accepted nowhere else.
+
+`**Capability:**` retired from this header on 2026-09-24: the capability group is the angle's claim's
+`group` in `knowledge/claims.toml`, and a pack that declares both gives one fact two declarations.
+
 ## HubSpot CSV companion
 
 Also write `prospects-YYYYMMDD-hubspot.csv` — one row per **contact** (champion + economic buyer = 2 rows/account). Column schema and import settings: `hubspot-csv-map.md`. For manual import; HubSpot dedupes on Email.
@@ -219,8 +247,8 @@ Also write `prospects-YYYYMMDD-hubspot.csv` — one row per **contact** (champio
 - [ ] Every Tier-A pack has all 4 touches drafted (2 channels, LinkedIn first) + a threading table with ≥4 personas and first lines
 - [ ] **Every Tier-A pack passes the deterministic linter with zero errors** — a pack that has not been linted is not sendable:
       ```bash
-      uv run python3 tests/linter/outreach_pack_linter.py --batch "content/<active>/accounts/*/prospects-<YYYYMMDD>-outreach-*.md" \
-        --format prospect-pack --signoff "<the sending colleague's real first name>" \
+      uv run python3 tests/linter/outreach_linter.py pack --batch "content/<active>/accounts/*/prospects-<YYYYMMDD>-outreach-*.md" \
+        --format prospect-pack --profile <active> --signoff "<the sending colleague's real first name>" \
         --ban-file profiles/<active>/knowledge/voice-bans.txt \
         --case-study-file profiles/<active>/knowledge/outreach-case-studies.txt \
         --stem-file profiles/<active>/knowledge/outreach-banned-stems.txt \

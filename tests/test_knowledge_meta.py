@@ -259,3 +259,99 @@ def test_committed_corpus_has_valid_metadata():
         + "\n  ".join(problems)
         + "\nrun: uv run python -m gtm_core.knowledge_meta seed --all"
     )
+
+
+# --- generated views are exempt from lifecycle metadata ----------------------
+
+
+_GENERATED = (
+    "<!-- gtm_core.messaging:generated — do not edit; regenerate from angles.toml -->\n"
+    "\n# Outreach hook matrix\n"
+)
+
+
+def test_a_generated_topic_needs_no_frontmatter(tmp_path):
+    """A generated view's freshness belongs to its SOURCE file, not to itself.
+
+    Seeding `refreshed:` here would be a second home for that fact, and a wrong one — a
+    regenerated-but-unchanged view would move the date while nothing changed — and it would
+    break the generator's drift check, which compares committed bytes against a fresh render
+    and must stay date-independent.
+    """
+    path = tmp_path / "hook-matrix.md"
+    path.write_text(_GENERATED, encoding="utf-8")
+    meta = km.read_meta(path, tmp_path)
+    assert meta.generated is True
+    assert meta.errors == ()
+
+
+def test_an_arbitrary_topic_cannot_claim_the_exemption_with_the_banner(tmp_path):
+    """The finding this allowlist closes: a marker any file can paste is an opt-out, not a marker.
+
+    An earlier version matched any `gtm_core.<anything>:generated` comment on line 1. One pasted
+    line would then have exempted `product.md` or `case-studies.md` from this gate — and unlike
+    `hook-matrix.md` nothing regenerates those, so there is NO drift check behind the exemption.
+    The file would simply stop being checked for staleness by anything at all.
+    """
+    for name in ("product.md", "case-studies.md", "company.md"):
+        path = tmp_path / name
+        path.write_text(_GENERATED, encoding="utf-8")
+        meta = km.read_meta(path, tmp_path)
+        assert meta.generated is False, f"{name} claimed the generated exemption"
+        assert "missing frontmatter" in meta.errors
+
+
+def test_the_registered_banner_matches_the_one_the_generator_writes():
+    """`_GENERATED_TOPICS` is a second home for the generator's banner; pin the two together.
+
+    Importing `matrix_view` here rather than in `knowledge_meta` keeps the production import
+    graph clean — `matrix_view` reaches `hook_coverage.config`, which puts `tests/linter` on
+    `sys.path` at import time.
+    """
+    from gtm_core.messaging import matrix_view
+
+    assert matrix_view.MATRIX_FILE in km._GENERATED_TOPICS
+    pattern = km._GENERATED_TOPICS[matrix_view.MATRIX_FILE]
+    assert pattern.match(matrix_view.BANNER), (
+        "matrix_view's banner no longer matches the pattern knowledge_meta exempts on — a "
+        "generated matrix would start failing the frontmatter gate"
+    )
+
+
+def test_a_hand_kept_topic_of_the_same_name_still_needs_frontmatter(tmp_path):
+    """The negative control, and the reason the exemption is content-based not name-based.
+
+    Other profiles still hand-keep a `hook-matrix.md`, where the frontmatter is real. A
+    filename exclusion would have switched the gate off for all of them at once.
+    """
+    path = tmp_path / "hook-matrix.md"
+    path.write_text("# Outreach hook matrix\n\nhand-kept, no banner.\n", encoding="utf-8")
+    meta = km.read_meta(path, tmp_path)
+    assert meta.generated is False
+    assert "missing frontmatter" in meta.errors
+
+
+def test_a_banner_buried_below_the_first_line_does_not_claim_the_exemption(tmp_path):
+    """A hand-authored file cannot opt out by pasting the banner further down.
+
+    Same property `agent/publish.py` holds for its gate markers: the marker is only a marker
+    where the format says it is, never wherever it appears.
+    """
+    path = tmp_path / "hook-matrix.md"
+    path.write_text("# Notes\n\nSomeone pasted this:\n" + _GENERATED, encoding="utf-8")
+    meta = km.read_meta(path, tmp_path)
+    assert meta.generated is False
+    assert "missing frontmatter" in meta.errors
+
+
+def test_the_exemption_survives_frontmatter_above_the_banner(tmp_path):
+    """A generated file that later grows frontmatter is still read as generated.
+
+    `parse_frontmatter` strips the block, so the banner is still the body's first line — and a
+    stale `refreshed:` inherited from the file's hand-kept past must not start being enforced.
+    """
+    path = tmp_path / "hook-matrix.md"
+    path.write_text(VALID_FM.split("---\n")[1].join(("---\n", "---\n")) + _GENERATED, "utf-8")
+    meta = km.read_meta(path, tmp_path)
+    assert meta.generated is True
+    assert meta.errors == ()

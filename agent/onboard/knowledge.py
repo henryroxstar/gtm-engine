@@ -3,6 +3,21 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+#: Template knowledge files a new tenant must NOT inherit, by filename.
+#:
+#: A module constant rather than a local, so the contract has exactly one home and its test can
+#: import it. `BRAND.toml` is here because it ships
+#: `[disclosure].line = "<your disclosure line>"` — a placeholder that
+#: `agent/publish.py:validate_disclosure` would accept as a configured line, downgrading the
+#: hard "no disclosure line is configured" refusal to "the post does not carry" and inviting an
+#: operator to paste the placeholder into a synthetic-media post as its EU AI Act Article 50
+#: disclosure. A tenant that configured nothing has not opted out of the duty; it fails closed.
+#:
+#: Keep this set small and keep the reason on the entry. It is a list of things the skeleton
+#: knows about and deliberately withholds, not a junk filter — the suffix check in
+#: :func:`_supplement_from_template` is where shape-based exclusions belong.
+TEMPLATE_KNOWLEDGE_EXCLUDED: frozenset[str] = frozenset({"BRAND.toml"})
+
 # ── render ────────────────────────────────────────────────────────────────────
 
 
@@ -77,10 +92,41 @@ def _supplement_from_template(files: dict[str, str], template_knowledge_dir: Pat
 
     if not template_knowledge_dir.is_dir():
         return
+    # Widening the suffix filter below to `.toml` (2026-09-24) pulled the template's BRAND.toml
+    # along with the fact registry's tables, because the filter is by suffix and a brand kit is
+    # also TOML. That one file is not inheritable: it ships
+    # `[disclosure].line = "<your disclosure line>"`, a PLACEHOLDER, and
+    # `agent/publish.py:validate_disclosure` treats any non-empty line as configured. A tenant
+    # that inherited it would move from the hard refusal "no disclosure line is configured"
+    # (go write one) to "the post does not carry a configured disclosure line" (paste the one
+    # you have) — and the obvious thing to paste is the placeholder, which would then ship as a
+    # synthetic-media post's EU AI Act Article 50 disclosure. CLAUDE.md: "a tenant that never
+    # configured one has not opted out of the duty, it fails closed."
+    #
+    # An explicit filename rather than a broader rule, because the hazard is specific to this
+    # file's contents, not to its shape. tests/agent/test_onboard_disclosure_fails_closed.py
+    # pins both halves: that BRAND.toml stays out, and that the registry tables stay in.
+    excluded_names = TEMPLATE_KNOWLEDGE_EXCLUDED
     for path in sorted(template_knowledge_dir.rglob("*")):
         # Text knowledge topics only — never the binary brand assets or raw source briefs
         # (those are company-specific, not inherited from the skeleton).
-        if not path.is_file() or path.suffix not in (".md", ".txt"):
+        #
+        # `.toml` was missing here until 2026-09-24, so none of the tenant's MACHINE-READABLE
+        # knowledge was inherited: `role-vocabulary.toml`, `premise-vocab.toml`, `hooks.toml`,
+        # `web-sweep.toml`, `competitors.toml`, and the fact registry's `claims`/`proof`/
+        # `angles` tables. The filter's comment aimed at binary assets; a TOML is neither
+        # binary nor a raw brief, so it was excluded by a rule never written for it. Measured
+        # before the fix: 23 files carried, 0 of them TOML.
+        #
+        # It matters most for the registry, because `registry.load` is all-or-nothing: an
+        # onboarded tenant refused on its first read, naming three files the operator never
+        # touched and could not find in their own profile. A TOML carried here is never
+        # frontmatter-stamped — `_ensure_knowledge_frontmatter` stamps only `is_managed_topic`
+        # paths and that requires `.md` — which is what makes widening safe rather than a way
+        # to prepend `---` to a config file.
+        if not path.is_file() or path.suffix not in (".md", ".txt", ".toml"):
+            continue
+        if path.name in excluded_names:
             continue
         rel = path.relative_to(template_knowledge_dir)
         if any(part in EXCLUDED_DIRS for part in rel.parts[:-1]):

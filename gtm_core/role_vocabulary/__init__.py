@@ -53,7 +53,7 @@ import argparse
 import json
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -63,10 +63,16 @@ from .defaults import (  # noqa: F401 — re-exported as this package's public s
     DEFAULT_CEO_TITLE_CUES,
     DEFAULT_NON_BUYER_CUES,
     DEFAULT_PERSONA_RULES,
+    DEFAULT_SEAT_FORBIDDEN_PAINS,
+    DEFAULT_SEAT_GAIN,
+    DEFAULT_SEAT_LEAD_PAIN,
+    DEFAULT_SEAT_REGISTER,
     DEFAULT_SEAT_RULES,
+    DEFAULT_SEAT_SEGMENTS,
     DEFAULT_SECURITY_ONLY,
     DEFAULT_SEGMENT_PERSONA,
     DEFAULT_SEGMENTS,
+    SEAT_REGISTERS,
     UNSPECIFIED_SEGMENT,
 )
 
@@ -101,6 +107,17 @@ class RoleVocabulary:
     seat_rules: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]
     security_only: tuple[str, ...]
     segments: tuple[str, ...]
+    #: The seat's outbound-copy facts, each keyed by seat name (2026-09-24). Kept BESIDE
+    #: ``seat_rules`` rather than widened into it: that tuple is what ``persona_of`` /
+    #: ``seat_of`` and the linter read on every row, and growing a hot 3-tuple to an 8-tuple
+    #: to carry copy would make every consumer of the resolver unpack fields it never uses.
+    #: Absent is "" / () everywhere — see :data:`defaults.DEFAULT_SEAT_LEAD_PAIN` for why a
+    #: seat's lead pain is never guessed.
+    lead_pain: dict[str, str] = field(default_factory=dict)
+    gain: dict[str, str] = field(default_factory=dict)
+    forbidden_pains: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    register: dict[str, str] = field(default_factory=dict)
+    seat_segments: dict[str, tuple[str, ...]] = field(default_factory=dict)
     source: str = "built-in default"
 
     @property
@@ -121,6 +138,31 @@ class RoleVocabulary:
         """The seat's own stakes vocabulary, or ``()`` if it has none."""
         return next((words for name, _, words in self.seat_rules if name == seat), ())
 
+    # The five accessors below mirror :meth:`stakes_for` exactly — an empty answer for a
+    # seat that declared nothing, and for a seat that does not exist. Never a fabricated
+    # default: a caller has to be able to tell "this tenant has not written this seat's
+    # pain yet" from "this is the pain", and only an empty value says the first out loud.
+
+    def lead_pain_for(self, seat: str) -> str:
+        """The pain this seat's copy LEADS on, or ``""`` if the tenant declared none."""
+        return self.lead_pain.get(seat, "")
+
+    def gain_for(self, seat: str) -> str:
+        """The unlock this seat's copy promises, or ``""``."""
+        return self.gain.get(seat, "")
+
+    def forbidden_pains_for(self, seat: str) -> tuple[str, ...]:
+        """Pains that belong to a DIFFERENT seat and must not be fired at this one."""
+        return self.forbidden_pains.get(seat, ())
+
+    def register_for(self, seat: str) -> str:
+        """The seat's formality register (see :data:`SEAT_REGISTERS`), or ``""``."""
+        return self.register.get(seat, "")
+
+    def segments_for(self, seat: str) -> tuple[str, ...]:
+        """The segments this seat's copy is aimed at. ``()`` means "no segment scope"."""
+        return self.seat_segments.get(seat, ())
+
     def to_dict(self) -> dict:
         return {
             "source": self.source,
@@ -132,7 +174,20 @@ class RoleVocabulary:
             "anti_cues": {k: list(v) for k, v in self.anti_cues.items()},
             "persona": [{"name": n, "cues": list(c)} for n, c in self.persona_rules],
             "seat": [
-                {"name": s, "personas": list(p), "stakes": list(w)} for s, p, w in self.seat_rules
+                {
+                    "name": s,
+                    "personas": list(p),
+                    "stakes": list(w),
+                    # Always emitted, never omitted when empty: `--json` is how an operator
+                    # checks what a seat carries, and a key that disappears when unset
+                    # cannot be told apart from a key the exporter forgot.
+                    "lead_pain": self.lead_pain_for(s),
+                    "gain": self.gain_for(s),
+                    "forbidden_pains": list(self.forbidden_pains_for(s)),
+                    "register": self.register_for(s),
+                    "segments": list(self.segments_for(s)),
+                }
+                for s, p, w in self.seat_rules
             ],
         }
 
@@ -147,6 +202,13 @@ DEFAULT_VOCABULARY = RoleVocabulary(
     seat_rules=DEFAULT_SEAT_RULES,
     security_only=DEFAULT_SECURITY_ONLY,
     segments=DEFAULT_SEGMENTS,
+    # Passed explicitly, though they are empty, so that "the default ships no copy facts" is
+    # a visible decision here rather than an omission a reader has to infer.
+    lead_pain=DEFAULT_SEAT_LEAD_PAIN,
+    gain=DEFAULT_SEAT_GAIN,
+    forbidden_pains=DEFAULT_SEAT_FORBIDDEN_PAINS,
+    register=DEFAULT_SEAT_REGISTER,
+    seat_segments=DEFAULT_SEAT_SEGMENTS,
 )
 
 
@@ -197,22 +259,75 @@ def _parse_personas(raw: dict, source: str) -> list[tuple[str, tuple[str, ...]]]
     return persona_rules
 
 
+def _str_field(raw, field_name: str, source: str) -> str:
+    """One string of prose, or a named error. Absent is ``""``; a list or a number is not.
+
+    Deliberately NOT lowercased, unlike :func:`_str_tuple`. Cues are matched against titles
+    and so normalise; a lead pain is a sentence a human reads in an email, and folding its
+    case would make every tenant's copy arrive shouting in lower case.
+    """
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise VocabularyError(
+            f"{source}: `{field_name}` must be a string, got {type(raw).__name__}"
+        )
+    return raw.strip()
+
+
+@dataclass(frozen=True)
+class _SeatCopy:
+    """The per-seat outbound-copy facts, collected while the seat blocks are read.
+
+    Returned alongside the seat rules rather than folded into them — see the note on
+    :attr:`RoleVocabulary.lead_pain` for why the hot 3-tuple stays a 3-tuple.
+    """
+
+    lead_pain: dict[str, str]
+    gain: dict[str, str]
+    forbidden_pains: dict[str, tuple[str, ...]]
+    register: dict[str, str]
+    segments: dict[str, tuple[str, ...]]
+
+
 def _parse_seats(
     raw: dict, known: set[str], source: str
-) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+) -> tuple[list[tuple[str, tuple[str, ...], tuple[str, ...]]], _SeatCopy]:
     """The seat rules, checked against the personas that actually exist.
 
-    Both failures below are relationships between two blocks, which is why they cannot be
-    validated where each block is written.
+    Both persona failures below are relationships between two blocks, which is why they
+    cannot be validated where each block is written. The copy fields collected here are
+    checked two ways: whatever is checkable WITHIN the block (a type, a closed set) is
+    checked here, and the one relationship — a seat's segments against the file's declared
+    ``segments`` — is checked in :func:`parse`, where both halves are in hand.
     """
     seat_rules: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = []
     claimed: dict[str, str] = {}
+    copy = _SeatCopy({}, {}, {}, {}, {})
     for i, block in enumerate(raw.get("seat") or []):
         if not isinstance(block, dict) or not block.get("name"):
             raise VocabularyError(f"{source}: [[seat]] #{i + 1} has no `name`")
         name = str(block["name"]).strip().lower()
         personas = _str_tuple(block.get("personas"), f"seat.{name}.personas", source)
         stakes = _str_tuple(block.get("stakes"), f"seat.{name}.stakes", source)
+        copy.lead_pain[name] = _str_field(block.get("lead_pain"), f"seat.{name}.lead_pain", source)
+        copy.gain[name] = _str_field(block.get("gain"), f"seat.{name}.gain", source)
+        # A scalar here is the DANGEROUS shape, not merely the wrong one: a linter iterating
+        # a bare string would forbid every character of it and match on all of them, so the
+        # seat would silently forbid its own copy. `_str_tuple` names the seat in the error.
+        copy.forbidden_pains[name] = _str_tuple(
+            block.get("forbidden_pains"), f"seat.{name}.forbidden_pains", source
+        )
+        copy.segments[name] = _str_tuple(block.get("segments"), f"seat.{name}.segments", source)
+        register = _str_field(block.get("register"), f"seat.{name}.register", source).lower()
+        if register and register not in SEAT_REGISTERS:
+            raise VocabularyError(
+                f"{source}: seat `{name}` declares register `{register}`, which is not one "
+                f"of {sorted(SEAT_REGISTERS)}. A register selects a whole surface of copy, "
+                f"so an unrecognised one can only fall back to a register the tenant did "
+                f"not choose or render nothing — both invisible at send time"
+            )
+        copy.register[name] = register
         for p in personas:
             if p not in known:
                 raise VocabularyError(
@@ -228,7 +343,7 @@ def _parse_seats(
                 )
             claimed[p] = name
         seat_rules.append((name, personas, stakes))
-    return seat_rules
+    return seat_rules, copy
 
 
 def _parse_anti_cues(raw: dict, known: set[str], source: str) -> dict[str, tuple[str, ...]]:
@@ -265,7 +380,7 @@ def parse(raw: dict, source: str) -> RoleVocabulary:
     """
     persona_rules = _parse_personas(raw, source)
     known = {n for n, _ in persona_rules}
-    seat_rules = _parse_seats(raw, known, source)
+    seat_rules, seat_copy = _parse_seats(raw, known, source)
     anti = _parse_anti_cues(raw, known, source)
 
     default_persona = str(raw.get("default_persona") or "").strip().lower()
@@ -288,6 +403,25 @@ def parse(raw: dict, source: str) -> RoleVocabulary:
             f"is booked as unassignable"
         )
 
+    # A seat's segment scope against the file's own segment vocabulary. This is the third
+    # relationship BETWEEN blocks in this file, and it is checked here for the same reason
+    # as the other two: `_parse_seats` has not seen `segments` yet, and `segments` has no
+    # idea which seats exist.
+    for seat, scope in seat_copy.segments.items():
+        for seg in scope:
+            if seg == UNSPECIFIED_SEGMENT:
+                raise VocabularyError(
+                    f"{source}: seat `{seat}` is scoped to `{UNSPECIFIED_SEGMENT}`, which is "
+                    f"the kept value for a row nobody classified and is never selected into "
+                    f"a run mix. Copy aimed there would read as targeted and reach no one"
+                )
+            if seg not in segments:
+                raise VocabularyError(
+                    f"{source}: seat `{seat}` is scoped to segment `{seg}`, which `segments` "
+                    f"does not declare. The run mix can never select it, so the seat reads "
+                    f"as covered while none of its copy is ever sent"
+                )
+
     return RoleVocabulary(
         anti_cues=anti,
         ceo_title_cues=_str_tuple(raw.get("ceo_title_cues"), "ceo_title_cues", source),
@@ -297,6 +431,11 @@ def parse(raw: dict, source: str) -> RoleVocabulary:
         seat_rules=tuple(seat_rules),
         security_only=_str_tuple(raw.get("security_only"), "security_only", source),
         segments=segments,
+        lead_pain=seat_copy.lead_pain,
+        gain=seat_copy.gain,
+        forbidden_pains=seat_copy.forbidden_pains,
+        register=seat_copy.register,
+        seat_segments=seat_copy.segments,
         source=source,
     )
 

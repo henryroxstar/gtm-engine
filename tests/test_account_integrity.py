@@ -670,7 +670,19 @@ def _run_filter(tmp_path, rows, capsys):
         recs = [{"email": r.get("email", ""), "lane": "signal"} for r in rows]
         _write_lane_states(content_root, "acme", recs)
         p = _verdict_csv(tmp_path, rows)
-        ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+        ai.main(
+            [
+                "--csv",
+                str(p),
+                "--profile",
+                "acme",
+                "--require-verdict",
+                "send",
+                "--warn-only",
+                "--lane",
+                "signal",
+            ]
+        )
         return capsys.readouterr().out
     finally:
         if old_root is None:
@@ -1145,7 +1157,9 @@ def test_hold_and_excluded_rows_are_refused_by_the_documented_enrollment_command
             },
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED" in err
@@ -1190,7 +1204,9 @@ def test_two_enrollable_lanes_with_no_lane_flag_is_refused(tmp_path, capsys, mon
             },
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED" in err
@@ -1245,16 +1261,39 @@ def test_a_blank_lane_row_does_not_count_as_a_second_enrollable_lane(tmp_path, c
             },
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+    rc = ai.main(
+        [
+            "--csv",
+            str(p),
+            "--profile",
+            "acme",
+            "--require-verdict",
+            "send",
+            "--warn-only",
+            "--lane",
+            "signal",
+        ]
+    )
     err = capsys.readouterr().err
     assert "REFUSED" not in err
     assert rc == 0
 
 
 def test_a_plain_audit_is_unaffected_by_the_hold_excluded_check(tmp_path, capsys):
-    """Same shape as the positive control above, but with no `--require-verdict` at
-    all — a plain audit must not trip this check; it exists to protect enrollment,
-    not every read of a CSV."""
+    """Same shape as the positive control above, but with no `--require-verdict` at all.
+
+    **Changed 2026-09-23 with `--lane` becoming required, and the change is the point.**
+    This used to assert that a plain audit skipped the lane-column check — which was true
+    only because the check runs when a lane is named, and a plain audit could decline to
+    name one. There is no longer an unlaned invocation to decline with, so a CSV whose rows
+    are routed to `hold` / `excluded` is now refused under every enrollable lane rather than
+    audited as though it were enrollable.
+
+    That is the honest answer, not a regression: `hold` and `excluded` are not lanes you can
+    enrol into, so the alternative is printing PASS over a list of held rows — the same
+    false reassurance as a `ready_to_send` label that claims completion before the check has
+    run. It exits 2 with the reason named, never a silent skip.
+    """
     p = tmp_path / "list.csv"
     cols = ["email", "company", "company_domain", "verdict", "lane", "lane_reason"]
     _write_lane_csv(
@@ -1279,9 +1318,13 @@ def test_a_plain_audit_is_unaffected_by_the_hold_excluded_check(tmp_path, capsys
             },
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
-    assert rc == 0
-    assert "REFUSED" not in capsys.readouterr().err
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only", "--lane", "signal"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "REFUSED" in err
+    # The reason must name both foreign values, so the operator can see it is the CSV's
+    # routing that disagrees and not their flag that is misspelled.
+    assert "excluded" in err and "hold" in err
 
 
 # --------------------------------------------------------- PS2: lane-state gate half (2026-09-10)
@@ -1312,7 +1355,7 @@ def test_a_csv_lane_disagreeing_with_lanes_state_is_refused(tmp_path, monkeypatc
             }
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only", "--lane", "signal"])
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED" in err
@@ -1339,7 +1382,7 @@ def test_a_csv_lane_agreeing_with_lanes_state_is_not_refused(tmp_path, monkeypat
             }
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only", "--lane", "signal"])
     assert rc == 0
 
 
@@ -1363,7 +1406,7 @@ def test_a_missing_lanes_state_file_skips_the_check_not_an_error(tmp_path, monke
             }
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only"])
+    rc = ai.main(["--csv", str(p), "--profile", "acme", "--warn-only", "--lane", "signal"])
     assert rc == 0
 
 
@@ -1379,7 +1422,9 @@ def test_i1_missing_lanes_state_refused_under_require_verdict(tmp_path, capsys, 
         ["email", "company", "verdict"],
         [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED: evals/lanes-state.jsonl is missing" in err
@@ -1397,7 +1442,9 @@ def test_i1_empty_lanes_state_refused_under_require_verdict(tmp_path, capsys, mo
         ["email", "company", "verdict"],
         [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED: evals/lanes-state.jsonl is empty" in err
@@ -1416,7 +1463,9 @@ def test_i1_unrouted_row_refused_under_require_verdict(tmp_path, capsys, monkeyp
             {"email": "unrouted@acme.example", "company": "Acme", "verdict": "send"},
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "REFUSED: 1 row(s) missing from evals/lanes-state.jsonl" in err
@@ -1432,7 +1481,9 @@ def test_i1_blank_lane_in_state_refused_under_require_verdict(tmp_path, capsys, 
         ["email", "company", "verdict"],
         [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "have blank lane in evals/lanes-state.jsonl" in err
@@ -1455,7 +1506,9 @@ def test_i1_hold_or_excluded_in_state_refused_even_without_lane_column(
         ["email", "company", "verdict"],
         [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert "carry lane 'hold' or 'excluded'" in err
@@ -1496,7 +1549,9 @@ def test_i2_retired_account_refused_under_require_verdict(tmp_path, capsys, monk
             }
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert (
@@ -1533,7 +1588,9 @@ def test_i2_engaged_account_refused_under_require_verdict(tmp_path, capsys, monk
         ["email", "company", "verdict"],
         [{"email": "a@acme.example", "company": "Acme", "verdict": "send"}],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send"])
+    rc = ai.main(
+        ["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--lane", "signal"]
+    )
     err = capsys.readouterr().err
     assert rc == 2
     assert (
@@ -1577,7 +1634,19 @@ def test_i2_unblocked_account_passes_under_require_verdict(tmp_path, capsys, mon
             }
         ],
     )
-    rc = ai.main(["--csv", str(p), "--profile", "acme", "--require-verdict", "send", "--warn-only"])
+    rc = ai.main(
+        [
+            "--csv",
+            str(p),
+            "--profile",
+            "acme",
+            "--require-verdict",
+            "send",
+            "--warn-only",
+            "--lane",
+            "signal",
+        ]
+    )
     err = capsys.readouterr().err
     assert "REFUSED" not in err
     assert rc == 0

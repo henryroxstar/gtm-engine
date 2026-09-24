@@ -158,6 +158,220 @@ class TestTheDailyCounter:
         assert sd.dispatched_today(h, today="2026-08-28") == 0
 
 
+class TestTheDailyCounterIsTimezoneAware:
+    """SC14: the counter used to compute "today" in UTC always, so a UTC+8 profile's
+    ceiling reset at 08:00 local time instead of local midnight. Asia/Singapore
+    (UTC+8, no DST — chosen so the fixture never depends on which half of the year it
+    runs in) is the profile PENDING.md's SC14 note names.
+    """
+
+    def test_a_row_from_the_utc_morning_counts_toward_the_sgt_evening_before(self, tmp_path):
+        """2026-08-29T02:00Z is 2026-08-29T10:00 in Singapore -- SGT's own calendar day.
+        Under raw UTC-prefix counting this already matched; the point is it must STILL
+        match once the comparison goes through a timezone conversion.
+        """
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-29T02:00:00Z",
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        assert sd.dispatched_today(h, today="2026-08-29", tz="Asia/Singapore") == 1
+
+    def test_the_utc_prefix_match_undercounts_across_the_sgt_midnight_boundary(self, tmp_path):
+        """The defect itself. 2026-08-28T17:00Z is 2026-08-29T01:00 SGT -- SGT's NEXT
+        calendar day, even though the UTC date is still the 28th. A raw prefix match
+        against UTC "today" (the pre-fix code) would call this the 28th and miss it;
+        scoped correctly in Asia/Singapore it belongs to the 29th.
+        """
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T17:00:00Z",  # 2026-08-29 01:00 SGT
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        assert sd.dispatched_today(h, today="2026-08-29", tz="Asia/Singapore") == 1
+        assert sd.dispatched_today(h, today="2026-08-28", tz="Asia/Singapore") == 0
+
+    def test_utc_default_reproduces_the_old_behaviour_exactly(self, tmp_path):
+        """Positive control: a profile that never sets a timezone must count IDENTICALLY
+        to before this fix. The same row that lands on SGT's 29th stays on the 28th in
+        plain UTC scoping."""
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T17:00:00Z",
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        assert sd.dispatched_today(h, today="2026-08-28") == 1
+        assert sd.dispatched_today(h, today="2026-08-29") == 0
+
+    @pytest.mark.parametrize("bad_tz", [None, 123, "", "Not/AZone", "../../etc/passwd"])
+    def test_any_unusable_tz_falls_back_to_utc_rather_than_raising(self, tmp_path, bad_tz):
+        """`dispatched_today` is public and `tz` is whatever a caller passed. A bad zone
+        NAME raises ZoneInfoNotFoundError/ValueError; a bad zone TYPE raises TypeError --
+        and `None` is the likely mistake, since `today` right beside it takes None to mean
+        "default". All of them must degrade to UTC, never raise mid-dispatch."""
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T09:00:00Z",
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        assert sd.dispatched_today(h, today="2026-08-28", tz=bad_tz) == 1
+
+    def test_an_unrecognised_zone_falls_back_to_utc_rather_than_raising(self, tmp_path):
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T09:00:00Z",
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        assert sd.dispatched_today(h, today="2026-08-28", tz="Not/AZone") == 1
+
+
+class TestProfileTimezone:
+    def test_it_defaults_to_utc_when_settings_are_absent(self, tmp_path):
+        assert sd.profile_timezone(_Cfg(tmp_path), "acme") == "UTC"
+
+    def test_it_reads_the_profile_setting(self, tmp_path):
+        p = tmp_path / "acme"
+        p.mkdir(parents=True)
+        (p / "settings.json").write_text('{"timezone": "Asia/Singapore"}', encoding="utf-8")
+        assert sd.profile_timezone(_Cfg(tmp_path), "acme") == "Asia/Singapore"
+
+    def test_an_unrecognised_zone_name_falls_back_to_utc(self, tmp_path):
+        """A typo in a tenant-writable file must degrade to "counts like before",
+        never raise mid-dispatch and never silently land on the wrong zone."""
+        p = tmp_path / "acme"
+        p.mkdir(parents=True)
+        (p / "settings.json").write_text('{"timezone": "Singapore/Asia"}', encoding="utf-8")
+        assert sd.profile_timezone(_Cfg(tmp_path), "acme") == "UTC"
+
+    def test_corrupt_settings_fall_back_to_utc(self, tmp_path):
+        p = tmp_path / "acme"
+        p.mkdir(parents=True)
+        (p / "settings.json").write_text("{not json", encoding="utf-8")
+        assert sd.profile_timezone(_Cfg(tmp_path), "acme") == "UTC"
+
+
+class TestProfileTimezoneDegradesOnAnyBadShape:
+    """The narrower exception tuple this replaced missed AttributeError from a
+    non-dict top-level JSON value (`stored.get(...)` on a list/int/str/bool/None),
+    crashing `dispatch()` before any pending signal was processed -- found by review,
+    not by the shapes `daily_cap`'s own tests already covered."""
+
+    @pytest.mark.parametrize("body", ["[1, 2, 3]", "42", '"just a string"', "true", "null"])
+    def test_a_non_object_top_level_falls_back_to_utc(self, tmp_path, body):
+        p = tmp_path / "acme"
+        p.mkdir(parents=True)
+        (p / "settings.json").write_text(body, encoding="utf-8")
+        assert sd.profile_timezone(_Cfg(tmp_path), "acme") == "UTC"
+
+    def test_a_non_object_settings_file_does_not_crash_dispatch(self, wired):
+        """End-to-end: the exact crash the review reproduced -- a pending signal with
+        settings.json = `[1, 2, 3]` used to raise AttributeError out of dispatch()
+        before any signal was recorded."""
+        cfg, h, ledgers, ran, _ = wired
+        (cfg.content_root / "acme" / "settings.json").write_text("[1, 2, 3]", encoding="utf-8")
+        _write(h, [_signal_row("sig_a")])
+        assert _dispatch(cfg) == 0
+        assert ran == [("inbound", "inbound-reply")]
+
+
+class TestDispatchedTodayTreatsANaiveTimestampAsUtc:
+    """`datetime.astimezone()` on a naive value silently assumes it is already in the
+    HOST MACHINE's local time before converting -- so without an explicit UTC stamp, this
+    function's answer would depend on which machine ran it. Every real writer
+    (`gtm_core.ledgers._utc_now_iso`) always appends Z; this guards a hand-edited or
+    third-party-written row.
+    """
+
+    def test_a_naive_ts_is_scoped_as_utc_not_host_local_time(self, tmp_path):
+        h = _history(tmp_path)
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T23:30:00",  # no Z, no offset
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["a"],
+                }
+            ],
+        )
+        # Scoped in Singapore (UTC+8): if this Z-less ts is read as UTC, 23:30 UTC on
+        # the 28th is 07:30 SGT on the 29th. If it were instead read as host-local time
+        # (the bug) it would land on whatever date the TEST MACHINE's own zone produces
+        # for 23:30 -- nondeterministic across machines, which is the property under
+        # test: the UTC-scoped answer must be independent of the host's zone.
+        assert sd.dispatched_today(h, today="2026-08-29", tz="Asia/Singapore") == 1
+        assert sd.dispatched_today(h, today="2026-08-28", tz="Asia/Singapore") == 0
+
+
+class TestDispatchUsesTheProfileTimezone:
+    def test_a_row_the_utc_scoping_would_miss_still_counts_against_the_cap(self, wired):
+        """End-to-end, using the same `wired` fixture `test_over_the_daily_cap_a_signal_defers`
+        does. A prior dispatch already recorded at 17:00 UTC — 01:00 SGT the NEXT calendar
+        day — plus a fresh signal, cap 1, "today" the 29th. Correctly scoped to Singapore
+        the prior row IS the 29th's dispatch, so the fresh signal must defer. Under the
+        pre-fix UTC scoping the prior row's date read as "the 28th" and would have been
+        invisible to a "today" of the 29th, letting the cap silently overrun by one.
+        """
+        cfg, h, ledgers, ran, _ = wired
+        (cfg.content_root / "acme" / "settings.json").write_text(
+            '{"signal_dispatch_daily_cap": 1, "timezone": "Asia/Singapore"}', encoding="utf-8"
+        )
+        _write(
+            h,
+            [
+                {
+                    "ts": "2026-08-28T17:00:00Z",  # 2026-08-29 01:00 SGT
+                    "event": sd.DISPATCHED_EVENT,
+                    "dispatched": True,
+                    "source_items": ["already-sent"],
+                },
+                _signal_row("pending-one"),
+            ],
+        )
+        asyncio.run(sd.dispatch("acme", cfg=cfg, today="2026-08-29"))
+        assert ran == [], "the SGT-scoped cap was already spent; nothing should run"
+        deferred = [r for r in ledgers.rows if r["source_items"] == ["pending-one"]]
+        assert deferred, "the pending signal should have deferred against the SGT-scoped cap"
+        assert deferred[0]["dispatched"] is False
+        assert "daily dispatch cap" in deferred[0]["note"]
+
+
 class TestTheDailyCap:
     def test_it_defaults_when_settings_are_absent(self, tmp_path):
         assert sd.daily_cap(_Cfg(tmp_path), "acme") == sd.DEFAULT_DAILY_CAP

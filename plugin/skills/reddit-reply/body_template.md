@@ -203,7 +203,7 @@ Present the draft(s) **inline** for copy-paste. For each, show:
 Save only if asked, or if the thread maps to a tracked target account:
 - If it maps to a **named target account**, save to
   `content/<active>/accounts/<account-slug>/reddit-reply-<account-slug>-<YYYYMMDD>.md`
-  (`<account-slug>` = the target company, kebab-cased — see CLAUDE.md "Per-account outputs").
+  (`<account-slug>` = `python -m gtm_core.account_folder "<company name>" --profile <active> [--domain <domain>]` — see CLAUDE.md "Per-account outputs").
 - Otherwise save to `content/<active>/reddit/reddit-reply-<thread-slug>-<YYYYMMDD>.md`, where
   `<thread-slug>` is a short kebab-cased label for the thread (sub + topic).
 

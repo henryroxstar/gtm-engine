@@ -37,9 +37,17 @@ STATUSES: tuple[str, ...] = (
     "needs_address",
 )
 
+#: ``ready_to_send`` keeps its id — the dashboard and the receipt read it as a stable API —
+#: but not its 2026-09-10 label. Until 2026-09-23 it read "Ready to send" beside "nobody's —
+#: it is done", at a point where the checks that decide whether a row may go **have not
+#: run**. That is a negative surprise by construction: the operator is told no action
+#: remains, then meets a refusal. A label may not claim completion before the check that
+#: decides it has run, and the fix is not a softer word — it is naming the step the count
+#: belongs to. This count is the ROUTER's answer to "which email would this person get",
+#: never the gate's answer to "may it go".
 LABELS: dict[str, str] = {
     "waiting_on_you": "Waiting on you",
-    "ready_to_send": "Ready to send",
+    "ready_to_send": "Routed — not yet checked",
     "being_fixed": "Being fixed",
     "in_sending_tool": "In the sending tool",
     "not_emailing": "Not emailing",
@@ -50,12 +58,24 @@ LABELS: dict[str, str] = {
 #: out on their own.
 NEXT_STEP: dict[str, str] = {
     "waiting_on_you": "yours — one decision",
-    "ready_to_send": "nobody's — it is done",
+    "ready_to_send": "the checks, then yours",
     "being_fixed": "the machine's — no action",
     "in_sending_tool": "already loaded — do not load again",
     "not_emailing": "closed",
     "needs_address": "accounts in the ledger — the machine's, then yours if it misses",
 }
+
+#: The line that renders BESIDE the routed count, so the two are never read as one number.
+#: Routed and checked are different questions with different answers — 415 against 91 on the
+#: run that produced this change — and a reader who cannot tell which is which has the
+#: defect back whatever the numbers say. Deliberately NOT a ``STATUSES`` id and deliberately
+#: not sharing a label with anything: it is a different measurement of the same people.
+CHECKED_LABEL = "Passed the checks"
+CHECKED_NEXT_STEP = "yours — these are the ones that may go"
+#: What the line says when nothing has checked this list yet. A count of 0 would be a claim
+#: that the checks ran and refused everything, which is a different fact an operator acts on
+#: differently. Absent is not zero.
+CHECKED_NOT_RUN = "not run yet — the checks decide this, and they have not seen this list"
 
 
 class UnmappedStatus(ValueError):

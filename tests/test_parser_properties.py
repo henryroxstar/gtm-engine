@@ -8,14 +8,27 @@ CTO/director substring collisions, and dash/paren ladder header mismatches).
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("hypothesis")
 
+# The SAME prologue every other consumer uses (`gtm_core/cells.py`, `rule_baseline.py`,
+# `build_eval_sheet.py`, `hook_coverage/config.py`, `tests/injection/...`), and not
+# `from tests.linter.outreach import ...`. There is no `__init__.py` under `tests/`, so both
+# spellings resolve under pytest — into TWO distinct `sys.modules` entries, each with its own
+# `RULES_VERSION`, `_SEAT_RULES` and `HEDGE_CUES`. The one-implementation contract in
+# `tests/linter/test_outreach_linter.py` compares `config.seat_of is outreach.seat_of` and
+# cannot see a second copy imported under a different name, so this file was the one place the
+# package could silently fork.
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "tests" / "linter"))
+
 from hypothesis import given  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
-
-from tests.linter.outreach_pack_linter import (
+from outreach import (  # noqa: E402
     _NON_NAMES,
     _is_person_name,
     non_buyer_of,

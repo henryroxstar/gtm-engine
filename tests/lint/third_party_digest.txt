@@ -4,6 +4,10 @@
 # The roster itself is PII and is not committed. CI has no content/ or profiles/,
 # so it enforces the rule against these digests; pre-commit and the export derive
 # the live roster instead. Regenerate whenever accounts or case studies change.
+#
+# UNION, never a replacement: this file only ever grows. A name that leaves the
+# live derivation — a renamed folder, a tenant on external storage, a smaller
+# checkout — has not stopped being a real company. See write_digest's docstring.
 
 00045925eb0c22826f9c0f2f3d237eca
 004ebc8405061e106a74ac61dda72ebd
@@ -630,6 +634,7 @@
 73f6a56af5fbee5e611857f801175899
 741e16cb73c48dba2bec61fb3438b8a8
 74782be7e0b34fed7cf61a0fc3e03abd
+748991c765a46d6718a8eb6653020be3
 74a4bb6a61c0bdfe98eab302a50d8756
 74e659b0d6e8b0a0f0a33db0248663f4
 757c58f4431f7e646fc5ca85d15b10d0
@@ -813,6 +818,7 @@
 9a844b16c4337576481ca95157cdaea8
 9a879ca0ae0d1bd3504a3463d3fa5ea0
 9aa7936693215aa63c7d04ee7e0a2add
+9ac71140375b73adedc520c7c39abf5b
 9b2beb4893583082393464a4eeb67dcb
 9b374f3dc2fdbfd0d209edd8869f26b9
 9b5a1465603d82609aee50f9484403fe
@@ -911,6 +917,7 @@ ad6f92c6858c3eef0b609e86090533a1
 adc36ef9a193ac75f98f433553241307
 aeb3fa047849a6225efcfc8bd6d0f056
 aec2ecdb4cc36988e9c2e03d301c46c2
+af0afca28fc38693df12d3e0265b18b3
 af0cdb89c22437ce3ff74c17c3a38882
 af101196162dd5ab64059d004d9dcb5b
 af44fd93653d7b88fc1133ce898e79c3
@@ -963,6 +970,7 @@ b7fae09ebf097949faecd94236b8e1e6
 b80332a6ee2c8e5c17078da75c99f141
 b84a9ef91a16c8a0b72ebf042e17459e
 b85528326fbe7f60a378d7fa9f99c30b
+b85b83459f3e5154badf48fc75eabbbe
 b89fd20606872c24d25ea362b3b0c561
 b8a34ee280c077006eef28ebbd314f64
 b8d6f6c5b4effcaa16233a0561f8f1b8
@@ -1360,6 +1368,7 @@ fe7b7cddea69e1e5c44ba46cb02afe47
 fe9eb9e69a7319b80f7065c179ebf082
 ff2c4b81c2e954db09c526b9a1d225ca
 ff49f5da30ff1d71d65b594ead431fed
+ff6105291e9481e7cf341872229e5063
 ff622a02080f4309247e53d989fba784
 ffc5dcf64e6b27ca39bdcf3d7971f7cb
 fff90452867486343e10302244ef2ede

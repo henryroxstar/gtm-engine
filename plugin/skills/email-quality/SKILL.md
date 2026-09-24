@@ -100,16 +100,39 @@ arrived after staging could only ever inform a restage. Every row, not a sample 
 coverage is the whole point, and Haiku pricing is what makes it affordable (a full-list pass
 is single-digit dollars).
 
-**What the judge is actually asked is [`references/judge-rubric.md`](references/judge-rubric.md) —
-read it before reading any verdict.** It defines the three items whose names the rest of this skill
-uses as vocabulary (`fact_earns_its_place`, `frame_fits_seat`, `right_person`), states the deliberate
-asymmetry in the framing (the judge is asked to **find reasons not to send**, because a plausible
-email wasting a real person's attention is the expensive failure and a false alarm costs one
-re-read), and records why §R5 holds on a rendered body carrying scraped prospect text. It is
-**documentation, not the source** — `RUBRIC_ITEMS` in `agent/mcp/judge/scoring.py` is what ships, as
-an ordered tuple, because the flip-rate control reverses that order. It also carries the **revision
-counter** behind the 3-per-campaign cap below, maintained by hand: check it before proposing a
-revision, and log any revision there or the cap stops counting anything.
+**The questions come from the quality card, and the card is one tuple: `gtm_core/messaging/card.py`.**
+Three surfaces ask whether a rendered outbound email is any good — this skill's judge, the
+operator's blind labeling sheet, and the label files — and until the card existed they carried
+three different lists in two spellings with nothing comparing them. Now each surface declares a
+**subset** of `card.CARD`: the judge's is `card.JUDGE_QUESTIONS`, the generic lane's is
+`card.SEAT_ONLY_QUESTIONS`, the sheet's is `card.SHEET_QUESTIONS`. A surface may ask fewer
+questions than the card holds; it may never ask one the card does not hold, and a card question no
+surface asks is an orphan, not a subset — both are tested.
+
+**Read the card rather than this file for the question set**, and read `card.QUESTIONS` for what
+each one asks. Do not quote a question count anywhere: the card is derived from the canonical
+defect classes, so its size moves when a class is added, and a number typed here would be wrong on
+that commit (§R14). Two absences are deliberate and worth knowing:
+
+* **`claim_within_status` is NOT on the judge's subset.** The judge reads the rendered body and the
+  recipient context, never the fact registry, so it could only guess at a claim's status — and the
+  deterministic `claim-status` linter rule is authoritative there. A soft opinion sitting beside a
+  hard gate is how a gate gets argued with.
+* **`wrong_entity_type` is not either**: it is an account judgment with durable consequences, and
+  the operator surface owns it.
+
+Every record carries `card.fingerprint()` of the items it was actually scored against, so a verdict
+produced before a card change is **not** pooled with one produced after: the fingerprint is derived
+from the keys *and their wording*, so a reworded item starts a new population by itself rather than
+waiting for someone to bump a version constant.
+
+**Read [`references/judge-rubric.md`](references/judge-rubric.md) before reading any verdict** for
+the framing the card does not carry: the deliberate asymmetry (the judge is asked to **find reasons
+not to send**, because a plausible email wasting a real person's attention is the expensive failure
+and a false alarm costs one re-read), why §R5 holds on a rendered body carrying scraped prospect
+text, and the **revision counter** behind the 3-per-campaign cap below, maintained by hand — check
+it before proposing a revision, and log any revision there or the cap stops counting anything. That
+file is documentation; where it and `card.py` disagree, the module is what ships.
 
 ```bash
 # 1. Score. Writes one adjudication record per row.
@@ -189,7 +212,8 @@ uv run python -m gtm_core.prospects adjudication write-verdicts \
 
 uv run python -m gtm_core.prospects adjudication rank --records <records.jsonl> --top 30
 
-uv run python -m gtm_core.prospects integrity --csv <list-judged.csv> --profile <active> --require-verdict send
+uv run python -m gtm_core.prospects integrity --csv <list-judged.csv> --profile <active> \
+  --require-verdict send --lane <the lane this list was routed into>
 ```
 
 `write-verdicts` refuses to run on a partially-judged list rather than writing what it has — a
@@ -248,7 +272,7 @@ body — regeneration from feedback, not paraphrase.
 ```bash
 # 1. the feedback: per-source defect classes with evidence, novel vs covered classes, and the
 #    operator's own guidance from the hold sheet (notes + salvage chips outrank the judge)
-uv run python tests/linter/merge_render_linter.py --list-rules content/<active>/prospects/evals/rules.txt
+uv run python tests/linter/outreach_linter.py --list-rules content/<active>/prospects/evals/rules.txt
 uv run python -m gtm_core.prospects adjudication defect-report \
   --records content/<active>/prospects/evals/judge/<records>.jsonl \
   --known-file content/<active>/prospects/evals/rules.txt \
@@ -259,15 +283,16 @@ uv run python -m gtm_core.prospects adjudication defect-report \
 uv run python -m gtm_core.prospects adjudication regen-count --spec <old spec>
 
 # 3. ONE fresh one-shot session per spec (role brain_plan; never the DeepSeek worker — rows carry
-#    PII). It receives ONLY: the report section for this spec, the product refs, voice, the hook
-#    matrix, and the old spec's FRONT BLOCK — not the old body, not this session's transcript.
+#    PII). It receives ONLY: the report section for this spec, the fact registry (claims/proof/
+#    angles + voice-rules), and the old spec's FRONT BLOCK — not the old body, not this transcript.
 uv run python -m agent --profile <active> "Regenerate <old spec> as spec-<variant>-$(date -u +%F).md: \
-  keep the front block's hook_cell/premise/capability unless the defect report says the premise or \
-  capability is wrong; argue against these classes: <top classes>; never paraphrase a failing \
-  sentence; add `regeneration: <n+1>` and `regenerated_from: <old spec filename>` to the front block."
+  keep the front block's angle: unless the defect report says the premise or the claim is wrong, in \
+  which case re-resolve it with gtm_core.messaging resolve and record the new id; argue against \
+  these classes: <top classes>; never paraphrase a failing sentence; add \`regeneration: <n+1>\` and \
+  \`regenerated_from: <old spec filename>\` to the front block."
 
 # 4. gates, unchanged: linter (with --json so require-qa can find the record) → judge → compare
-uv run python tests/linter/merge_render_linter.py <new spec> --csv <list.csv> --signoff "<name>" \
+uv run python tests/linter/outreach_linter.py render <new spec> --csv <list.csv> --signoff "<name>" \
   --json content/<active>/prospects/evals/qa/<seq>-$(date -u +%F).json
 #    (judge the new spec with score_emails, then read the verdict mix before/after — reported,
 #     never gated; the reply rate by lane is the real check)
@@ -337,7 +362,7 @@ happens *after* the copy gates ran, so a re-composed body can reintroduce a rule
 already has a rule — and ship. Re-run the merge-render gate on the repaired list:
 
 ```bash
-uv run python tests/linter/merge_render_linter.py <spec> --csv <repaired.csv> --signoff "<name>" \
+uv run python tests/linter/outreach_linter.py render <spec> --csv <repaired.csv> --signoff "<name>" \
   --json content/<active>/prospects/evals/qa/<seq>-repair-$(date -u +%F).json
 ```
 
@@ -427,11 +452,12 @@ outcome-attribution join; its own header warns that a wrong list-or-spec pairing
 one seat's replies to another. A drafted cell has no replies to attribute, so registering it there
 corrupts live learning data to make a sheet look wider.
 
-**Drafting a cell is cheap and is the actual fix for thin coverage.** Filter the send-ready rows to
-those whose persona, segment and recorded evidence fit one matrix cell *and* attest the premise the
-spec will declare, write them to `rows.csv`, compose one touch against that cell, and lint to zero
-errors. A row that does not attest the premise is re-cut or dropped — never accommodated by
-softening the body. Coverage went 2 cells → 9 this way on 2026-08-23, with no new research spend.
+**Drafting a cell is cheap and is the actual fix for thin coverage.** Ask which angles no spec has
+claimed (`uv run python -m gtm_core.messaging unused --profile <active>`), filter the send-ready
+rows to those that resolve to one of them, write those rows to `rows.csv`, compose one touch
+against that angle, and lint to zero errors. A row `messaging resolve` refuses with
+`premise-unsupported` is re-cut or dropped — never accommodated by softening the body. Coverage
+went 2 cells → 9 this way on 2026-08-23, with no new research spend.
 
 **Read the coverage block the command prints.** It reports how many hook-matrix cells the draw
 spans, which axes collapsed, and warns below 4 distinct arguments. A sample can be perfectly
@@ -600,7 +626,9 @@ one reply flip a verdict.
 Ad hoc on a material change, not a calendar — labelling is human time, and the rule report needs
 send-driven QA accumulation rather than date-driven. Triggers:
 
-- a new hook cell or persona row
+- a new angle promoted, retired, or added to `angles.toml`
+- a card question added, removed or **reworded** — `card.fingerprint()` changes, so records before
+  and after are two populations and pooling them moves a rate nobody changed the copy for
 - copy re-cut, or new premise vocabulary
 - a judge rubric revision (**capped at 3 per campaign** — past that the judge is permanently
   demoted to a ranker rather than tuned further)

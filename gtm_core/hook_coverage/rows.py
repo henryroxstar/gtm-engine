@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..signal_record import SIGNAL_COLUMN
-from .config import persona_of
 from .fit import _norm_segment
-from .matrix import Cell, Matrix, _clean_cell, persona_key_of_label
+from .matrix import Cell, Matrix, _clean_cell
 
 
 @dataclass(frozen=True)
@@ -41,8 +40,14 @@ def derive_row_cell(
     unresolved title, a blank signal, or a persona x signal pair that exists in the
     matrix but not in THIS row's segment grid all return ``cell=None`` with a reason
     naming which half failed, never a best-effort pick.
+
+    Both halves of the join go through ``matrix`` — :meth:`Matrix.recipient_key` for the
+    title and :meth:`Matrix.row_key` for the row label — so the recipient and the row are
+    always resolved on the SAME axis. A seat-row matrix joined on personas (or the reverse)
+    would return ``None`` for every row and book the whole list unassignable; see
+    :class:`~gtm_core.hook_coverage.matrix.RowAxis`.
     """
-    persona_key = persona_of(title)
+    persona_key = matrix.recipient_key(title)
     norm_segment = _norm_segment(segment)
     clean_signal = _clean_cell(signal_column)
 
@@ -53,7 +58,7 @@ def derive_row_cell(
             norm_segment,
             clean_signal,
             None,
-            reason="title does not resolve to a matrix persona",
+            reason=f"title does not resolve to a matrix {matrix.row_axis}",
         )
     if not clean_signal:
         return RowCell(
@@ -68,7 +73,7 @@ def derive_row_cell(
     candidates = [
         c
         for c in matrix.cells.values()
-        if persona_key_of_label(c.persona) == persona_key
+        if matrix.row_key(c.persona) == persona_key
         and _norm_segment(c.segment) == norm_segment
         and c.signal.lower() == clean_signal.lower()
     ]
@@ -77,14 +82,14 @@ def derive_row_cell(
         # such signal anywhere" -- the first is a segment mistake, the second is a typo or
         # an invented column, and the operator needs to know which to fix.
         in_other_grid = any(
-            persona_key_of_label(c.persona) == persona_key
-            and c.signal.lower() == clean_signal.lower()
+            matrix.row_key(c.persona) == persona_key and c.signal.lower() == clean_signal.lower()
             for c in matrix.cells.values()
         )
         reason = (
             f"{persona_key!r} x {clean_signal!r} exists but not in the {norm_segment!r} grid"
             if in_other_grid
-            else f"no {norm_segment!r}-grid cell for persona {persona_key!r} x signal {clean_signal!r}"
+            else f"no {norm_segment!r}-grid cell for {matrix.row_axis} {persona_key!r} "
+            f"x signal {clean_signal!r}"
         )
         return RowCell(email, persona_key, norm_segment, clean_signal, None, reason=reason)
     if len(candidates) > 1:

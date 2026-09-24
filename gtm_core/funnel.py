@@ -30,16 +30,49 @@ from pathlib import Path
 from typing import Any
 
 # Ordered funnel. Each stage consumes the prior stage's output.
+#
+# Stages 1-5 are DISCOVERY: how many rows the research half produces. Stages 6-11 are the
+# REFUSAL gates that decide how many of those may actually be enrolled — every one of them
+# already runs today, at the end, one at a time, after the spend. Modelling only the first
+# five is what made the narrowing arrive as six separate late surprises: *"blocks occur at
+# the end and I keep fighting this tool to unlock more emails."* None of those gates is
+# wrong to refuse and none is relaxed here; the model simply multiplies them out beforehand
+# so the operator reads one table before the spend instead of six refusals after it.
 STAGES: tuple[str, ...] = (
+    # --- discovery ---
     "scored",  # discovered rows that survive ingest + off-ICP screening
     "qualified",  # survive the profile's gate at the requested tier
     "seat_found",  # a real buyer seat exists at the account
     "contact_usable",  # seat resolves to a deliverable, grade-gated email
     "why_now",  # carries a usable why-now of the requested KIND
+    # --- the refusal gates, in the order a real run meets them ---
+    "compliant",  # out-of-market, no postal address, no opt-out  (email_compliance preflight)
+    "unsuppressed",  # prior contact, DNC, unsubscribed           (suppression verify)
+    "list_fit",  # role fit, signal grade, source hit rate        (list_fit)
+    "integrity",  # missing record, stale dossier, competitor     (account_integrity)
+    "lane_enrollable",  # routed to hold rather than an enrollable lane (lanes route)
+    "cell_assignable",  # no matrix cell for this row's persona x segment (hook_coverage)
 )
+
+#: The six gates added 2026-09-23. Named as a set because their defining property is an
+#: ABSENCE — see :data:`DEFAULT_YIELDS`.
+LATE_GATES: frozenset[str] = frozenset(STAGES[5:])
 
 # Fallback yields, measured on a live 2026-08-11/12 run. A profile's own
 # funnel-yields.toml overrides these; these exist so a first run is not blocked.
+#
+# ⚠️ THE SIX LATE GATES DELIBERATELY HAVE NO ENTRY HERE, AND THAT ABSENCE IS LOAD-BEARING.
+#
+# `load_yields` merges this dict per key, so an entry of 1.00 for an unmeasured gate does
+# not mean "unknown" — it means **forecast zero loss at that gate**, on every profile that
+# has never measured it, while looking as authoritative as a measured number. That is the
+# exact surprise this extension exists to remove, reproduced by the extension. An unmeasured
+# stage is a stated unknown; a stage defaulted to 1.0 is a lie with a number on it.
+#
+# So a stage arrives here only once a real run has recorded it through `record_actuals`,
+# and until then `size()` renders it `unmeasured` and leaves it OUT of the product. Adding
+# `"integrity": 1.00` here to quiet the renderer is the one change to this file that would
+# undo the phase; `test_the_late_gates_have_no_default_yield` fails if anyone does.
 DEFAULT_YIELDS: dict[str, float] = {
     "scored": 1.00,
     "qualified": 1.00,  # tier="any" — see tier_yield()
@@ -87,6 +120,21 @@ class Plan:
     pool_available: int
     backlog_ready: int
     warnings: list[str] = field(default_factory=list)
+    #: Stages this profile has never measured, in pipeline order. Their yield is absent from
+    #: ``yields`` and their survivor count is absent from ``stage_counts`` — the renderer
+    #: prints them as ``unmeasured`` rather than inventing either. A forecast that hides its
+    #: own uncertainty is how an operator learns to distrust the forecast.
+    unmeasured: tuple[str, ...] = ()
+
+    @property
+    def is_floor(self) -> bool:
+        """Whether ``discovery_needed`` is a FLOOR rather than an estimate.
+
+        True whenever any stage is unmeasured: the product skips that stage, so the number
+        is what the measured stages alone require. It can only go up once the gate is
+        measured, never down.
+        """
+        return bool(self.unmeasured)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,12 +143,38 @@ class Plan:
             "why_now_mode": self.why_now_mode,
             "yields": self.yields,
             "discovery_needed": self.discovery_needed,
-            "stage_counts": self.stage_counts,
+            # Every stage, always, with `None` where there is no measurement — so a consumer
+            # indexing by stage name cannot KeyError on the six gates added 2026-09-23, and
+            # cannot mistake an absent measurement for a zero.
+            "stage_counts": {s: self.stage_counts.get(s) for s in STAGES},
+            "unmeasured": list(self.unmeasured),
+            "discovery_is_floor": self.is_floor,
             "lookups_needed": self.lookups_needed,
             "pool_available": self.pool_available,
             "backlog_ready": self.backlog_ready,
             "warnings": self.warnings,
         }
+
+
+def valid_yield(val: Any) -> bool:
+    """Is ``val`` an admissible yield — a real number in ``(0, 1]``?
+
+    **One rule, three readers.** Until 2026-09-24 the three places that read this file each
+    had their own idea of what a yield is, and they disagreed in both directions:
+    :func:`load_yields` range-checked but accepted a TOML ``true`` (``float(True)`` is
+    ``1.0``, which passes ``0 < v <= 1``) and served it as a 100% yield;
+    :func:`_read_yields_file` excluded bools but accepted any magnitude, so an out-of-range
+    value survived a merge, was written back, and was then silently dropped by
+    ``load_yields`` — the file said one thing and the model used another, with nothing
+    reporting the gap; and :func:`record_actuals` validated stage *names* against a closed
+    set while validating no value at all, so ``{"qualified": True}`` landed on disk as a
+    convincing ``1.0000``.
+
+    A bool is rejected rather than coerced because ``qualified = true`` is not a
+    measurement — it is a typo for a number, and 1.0 is the most dangerous value it could
+    silently become: the one that says "this gate refuses nobody".
+    """
+    return isinstance(val, (int, float)) and not isinstance(val, bool) and 0 < float(val) <= 1
 
 
 def load_yields(profile_root: Path | None) -> dict[str, float]:
@@ -114,7 +188,7 @@ def load_yields(profile_root: Path | None) -> dict[str, float]:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     for key in STAGES:
         val = data.get("yields", {}).get(key)
-        if isinstance(val, (int, float)) and 0 < float(val) <= 1:
+        if valid_yield(val):
             merged[key] = float(val)
     return merged
 
@@ -166,19 +240,39 @@ def size(
             f"at {backlog_rate:.0%} — cheaper than discovery; work these before discovering"
         )
 
+    # Unmeasured stages are skipped rather than assumed. They are NOT multiplied in as 1.0:
+    # that would forecast zero loss at a real gate, which is the surprise this model exists
+    # to remove. The consequence is stated rather than hidden — `discovery_needed` becomes a
+    # floor, and the plan says so.
+    unmeasured = tuple(stage for stage in STAGES if stage not in y)
     overall = 1.0
     for stage in STAGES:
-        overall *= y[stage]
+        if stage in y:
+            overall *= y[stage]
     if overall <= 0:
         raise FunnelInfeasible("modelled yield is zero; refusing to size a run")
 
     discovery_needed = 0 if remaining == 0 else int(-(-remaining // overall))
 
+    # The survivor chain stops at the first unmeasured gate, because every count after it
+    # would be the count you get by pretending that gate refuses nobody. The YIELDS of later
+    # measured gates still render; only their absolute survivor counts are withheld.
     counts: dict[str, int] = {}
     n = float(discovery_needed)
     for stage in STAGES:
+        if stage not in y:
+            break
         n *= y[stage]
         counts[stage] = int(n)
+
+    if unmeasured:
+        warnings.append(
+            f"{len(unmeasured)} gate(s) have never been measured on this profile "
+            f"({', '.join(unmeasured)}) — they are NOT modelled, so ~{discovery_needed:,} is "
+            f"a floor and the real requirement is higher. Run `record_actuals` at the end of "
+            f"this run to measure them; until then the table marks them unmeasured rather "
+            f"than forecasting that they refuse nobody."
+        )
 
     # One metered lookup per account that has a seat, across both sources.
     lookups_needed = int(discovery_needed * y["scored"] * y["qualified"] * y["seat_found"]) + int(
@@ -212,6 +306,7 @@ def size(
         pool_available=pool_available,
         backlog_ready=backlog_ready,
         warnings=warnings,
+        unmeasured=unmeasured,
     )
 
 
@@ -223,8 +318,26 @@ def check_stage(stage: str, actual_in: int, actual_out: int, plan: Plan) -> dict
     """
     if stage not in STAGES:
         raise ValueError(f"unknown stage {stage!r}")
-    modelled = plan.yields[stage]
     actual = (actual_out / actual_in) if actual_in else 0.0
+    if stage not in plan.yields:
+        # Nothing to trip against: this run IS the measurement. Reporting `ok=False` here
+        # would stop a run on the grounds that we had never measured it before, which is a
+        # refusal the forecast is explicitly not allowed to make (it predicts; the gates
+        # decide). Reporting `ok=True` with a modelled rate would be worse — it would invent
+        # the number the whole phase exists to stop inventing.
+        return {
+            "stage": stage,
+            "modelled": None,
+            "actual": round(actual, 4),
+            "ratio": None,
+            "ok": True,
+            "projected_delivery": plan.target_delivered,
+            "message": (
+                f"{stage}: {actual:.0%} actual, unmeasured before this run — nothing to "
+                f"compare it to. Pass it to record_actuals so the next plan can model it."
+            ),
+        }
+    modelled = plan.yields[stage]
     ratio = (actual / modelled) if modelled else 0.0
     ok = ratio >= MIN_STAGE_RATIO
     projected = plan.target_delivered
@@ -249,21 +362,155 @@ def check_stage(stage: str, actual_in: int, actual_out: int, plan: Plan) -> dict
     }
 
 
+_YIELDS_TABLE = "[yields]"
+
+#: The preamble a brand-new yields file is seeded with. An existing file's own preamble is
+#: never replaced by this — see :func:`_read_yields_file`.
+_SEEDED_PREAMBLE: tuple[str, ...] = (
+    "# Measured funnel yields for this profile. Written by gtm_core.funnel.record_actuals",
+    "# after a run; hand-edit only to seed a new profile. Used by the prospect skill to",
+    "# turn a DELIVERY target into a DISCOVERY target (Step 2 funnel sizing).",
+    "",
+)
+
+
+def _read_yields_file(path: Path) -> tuple[list[str], dict[str, float], list[str]]:
+    """``(preamble, current values, trailing)`` for an existing yields file.
+
+    ``preamble`` is every line above the ``[yields]`` table, verbatim. That is where the
+    tenant's *derivation* lives — an 18-line block recording which run each seed value was
+    measured on and how it was blended — and it is what a full rewrite silently deletes.
+    ``trailing`` is every line from the next table header onward, so a file that grows a
+    second section keeps it rather than losing it to the same rewrite.
+    """
+    if not path.is_file():
+        return list(_SEEDED_PREAMBLE), {}, []
+    raw = path.read_text(encoding="utf-8")
+    try:
+        data = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError as exc:
+        # Refuse, never skip. Parsing failure used to be invisible here because nothing
+        # parsed: the old writer overwrote whatever was on disk, so a corrupt file was
+        # destroyed by the next run rather than reported.
+        raise ValueError(f"{path} is not readable TOML, refusing to overwrite it: {exc}") from exc
+    lines = raw.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.strip() == _YIELDS_TABLE), None)
+    if start is None:
+        # A file with no table at all is all preamble; the table goes below it.
+        return lines, {}, []
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            end = i
+            break
+    current = {
+        key: float(val) for key, val in (data.get("yields") or {}).items() if valid_yield(val)
+    }
+    return lines[:start], current, lines[end:]
+
+
 def record_actuals(profile_root: Path, measured: dict[str, float]) -> Path:
-    """Write measured yields back so the model self-corrects run over run."""
+    """Merge measured yields into the profile's file so the model self-corrects run over run.
+
+    **Merge, not rewrite.** Until 2026-09-23 this rebuilt the file from a 5-line header and
+    only the stages present in ``measured``, which had two consequences that were live and
+    invisible: a tenant's 18-line provenance block was destroyed on the first call, and a
+    partial ``measured`` dict dropped every omitted stage — so the next :func:`load_yields`
+    silently fell back to :data:`DEFAULT_YIELDS` for them. Both matter more now that
+    :data:`STAGES` carries gates nobody has measured yet: a stage recorded once and then
+    omitted from a later partial call would revert, and the reversion would look like a
+    measurement.
+
+    An unknown stage name raises rather than being dropped, matching :func:`check_stage` —
+    the stage set is closed, and a typo that silently writes nothing is how a run reports a
+    yield it never recorded. **An inadmissible VALUE raises for the same reason** (2026-09-24):
+    this function validated names and not numbers, so ``{"qualified": True}`` was coerced by
+    ``float()`` into a convincing ``1.0000`` on disk, and an out-of-range float was written
+    and then silently ignored by :func:`load_yields`. A yield that cannot be read back is not
+    a yield; see :func:`valid_yield`.
+    """
+    unknown = sorted(set(measured) - set(STAGES))
+    if unknown:
+        raise ValueError(f"unknown stage(s) {unknown}; STAGES are {list(STAGES)}")
+
+    bad = sorted(key for key, val in measured.items() if not valid_yield(val))
+    if bad:
+        raise ValueError(
+            f"inadmissible yield(s) {bad}: a yield is a real number in (0, 1] — "
+            "a bool is rejected rather than coerced"
+        )
+
     path = Path(profile_root) / "knowledge" / "funnel-yields.toml"
-    lines = [
-        "# Measured funnel yields for this profile. Written by gtm_core.funnel.record_actuals",
-        "# after a run; hand-edit only to seed a new profile. Used by the prospect skill to",
-        "# turn a DELIVERY target into a DISCOVERY target (Step 2 funnel sizing).",
-        "",
-        "[yields]",
-    ]
-    for stage in STAGES:
-        if stage in measured:
-            lines.append(f"{stage} = {float(measured[stage]):.4f}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    preamble, current, trailing = _read_yields_file(path)
+    merged = {**current, **{key: float(val) for key, val in measured.items()}}
+
+    body = [_YIELDS_TABLE]
+    body += [f"{stage} = {merged[stage]:.4f}" for stage in STAGES if stage in merged]
+    # A key the file carries that STAGES no longer names is a retired stage, not garbage.
+    # Keep it: deleting tenant data to tidy a table is the failure this function just fixed.
+    body += [f"{key} = {merged[key]:.4f}" for key in sorted(set(merged) - set(STAGES))]
+
+    path.write_text("\n".join([*preamble, *body, *trailing]).rstrip("\n") + "\n", encoding="utf-8")
     return path
+
+
+def render_stage_table(plan: Plan) -> list[str]:
+    """The stage table, **ordered by leak size** — biggest loss first, not pipeline order.
+
+    The operator's question is "where did my 500 go?", and the answer is the biggest number.
+    A table read in pipeline order buries it behind four stages that lose nothing: on the
+    default card, `scored`, `qualified` and `why_now` are all 1.00 and the line that matters
+    is fourth. Pipeline position is still printed, so the order is legible as a re-sort of a
+    known sequence rather than an arbitrary list.
+
+    Unmeasured stages sort last and carry no number at all. Giving them a placeholder rate
+    would put them back in the reader's arithmetic, which is what an entry of 1.00 in
+    :data:`DEFAULT_YIELDS` would have done silently.
+    """
+    position = {stage: i for i, stage in enumerate(STAGES, 1)}
+    measured = [s for s in STAGES if s in plan.yields]
+
+    # Loss is per stage, in rows: what this gate removes from what reached it. Sorting on
+    # the RATE would rank a 90%-refusing gate that 10 rows reach above a 30%-refusing gate
+    # that 500 reach, which is the wrong end of the operator's question.
+    def loss(stage: str) -> int:
+        n_out = plan.stage_counts.get(stage)
+        if n_out is None:
+            return -1
+        idx = STAGES.index(stage)
+        prior = STAGES[idx - 1] if idx else None
+        n_in = (
+            plan.stage_counts.get(prior, plan.discovery_needed) if prior else plan.discovery_needed
+        )
+        return max(0, n_in - n_out)
+
+    # Three bands, in this order. Within the first, biggest loss first.
+    counted = [s for s in measured if s in plan.stage_counts]
+    downstream = [s for s in measured if s not in plan.stage_counts]
+
+    lines = []
+    for stage in sorted(counted, key=lambda s: (-loss(s), position[s])):
+        drop = loss(stage)
+        tail = f"  (-{drop:,})" if drop > 0 else ""
+        lines.append(
+            f"  {position[stage]:>2}. {stage:16s} x{plan.yields[stage]:.2f}  -> "
+            f"{plan.stage_counts[stage]:,}{tail}"
+        )
+    # Measured, but sitting behind an unmeasured gate: the RATE is known and the absolute
+    # survivor count is not, because computing it would assume the gate in front of it
+    # refuses nobody. Both facts are stated rather than one of them quietly chosen.
+    for stage in downstream:
+        lines.append(
+            f"  {position[stage]:>2}. {stage:16s} x{plan.yields[stage]:.2f}  -> count "
+            f"unknown (an unmeasured gate sits in front of it)"
+        )
+    for stage in plan.unmeasured:
+        lines.append(
+            f"  {position[stage]:>2}. {stage:16s} unmeasured  -> not modelled; this gate "
+            f"refuses rows and we do not yet know how many"
+        )
+    return lines
 
 
 def _cli(argv: list[str] | None = None) -> int:
@@ -305,8 +552,8 @@ def _cli(argv: list[str] | None = None) -> int:
     print(f"  discover           {plan.discovery_needed:,} accounts")
     print(f"  contact lookups    ~{plan.lookups_needed:,}")
     print("-" * 62)
-    for stage in STAGES:
-        print(f"  {stage:16s} x{plan.yields[stage]:.2f}  -> {plan.stage_counts[stage]:,}")
+    for line in render_stage_table(plan):
+        print(line)
     print("=" * 62)
     for w in plan.warnings:
         print("  [NOTE] " + w)

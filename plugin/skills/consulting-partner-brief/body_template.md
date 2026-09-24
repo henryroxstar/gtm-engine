@@ -294,7 +294,8 @@ restatement of the same summary is the thing to lose.
 
 Save to the per-account folder (CLAUDE.md "Per-account outputs"):
 `content/<active>/accounts/<account-slug>/`, with `<account-slug>` from
-`python -m gtm_core.slugify "<company name>"` — always the CLI, never hand-kebab-cased. Save the
+`python -m gtm_core.account_folder "<company name>" --profile <active> [--domain <domain>]` — always the CLI, never hand-kebab-cased; exit 3 means ambiguous, so choose among
+the candidates it prints rather than creating a new folder. Save the
 **HTML alongside the PDF** so the document can be re-rendered and edited later.
 
 ---

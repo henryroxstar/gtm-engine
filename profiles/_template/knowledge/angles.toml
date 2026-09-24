@@ -1,0 +1,41 @@
+# Outbound angle registry — the routing table that says which offer goes to which seat.
+#
+# ── DELIBERATELY EMPTY. This is a placeholder, not an oversight. ───────────────────────────
+#
+# `gtm_core.messaging.registry.load` refuses a tenant MISSING any of `claims.toml`, `proof.toml`
+# or `angles.toml` — a tenant onboarded without this file would resolve zero angles and read as
+# covered, which is the silent-empty-lane failure the loader exists to stop. A file that is
+# present and carries no `[[angle]]` block loads fine and reports zero. That is the state below,
+# and it is honest: the registry loads, and the angle count is 0.
+#
+# It ships empty for a second, harder reason. An angle's four references are checked ACROSS
+# files at load, and two of them point at vocabularies the skeleton deliberately leaves inert:
+# `premise-vocab.toml` ships every premise with `terms = []` (so a fresh profile resolves an
+# EMPTY premise vocabulary — read that file's header), and `role-vocabulary.toml` ships one
+# starter seat. An example angle here would therefore cite a premise that does not resolve, and
+# the first thing a new tenant would meet is a refusal about a file they had not touched.
+#
+# ── The shape ─────────────────────────────────────────────────────────────────────────────
+#
+#   [[angle]]
+#   id          = "exec-month-end-close"     # unique, lowercase, a bare name; case-insensitive
+#   seat        = "exec"                     # must exist in role-vocabulary.toml [[seat]]
+#   premise     = "example-multi-vendor"     # must exist in premise-vocab.toml, WITH terms
+#   claim       = "example-scheduled-export" # must exist in claims.toml
+#   proof       = "example-problem-stat"     # must exist in proof.toml
+#   opener_kind = "account-event"            # account-event | public-event  (OPENER_KINDS)
+#   summary     = "One number, produced the same way every month."   # the matrix cell text
+#   status      = "draft"                    # draft | live | retired  (ANGLE_STATUSES)
+#   stakes      = "margin"                   # optional; from the seat's stakes vocabulary
+#   segments    = ["enterprise"]             # optional; lowercase, and every entry must be
+#                                            # declared in role-vocabulary.toml `segments`
+#   notes       = "..."                      # optional, for the next editor
+#
+# All four references are checked at load: a dangling one does not raise downstream, it renders
+# an empty slot, which is a generic email with a confident shape.
+#
+# ── Two rules to carry in when you fill this file ─────────────────────────────────────────
+#   * A `live` angle may not cite a claim that is not `verified`. Promotion is an operator act
+#     with evidence behind it, not an edit. Draft angles may cite anything that resolves.
+#   * A retired angle is set to `status = "retired"`, never deleted — it is evidence about what
+#     was tried, and deleting it invites the next session to re-derive it from scratch.

@@ -187,7 +187,10 @@ def _product_slugs(profiles_root: Path, profile: str) -> list[str]:
 
 
 def load_hook_matrix(
-    profiles_root: Path, profile: str, product: str | None = None
+    profiles_root: Path,
+    profile: str,
+    product: str | None = None,
+    overlay: str | None = None,
 ) -> list[dict[str, str]]:
     """Parse ``hook-matrix.md`` tables into rows with ``id``, ``persona``, ``signal``,
     ``angle``, and ``product``.
@@ -195,7 +198,7 @@ def load_hook_matrix(
     Resolution is product-first, profile-fallback (same as ``resolve_knowledge_file``). The
     product column is inferred from the section heading when missing.
     """
-    path = resolve_knowledge_file(profiles_root, profile, "hook-matrix.md", product)
+    path = resolve_knowledge_file(profiles_root, profile, "hook-matrix.md", product, overlay)
     text = _load_text(path)
     if text is None:
         return []

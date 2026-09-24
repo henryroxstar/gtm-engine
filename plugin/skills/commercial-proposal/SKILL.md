@@ -79,11 +79,14 @@ The method behind the shapes is in **`references/commercial-models.md`**; the do
 - If the **shape or the product** is ambiguous, ask **one** concise question before drafting. Everything
   else: state the assumption in the internal brief and continue.
 
-Resolve the slug — always the CLI, never by hand:
+Resolve the account folder — always the CLI, never by hand:
 
 ```bash
-python -m gtm_core.slugify "<counterparty name>"
+python -m gtm_core.account_folder "<counterparty name>" --profile <active> [--domain <domain>]
 ```
+
+It prints the folder the account already has, or a new slug when it has none. Exit 3 means
+ambiguous: choose among the candidates it prints, and never create a new folder to get past it.
 
 Everything goes to `content/<active>/accounts/<account-slug>/`.
 

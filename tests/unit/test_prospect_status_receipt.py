@@ -273,7 +273,7 @@ def test_an_unjoinable_contact_is_reported_not_dropped(tmp_path, monkeypatch, ca
     _seed(tmp_path, monkeypatch, records, [NORTHWIND])
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^Ready to send\s+2\b", out, re.M)
+    assert re.search(r"^Routed — not yet checked\s+2\b", out, re.M)
     assert re.search(r"^  Ready\s+1\b", out, re.M)
     assert "Check: 1 routed contact matches no ledger account" in out
 

@@ -65,6 +65,7 @@ from .rubric import (  # noqa: F401  (re-exported: the public seam)
     rubric_for,
     rubric_id,
     rubric_text,
+    rubric_version,
 )
 
 _SPEC = resolve_model("judge")
@@ -333,6 +334,7 @@ def build_record(
         # Derived from the row, not passed in: the prompt builders read the same
         # `lane_of`, so what was asked and what is recorded cannot drift apart.
         "rubric": rubric_id(lane_of(row)),
+        "rubric_version": rubric_version(lane_of(row)),
         "grounding": grounding_flags(
             groundedness_report(
                 _row_id(spec_path, csv_path, email, touch_n), row, body, case_studies or ""

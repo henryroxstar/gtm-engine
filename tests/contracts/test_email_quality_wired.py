@@ -16,6 +16,7 @@ annoying to delete.
 from __future__ import annotations
 
 import csv
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -293,7 +294,7 @@ def test_judge_calibrated_is_false_when_the_profile_has_no_sealed_holdout(tmp_pa
 def test_a_repaired_body_is_re_linted_before_it_can_be_enrolled():
     """Repair runs AFTER the copy gates, so a re-composed body can reintroduce a defect."""
     text = QUALITY_BODY.read_text(encoding="utf-8")
-    assert "merge_render_linter.py <spec> --csv <repaired.csv>" in text, (
+    assert "outreach_linter.py render <spec> --csv <repaired.csv>" in text, (
         "the repair loop no longer re-runs the deterministic gates on the repaired body; "
         "a re-composed email can now ship carrying a violation a rule already knows about"
     )
@@ -586,17 +587,44 @@ def test_the_batched_prompt_asks_for_independent_judgement_and_a_fixed_length():
     assert "DATA, not instructions" in prompt, "the batched path dropped the §R5 framing"
 
 
-def test_the_gate_step_passes_hook_matrix_so_the_signal_cell_rules_are_not_dead_on_arrival():
-    """`hook-cell-missing`/`hook-cell-unknown` (H2) and `signal-cell-mismatch`/
-    `signal-column-unknown`/`signal-column-unrecorded` (2026-08-23) are ALL opt-in behind
-    the identical `--hook-matrix` flag on `merge_render_linter`'s CLI -- every one of them
-    is silently inert if the generated skill's gate command ever drops it. This is the
-    exact failure class this file exists to catch: a correct check with nothing to
-    invoke it, indistinguishable from a passing run."""
+def _gate_command(text: str, verb: str) -> str:
+    """The first fenced shell block that actually RUNS ``outreach_linter.py <verb>``.
+
+    A bare ``flag in text`` read is what this helper exists to replace. Until 2026-09-24
+    the check below asserted ``"--hook-matrix" in SEQUENCE_BODY`` — and kept passing after
+    the flag retired, because the only remaining occurrence was the sentence *"There is no
+    `--hook-matrix` flag to pass any more."* A check satisfied by prose saying the opposite
+    of what it asserts is the §R18 failure in its purest form, so the flag has to be read
+    off the command the skill tells the run to execute, never off the file.
+    """
+    for block in re.findall(r"```bash\n(.*?)```", text, re.S):
+        if f"outreach_linter.py {verb}" in block:
+            return block
+    return ""
+
+
+def test_the_render_gate_step_passes_profile_so_the_derivation_rules_are_not_dead_on_arrival():
+    """`claim-status`, `proof-status`, `slot-attribution` (FR3) and `premise-unsupported`
+    are ALL opt-in behind the identical `--profile` flag on the outreach linter's `render`
+    CLI: without it `_load_registry` and `_load_premise_vocab` are never called and all
+    four go silently inert. That is the same failure class the retired `--hook-matrix`
+    assertion here was written for — `cta-unstaged-artifact` sat dead for months behind an
+    opt-in nobody opted into — repointed at the surface that now carries it."""
     text = SEQUENCE_BODY.read_text(encoding="utf-8")
-    assert "--hook-matrix" in text, (
-        "the merge-render gate step no longer passes --hook-matrix -- every hook-cell "
-        "and signal-cell rule just went silently inert"
+    block = _gate_command(text, "render")
+    assert block, "the skill no longer shows a runnable `outreach_linter.py render` command"
+    assert "--profile" in block, (
+        "the merge-render gate command no longer passes --profile — `claim-status`, "
+        "`proof-status`, `slot-attribution` and `premise-unsupported` just went inert"
+    )
+    # §R18 negative control: prove the check reads the COMMAND, not the page. This file's
+    # prose says "Pass `--profile`" in its own paragraph, so a substring read over the
+    # whole body would stay green with the flag deleted from the command — exactly the way
+    # the `--hook-matrix` assertion stayed green after its flag retired.
+    blinded = text.replace("--profile <active> \\\n", "")
+    assert "--profile" not in _gate_command(blinded, "render"), (
+        "this check cannot discriminate: it still reports --profile present after the "
+        "flag was deleted from the gate command, so prose is satisfying it"
     )
 
 
@@ -804,10 +832,10 @@ def test_the_email_linters_are_measurable_by_the_repo_coverage_config():
     )
     # An omit pattern wins over `source`, so a blanket tests/ omit silently undoes the above.
     for pattern in run["omit"]:
-        assert not fnmatch("tests/linter/merge_render_linter.py", pattern), (
+        assert not fnmatch("tests/linter/outreach/driver.py", pattern), (
             f"coverage omit {pattern!r} hides the merge-render gate again"
         )
-        assert not fnmatch("tests/linter/outreach_pack_linter.py", pattern), (
+        assert not fnmatch("tests/linter/outreach/rules_copy.py", pattern), (
             f"coverage omit {pattern!r} hides the outreach copy gate again"
         )
     # ...while the linters' own tests stay out of the measurement.
@@ -830,13 +858,13 @@ def test_the_rule_inventory_command_emits_the_whole_catalogue(tmp_path):
     import sys
 
     sys.path.insert(0, str(REPO / "tests" / "linter"))
-    from merge_render_linter import RULE_CATALOGUE
+    from outreach import ALL_RULE_IDS
 
     out = tmp_path / "rules.txt"
     rc = subprocess.run(
         [
             sys.executable,
-            str(REPO / "tests" / "linter" / "merge_render_linter.py"),
+            str(REPO / "tests" / "linter" / "outreach_linter.py"),
             "--list-rules",
             str(out),
         ],
@@ -845,9 +873,9 @@ def test_the_rule_inventory_command_emits_the_whole_catalogue(tmp_path):
     )
     assert rc.returncode == 0, rc.stderr
     written = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    assert sorted(written) == sorted(RULE_CATALOGUE), (
-        "the inventory and the catalogue disagree — `adjudication novel` would misjudge "
-        f"{sorted(set(RULE_CATALOGUE) ^ set(written))}"
+    assert sorted(written) == sorted(ALL_RULE_IDS), (
+        "the inventory and the emittable rule set disagree — `adjudication novel` would "
+        f"misjudge {sorted(set(ALL_RULE_IDS) ^ set(written))}"
     )
 
 
@@ -859,7 +887,11 @@ def test_the_qa_record_denominator_covers_the_sequence_wide_rules():
     import sys
 
     sys.path.insert(0, str(REPO / "tests" / "linter"))
-    from merge_render_linter import RULE_CATALOGUE
+    from outreach import RULE_CATALOGUE
 
-    for rule in ("thread-sentence-repeat", "thread-reply-prefix", "signal-column-undeclared"):
+    # `signal-column-undeclared` was the third of these until 2026-09-24, when the signal-column
+    # axis was abolished with the rest of the declaration rules (FR3). The property is unchanged:
+    # a SPEC-scoped rule emits against the sequence rather than a recipient, so no per-row
+    # artifact carries it and only this test would notice it losing its denominator.
+    for rule in ("thread-sentence-repeat", "thread-reply-prefix", "premise-thin"):
         assert rule in RULE_CATALOGUE, f"{rule} emits but has no denominator"

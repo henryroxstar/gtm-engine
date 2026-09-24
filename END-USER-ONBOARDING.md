@@ -32,7 +32,7 @@
 2. Install it and sign in.
 3. You'll need a **Claude Pro or Max** subscription — this is the "brain." No separate technical key required.
 
-> **A word you'll see in the other docs:** running the engine this way — a folder open in the Claude desktop app, you typing prompts — is called **"Cowork mode"**. It's the default and it's what this guide sets up. The only alternative is a self-hosted server, which is an admin's job, not yours.
+> **Which tab to use:** the engine runs in the Claude desktop app's **Code** tab: a folder open in the app, and you typing prompts. That's the default and it's what this guide sets up. If you see "Cowork mode" in another doc, it means this Code tab. The desktop app also has a separate **Cowork** tab. That's a different product: it can't open this folder or run the engine, so always work in **Code**. The only alternative to the Code tab is a self-hosted server, which is an admin's job, not yours.
 
 > **Why Claude for this guide?** For someone who wants zero terminal commands, the Claude desktop app is the easiest turn-key chat experience. For technical users and developers, GTM Engine also runs natively in **Google Antigravity**, **Cursor**, and **Codex** via the in-repo `.agents/` configuration and tool translation layer.
 
@@ -69,6 +69,14 @@ Once the code is down, paste this:
 > **Run the bootstrap script for my operating system, then tell me what the interpreter probe printed.**
 
 That installs the engine's toolchain and runs a one-second self-check — on Windows, `scripts\bootstrap.ps1`; on Mac or Linux, `scripts/bootstrap.sh`. Both end with the same probe. **Wait for it to report a real answer** — it should print a line reading `==> content root: ` followed by a folder path ending in `content`. If it can't, stop here and fix it before doing anything else (Step 5 onward will *look* like it's working while quietly producing nothing).
+
+### Last setup step: switch on plain-language replies
+
+Paste this:
+
+> **Switch this project to the gtm-operator output style: set "outputStyle" to "gtm-operator" in .claude/settings.local.json, then tell me it's done.**
+
+After that, Claude's replies start with what happened, what it cost, and what you need to decide. The technical detail is folded into a "Details" section you can open or ignore. The style only changes how Claude *talks*. It changes nothing about what Claude *does*, and anything waiting for your approval is still shown to you word for word. Start a new session in the Code tab for it to take effect. To go back, ask Claude to set it to "default".
 
 > **⚠️ Windows: the "install Python" trap.** Windows ships a fake `python` — a zero-byte stub that opens the Microsoft Store instead of running anything. It's on your PATH by default and it **hides a real Python installed afterwards**, so "just install Python" does not fix it. If you ever see *"Python was not found; run without arguments to install from the Microsoft Store"*, that's this.
 >
@@ -184,6 +192,8 @@ The engine works right away using free web search. Connecting real data tools up
 ---
 
 ## Step 7 — Start working
+
+> **Seeing too much?** Next to the send button there's a **Transcript view** menu (you can also press `Ctrl+O` to cycle through it). Set it to **Normal**. Claude's individual steps then fold into one-line summaries and you see its replies in full. **Verbose** shows every single step and **Thinking** adds Claude's working-out; both are for troubleshooting, not everyday use.
 
 Just say these in plain English:
 

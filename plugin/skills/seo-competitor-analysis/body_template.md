@@ -10,7 +10,7 @@ Analyze one competitor's organic footprint, ranking keywords, content themes, ba
 - **Egress & Credentials (§R6):** All external queries go through the `openseo` MCP tools.
 - **Deliverables Destination:** Save generated analysis, markdown briefs, and data sheets to:
   `content/<active>/accounts/<account-slug>/seo-competitor-<competitor-slug>-<YYYY-MM-DD>.md`
-  (Compute `<account-slug>` via `uv run python -m gtm_core.slugify "<company name>"`).
+  (Resolve `<account-slug>` via `uv run python -m gtm_core.account_folder "<company name>" --profile <active> [--domain <domain>]`; exit 3 means ambiguous, so choose among the candidates it prints).
 
 ---
 

@@ -26,7 +26,7 @@ common title word fails here rather than in a campaign.
 from __future__ import annotations
 
 import pytest
-from outreach_pack_linter import (
+from outreach import (
     _CEO_TITLE_CUES,
     _NON_BUYER_CUES,
     _PERSONA_RULES,

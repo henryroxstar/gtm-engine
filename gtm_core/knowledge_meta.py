@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess  # nosec B404 — git log orchestration, arg list only, never shell=True
 import sys
@@ -52,6 +53,50 @@ from .paths import PathConfig, resolve_profiles_root
 # belongs on the DERIVED topic instead, as ``reflects:`` + ``triggers:``, which is what
 # ``knowledge_refresh impact`` reads. ``brand/`` stays out for the same reason: assets, not prose.
 EXCLUDED_NAMES = frozenset({"REFRESH.md", "deck-composer.md"})
+
+#: A topic file that is GENERATED from another file in the same profile, marked by the banner its
+#: generator writes as the first line of the body. Such a file carries no lifecycle metadata of
+#: its own, and the exemption is content-based rather than by filename on purpose: the same name
+#: is hand-kept in other profiles, where the frontmatter is real and must stay required.
+#:
+#: Why exempt rather than seed it. `refreshed` on a generated view would be a SECOND home for the
+#: source file's freshness — and a wrong one, because regenerating an unchanged view would move
+#: the date while nothing about the content changed. It would also break the generator's own
+#: drift check, which compares the committed bytes against a fresh render and must therefore be
+#: date-independent (`gtm_core.messaging check`: `angles.toml -> hook-matrix.md: current`).
+#:
+#: This is not a weaker gate — but only where the compensating check actually exists. Frontmatter
+#: answers "is this stale?" approximately, by a date an operator remembered to bump; a generator's
+#: drift check answers it EXACTLY, by comparing the committed bytes to what the source would
+#: produce today. That trade is only sound for a file some generator really does regenerate.
+#:
+#: So the exemption is a CLOSED ALLOWLIST of (filename, banner) pairs, not a free-form marker. An
+#: earlier version matched any `gtm_core.<anything>:generated` comment on line 1, which meant one
+#: pasted line exempted `product.md` or `case-studies.md` from this gate with NO second gate
+#: behind it — the file would simply stop being checked for staleness by anything at all. A
+#: marker that any file can claim is not a marker; it is an opt-out.
+#:
+#: Adding a pair here is therefore a claim that the named generator regenerates that exact file
+#: and that its own drift check will catch a stale copy. `tests/test_knowledge_meta.py` asserts
+#: the banner below still matches the one `gtm_core.messaging.matrix_view` writes, because this
+#: is a second home for that string and the two must not drift.
+_GENERATED_TOPICS: dict[str, re.Pattern[str]] = {
+    # owner: gtm_core/messaging/matrix_view.py (BANNER_MARK / MATRIX_FILE), drift check:
+    # `uv run python -m gtm_core.messaging check` -> "angles.toml -> hook-matrix.md: current"
+    "hook-matrix.md": re.compile(r"^\s*<!--\s*gtm_core\.messaging:generated\b"),
+}
+
+
+def _generated_banner(relpath: str, body: str) -> bool:
+    """True when ``relpath`` is a registered generated topic AND carries its generator's banner.
+
+    Both halves are required: the filename alone would exempt a tenant's hand-kept matrix, and
+    the banner alone would let any topic opt itself out.
+    """
+    pattern = _GENERATED_TOPICS.get(PurePosixPath(relpath).name)
+    return bool(pattern and pattern.match(body.lstrip("\n")))
+
+
 EXCLUDED_DIRS = frozenset({"source", "brand"})
 EXCLUDED_STEMS = frozenset({"README", "INDEX", "SOURCES"})
 
@@ -226,6 +271,10 @@ class KnowledgeMeta:
     reflects: str | None = None
     #: Event kinds that should bring this topic up for review (``TRIGGER_KINDS``). Optional.
     triggers: tuple[str, ...] = field(default_factory=tuple)
+    #: True when the file carries a generator's banner and is therefore exempt from lifecycle
+    #: metadata (see ``_GENERATED_BANNER_RE``). Recorded rather than merely acted on, so a caller
+    #: reporting freshness can say "generated" instead of silently omitting the row.
+    generated: bool = False
     errors: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -237,8 +286,14 @@ def read_meta(path: Path, knowledge_dir: Path, *, prefix: str = "") -> Knowledge
     (see ``MANAGED_ROOTS``); it defaults to '' so existing callers are unaffected."""
     rel = prefix + path.relative_to(knowledge_dir).as_posix()
     text = path.read_text(encoding="utf-8", errors="replace")
-    raw, _ = parse_frontmatter(text)
+    raw, body = parse_frontmatter(text)
     errors: list[str] = []
+
+    # A generated view has no lifecycle of its own — see `_GENERATED_TOPICS`. Checked on the
+    # BODY, so a hand-authored file cannot claim the exemption by burying the banner further
+    # down, and so a generated file that later grows frontmatter is still read as generated.
+    if _generated_banner(rel, body):
+        return KnowledgeMeta(relpath=rel, has_frontmatter=bool(raw), generated=True)
 
     if not raw:
         return KnowledgeMeta(relpath=rel, has_frontmatter=False, errors=("missing frontmatter",))

@@ -4,6 +4,7 @@ import csv
 import re
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..paths import resolve_knowledge_file, resolve_profiles_root
 from ..prospects_consolidate import _prospects_dir
@@ -25,13 +26,37 @@ from .config import (
     persona_of,
     seat_of,
 )
-from .coverage import Coverage, persona_coverage
-from .declared import declared_cell
+from .coverage import UNRESOLVED_SEAT, Coverage, persona_coverage
+from .declared import load_registry_or_reason, resolve_declared_cell
 from .distinctness import argument_distinctness, shared_phrases
 from .fit import _norm_segment, segment_fit, signal_fit
-from .matrix import UnknownHookCell, _cells_equal, parse_matrix, persona_key_of_label
+from .matrix import UnknownHookCell, _cells_equal, parse_matrix
 from .premise import capability_monotone, capability_vocab, declared_capability
 from .rows import derive_row_cell
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..messaging.registry import Registry
+
+
+def _registry_or_none(
+    profile: str, profiles_root: Path | None, cov: Coverage, overlay: str | None
+) -> Registry | None:
+    """The tenant's fact registry, or ``None`` with the reason recorded on ``cov``.
+
+    A registry that will not load turns the ANGLE half of cell resolution off and leaves
+    the legacy ``hook_cell:`` half running — which is the right degradation (a tenant
+    mid-migration still needs its monoculture and coverage numbers) and the wrong silence.
+    An unloadable registry looks exactly like a fleet that has not migrated yet: both
+    report every spec as reading its cell off ``hook_cell:``. So the reason is a warning on
+    the report, never a log line nobody reads, and it names the gate that diagnoses it.
+
+    The loading itself is :func:`load_registry_or_reason`, shared with ``backlog`` — this
+    function only decides where the reason goes.
+    """
+    registry, reason = load_registry_or_reason(profile, profiles_root, overlay=overlay)
+    if reason:
+        cov.warnings.append(reason)
+    return registry
 
 
 def campaign_packs(
@@ -85,6 +110,8 @@ def audit_campaign(
     min_signal_attestation: float = MIN_SIGNAL_ATTESTATION,
     include_drafts: bool = False,
     include_packs: bool = False,
+    overlay: str | None = None,
+    registry: Registry | None = None,
 ) -> Coverage:
     """Measure one campaign's message axis, from ``cells.toml`` outward.
 
@@ -104,6 +131,11 @@ def audit_campaign(
     that needs rows. Off by default for the same reason drafts are: a pack is a different
     artifact from a staged sequence, and a reader must never be told a finding is about
     live enrolled copy when it is about a manual pack.
+
+    ``registry`` is the tenant's fact registry, and it is what makes a spec's ``angle:``
+    resolvable into a matrix cell (:func:`resolve_declared_cell`). Passed in for tests;
+    loaded from ``profile`` otherwise, with an unloadable one recorded as a warning rather
+    than degrading silently into "nobody has migrated yet".
     """
     profiles_root = profiles_root or resolve_profiles_root()
     cov = Coverage(
@@ -114,9 +146,12 @@ def audit_campaign(
         min_segment_fit=min_segment_fit,
         min_signal_attestation=min_signal_attestation,
     )
+    if registry is None:
+        registry = _registry_or_none(profile, profiles_root, cov, overlay)
 
     cov.matrix = parse_matrix(
-        resolve_knowledge_file(profiles_root, profile, "hook-matrix.md"), profile=profile
+        resolve_knowledge_file(profiles_root, profile, "hook-matrix.md", overlay=overlay),
+        profile=profile,
     )
     if not cov.matrix.ok:
         cov.findings.append(f"matrix-unsupported: hook-matrix.md — {cov.matrix.reason}")
@@ -124,8 +159,8 @@ def audit_campaign(
         unmapped = ", ".join(cov.matrix.unmapped_personas()[:EXEMPLARS])
         cov.findings.append(
             f"persona-unmapped: hook-matrix.md — {len(cov.matrix.unmapped_personas())} "
-            f"matrix persona(s) do not normalise onto the role vocabulary ({unmapped}); "
-            f"recipients can never be attributed to them"
+            f"matrix {cov.matrix.row_axis}(s) do not normalise onto the role vocabulary "
+            f"({unmapped}); recipients can never be attributed to them"
         )
 
     cap_vocab = capability_vocab(profile, profiles_root)
@@ -172,10 +207,16 @@ def audit_campaign(
             text = spec_path.read_text(encoding="utf-8")
             spec_texts[src["spec"]] = text
             try:
-                cov.declared[src["spec"]] = declared_cell(text, cov.matrix)
+                cov.declared[src["spec"]] = resolve_declared_cell(text, cov.matrix, registry)
             except UnknownHookCell as exc:
                 cov.declared[src["spec"]] = None
-                cov.findings.append(f"hook-cell-unknown: {src['spec']} — {exc}")
+                # `angle-unknown`, not the legacy `hook-cell-unknown`: FR3 retired that id
+                # into this one on the copy-linter surface the same day, and an id that names
+                # a retired rule on one surface and a live finding on another is one fact with
+                # two names — `rule_lifecycle_report` buckets operator labels by rule id, so
+                # the two surfaces have to answer to the same one. Same for `angle-missing`
+                # below. Held by `test_outreach_linter.py`'s coverage-surface contract.
+                cov.findings.append(f"angle-unknown: {src['spec']} — {exc}")
             try:
                 cov.capabilities[src["spec"]] = declared_capability(text, cap_vocab)
             except ValueError as exc:
@@ -215,21 +256,31 @@ def audit_campaign(
                         recorded = f"{rc.cell.persona} × {rc.cell.signal}"
                 if recorded:
                     row_cells[recorded] += 1
-                cov.seats[seat_of(title) or "unresolved"] += 1
-                key = persona_of(title)
+                # Both take `profile`: these are the TENANT's counters, so they read the
+                # tenant's cue lists. The axis is fixed (seat here, persona below) and the
+                # vocabulary is the profile's — two separate questions, and reading them as
+                # one is how these two kept the built-in defaults after FR2 threaded the
+                # profile through the join beside them.
+                cov.seats[seat_of(title, profile) or UNRESOLVED_SEAT] += 1
+                key = persona_of(title, profile)
                 if key:
                     cov.personas[key] += 1
-                    if cov.matrix is not None and cov.matrix.ok:
-                        norm_seg = _norm_segment(row_segment)
-                        in_grid = any(
-                            persona_key_of_label(c.persona) == key
-                            and _norm_segment(c.segment) == norm_seg
-                            for c in cov.matrix.cells.values()
-                        )
-                        if not in_grid:
-                            cov.unassignable[f"{key}/{norm_seg or '(no segment)'}"] += 1
                 else:
                     cov.unresolved[title or "(no title)"] += 1
+                # The grid join runs on the MATRIX's axis, which is not always the persona
+                # one: a generated seat matrix has no `ciso` row, so asking `persona_of`
+                # whether this recipient is in the grid answers "no" for every row and
+                # books the whole list unassignable (RowAxis). ``cov.personas`` above stays
+                # the persona counter — it is a display fact about the list, not a join.
+                if cov.matrix is not None and cov.matrix.ok:
+                    row_key = cov.matrix.recipient_key(title)
+                    norm_seg = _norm_segment(row_segment)
+                    if row_key and not any(
+                        cov.matrix.row_key(c.persona) == row_key
+                        and _norm_segment(c.segment) == norm_seg
+                        for c in cov.matrix.cells.values()
+                    ):
+                        cov.unassignable[f"{row_key}/{norm_seg or '(no segment)'}"] += 1
                 spec_segments[row_segment] += 1
                 spec_evidence.append(
                     " ".join(
@@ -257,9 +308,10 @@ def audit_campaign(
         shown = ", ".join(sorted(undeclared)[:EXEMPLARS])
         more = f", +{len(undeclared) - EXEMPLARS} more" if len(undeclared) > EXEMPLARS else ""
         cov.findings.append(
-            f"hook-cell-missing: {len(undeclared)} of {cov.specs} spec(s) — "
-            f"no hook_cell declared ({shown}{more}); the matrix cell each spec "
-            f"implements is unverifiable"
+            f"angle-missing: {len(undeclared)} of {cov.specs} spec(s) — "
+            f"declare an `angle:` ({shown}{more}); the matrix cell each spec implements is "
+            f"derived from it, and is unverifiable without one. A legacy `hook_cell:` is "
+            f"still read where a spec has no angle"
         )
 
     cov.overlaps = argument_distinctness(spec_texts)
@@ -382,6 +434,6 @@ def audit_campaign(
         )
 
     cov.findings.extend(
-        persona_coverage(cov.personas, cov.declared, cov.matrix, min_recipients=min_recipients)
+        persona_coverage(cov.axis_counts, cov.declared, cov.matrix, min_recipients=min_recipients)
     )
     return cov

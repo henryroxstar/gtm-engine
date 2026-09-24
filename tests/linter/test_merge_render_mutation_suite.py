@@ -22,7 +22,10 @@ here, which is the same "admission test" principle the calibration PRD applies t
 lint rules generally.
 
 2026-08-20 (hook-coverage PRD, H2): 64 -> 66 with ``hook-cell-missing`` and
-``hook-cell-unknown``. Both are opt-in behind ``hook_matrix``, so they ship with three extra
+``hook-cell-unknown``. **Both retired 2026-09-24 (FR3)** into ``angle-missing`` /
+``angle-unknown``; the entry is kept because the lesson below outlived the two rules, but
+neither id ships any more. At the time they were opt-in behind ``hook_matrix``, so they shipped
+with three extra
 controls beyond the two mutations — the real-cell case, the no-matrix off-state, and the
 unsupported-matrix-shape WARN. An opt-in rule needs its off-state pinned as much as its
 firing state: ``cta-unstaged-artifact`` was a correct rule nobody had opted into.
@@ -40,9 +43,8 @@ one that implies a defect it never found.
 
 from __future__ import annotations
 
-import re
-
-from merge_render_linter import (
+import pytest
+from outreach import (
     _DATA_BORNE_ELIGIBLE,
     RULE_CATALOGUE,
     Touch,
@@ -64,7 +66,7 @@ GOOD_ROW = {
     # `signal-not-an-event` fires in the baseline itself. That is fine: it is a WARN,
     # every other test still passes cleanly around it, and it keeps this fixture from
     # silently depending on the event-verb list too.
-    "signal_clause": "Cascade sits on the AARM agent-runtime-security working group",
+    "signal_clause": "Cascade sits on the BRIGHTPATH agent-runtime-security working group",
 }
 
 
@@ -171,7 +173,7 @@ def test_signal_not_an_event():
     _fires(
         "signal-not-an-event",
         _touches(),
-        [_row(signal_clause="Cascade sits on the AARM agent-runtime-security working group")],
+        [_row(signal_clause="Cascade sits on the BRIGHTPATH agent-runtime-security working group")],
     )
 
 
@@ -251,51 +253,6 @@ def test_signal_agent_homonym():
     )
 
 
-def test_hedge_stem_repeat():
-    # HEDGE_STEM_RE requires "my <read/hunch/bet/guess/sense>" followed by a colon within
-    # 60 chars — a looser "my hunch is that..." with no colon never matches. Both touches
-    # must carry the colon form for MAX_HEDGE_STEM (1) to be exceeded.
-    spec = """
-**Step 1 — Day 1** · Subject: `identity in production`
-> Hi {{First Name}},
->
-> My hunch: {{Company}} has not built per-agent attribution yet, and that is worth
-> fixing before an auditor asks. Tell me if you've got this covered already.
->
-> Would the one-pager be useful?
->
-> Henry
-
-**Step 2 — Day 4** (same thread, no subject)
-> Hi {{First Name}},
->
-> My hunch: the same gap shows up the moment one agent hands work to another at
-> {{Company}}, and it is worth closing before it compounds.
->
-> Want the before-and-after?
->
-> Henry
-"""
-    _fires("hedge-stem-repeat", _touches(spec), [_row()])
-
-
-def test_specificity():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> I think about identity a lot these days, and it seems like something worth a
-> conversation. A lot of teams are thinking about this too, in different ways, and it is
-> worth comparing notes before too long, since things move fast and nobody wants to be
-> behind on it when it matters most to the business overall.
->
-> Would a chat be useful?
->
-> Henry
-"""
-    _fires("specificity", _touches(spec), [_row()])
-
-
 def test_word_count():
     spec = """
 **Step 1 — Day 1** · Subject: `a quick note`
@@ -358,38 +315,6 @@ def test_question_count():
     assert any(h.level == "ERROR" for h in hits), [str(h) for h in hits]
     violations, _ = lint_merge_render(touches, [_row()], signoff="Henry")
     assert not [v for v in violations if v.rule == "cta-question"], "cta-question must still pass"
-
-
-def test_hedge_missing():
-    spec = """
-**Step 1 — Day 1** · Subject: `identity in production`
-> Hi {{First Name}},
->
-> Agents at {{Company}} act on regulated records today, and the audit trail does not
-> capture which agent held the authority to act, which is a gap that widens every quarter
-> as more agents ship into production across the estate.
->
-> Would the one-pager on how another team closed it be useful?
->
-> Henry
-"""
-    _fires("hedge-missing", _touches(spec), [_row()])
-
-
-def test_antithesis():
-    spec = """
-**Step 1 — Day 1** · Subject: `identity in production`
-> Hi {{First Name}},
->
-> My hunch: this isn't just an audit problem, it's a production one, and {{Company}}'s
-> agents are already acting on records an examiner will ask about. Tell me if you've got
-> this covered.
->
-> Would the one-pager be useful?
->
-> Henry
-"""
-    _fires("antithesis", _touches(spec), [_row()])
 
 
 # --------------------------------------------------------------------------- merge
@@ -561,7 +486,7 @@ def test_company_trailing_period():
 
 
 def test_company_transaction_entity():
-    _fires("company-transaction-entity", _touches(), [_row(company="Meridian Group Merger")])
+    _fires("company-transaction-entity", _touches(), [_row(company="Summitline Health Merger")])
 
 
 def test_company_domain_junk():
@@ -626,7 +551,7 @@ def test_article_collision():
 >
 > Henry
 """
-    _fires("article-collision", _touches(spec), [_row(company="The Meridian Group")])
+    _fires("article-collision", _touches(spec), [_row(company="The Summitline Health")])
 
 
 # --------------------------------------------------------------------------- deliverability
@@ -771,66 +696,6 @@ def test_named_case_study():
     _fires("named-case-study", _touches(spec), [_row()], case_studies=("cascade",))
 
 
-def test_cta_unstaged_artifact():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> Agents at {{Company}} are moving from retrieving data to acting on it, and the audit
-> trail has not caught up with that shift across most regulated estates this year.
->
-> Want the crosswalk on how another team mapped it?
->
-> Henry
-"""
-    _fires("cta-unstaged-artifact", _touches(spec), [_row()], gift_artifacts=("one-pager",))
-
-
-def test_cta_question():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> Agents at {{Company}} are moving from retrieving data to acting on it, and the audit
-> trail has not caught up with that shift across most regulated estates this year.
->
-> Let me know if the one-pager would be useful.
->
-> Henry
-"""
-    _fires("cta-question", _touches(spec), [_row()])
-
-
-def test_cta_bundled():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> Agents at {{Company}} are moving from retrieving data to acting on it, and the audit
-> trail has not caught up with that shift across most regulated estates this year.
->
-> Want the one-pager and a short recorded demo?
->
-> Henry
-"""
-    _fires("cta-bundled", _touches(spec), [_row()])
-
-
-def test_cta_unanchored():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> Agents at {{Company}} are moving from retrieving data to acting on it, and the audit
-> trail has not caught up with that shift across most regulated estates this year.
->
-> Want the one-pager?
->
-> Henry
-"""
-    _fires("cta-unanchored", _touches(spec), [_row()])
-
-
 def test_time_ask():
     spec = """
 **Step 1 — Day 1** · Subject: `a quick note`
@@ -844,21 +709,6 @@ def test_time_ask():
 > Henry
 """
     _fires("time-ask", _touches(spec), [_row()])
-
-
-def test_cta_overclaim():
-    spec = """
-**Step 1 — Day 1** · Subject: `a quick note`
-> Hi {{First Name}},
->
-> Agents at {{Company}} are moving from retrieving data to acting on it, and the audit
-> trail has not caught up with that shift across most regulated estates this year.
->
-> Would the one-pager on how the trail clears an examiner review be useful?
->
-> Henry
-"""
-    _fires("cta-overclaim", _touches(spec), [_row()])
 
 
 # --------------------------------------------------------------------------- dedupe
@@ -944,68 +794,6 @@ def _spec_front(*lines: str) -> str:
     return f"# Sequence spec — test\n\n```\n{body}\n```\n"
 
 
-def test_hook_cell_missing():
-    """A spec that declares no cell: nothing can check which argument it carries."""
-    hits = _fires(
-        "hook-cell-missing",
-        _touches(),
-        [_row()],
-        spec_text=_spec_front(),
-        hook_matrix=MINI_MATRIX,
-    )
-    assert hits[0].level == "ERROR"
-
-
-def test_hook_cell_unknown():
-    """A declared cell the matrix does not define — an invented hook wearing a declaration."""
-    hits = _fires(
-        "hook-cell-unknown",
-        _touches(),
-        [_row()],
-        spec_text=_spec_front("hook_cell:   Head of Vibes × Compliance event"),
-        hook_matrix=MINI_MATRIX,
-    )
-    assert hits[0].level == "ERROR"
-
-
-def test_a_declared_cell_that_exists_fires_neither_hook_rule():
-    """The negative control: a real cell is clean, so the rules discriminate."""
-    violations, _ = lint_merge_render(
-        _touches(),
-        [_row()],
-        signoff="Henry",
-        spec_text=_spec_front("hook_cell:   FinOps lead × Compliance event"),
-        hook_matrix=MINI_MATRIX,
-    )
-    assert not [v for v in violations if v.rule.startswith("hook-cell")]
-
-
-def test_hook_cell_checks_are_silent_without_a_matrix():
-    """Off unless --hook-matrix is passed — pinned, because every spec written before the
-    field exists would otherwise fail, and because the opposite mistake (an opt-in check
-    nobody opts into) is the one this PRD is about. The caller that must opt in is the
-    ``email-sequence`` merge-render gate step."""
-    violations, _ = lint_merge_render(
-        _touches(), [_row()], signoff="Henry", spec_text=_spec_front()
-    )
-    assert not [v for v in violations if v.rule.startswith("hook-cell")]
-
-
-def test_an_unsupported_matrix_shape_warns_rather_than_passing_silently():
-    """A matrix with no persona/signal axis cannot verify a declaration. That is reported,
-    not swallowed — a gate that passes by finding nothing is the failure being fixed."""
-    flat = "# Hook matrix\n\n| id | angle | payoff | formats | status |\n|---|---|---|---|---|\n"
-    flat += "| a | an angle | a payoff | carousel | test |\n"
-    hits = _fires(
-        "hook-cell-unknown",
-        _touches(),
-        [_row()],
-        spec_text=_spec_front("hook_cell:   CISO × Compliance event"),
-        hook_matrix=flat,
-    )
-    assert hits[0].level == "WARN"
-
-
 # --- signal cell (2026-08-23) ---------------------------------------------------------
 #
 # The row-level counterpart to the hook-cell pair above: those two prove a SPEC's declared
@@ -1025,119 +813,6 @@ _SPEC_DECLARING_COMPLIANCE = _spec_front("hook_cell:   CISO × Compliance event"
 #: design; see `GOOD_ROW`'s comment), which is not what a "did my new rules fire" assertion
 #: should be checking.
 _SIGNAL_CELL_RULES = {"signal-column-unknown", "signal-cell-mismatch", "signal-column-unrecorded"}
-
-
-def test_signal_column_unknown():
-    """An invented signal value — not a column of the row's own segment grid at all."""
-    hits = _fires(
-        "signal-column-unknown",
-        _touches(),
-        [_row(segment="Enterprise", signal_column="A signal nobody declared")],
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    assert hits[0].level == "ERROR"
-
-
-def test_signal_cell_mismatch():
-    """A real, valid signal for this row's grid — just not the one the spec declares. This
-    is the exact defect the PRD exists to fix: the copy asserts one trigger, the recipient's
-    own recorded evidence attests a different one."""
-    hits = _fires(
-        "signal-cell-mismatch",
-        _touches(),
-        [_row(segment="Enterprise", signal_column="M&A / consolidation")],
-        spec_text=_SPEC_DECLARING_COMPLIANCE,  # spec declares "Compliance event"
-        hook_matrix=MINI_MATRIX,
-    )
-    assert hits[0].level == "ERROR"
-
-
-def test_signal_column_unrecorded():
-    """No row in the list records the column at all — the migration line, not a per-row
-    wall. Without this, `signal-cell-mismatch` is silently inert on every pre-existing
-    list, which is precisely how `HOOK_CELL_COLUMN` went unpopulated for months."""
-    hits = _fires(
-        "signal-column-unrecorded",
-        _touches(),
-        [_row(segment="Enterprise")],  # no signal_column key at all
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    assert hits[0].level == "WARN"
-    assert hits[0].email == "SPEC"
-
-
-def test_signal_column_unrecorded_reports_once_not_per_row():
-    """Ten unrecorded rows must produce ONE aggregate finding, never ten — the same
-    finding-budget discipline `cell-row-unrecorded` already follows."""
-    rows = [_row(segment="Enterprise", email=f"r{i}@cascade.example") for i in range(10)]
-    violations, _ = lint_merge_render(
-        _touches(),
-        rows,
-        signoff="Henry",
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    hits = [v for v in violations if v.rule == "signal-column-unrecorded"]
-    assert len(hits) == 1
-
-
-def test_a_matching_signal_column_fires_neither_signal_rule():
-    """The negative control: a row recording the spec's own declared signal, in a valid
-    grid, is silent on both signal-cell rules."""
-    violations, _ = lint_merge_render(
-        _touches(),
-        [_row(segment="Enterprise", signal_column="Compliance event")],
-        signoff="Henry",
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    assert not [v for v in violations if v.rule in _SIGNAL_CELL_RULES]
-
-
-def test_signal_cell_checks_are_silent_without_a_matrix():
-    """Off unless --hook-matrix is passed — the same off-state discipline as the hook-cell
-    pair: a rule with no pinned off-state is how a correct check ships silently inert."""
-    violations, _ = lint_merge_render(
-        _touches(),
-        [_row(segment="Enterprise", signal_column="A signal nobody declared")],
-        signoff="Henry",
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-    )
-    assert not [v for v in violations if v.rule in _SIGNAL_CELL_RULES]
-
-
-def test_suppressed_rows_are_not_signal_linted():
-    """A suppressed row is not being sent; a mismatched signal on it is not actionable."""
-    violations, _ = lint_merge_render(
-        _touches(),
-        [_row(segment="Enterprise", signal_column="A signal nobody declared", suppression="dnc")],
-        signoff="Henry",
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    assert not [v for v in violations if v.rule in _SIGNAL_CELL_RULES]
-
-
-def test_an_unresolved_title_is_not_double_reported_by_the_signal_rules():
-    """A title `persona_of` cannot place is `hook_coverage`'s `unresolved` bucket's concern,
-    not this rule's — reporting it again here under a different name would count the same
-    gap twice."""
-    violations, _ = lint_merge_render(
-        _touches(),
-        [
-            _row(
-                title="Regional Sales Manager",
-                segment="Enterprise",
-                signal_column="M&A / consolidation",
-            )
-        ],
-        signoff="Henry",
-        spec_text=_SPEC_DECLARING_COMPLIANCE,
-        hook_matrix=MINI_MATRIX,
-    )
-    assert not [v for v in violations if v.rule in _SIGNAL_CELL_RULES]
 
 
 def test_signal_rules_are_not_data_borne_eligible():
@@ -1301,65 +976,6 @@ def test_premise_unsupported_collapses_when_it_saturates():
     assert "SATURATED" in hits[0].detail
 
 
-def test_stakes_missing():
-    """A spec that declares no `stakes:`. The gap the body names has no stated cost, and
-    nothing can check `voice.md` job 4 against the copy. WARN, not ERROR: every spec written
-    before 2026-08-23 predates the field, exactly as `premise-missing` handles its own."""
-    hits = _fires("stakes-missing", _touches(), [_row()], spec_text=_spec_front())
-    assert hits[0].level == "WARN"
-    assert hits[0].email == "SPEC"
-
-
-def test_stakes_unattested():
-    """The rule that does the work: a spec CLAIMING a consequence its body never states.
-
-    This is the shipped 2026-08-21 defect in miniature. Both ship30 specs asserted in prose
-    that they had named the stakes while the copy carried none, and because the assertion
-    lived in a §2 section no gate reads, it survived two rounds and the operator caught it by
-    hand both times. Declaring the consequence as a field makes the same false claim
-    refutable in CI."""
-    hits = _fires(
-        "stakes-unattested",
-        _touches(),
-        [_row()],
-        spec_text=_spec_front("stakes:      the next buyer asks again and it is rewritten"),
-    )
-    assert hits[0].level == "ERROR"
-    assert hits[0].email == "SPEC"
-
-
-def test_stakes_attested_passes_across_a_line_wrap():
-    """A declared consequence the body DOES carry must pass even though the body hard-wraps.
-
-    The bodies wrap at ~90 chars, so a declared phrase routinely straddles a newline. Naive
-    substring matching would fail every correctly-written spec — the rule would then be
-    "delete the stakes field", which is the opposite of the point. Whitespace-normalised
-    matching is what makes the rule usable rather than merely present."""
-    body = (
-        "Hi {{First Name}},\n\n"
-        "{{Why Now}}. Once agents at {{Company}} move from retrieving data inside Epic to "
-        "acting on it, identity becomes the question an auditor asks first. Tell me if "
-        "you've got this covered: your logs capture which account touched a record, not "
-        "which agent held the authority to act. So the next\naudit is another manual "
-        "reconstruction.\n\n"
-        "Would the one-pager on how another team mapped that to {{Company}}'s agent path be "
-        "useful?\n\n"
-        "Henry"
-    )
-    spec = _spec_front("stakes:      the next audit is another manual reconstruction")
-    spec += (
-        "\n**Step 1 — Day 1** · Subject: `x`\n"
-        + _blockquote(body)
-        + "\n\n**Step 2 — Day 4**\n"
-        + _blockquote(GOOD_BODY_2)
-        + "\n"
-    )
-    violations, _ = lint_merge_render(parse_spec(spec), [_row()], signoff="Henry", spec_text=spec)
-    assert not [v for v in violations if v.rule.startswith("stakes-")], [
-        str(v) for v in violations if v.rule.startswith("stakes-")
-    ]
-
-
 def test_premise_thin():
     """A premise that passes on one common word. Measured on the shipped enterprise-security
     list: 15/15 rows passed `cross-org-agents`, 9 on a single term and 6 of those on the bare
@@ -1379,133 +995,6 @@ def test_premise_thin():
     )
     assert hits[0].level == "WARN"
     assert hits[0].email == "SPEC"
-
-
-def test_credit_is_verdict():
-    """`voice.md`: credit is an observation, never a verdict — "you do not know them well
-    enough to grade it". Fires from inside the imported `lint_email`, and has done since it was
-    written, while being absent from RULE_CATALOGUE until 2026-09-22.
-
-    Both branches are exercised: the lexical one pins that the rule reaches this path at all,
-    and the competence-attribution one (2026-09-22) is the shape that actually shipped — in all
-    five 2026-08-25 specs, on the path where no credit rule was catalogued.
-    """
-    for credit in ("Smart move.", "You have built the hard part."):
-        _fires(
-            "credit-is-verdict",
-            _touches(
-                _spec_with_body_1(GOOD_BODY_1.replace("{{Why Now}}.", f"{{{{Why Now}}}}. {credit}"))
-            ),
-            [_row()],
-        )
-
-
-def test_the_mandated_hedge_is_not_a_credit_verdict():
-    """The negative control the competence branch most needed.
-
-    `hedge-missing` REQUIRES a body to carry some form of "you may already have this covered".
-    A credit rule that convicted that sentence would make the two rules unsatisfiable together
-    and force every body to fail one of them. GOOD_BODY_1 already carries the hedge, so the
-    baseline staying clean IS the assertion — stated as its own test because it is load-bearing
-    and would otherwise only be implied by the suite's general baseline check.
-    """
-    violations, _ = lint_merge_render(_touches(), [_row()], signoff="Henry")
-    assert not [v for v in violations if v.rule == "credit-is-verdict"]
-
-
-def test_problem_asserts_internals():
-    """The banned shape from the five-beat spine: a claim about an architecture the sender
-    cannot see, rather than a predicted question. `voice.md` — "Predict the question; never
-    assert their internals"."""
-    _fires(
-        "problem-asserts-internals",
-        _touches(
-            _spec_with_body_1(
-                GOOD_BODY_1.replace(
-                    "your logs capture which account touched a record, not which agent "
-                    "held the authority to act.",
-                    "your agent holds a credential into Epic and keeps it after the job closes.",
-                )
-            )
-        ),
-        [_row()],
-    )
-
-
-def test_cta_omits_gap():
-    """An ask that shares no vocabulary with the problem the body just named reads as
-    unrelated to the reason for writing."""
-    _fires(
-        "cta-omits-gap",
-        _touches(
-            _spec_with_body_1(
-                GOOD_BODY_1.replace(
-                    "Would the one-pager on how another team mapped that to "
-                    "{{Company}}'s agent path be useful?",
-                    "Want me to send over a quarterly newsletter about payments?",
-                )
-            )
-        ),
-        [_row()],
-    )
-
-
-def test_offer_not_a_solution_overview():
-    """An offer to go and look inside the reader's own system is unpaid labour worth less than
-    an hour of their own engineer, and presumes they had not looked."""
-    _fires(
-        "offer-not-a-solution-overview",
-        _touches(
-            _spec_with_body_1(
-                GOOD_BODY_1.replace(
-                    "Would the one-pager on how another team mapped that to "
-                    "{{Company}}'s agent path be useful?",
-                    "Want me to map your dispatch path against your own settlement logs?",
-                )
-            )
-        ),
-        [_row()],
-    )
-
-
-#: Rules `lint_email` can emit that are UNREACHABLE on the merge-render path, and so must not be
-#: catalogued: cataloguing one would put it in `checks_run` and assert a check ran when it did
-#: not. `capability-unargued` comes from `lint_declared_capability`, which returns early when its
-#: word list is empty — and `lint_merge_render` never passes `capability_rules`.
-def test_seat_stakes_not_in_problem():
-    """Seat vocabulary in the ASK but not in the problem. GOOD_ROW is a CISO, so the security
-    seat's words are what count; the body states the problem as a mechanism and only reaches
-    for `audit` in the closing question."""
-    body = (
-        "Hi {{First Name}},\n\n"
-        "{{Why Now}}. When an agent at {{Company}} calls a partner over A2A, the transport "
-        "credential names the company rather than the agent. A shared token cannot say which "
-        "agent acted, and nothing in that path carries the delegation. Tell me if you've got "
-        "this covered.\n\n"
-        "Would the one-pager on how another team structured that audit trail be useful?\n\n"
-        "Henry"
-    )
-    hits = _fires("seat-stakes-not-in-problem", _touches(_spec_with_body_1(body)), [GOOD_ROW])
-    assert hits[0].level == "WARN", "a proxy for altitude must not block a run"
-
-
-def test_a_seat_word_inside_the_problem_clears_it():
-    """Off-state, and the one that makes the rule about POSITION rather than presence: the
-    same body with the seat's word moved into the problem beat passes. Without this the rule
-    would be a second, noisier `seat-stakes-missing`."""
-    body = (
-        "Hi {{First Name}},\n\n"
-        "{{Why Now}}. When an agent at {{Company}} calls a partner over A2A, your audit trail "
-        "names the company rather than the agent. A shared token cannot say which agent "
-        "acted, and nothing in that path carries the delegation. Tell me if you've got this "
-        "covered.\n\n"
-        "Would the one-pager on how another team structured that trail be useful?\n\n"
-        "Henry"
-    )
-    violations, _ = lint_merge_render(
-        _touches(_spec_with_body_1(body)), [GOOD_ROW], signoff="Henry"
-    )
-    assert not [v for v in violations if v.rule == "seat-stakes-not-in-problem"]
 
 
 def test_opener_undated():
@@ -1529,7 +1018,7 @@ def test_a_dated_opener_clears_the_warning():
     still undated where it counts."""
     dated = (
         "Hi {{First Name}},\n\n"
-        "The AARM working group published its agent-identity draft in April 2026. Once agents "
+        "The BRIGHTPATH working group published its agent-identity draft in April 2026. Once agents "
         "at {{Company}} move from retrieving data inside Epic to acting on it, identity becomes "
         "the question an auditor asks first. Tell me if you've got this covered: your logs "
         "capture which account touched a record, not which agent held the authority to act.\n\n"
@@ -1544,22 +1033,6 @@ def test_a_dated_opener_clears_the_warning():
         require_dated_opener=True,
     )
     assert not [v for v in violations if v.rule == "opener-undated"]
-
-
-def test_signal_column_undeclared():
-    """GOOD_SPEC's touch 1 opens on the standalone `{{Why Now}}.` beat and its front block
-    declares no `signal_column:` — the migration state every live spec is in."""
-    hits = _fires("signal-column-undeclared", _touches(), [GOOD_ROW], spec_text=GOOD_SPEC)
-    assert hits[0].level == "WARN", "a field no live spec carries yet must not block a run"
-    assert hits[0].email == "SPEC"
-
-
-def test_a_declared_signal_column_clears_the_warning():
-    """Off-state. Without this the rule could ignore the front block entirely and the test
-    above would still pass — which is how a field becomes decorative."""
-    spec = "```\nsignal_column: compliance_event\n```\n" + GOOD_SPEC
-    violations, _ = lint_merge_render(_touches(spec), [GOOD_ROW], signoff="Henry", spec_text=spec)
-    assert not [v for v in violations if v.rule == "signal-column-undeclared"]
 
 
 def test_thread_sentence_repeat():
@@ -1625,22 +1098,751 @@ def test_thread_reply_prefix():
     assert hits[0].email == "SPEC"
 
 
-_INERT_ON_THIS_PATH = frozenset({"capability-unargued"})
+# --------------------------------------------------------------------- row data (check_row)
+#
+# Four rules `gtm_core.merge_hygiene.check_row` raises that had no mutation here until
+# 2026-09-24, because the pre-merge backstop AST-walked one linter file and never walked
+# `check_row` at all. They were KEPT by PRD §3A (row data) and are now catalogued, so they
+# need the mutation every catalogued rule owes. Each is checked only when the row CARRIES the
+# column, so the control is the baseline row, which carries neither.
+
+
+def test_score_not_numeric():
+    _fires("score-not-numeric", _touches(), [_row(score="high")])
+
+
+def test_score_out_of_range():
+    # 53 is the top of the SPEND ranking that reached 749 published rows in the qualification
+    # column — a real number from the wrong scale, which is the defect this rule exists for.
+    _fires("score-out-of-range", _touches(), [_row(score="53")])
+
+
+def test_segment_noncanonical():
+    _fires("segment-noncanonical", _touches(), [_row(segment="Enterprise")])
+
+
+def test_segment_unknown():
+    _fires("segment-unknown", _touches(), [_row(segment="midmarket")])
+
+
+def test_the_row_data_rules_are_silent_when_the_row_omits_the_column():
+    """The negative control for all four at once: the baseline row carries neither column, so
+    a missing optional column must not read as a defect. Without this the four mutations above
+    would be satisfied by a rule that fired on every row."""
+    violations, _ = lint_merge_render(_touches(), [_row()], signoff="Henry")
+    assert not {
+        "score-not-numeric",
+        "score-out-of-range",
+        "segment-noncanonical",
+        "segment-unknown",
+    } & {v.rule for v in violations}
+
+
+def test_a_canonical_segment_and_an_in_range_score_are_clean():
+    """...and the control that exercises the OTHER branch — the columns present and correct."""
+    violations, _ = lint_merge_render(
+        _touches(), [_row(segment="enterprise", score="7")], signoff="Henry"
+    )
+    assert not {
+        "score-not-numeric",
+        "score-out-of-range",
+        "segment-noncanonical",
+        "segment-unknown",
+    } & {v.rule for v in violations}
+
+
+# --------------------------------------------------------------- derivation (FR3, 2026-09-24)
+#
+# The three rules that replace the twenty-five retired ones. Every fixture below is FICTIONAL
+# (§R9): the tenant slug, the claim ids, the proof statements and the seat vocabulary are all
+# invented, because `tests/linter/` carries no tenant token. Real claims live only under
+# `profiles/`.
+#
+# The registry is built on disk and loaded through `registry.load` — the SAME loader
+# `resolve.angle_for` uses — rather than by constructing a `Registry` in memory. A hand-built
+# Registry could hold a state the loader refuses (a `live` angle on an unverified claim), and a
+# rule proven against an impossible state is proven against nothing. Test plan §7.
+
+_FIX_PROFILE = "marlowe"
+
+_FIX_VOCABULARY = """\
+default_persona = "ciso"
+segments = ["enterprise", "unspecified"]
+
+[[persona]]
+name = "ciso"
+cues = ["ciso", "head of security"]
+
+[[seat]]
+name = "security"
+personas = ["ciso"]
+stakes = ["breach", "audit"]
+"""
+
+_FIX_PREMISE = """\
+schema = 1
+
+[premise.multi-framework]
+claim = "the reader runs agents on more than one framework"
+min_distinct = 1
+terms = ["langgraph", "autogen"]
+"""
+
+_FIX_CLAIMS = """\
+[[claim]]
+id = "audit-signed"
+group = "observability"
+status = "verified"
+statement = "Each audit entry is signed."
+source = "knowledge/references/ledger-notes.md:12"
+do_not_say = ["hash-chained", "tamper-proof"]
+
+[[claim]]
+id = "transport-pinned"
+group = "transport"
+status = "design-target"
+statement = "Per-agent transport pinning is planned."
+"""
+
+_FIX_PROOF = """\
+[[proof]]
+id = "regulator-note-sg"
+kind = "anchor"
+market = "Singapore"
+figure_kind = "none"
+statement = "A verifiable identity per agent, tied to an accountable human."
+source = "knowledge/guidance/regulator-notes.md:4"
+
+[[proof]]
+id = "regulator-note-us"
+kind = "anchor"
+market = "United States"
+figure_kind = "none"
+statement = "An agent acts only inside a scope a human granted."
+source = "knowledge/guidance/regulator-notes.md:9"
+
+[[proof]]
+id = "reference-turnaround"
+kind = "outcome"
+figure_kind = "measured"
+statement = "A reference check against a five-to-fifteen day baseline is reduced to minutes across 12 markets."
+source = "knowledge/references/pilot-notes.md:3"
+
+[[proof]]
+id = "review-cycle-cut"
+kind = "outcome"
+figure_kind = "measured"
+statement = "Audit review cycles fell 74% against a measured baseline."
+source = "knowledge/references/pilot-notes.md:11"
+
+[[proof]]
+id = "legacy-review-saving"
+kind = "outcome"
+figure_kind = "disputed"
+statement = "A 90% reduction in review time. RETRACTED - the figure appears in no primary record."
+
+[[proof]]
+id = "legacy-audit-coverage"
+kind = "outcome"
+figure_kind = "disputed"
+statement = "100% audit coverage. RETRACTED - the figure appears in no primary record."
+"""
+
+_FIX_ANGLES = """\
+[[angle]]
+id = "sec-audit-sg"
+seat = "security"
+premise = "multi-framework"
+claim = "audit-signed"
+proof = "regulator-note-sg"
+opener_kind = "account-event"
+summary = "One chain of custody per agent action."
+status = "draft"
+
+[[angle]]
+id = "sec-audit-us"
+seat = "security"
+premise = "multi-framework"
+claim = "audit-signed"
+proof = "regulator-note-us"
+opener_kind = "account-event"
+summary = "One granted scope per agent action."
+status = "draft"
+
+[[angle]]
+id = "sec-transport"
+seat = "security"
+premise = "multi-framework"
+claim = "transport-pinned"
+proof = "regulator-note-sg"
+opener_kind = "account-event"
+summary = "One pinned channel per agent."
+status = "draft"
+"""
+
+
+@pytest.fixture(scope="module")
+def registry(tmp_path_factory):
+    from gtm_core.messaging.registry import load
+
+    root = tmp_path_factory.mktemp("profiles")
+    knowledge = root / _FIX_PROFILE / "knowledge"
+    knowledge.mkdir(parents=True)
+    for name, text in (
+        ("claims.toml", _FIX_CLAIMS),
+        ("proof.toml", _FIX_PROOF),
+        ("angles.toml", _FIX_ANGLES),
+        ("role-vocabulary.toml", _FIX_VOCABULARY),
+        ("premise-vocab.toml", _FIX_PREMISE),
+    ):
+        (knowledge / name).write_text(text, encoding="utf-8")
+    return load(_FIX_PROFILE, profiles_root=root)
+
+
+_FIX_SLOTS = """\
+slot_signal: signal_evidence
+slot_claim: audit-signed
+slot_pain: security
+slot_hedge: usually
+slot_proof: regulator-note-sg
+"""
+
+
+#: The shared baseline, unmodified. It carries "in 2026", and until 2026-09-24 that year was a
+#: figure to `proof-status` — so the year had to be stripped here or every derivation control
+#: would fire on the fixture rather than on what the test changed, the "a baseline that is
+#: already broken makes every other test's claim false" trap `test_baseline_is_clean_...`
+#: exists for. A year is a date, not a magnitude; the strip is no longer needed, and
+#: `_NOT_A_MAGNITUDE` pins that directly.
+_DERIV_BODY_2 = GOOD_BODY_2
+
+
+def _derived_spec(angle: str = "sec-audit-sg", *, slots: str = _FIX_SLOTS, body: str = "") -> str:
+    """A spec in the MIGRATED shape: a fenced front block declaring one angle and five slots."""
+    return f"""```
+angle: {angle}
+{slots}```
+
+**Step 1 — Day 1** · Subject: `identity in production`
+{_blockquote(body or GOOD_BODY_1)}
+
+**Step 2 — Day 4** (same thread, no subject)
+{_blockquote(_DERIV_BODY_2)}
+"""
+
+
+def _derivation(spec: str, registry, rows=None) -> list:
+    violations, _ = lint_merge_render(
+        _touches(spec),
+        rows if rows is not None else [_row()],
+        signoff="Henry",
+        spec_text=spec,
+        registry=registry,
+    )
+    return [v for v in violations if v.rule in {"claim-status", "proof-status", "slot-attribution"}]
+
+
+def test_the_derivation_rules_are_off_without_a_registry():
+    """The opt-in off-state, pinned like `--hook-matrix`'s was: an opt-in rule that nobody
+    proves is OFF when unasked is a rule that silently changes every existing caller."""
+    spec = _derived_spec(
+        body=GOOD_BODY_1.replace("Once agents", "The hash-chained log means agents")
+    )
+    violations, _ = lint_merge_render(_touches(spec), [_row()], signoff="Henry", spec_text=spec)
+    assert not [
+        v for v in violations if v.rule in {"claim-status", "proof-status", "slot-attribution"}
+    ]
+
+
+def test_claim_status(registry):
+    """A `do_not_say` phrase in the copy. This half needs no declared angle, so it is the
+    branch that reaches unmigrated specs — which is why it is the named mutation."""
+    body = GOOD_BODY_1.replace("Once agents", "The hash-chained trail means agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "claim-status"]
+    assert hits, "a phrase the claim's own do_not_say list forbids did not fire"
+    assert hits[0].level == "ERROR"
+    assert "hash-chained" in hits[0].detail
+
+
+def test_the_same_body_without_the_banned_phrase_is_clean(registry):
+    """§R18's other half: the control differs from the mutation by the phrase and nothing else."""
+    hits = [v for v in _derivation(_derived_spec(), registry) if v.rule == "claim-status"]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_an_angle_on_an_unverified_claim_is_refused(registry):
+    hits = [
+        v for v in _derivation(_derived_spec("sec-transport"), registry) if v.rule == "claim-status"
+    ]
+    assert hits, "a design-target claim reached a body"
+    assert "design-target" in hits[0].detail
+
+
+def test_an_angle_on_a_verified_claim_is_not(registry):
+    """Same spec, same body, the one angle swapped — the whole difference is the claim status."""
+    hits = [
+        v for v in _derivation(_derived_spec("sec-audit-sg"), registry) if v.rule == "claim-status"
+    ]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_proof_status(registry):
+    """A figure with no `measured` proof behind it. ERROR because the spec declares an angle."""
+    body = GOOD_BODY_1.replace("Once agents", "That cut review time 42% once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits, "an unsourced figure did not fire"
+    assert hits[0].level == "ERROR"
+    assert "42" in hits[0].detail
+
+
+def test_an_unsourced_figure_is_only_a_warning_on_a_spec_that_predates_the_registry(registry):
+    """The severity is migration-gated, and the gate is the `angle:` declaration. Measured
+    2026-09-24: this branch fires on 27 of 47 live specs, all written before a figure needed a
+    proof id, so ERROR-by-default would fail the fleet for a re-draft nobody can yet produce."""
+    spec = f"""
+**Step 1 — Day 1** · Subject: `identity in production`
+{_blockquote(GOOD_BODY_1.replace("Once agents", "That cut review time 42% once agents"))}
+"""
+    hits = [v for v in _derivation(spec, registry) if v.rule == "proof-status"]
+    assert hits and {v.level for v in hits} == {"WARN"}, [str(v) for v in hits]
+
+
+def test_a_word_form_figure_with_a_measured_proof_is_clean(registry):
+    """The primary-supported figure, in the shape the registry records it: no digit, so nothing
+    to source. The control that keeps `proof-status` from convicting the one claim it backs."""
+    body = GOOD_BODY_1.replace(
+        "Once agents", "Reference checks went from five-to-fifteen days to minutes once agents"
+    )
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_a_figure_a_measured_proof_actually_carries_is_clean(registry):
+    """...and the branch that proves the measured lookup WORKS rather than being unreachable:
+    the same shape of sentence, quoting a number the measured proof itself states.
+
+    The quoted number carries its UNIT on purpose. Until 2026-09-24 this test read "across 12
+    markets" against a proof saying the same — which passed after the figure predicate was
+    narrowed too, but for the wrong reason: neither side is a magnitude any more, so the
+    measured lookup was never reached and the control proved nothing.
+    """
+    body = GOOD_BODY_1.replace("Once agents", "That cut review cycles 74% once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_a_disputed_figure_is_named_as_disputed(registry):
+    """A retracted figure is a different operator action from an unmeasured one, so it gets its
+    own message — and stays ERROR even on a spec that declares no angle."""
+    body = GOOD_BODY_1.replace("Once agents", "That was a 90% reduction once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits and hits[0].level == "ERROR"
+    assert "disputed" in hits[0].detail and "legacy-review-saving" in hits[0].detail
+
+
+def test_the_second_retracted_flagship_figure_is_named_as_disputed(registry):
+    """The 100% sibling of the retraction above, in the shape the tenant records it.
+
+    Both retracted flagship figures are the reason this rule exists, so both are pinned
+    explicitly. Narrowing the figure predicate on 2026-09-24 is exactly the change that could
+    have lost one of them while the other kept passing.
+    """
+    body = GOOD_BODY_1.replace("Once agents", "We showed 100% audit coverage once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits and hits[0].level == "ERROR"
+    assert "disputed" in hits[0].detail and "legacy-audit-coverage" in hits[0].detail
+
+
+def test_a_figure_that_is_only_a_SUBSTRING_of_a_disputed_one_is_not_called_disputed(registry):
+    """`9%` is a substring of the disputed proof's `90%` and is not that figure.
+
+    The first version asked ``figure in proof.statement`` and matched the live corpus's "10"
+    inside a proof's "100%" and its "3" inside "35%", telling two specs their numbers came from
+    a disputed proof they had never quoted. A figure gate that convicts the wrong number sends
+    the operator looking for a figure that is not there, and they stop believing the rule.
+    """
+    body = GOOD_BODY_1.replace("Once agents", "That was a 9% saving once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits, "an unsourced figure did not fire at all — the control branch is dead"
+    assert "disputed" not in hits[0].detail, hits[0].detail
+    assert "no `measured` proof" in hits[0].detail
+
+
+# ------------------------------------------------- the figure predicate (2026-09-24, §R18)
+#
+# `proof-status` shipped on 2026-09-24 asking `\d[\d,.]*` — ANY digit run — and its docstring
+# said so: "Every digit in a body is a magnitude claim." It is not, and the live packs measured
+# it that day: 49 of 66 warnings (74.2%) came from this one rule, over the saturation line the
+# linter's own budget draws, with `1`, `1.5` and `110` as the exemplars; and one live pack was
+# convicted at ERROR because "a 90-second demo recording?" was matched against the retracted
+# `90%` proof. Both halves of that are the same mistake — a numeral with no unit carries no
+# magnitude, and comparing numerals rather than magnitudes makes `90 seconds` and `90 percent`
+# the same claim. The predicate below is the line drawn instead: a figure is a magnitude when
+# it carries a UNIT or a comparative, and it is compared to a proof WITH that unit.
+#
+# These tests are written from real copy. They are the regression half of the fix; the two
+# mutations at the end are the §R18 half, proving the narrowing did not make the rule inert.
+
+#: Real prose from the live packs and from the exemplars the saturation guard printed. None of
+#: these is a claim about magnitude, and none may reach `proof-status`.
+_NOT_A_MAGNITUDE = (
+    # The live ERROR false positive: a numeral, a hyphen, and a duration that is not a claim.
+    "Want the one-pager and a 90-second demo recording?",
+    # The live ERROR false positive on the OTHER disputed proof (`35%` incident rates): the
+    # ROW's own funding research, pasted into a 1:1 body. A scale word is not a unit — it
+    # needs a noun to mean anything, and the noun here is the prospect's Series D.
+    "Their October raise was 35 million dollars.",
+    # The three exemplars the saturation report printed, in prose.
+    "We counted 1 link in that thread.",
+    "The score sat at 1.5 on their own scale.",
+    "The backlog held 110 of them.",
+    # A count next to a plural noun. "agents" reads like a unit and is not one.
+    "It runs 8 agents per user.",
+    # A year. Until this fix the shared fixture had to have "in 2026" stripped out of it.
+    "An examiner walking the estate in 2026 will ask.",
+)
+
+
+@pytest.mark.parametrize("sentence", _NOT_A_MAGNITUDE)
+def test_a_number_with_no_unit_is_not_a_magnitude_claim(registry, sentence):
+    body = GOOD_BODY_1.replace("Once agents", f"{sentence} Once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert not hits, [str(v) for v in hits]
+
+
+#: ``(sentence, the normalised figure the refusal must name)``. A unit or a comparative: the
+#: forms an outbound body actually writes a magnitude in.
+_IS_A_MAGNITUDE = (
+    ("We cut onboarding 40% last quarter.", "40%"),
+    # The word form normalises onto the sign form, so a body cannot dodge the gate by
+    # spelling out `percent` — and the refusal names one figure, not two.
+    ("We cut onboarding 40 percent last quarter.", "40%"),
+    ("Reviews run 1.5x faster now.", "1.5x"),
+    ("It gives back $40k a year.", "$40k"),
+    ("That is 3 hours back every week.", "3 hour"),
+    ("It lands in 2 days rather than a quarter.", "2 day"),
+)
+
+
+@pytest.mark.parametrize(("sentence", "figure"), _IS_A_MAGNITUDE)
+def test_a_number_that_carries_a_unit_still_convicts(registry, sentence, figure):
+    body = GOOD_BODY_1.replace("Once agents", f"{sentence} Once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits, f"an unbacked magnitude escaped: {sentence!r}"
+    assert hits[0].level == "ERROR"
+    assert figure in hits[0].detail, hits[0].detail
+
+
+def test_the_same_numeral_under_a_different_unit_is_a_different_figure(registry):
+    """The disputed branch compares magnitudes, not numerals — the half that produced the live
+    ERROR. `90 days` shares a numeral with the retracted `90%` and is not that claim, so it is
+    reported as unmeasured (which it is) and never as the retraction (which it is not)."""
+    body = GOOD_BODY_1.replace("Once agents", "That closed in 90 days once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert hits, "the control branch is dead — nothing fired at all"
+    assert "disputed" not in hits[0].detail, hits[0].detail
+    assert "'90 day'" in hits[0].detail, hits[0].detail
+
+
+def test_narrowing_the_matcher_further_lets_a_true_positive_escape(registry, monkeypatch):
+    """§R18 negative control: the unit table is load-bearing, not decoration.
+
+    Two mutations, each aimed at a different claim the fix makes. Dropping the spelled-out
+    `percent` alternative lets a real unbacked magnitude through while the sign form still
+    convicts — so the alternative earns its place rather than being covered by `%`. Emptying
+    the matcher lets the RETRACTED flagship figure through — so the whole rule rests on it,
+    and a fix that had quietly made the matcher unable to fire would fail here.
+    """
+    import re as _re
+
+    import outreach.rules_derivation as rd
+
+    def _fires(sentence: str) -> list:
+        body = GOOD_BODY_1.replace("Once agents", f"{sentence} Once agents")
+        return [
+            v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"
+        ]
+
+    assert _fires("We cut onboarding 40 percent last quarter.")
+    assert _fires("That was a 90% reduction.")
+
+    # Both mutations are of the SHIPPED pattern, not of a hand-written stand-in — a stand-in
+    # can be weaker than the real thing in ways the real thing never was.
+    sign_only = _re.compile(rd._FIGURE_RE.pattern.replace(rd._UNIT_ALT, "%"), rd._FIGURE_RE.flags)
+    monkeypatch.setattr(rd, "_FIGURE_RE", sign_only)
+    assert not _fires("We cut onboarding 40 percent last quarter."), "`percent` is not covered"
+    assert _fires("That was a 90% reduction."), "the sign form must survive this mutation"
+
+    never = _re.compile(rf"(?!)(?:{rd._FIGURE_RE.pattern})", rd._FIGURE_RE.flags)
+    monkeypatch.setattr(rd, "_FIGURE_RE", never)
+    assert not _fires("That was a 90% reduction."), "the retracted flagship figure escaped"
+
+
+def test_a_merge_tag_label_is_not_a_figure_the_author_asserted(registry):
+    """`{{2026 Plan}}` is a field reference, not a magnitude claim.
+
+    Merge tags are stripped before figures are counted. Every shipped tag label happens to be
+    digit-free, so the strip looks inert — until a tenant adds a field whose NAME carries one,
+    at which point every body rendering it would be told to source a number nobody wrote.
+    `unknown-merge-tag` is the rule that judges a bad label; this one must stay out of it.
+    """
+    body = GOOD_BODY_1.replace("Once agents", "{{2026 Plan}} means once agents")
+    hits = [v for v in _derivation(_derived_spec(body=body), registry) if v.rule == "proof-status"]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_an_anchor_for_another_market_is_refused(registry):
+    """A US reader against an SG anchor, in a registry that HOLDS a US anchor. Mirrors
+    `resolve._eligible_proof` from the other side."""
+    rows = [_row(country="United States")]
+    hits = [
+        v
+        for v in _derivation(_derived_spec("sec-audit-sg"), registry, rows)
+        if v.rule == "proof-status"
+    ]
+    assert hits, "an SG anchor was pointed at a US reader"
+    # Markets are compared through `email_compliance.normalize_market`, so both sides of the
+    # message are the canonical form — asserting on the raw CSV spelling would pass only while
+    # the canonicaliser happened to be an identity function.
+    assert "united states" in hits[0].detail and "regulator-note-sg" in hits[0].detail
+
+
+def test_the_readers_own_market_anchor_is_clean(registry):
+    """Same rows, the angle swapped to the one anchored where the reader is."""
+    rows = [_row(country="United States")]
+    hits = [
+        v
+        for v in _derivation(_derived_spec("sec-audit-us"), registry, rows)
+        if v.rule == "proof-status"
+    ]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_a_market_with_no_recorded_anchor_ships_the_no_anchor_shape(registry):
+    """The deliberate asymmetry: where the registry records NO anchor for the reader's market,
+    the absence was recorded on purpose and the offer ships without one. Borrowing Singapore's
+    would be confidently wrong about the reader's own regulator."""
+    rows = [_row(country="United Arab Emirates")]
+    hits = [
+        v
+        for v in _derivation(_derived_spec("sec-audit-sg"), registry, rows)
+        if v.rule == "proof-status"
+    ]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_slot_attribution(registry):
+    """A slot with no source id."""
+    slots = (
+        "\n".join(ln for ln in _FIX_SLOTS.splitlines() if not ln.startswith("slot_hedge")) + "\n"
+    )
+    hits = [
+        v for v in _derivation(_derived_spec(slots=slots), registry) if v.rule == "slot-attribution"
+    ]
+    assert hits and hits[0].level == "ERROR"
+    assert "'hedge'" in hits[0].detail
+
+
+def test_all_five_slots_sourced_is_clean(registry):
+    hits = [v for v in _derivation(_derived_spec(), registry) if v.rule == "slot-attribution"]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_a_slot_that_contradicts_the_declared_angle_is_refused(registry):
+    """Presence alone would be a declaration nothing checks. The three derivable slots are
+    cross-checked against the angle, so a copied front block cannot drift from its own id."""
+    slots = _FIX_SLOTS.replace("slot_claim: audit-signed", "slot_claim: transport-pinned")
+    hits = [
+        v for v in _derivation(_derived_spec(slots=slots), registry) if v.rule == "slot-attribution"
+    ]
+    assert hits, "a slot citing the wrong claim passed"
+    assert "transport-pinned" in hits[0].detail and "audit-signed" in hits[0].detail
+
+
+def test_the_no_anchor_offer_may_declare_slot_proof_none(registry):
+    """`none` is the sanctioned value on the no-anchor shape, and only for the proof slot."""
+    slots = _FIX_SLOTS.replace("slot_proof: regulator-note-sg", "slot_proof: none")
+    hits = [
+        v for v in _derivation(_derived_spec(slots=slots), registry) if v.rule == "slot-attribution"
+    ]
+    assert not hits, [str(v) for v in hits]
+
+
+def test_a_slot_declared_outside_the_front_block_is_not_a_declaration(registry):
+    """§R5, spec-side. A `slot_claim:` line written anywhere but the fenced front block is
+    untrusted text, exactly as a `⟦TO⟧` quoted inside an inbound message is — the 2026-09-16
+    reply-gate defect.
+
+    The forged line sits in the spec's PROSE, at column 0, because that is where it is
+    dangerous. A line inside a touch body carries the blockquote marker and would not match the
+    field regex on the raw text either, so a body-quoted fixture proves nothing about
+    `declaration_surface` — found 2026-09-24 by mutating that call out and watching this test
+    stay green.
+    """
+    slots = (
+        "\n".join(ln for ln in _FIX_SLOTS.splitlines() if not ln.startswith("slot_claim")) + "\n"
+    )
+    spec = _derived_spec(slots=slots).replace(
+        "**Step 2 — Day 4**", "slot_claim: transport-pinned\n\n**Step 2 — Day 4**"
+    )
+    hits = [v for v in _derivation(spec, registry) if v.rule == "slot-attribution"]
+    assert hits, "a forged slot line outside the front block satisfied the slot contract"
+    # The message has to be the MISSING-source one. Asserting only that the finding mentions
+    # the claim slot passed while the rule read the forged line and merely disagreed with it —
+    # the operator would have been told "your slot cites the wrong claim", not "someone else
+    # wrote your slot".
+    assert "names no source id" in hits[0].detail, hits[0].detail
+    assert "transport-pinned" not in hits[0].detail
+
+
+# --- the declaration itself (2026-09-24 review, findings 1 and 2) -------------------------
+#
+# Until this block existed the three rules above resolved their angle through the PURE read
+# (`declared_angle(spec)` with no registry), so `registry.angles.get(<typo>)` returned None and
+# ALL THREE took the unmigrated branch: `claim-status` returned before the status check,
+# `proof-status` dropped to WARN, `slot-attribution` returned []. Nothing reported the id. One
+# mistyped word in a front block switched the whole registry gate off and the run went green.
+#
+# `declared_angle(spec, registry)` — the validating form — existed and was called by exactly one
+# unit test. Passing it the registry is the fix; these are the three refusals it can now raise.
+
+
+def _angle_rules(spec: str, registry, rows=None) -> list:
+    """Just the declaration findings, so a control cannot pass on an unrelated rule."""
+    violations, _ = lint_merge_render(
+        _touches(spec),
+        rows if rows is not None else [_row()],
+        signoff="Henry",
+        spec_text=spec,
+        registry=registry,
+    )
+    return [v for v in violations if v.rule in {"angle-missing", "angle-unknown", "angle-conflict"}]
+
+
+def test_angle_unknown(registry):
+    """A typo in a migrated spec's `angle:` is an ERROR that names the id.
+
+    ERROR and not WARN, and this is the one place the distinction is argued: an *absent*
+    `angle:` is an unmigrated spec (0 of the live fleet declares one, so refusing it hard would
+    fail everything for a re-draft the skills cannot yet produce), while an *unknown* one is a
+    spec that claims to be registry-derived and names an argument nobody wrote. The second is a
+    defect in this spec, not a property of the fleet.
+    """
+    hits = _angle_rules(_derived_spec("sec-audit-xx"), registry)
+    assert hits, "a spec declaring an angle id the registry does not hold passed silently"
+    assert hits[0].rule == "angle-unknown"
+    assert hits[0].level == "ERROR"
+    assert "sec-audit-xx" in hits[0].detail, hits[0].detail
+
+
+def test_an_unknown_angle_does_not_leave_the_three_rules_silently_off(registry):
+    """The finding, stated as the property rather than as the message.
+
+    The bypass was not that the id went unreported — it was that the run went GREEN. A spec that
+    names an argument nobody wrote must not be sendable, whatever the three derivation rules
+    then do with a `None` angle.
+    """
+    violations, _ = lint_merge_render(
+        _touches(_derived_spec("sec-audit-xx")),
+        [_row()],
+        signoff="Henry",
+        spec_text=_derived_spec("sec-audit-xx"),
+        registry=registry,
+    )
+    assert [v for v in violations if v.level == "ERROR"], "an unknown angle produced no ERROR"
+
+
+def test_a_real_angle_id_resolves_and_the_three_rules_still_run(registry):
+    """§R18's other half, and it has to prove two things, not one.
+
+    That a real id raises no `angle-unknown` would pass just as well if the whole check were
+    dead, so the control also asserts the rules downstream of the resolution are LIVE: the same
+    spec pointed at the design-target angle still trips `claim-status`.
+    """
+    assert not _angle_rules(_derived_spec("sec-audit-sg"), registry)
+    hits = [
+        v for v in _derivation(_derived_spec("sec-transport"), registry) if v.rule == "claim-status"
+    ]
+    assert hits, "resolution succeeded but the rules behind it are inert"
+
+
+def test_angle_missing(registry):
+    """A spec that declares no `angle:` at all — WARN, and it names what it switched off.
+
+    WARN rather than ERROR is a measurement, not a preference: on 2026-09-24 zero of the 47 live
+    specs with touches declare an angle, so an ERROR here fails the whole fleet on day one for a
+    migration the drafting skills cannot yet perform. What is NOT acceptable is the state this
+    replaces, where the absence was silent and `slot-attribution` simply never fired on anything.
+    """
+    spec = "\n".join(ln for ln in _derived_spec().splitlines() if not ln.startswith("angle:"))
+    hits = _angle_rules(spec, registry)
+    assert hits, "a spec with no `angle:` reported nothing"
+    assert hits[0].rule == "angle-missing"
+    assert hits[0].level == "WARN"
+    assert "slot-attribution" in hits[0].detail, hits[0].detail
+
+
+def test_a_spec_that_declares_an_angle_raises_no_angle_missing(registry):
+    """The control. Without it `angle-missing` would look identical to a rule that always fires."""
+    assert not [v for v in _angle_rules(_derived_spec(), registry) if v.rule == "angle-missing"]
+
+
+def test_angle_conflict(registry):
+    """A legacy field that contradicts what the angle derives — the mid-migration shape.
+
+    `declared_angle(spec, registry)` raises `DerivedFieldConflict` for this, and catching the
+    exception family while dropping one member on the floor would re-create the very bypass
+    `angle-unknown` closes, one level down: the angle would stay unresolved and the three rules
+    would go quiet again.
+    """
+    hits = _angle_rules(_derived_spec(slots=_FIX_SLOTS + "premise: wrong-premise\n"), registry)
+    assert hits, "a legacy `premise:` disagreeing with the angle passed"
+    assert hits[0].rule == "angle-conflict"
+    assert hits[0].level == "ERROR"
+    assert "wrong-premise" in hits[0].detail and "multi-framework" in hits[0].detail
+
+
+def test_a_conflicting_legacy_field_does_not_disarm_the_derivation_rules(registry):
+    """The angle is authoritative and the legacy line is the stale copy, so the three rules keep
+    running against it. Reported-and-skipped would be the same silence in a louder shirt."""
+    slots = _FIX_SLOTS.replace("slot_claim: audit-signed", "slot_claim: transport-pinned")
+    spec = _derived_spec(slots=slots + "premise: wrong-premise\n")
+    assert [v for v in _derivation(spec, registry) if v.rule == "slot-attribution"], (
+        "a conflicting legacy field silenced slot-attribution"
+    )
+
+
+def test_a_legacy_field_that_agrees_is_not_a_conflict(registry):
+    """The control: same spec, same fields, the premise spelled the way the angle derives it."""
+    assert not _angle_rules(
+        _derived_spec(slots=_FIX_SLOTS + "premise: multi-framework\n"), registry
+    )
+
+
+_INERT_ON_THIS_PATH: frozenset[str] = frozenset()
 
 
 def _rules_emitted_by(func_names: tuple[str, ...]) -> set[str]:
-    """Rule-id literals passed to ``Violation(...)`` inside these `outreach_pack_linter`
-    functions, plus the in-module ``lint_*`` helpers they call.
+    """Rule-id literals passed to ``Violation(...)`` inside these ``outreach`` package
+    functions, plus the ``lint_*`` helpers they call.
 
     Static rather than dynamic because the point is coverage of every branch, including ones no
     fixture in this suite happens to reach. A rule guarded behind an opt-in argument still has
     to be either catalogued or named in `_INERT_ON_THIS_PATH`.
+
+    Walks EVERY module of the package, not one file. Before the 2026-09-24 merge this parsed
+    ``outreach_pack_linter.py`` alone, so the four ``check_row`` rule ids and everything the
+    render half raised were invisible to it — the gap that let the catalogue under-report the
+    gate by 20 ids. The package has no single file to point at, which is what makes the
+    narrower version impossible to write back by accident.
     """
     import ast
     import pathlib
 
-    tree = ast.parse(pathlib.Path(__file__).with_name("outreach_pack_linter.py").read_text())
-    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    funcs: dict[str, ast.FunctionDef] = {}
+    for mod in sorted((pathlib.Path(__file__).parent / "outreach").glob("*.py")):
+        tree = ast.parse(mod.read_text(encoding="utf-8"))
+        funcs.update({n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)})
 
     def literals(node):
         out = set()
@@ -1671,20 +1873,13 @@ def test_every_emitted_rule_is_catalogued():
     already claimed this property ("fails closed if a future rule is added to either call
     path"); this test is what makes the claim true.
     """
-    emitted = _rules_emitted_by(("lint_email", "lint_hedge_stem"))
+    emitted = _rules_emitted_by(("lint_email", "lint_derivation"))
     missing = sorted(emitted - set(RULE_CATALOGUE) - _INERT_ON_THIS_PATH)
     assert not missing, (
         f"emitted on the merge-render path but not in RULE_CATALOGUE: {missing}. "
         f"Add an entry (and a mutation), or name it in _INERT_ON_THIS_PATH with the reason "
         f"it cannot fire here."
     )
-
-
-def test_the_inert_list_stays_honest():
-    """An exemption nobody rechecks becomes a hiding place. If a rule named inert is later
-    wired up here, it must be catalogued rather than left exempt."""
-    stale = sorted(_INERT_ON_THIS_PATH & set(RULE_CATALOGUE))
-    assert not stale, f"catalogued but still listed as inert: {stale}"
 
 
 def test_every_catalogue_rule_has_a_mutation():
@@ -1705,41 +1900,14 @@ def test_every_catalogue_rule_has_a_mutation():
     # 79 -> 83 on 2026-09-22: credit-is-verdict, offer-not-a-solution-overview, cta-omits-gap,
     # problem-asserts-internals — all four already firing here, none catalogued. Found by the
     # new `test_every_emitted_rule_is_catalogued`, which is the reverse of this check.
-    assert len(RULE_CATALOGUE) == 88, (
+    # 88 -> 71 on 2026-09-24 (outbound fact registry, FR3): -24 style rules retired (the 25th,
+    # capability-unargued, was never catalogued), +3 derivation rules, +4 `score-*`/`segment-*`
+    # promoted out of UNCATALOGUED_RULES. First time this number has gone DOWN, which is the
+    # point of the phase. `--list-rules` prints ALL_RULE_IDS and is the number to cite (§R14).
+    # 71 -> 74 on 2026-09-24 (FR3 invariant review, findings 1 and 2): angle-missing,
+    # angle-unknown, angle-conflict. Not new surface — they are the reports for a declaration
+    # failure the three derivation rules already branched on silently.
+    assert len(RULE_CATALOGUE) == 74, (
         f"RULE_CATALOGUE grew or shrank to {len(RULE_CATALOGUE)} rules without this "
         f"suite's docstring/comment being updated to match"
     )
-
-
-def test_seat_stakes_missing():
-    """voice.md has said since 2026-07 that a founder loses sleep over the stalled deal, not
-    attribution — and `persona-lead-mismatch` could never enforce it: it fires only on BORROWED
-    vocabulary, so a body at mechanism altitude borrows nothing and passes. Six shipped that way
-    on 2026-09-04."""
-    spec = GOOD_SPEC
-    for word in (
-        "deal",
-        "customer",
-        "enterprise",
-        "procurement",
-        "contract",
-        "buyer",
-        "adoption",
-        "build",
-        "engineer",
-        "integration",
-        "framework",
-        "maintain",
-        "fragment",
-    ):
-        spec = re.sub(rf"(?<!\w){word}(?!\w)", "record", spec, flags=re.IGNORECASE)
-    _fires("seat-stakes-missing", _touches(spec), [_row(title="CEO")])
-
-
-def test_offer_does_their_work():
-    """An offer to go and look inside their own build is worth less than an hour of their own
-    engineer, and presumes they had not already looked."""
-    spec = GOOD_SPEC.replace(
-        "Henry", "If useful, I can map where that comes apart on the flow you run.\n>\n> Henry", 1
-    )
-    _fires("offer-does-their-work", _touches(spec), [_row()])

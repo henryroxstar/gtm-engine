@@ -26,7 +26,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 | `competitive-positioning` | battlecard | 1 |
 | `content-priority` | content-plan, format-router | 2 |
 | `deck-composer` | build-deck | 1 |
-| `gift-artifacts` | draft-outreach, email-sequence | 2 |
+| `gift-artifacts` | draft-outreach | 1 |
 | `guidance/*` | airq-scan, linkedin-reply, solution-design, solution-discovery | 4 |
 | `hook-matrix` | airq-scan, campaign-plan, draft-outreach, email-sequence, linkedin-reply, prospect | 6 |
 | `icp-personas` | account-dossier, account-plan, build-deck, builder-studio, call-prep, carousel-pdf, content-plan, content-studio, deck-research, draft-outreach, email-sequence, events-tracker, gtm-planning, linkedin-engagers, linkedin-reply, market-scan, prospect, solution-discovery | 18 |
@@ -37,7 +37,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 | `outreach-banned-stems` | draft-outreach, email-sequence, prospect | 3 |
 | `outreach-case-studies` | draft-outreach, email-sequence, prospect | 3 |
 | `partner-program` | consulting-partner-brief | 1 |
-| `product` | account-dossier, account-plan, battlecard, build-deck, call-prep, carousel-pdf, consulting-partner-brief, deck-research, demo-narrative, draft-outreach, email-sequence, events-tracker, gateway-runbook, gtm-planning, linkedin-reply, poc-plan, product-partner-brief, prospect, solution-design, solution-discovery | 20 |
+| `product` | account-dossier, account-plan, battlecard, build-deck, call-prep, carousel-pdf, consulting-partner-brief, deck-research, demo-narrative, draft-outreach, email-sequence, events-tracker, gateway-runbook, gtm-planning, linkedin-reply, poc-plan, product-partner-brief, solution-design, solution-discovery | 19 |
 | `security-answers` | security-review | 1 |
 | `sending-infrastructure` | email-sequence | 1 |
 | `shared-phrases` | draft-outreach, email-sequence, prospect | 3 |
@@ -82,7 +82,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 | diagram-design | — |
 | draft-outreach | `adversary-testing/*`, `adversary-testing/objection-digest`, `case-studies`, `gift-artifacts`, `hook-matrix`, `icp-personas`, `industry/*`, `outreach-banned-stems`, `outreach-case-studies`, `product`, `shared-phrases`, `use-cases/*`, `voice`, `voice-bans` |
 | email-quality | — |
-| email-sequence | `adversary-testing/*`, `adversary-testing/objection-digest`, `case-studies`, `gift-artifacts`, `hook-matrix`, `icp-personas`, `industry/*`, `outreach-banned-stems`, `outreach-case-studies`, `product`, `sending-infrastructure`, `shared-phrases`, `use-cases/*`, `voice`, `voice-bans` |
+| email-sequence | `adversary-testing/*`, `adversary-testing/objection-digest`, `case-studies`, `hook-matrix`, `icp-personas`, `industry/*`, `outreach-banned-stems`, `outreach-case-studies`, `product`, `sending-infrastructure`, `shared-phrases`, `use-cases/*`, `voice`, `voice-bans` |
 | events-tracker | `icp-personas`, `product` |
 | format-router | `content-priority` |
 | gateway-runbook | `company`, `product` |
@@ -102,7 +102,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 | poc-plan | `product` |
 | product-partner-brief | `brand-notes`, `company`, `product` |
 | profile-onboard | `voice-bans` |
-| prospect | `case-studies`, `hook-matrix`, `icp-personas`, `industry/*`, `market-scan-config`, `outreach-banned-stems`, `outreach-case-studies`, `product`, `shared-phrases`, `voice`, `voice-bans` |
+| prospect | `case-studies`, `hook-matrix`, `icp-personas`, `industry/*`, `market-scan-config`, `outreach-banned-stems`, `outreach-case-studies`, `shared-phrases`, `voice`, `voice-bans` |
 | reddit-reply | `social-tuning`, `voice`, `voice-bans` |
 | security-review | `company`, `security-answers` |
 | seo-audit | — |
@@ -133,7 +133,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 
 Managed knowledge files present in the profile skeleton that **no skill reads** — either dead knowledge to retire, or a source not yet wired into any skill. (Per-profile orphans for the tail topics live behind `coverage --profile <p>`.)
 
-_None — every `_template` managed topic is read by at least one skill._
+- `voice-video`
 
 ## Dangling references (skills read them, `_template` doesn't provide them)
 

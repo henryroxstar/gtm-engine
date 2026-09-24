@@ -32,6 +32,7 @@ from gtm_core.email_campaign_dashboard.views_worklist import (
     _staged_candidates,
     _worklist_view,
 )
+from gtm_core.prospect_status import LABELS
 
 GROUP_IDS = [g for g, _, _ in GROUPS]
 
@@ -263,7 +264,7 @@ def test_row_html_shows_the_status_word_joined_by_email():
             "by_email": {"a@northgate.example": "ready_to_send"},
         }
     }
-    assert "Ready to send" in _row_html(m, row, "held", {})
+    assert LABELS["ready_to_send"] in _row_html(m, row, "held", {})
 
 
 def test_row_html_reads_not_yet_routed_for_an_address_the_router_never_saw():
@@ -305,7 +306,7 @@ def test_the_worklist_table_carries_a_status_column_and_marks_research_verdict_t
     html = _worklist_view(m)
     assert "<th>Status</th>" in html
     assert '<th class="tech">Research verdict</th>' in html
-    assert "Ready to send" in html
+    assert LABELS["ready_to_send"] in html
     # One column added (Account/Status/Contact/Email/Verified/Research verdict/Where it
     # stands = 7) — the group-header row's colspan must grow with the table or it will not
     # span every column.

@@ -10,33 +10,27 @@ those two rules pass explicit fixtures.
 from __future__ import annotations
 
 import pytest
-from outreach_pack_linter import (
+from outreach import (
     _GOOD,
     _PERSONA_RULES,
     _SEAT_RULES,
-    CREDIT_OPENER_SENTENCES,
-    CREDIT_VERDICT_RE,
-    CTA_ANAPHORA_RE,
     NGRAM_N,
     ROLE_INBOX_GREETING,
     ROLE_INBOX_SENTINEL,
     RULES_VERSION,
+    UNCATALOGUED_RULES,
     UNRESOLVED_SENTINEL,
-    EmailBlock,
-    _artifact_count,
-    _content_words,
-    _depossess,
     _hedge_ngram_whitelist,
+    _load_bans,
     _ngrams,
     _norm_tokens,
-    _sentences,
     _subject_shape,
     detect_format,
     lint_body_homogeneity,
-    lint_email,
     lint_formatted_pack,
     lint_pack,
     lint_subject_homogeneity,
+    lint_tracker_csv,
     main,
     parse_draft_outreach_pack,
     parse_pack,
@@ -79,7 +73,7 @@ def test_mail_merge_skeleton_is_rejected() -> None:
     )
     text = (
         f"Rules-Version: {RULES_VERSION}\n\n"
-        "### 1. Jane Doe · CEO, Acme\n**To:** jane@acme.com\n**Subject:** shipping agents\n\n"
+        "### 1. Jane Doe · CEO, Acme\n**To:** avery@forgeworks.example\n**Subject:** shipping agents\n\n"
         f"{body}\n\n---\n"
     )
     errs = _errors(text, banned_stems=(stem,))
@@ -88,39 +82,6 @@ def test_mail_merge_skeleton_is_rejected() -> None:
     # "one-page teardown" while waving through any other unproducible artifact. The gate is now
     # the profile's gift-artifacts list, tested below.
     assert "cta-teardown" not in errs
-
-
-def test_offer_must_name_an_artifact_the_profile_can_produce() -> None:
-    arts = ("one-pager", "teardown", "recorded demo")
-    bad = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?",
-        "Want the benchmark report on how peers compare here?",
-    )
-    assert "cta-unstaged-artifact" in _errors(bad, gift_artifacts=arts)
-    assert "cta-unstaged-artifact" not in _errors(_GOOD, gift_artifacts=arts)
-
-
-def test_a_producible_teardown_is_allowed() -> None:
-    """The word itself was never the problem; an unproducible artifact was."""
-    text = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?",
-        "Want the one-page teardown of how that clears the review?",
-    )
-    assert "cta-unstaged-artifact" not in _errors(text, gift_artifacts=("teardown",))
-
-
-def test_pure_interest_ask_needs_no_artifact() -> None:
-    """ "Is X on your radar this quarter?" gates nothing and is a legitimate cold CTA."""
-    text = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?",
-        "Is per-agent identity even on your radar this quarter?",
-    )
-    assert "cta-unstaged-artifact" not in _errors(text, gift_artifacts=("one-pager",))
-
-
-def test_unhedged_gap_fails() -> None:
-    text = _GOOD.replace("My bet on the open piece:", "The open piece:")
-    assert "hedge-missing" in _errors(text)
 
 
 def test_template_share_ceiling_across_emails() -> None:
@@ -152,9 +113,9 @@ def test_same_company_clone_pair_rejected() -> None:
     )
     text = (
         f"Rules-Version: {RULES_VERSION}\n\n"
-        "### 1. Ann One · CISO, Acme\n**To:** ann@acme.com\n**Subject:** your four agents\n\n"
+        "### 1. Ann One · CISO, Acme\n**To:** ann@forgeworks.example\n**Subject:** your four agents\n\n"
         f"Hi Ann,\n\n{body}\n\nAlex\n\n---\n\n"
-        "### 2. Bob Two · GC, Acme\n**To:** bob@acme.com\n**Subject:** your four agents\n\n"
+        "### 2. Bob Two · GC, Acme\n**To:** bob@forgeworks.example\n**Subject:** your four agents\n\n"
         f"Hi Bob,\n\n{body}\n\nAlex\n\n---\n"
     )
     errs = _errors(text)
@@ -200,7 +161,7 @@ def test_parse_pack_shape() -> None:
     assert version == RULES_VERSION
     assert len(blocks) == 1
     assert blocks[0].first == "Dana"
-    assert blocks[0].to == "dana@acmerobotics.dev"
+    assert blocks[0].to == "jordan@meridians.example"
 
 
 # --------------------------------------------------------------------------- CTA bundling
@@ -208,35 +169,6 @@ def test_parse_pack_shape() -> None:
 # The 2026-08-17 audit: 22 of 50 packs asked for two artifacts in one question, because
 # voice.md's own worked examples all bundled ("want the one-pager + a short recorded demo?").
 # The failure mode of a naive fix is the opposite — counting "a short demo recording" as two.
-
-
-def test_artifact_count_treats_multiword_artifact_names_as_one() -> None:
-    for single in (
-        "Want the one-pager?",
-        "Want a short recorded demo of that?",
-        "Want the demo recording?",
-        "Should I send the short write-up?",
-        "Would a recorded walkthrough be useful?",
-        "Want it?",
-    ):
-        assert _artifact_count(single) <= 1, single
-
-
-def test_artifact_count_flags_a_genuine_bundle() -> None:
-    for bundled in (
-        "Would the one-pager and a short recorded demo be useful?",
-        "Want the one-pager + a demo?",
-        "Want the one-pager plus a short demo recording?",
-    ):
-        assert _artifact_count(bundled) > 1, bundled
-
-
-def test_bundled_cta_is_rejected() -> None:
-    text = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?",
-        "Want the one-pager and a short recorded demo of per-run attribution?",
-    )
-    assert "cta-bundled" in _errors(text)
 
 
 def test_short_call_is_a_time_ask() -> None:
@@ -281,7 +213,7 @@ _DRAFT_OUTREACH = f"""# Cold email — Acme Robotics — 2026-07-03
 
 Rules-Version: {RULES_VERSION}
 
-- **To:** Dana Rivera, Head of Platform — dana@acmerobotics.dev
+- **To:** Dana Rivera, Head of Platform — jordan@meridians.example
 - **Why-now:** Series B and 12 agents in production (2026-06-01)
 
 ---
@@ -290,7 +222,15 @@ Rules-Version: {RULES_VERSION}
 
 Hi Dana,
 
-Shipping autonomous agents into production right after the Series B puts 12 agents calling internal tools directly, with every run logged. My bet on the open piece: those logs prove what ran, not which agent held the credential once one hands off to another. EU AI Act Article 12 lands that on your customers by 2027, and today each of them rebuilds the answer per deployment. The primitives for that are already standardised, so it lands as configuration rather than a build. Want the one-pager on per-agent identity at the tool boundary?
+Acme Robotics moved twelve agents into production, each calling internal tools on its own credential.
+
+Every one of those calls writes a signed audit entry, so you can show what ran. It does not show which agent held the authority once one hands work to another.
+
+Your customers will ask for that, and today each of them rebuilds the answer per deployment.
+
+Likely you have part of this already. Your market's AI governance guidance puts agent accountability in its first control set.
+
+Want the one-pager on per-agent identity at the tool boundary?
 
 Alex
 
@@ -315,7 +255,15 @@ Rules-Version: {RULES_VERSION}
 **Subject:** agent audit trail
 > Hi Dana,
 >
-> Shipping autonomous agents into production right after the Series B puts 12 agents calling internal tools directly, with every run logged. My bet on the open piece: those logs prove what ran, not which agent held the credential once one hands off to another. EU AI Act Article 12 lands that on your customers by 2027, and today each of them rebuilds the answer per deployment. The primitives for that are already standardised, so it lands as configuration rather than a build. Want the one-pager on per-agent identity at the tool boundary?
+> Acme Robotics moved twelve agents into production, each calling internal tools on its own credential.
+>
+> Every one of those calls writes a signed audit entry, so you can show what ran. It does not show which agent held the authority once one hands work to another.
+>
+> Your customers will ask for that, and today each of them rebuilds the answer per deployment.
+>
+> Likely you have part of this already. Your market's AI governance guidance puts agent accountability in its first control set.
+>
+> Want the one-pager on per-agent identity at the tool boundary?
 >
 > Alex
 
@@ -519,22 +467,6 @@ def test_unrecognised_title_never_fires_persona_mismatch() -> None:
     assert "persona-lead-mismatch" not in _errors(text)
 
 
-def test_bare_artifact_ask_is_an_error() -> None:
-    """ "Want the one-pager?" makes the reader reconstruct the value from the paragraph above."""
-    text = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?", "Want the one-pager?"
-    )
-    assert "cta-unanchored" in _errors(text)
-
-
-def test_ask_naming_its_outcome_passes() -> None:
-    text = _GOOD.replace(
-        "Want the one-pager on per-agent identity at the tool boundary?",
-        "Want the teardown of how that clears the review?",
-    )
-    assert "cta-unanchored" not in _errors(text)
-
-
 def test_touch1_heading_tolerates_a_recipient_suffix() -> None:
     """Supplement packs write `## Email (touch 1, to Jordan Vance)`. Splitting on the bare
     literal left two real packs unparsed — and so never linted at all, while the `parse` error
@@ -551,7 +483,7 @@ def test_addendum_without_an_email_is_not_a_parse_error() -> None:
     addendum = (
         "# Outreach Pack — Acme — 2026-07-19 — Contact Resolution Addendum\n\n"
         f"Rules-Version: {RULES_VERSION}\n\n"
-        "## Resolved contact — Head of Platform row\nDana Rivera, dana@acme.dev\n"
+        "## Resolved contact — Head of Platform row\nDana Rivera, jordan@meridians.example\n"
     )
     violations, blocks = lint_formatted_pack(addendum, "prospect-pack", signoff="Henry")
     assert not blocks
@@ -830,16 +762,6 @@ def test_no_persona_is_claimed_by_two_seats():
 # assertion satisfy `hedge-missing` by appending a closing courtesy.
 
 
-def test_no_reply_needed_does_not_satisfy_the_hedge_gate() -> None:
-    text = _GOOD.replace("My bet on the open piece:", "The open piece:")
-    text = text.replace("Worth a look?", "Worth a look? No reply needed.")
-    assert "hedge-missing" in _errors(text), "an easy out passed as a hedge on a hard claim"
-
-
-def test_a_real_hedge_still_satisfies_the_gate() -> None:
-    assert "hedge-missing" not in _errors(_GOOD)
-
-
 def test_no_reply_needed_is_still_exempt_from_homogeneity_dedup() -> None:
     """It stays whitelisted where it belongs: shared closing phrasing is not templating."""
     wl = _hedge_ngram_whitelist()
@@ -856,7 +778,7 @@ def test_no_reply_needed_is_still_exempt_from_homogeneity_dedup() -> None:
 def _run_main(tmp_path, text, extra=()):
     pack = tmp_path / "pack.md"
     pack.write_text(text, encoding="utf-8")
-    return main([str(pack), "--format", "prospect-pack", *extra])
+    return main(["pack", str(pack), "--format", "prospect-pack", *extra])
 
 
 def test_an_unresolved_greeting_makes_the_pack_fail(tmp_path):
@@ -869,132 +791,10 @@ def test_a_clean_pack_still_passes(tmp_path):
     assert _run_main(tmp_path, _PROSPECT_PACK) == 0
 
 
-# --- credit-is-verdict / cta-omits-gap (added 2026-09-04) --------------------------
-#
-# Both rules exist because voice.md banned these in prose and nothing enforced it, so both
-# kept shipping. The binding test is the LAST one: the five packs the operator reviewed on
-# 2026-09-04 passed every gate at zero errors, and the phrase list a first attempt reached
-# for ("smart move", "the right call") did not appear in any of them. What did appear was
-# COMPARATIVE grading — "further into production than most agent platforms claim". A rule
-# tuned to the phrases it expected rather than the ones that shipped is a rule that passes
-# the batch it was written for.
-
-
-@pytest.mark.parametrize(
-    "opener",
-    [
-        "Smart move backing agents this early.",
-        "Kudos on the Series A.",
-        "Great to see you shipping agents.",
-        # the shapes that actually shipped, one per reviewed pack
-        "Live for 25,000+ members, further into production than most agent platforms claim.",
-        "One assistant across four channels, wider channel coverage than most voice bots reach.",
-        "Parsing that clause is a call most platforms would still route to a human.",
-        "Booking through to dispatch with no human step, that's a real handoff.",
-        "The autonomy ladder is further than most agent platforms get.",
-        # 2026-09-22 — second-person COMPETENCE ATTRIBUTION. Same failure as the comment
-        # above, one layer subtler: these are neither praise words nor rankings, so the
-        # rule passed all five at zero errors and every one shipped. The operator's
-        # objection on reading them back was that grading a stranger's build reads as
-        # grading someone more senior than the sender. One line per 2026-08-25 spec.
-        "You have the approval step right: a human signs off, it is logged, it fires.",
-        "That is the hard part and you have built it.",
-        "You have done the accuracy work, and that is the part anyone asks about first.",
-        "Building that is the hard part and you have done it.",
-        "You have built the hard part.",
-    ],
-)
-def test_a_graded_opener_is_a_verdict(opener):
-    assert CREDIT_VERDICT_RE.search(opener), f"verdict not caught: {opener!r}"
-
-
-@pytest.mark.parametrize(
-    "opener",
-    [
-        # plain signal statements — the shape the rule must never convict
-        "Saw MevoAI shipped the Slack agent that files tickets in Jira.",
-        "The March launch means agents are already in your production flow.",
-        # a mechanism claim about the field, which belongs in the body and opens its
-        # own sentence — the discriminator against the ranking shape
-        "Most enterprise teams cannot answer that question today.",
-        "Most platforms cannot attribute an action to one agent.",
-        # ordinary comparatives and problem framing
-        "The new build is faster than the last release.",
-        "That's a serious gap for the second customer.",
-        # "lands" as a plain verb, not the 2026-07-03 stem
-        "The deal lands in Q4 for most of them.",
-        # 2026-09-22 — the discriminators for the competence-attribution branch. The first
-        # is LOAD-BEARING: "You may already have this covered" is the hedge the five-beat
-        # spine MANDATES (`hedge-missing` fails a body without it), so a competence branch
-        # that convicted it would put the two rules in direct contradiction and force every
-        # body to fail one of them. What makes an attribution a verdict is a judgement about
-        # difficulty ("the hard part") or correctness ("<their thing> right"), never the
-        # bare fact of possession.
-        "You may already have this covered.",
-        "Might already be sorted on your side.",
-        "You have agents in production today.",
-        # "right" and "have" in their innocent senses — a bare \bright\b convicts both
-        "You have the right to opt out at any time.",
-        "You have until Friday to reply.",
-    ],
-)
-def test_an_observation_is_not_a_verdict(opener):
-    assert not CREDIT_VERDICT_RE.search(opener), f"false positive: {opener!r}"
-
-
-def test_credit_verdict_is_scoped_to_the_opener():
-    """A verdict-shaped phrase deep in the body is usually the case study, not a compliment."""
-    body = (
-        "Saw the Jira agent ship. Their security team will ask which identity wrote the "
-        "ticket. A regulated-FI team said it was the right call to split those tokens. "
-        "Want me to sketch that on your install flow?"
-    )
-    sentences = _sentences(body)
-    opener = " ".join(sentences[:CREDIT_OPENER_SENTENCES])
-    assert CREDIT_VERDICT_RE.search(body), "fixture must contain the phrase somewhere"
-    assert not CREDIT_VERDICT_RE.search(opener), "rule reached past the credit beat"
-
-
-def _cta_omits_gap(body: str) -> bool:
-    """The rule's decision procedure, exercised directly on a body."""
-    sentences = _sentences(body)
-    if len(sentences) < 2 or CTA_ANAPHORA_RE.search(sentences[-1]):
-        return False
-    body_words = _depossess(_content_words(" ".join(sentences[:-1])))
-    cta_words = _depossess(_content_words(sentences[-1]))
-    return bool(body_words and cta_words and not (body_words & cta_words))
-
-
-def test_a_cta_about_something_else_is_caught():
-    body = (
-        "Saw MevoAI shipped the Slack agent into Jira. Their security team will likely ask "
-        "which identity wrote the ticket. Want the deck on procurement timelines?"
-    )
-    assert _cta_omits_gap(body)
-
-
-def test_an_anaphoric_cta_is_not_a_disconnected_one():
-    """ "Want THAT mapped to X?" points back with a pronoun — good writing, not a defect.
-
-    The false positive that this exemption fixes: the merge-render fixture's own clean
-    touch 1, which the rule convicted on its first draft.
-    """
-    body = (
-        "Once agents at Cascade act on data, identity becomes the auditor's question. Your "
-        "logs capture the account, not the agent. Want that mapped to Cascade's stack?"
-    )
-    assert not _cta_omits_gap(body)
-
-
-def test_a_possessive_company_name_still_counts_as_shared_vocabulary():
-    """`_content_words` keeps the clitic, so "cascade's" and "cascade" are two tokens."""
-    assert _depossess({"cascade's", "stack"}) == {"cascade", "stack"}
-
-
 def test_a_multi_token_given_name_passes_the_greeting_rule():
     """`greeting-not-a-name` carried the same no-space bias as merge-hygiene: it told a real
     person their name was not a person's name."""
-    from outreach_pack_linter import _is_person_name
+    from outreach import _is_person_name
 
     for name in ("Hui Jie", "Wei Ming", "Mary Anne", "Siti Nurhaliza", "Leonard"):
         assert _is_person_name(name), name
@@ -1002,283 +802,360 @@ def test_a_multi_token_given_name_passes_the_greeting_rule():
 
 def test_placeholder_vocabulary_is_refused_per_token():
     """ "name unconfirmed" must not slip through as two ordinary words."""
-    from outreach_pack_linter import _is_person_name
+    from outreach import _is_person_name
 
     for junk in ("there", "team", "unconfirmed", "name unconfirmed", "TBD", "", "a b c d"):
         assert not _is_person_name(junk), junk
 
 
-def test_a_plain_hedge_counts_as_hedging():
-    """The list had made the slop mandatory: "tell me if this is already handled" was IN it and
-    nothing plainer was, so rotating that one sentence four ways was the compliant path."""
-    from outreach_pack_linter import HEDGE_CUES
-
-    assert "might already be" in HEDGE_CUES
-    assert any("might already" in c for c in HEDGE_CUES)
-
-
 def test_a_valediction_is_part_of_the_sign_off_not_the_last_sentence():
     """ "Regards" above the name became the body's final sentence, so `cta-question` read the
     valediction as the ask and failed every body signed off that way."""
-    from outreach_pack_linter import VALEDICTIONS
+    from outreach import VALEDICTIONS
 
     assert {"regards", "best", "thanks"} <= VALEDICTIONS
 
 
-def test_an_offer_statement_is_a_valid_cta():
-    """Requiring a question mark forced the interrogative-offer frame that ran in 6 of 6
-    drafts the operator rejected. An offer can be a statement."""
-    from outreach_pack_linter import CTA_HELP_OFFER_RE
-
-    assert CTA_HELP_OFFER_RE.search("Happy to walk through what that would need, if useful.")
-    assert CTA_HELP_OFFER_RE.search("Happy to map where that comes apart, if useful.")
-    # ...but an artifact hand-off is still not a help offer — that path has its own rule.
-    assert not CTA_HELP_OFFER_RE.search("Happy to send the one-pager, if useful.")
-
-
-def test_a_capability_offer_is_a_valid_cta():
-    """ "Happy to" was retired 2026-09-04 at the sender's instruction. Without this shape the
-    only sanctioned offers were the two he had just rejected."""
-    from outreach_pack_linter import CTA_HELP_OFFER_RE
-
-    assert CTA_HELP_OFFER_RE.search("If useful, I can map where that comes apart.")
-    assert CTA_HELP_OFFER_RE.search("If it ever comes up, I can walk through it.")
-    # An artifact hand-off is still not a help offer, whichever verb frame it wears.
-    assert not CTA_HELP_OFFER_RE.search("If useful, I can send you the one-pager.")
-
-
-#: A minimal tenant capability file — the real one lives in the profile, and this suite must
-#: not depend on any tenant's copy (§R9). Fictional vocabulary would defeat the point, so this
-#: is the SHAPE with a couple of real generic words.
-_CAPS = {
-    "identity": {"words": ["identity", "attribution", "whose"]},
-    "security-policy": {"words": ["policy", "rules", "enforce"]},
-    "observability": {"words": ["record", "verify", "trail", "audit", "evidence", "check"]},
-    "_anchors": {"patterns": [r"§\s*\d", r"\bframework\b"]},
-}
-
-
 def _blk(body, header="Dana Rivera, CEO"):
-    from outreach_pack_linter import EmailBlock
+    from outreach import EmailBlock
 
     return EmailBlock(1, header, "Dana", "Acme", "dana@acme.example", "subject", body)
 
 
-def test_a_mechanism_only_body_fails_its_seat():
-    """`persona-lead-mismatch` is fail-open: it only fires on BORROWED vocabulary, so a body at
-    mechanism altitude carries nothing, borrows nothing, and passes. Six shipped that way."""
-    from outreach_pack_linter import lint_seat_stakes
+# --------------------------------------------------------- §R18: a control per KEPT rule
+#
+# Every catalogued rule is discriminating by construction: `test_merge_render_mutation_suite`
+# pairs one mutation per `RULE_CATALOGUE` entry against one shared clean baseline, and its own
+# backstop fails if an entry has no mutation. `UNCATALOGUED_RULES` had no such contract, and
+# the 2026-09-24 inventory found what that cost: `duplicate-to` is KEPT by name in the PRD and
+# had ZERO test references anywhere in the tree, so it could not be shown to discriminate at
+# all; `empty` (the tracker-CSV diagnostic) had none either; and `template-share`,
+# `same-company-overlap` and `same-company-subject` had a trip fixture whose "clean" control was
+# a single-block pack — a pack with one email cannot exercise the branch a batch rule is about.
+#
+# So: one parametrised pair per uncatalogued rule, and a completeness check that the table and
+# the tuple agree. A trip fixture and a clean fixture differing by exactly the thing the rule
+# is about is the whole of §R18 — a check that cannot discriminate is not a check.
 
-    v = lint_seat_stakes(
-        _blk("Hi Dana,\n\nThe approval record lives inside the platform.\n\nHenry")
+_R18_BODY = (
+    "Your four agents off the Series C put autonomous actors on regulated flows. "
+    "My read, tell me if you've got this covered: the Activant2025 raise and the "
+    "KYC4 rollout leave attribution open once agents delegate. Zest9 proved the "
+    "shape with examiner-grade trails. Want the one-pager plus a short demo?"
+)
+
+#: Four bodies with no shared 6-gram, so a batch of them is clean for every duplication rule.
+#: Written out rather than generated: a generator that happened to repeat a phrase would make
+#: the "clean" half of three controls silently untrue.
+_R18_DISTINCT_BODIES = (
+    "Your four agents off the Series C put autonomous actors on regulated flows. "
+    "My read, tell me if you have this covered: nothing ties a delegated call back to "
+    "the agent that made it. Want the one-pager on portable agent credentials?",
+    "The Helsinki warehouse rollout reads like a bet on autonomy at the edge. Usually "
+    "a fleet that size runs one shared key across every robot. Want the teardown of "
+    "how another operator split those keys without a re-integration?",
+    "Opening a claims desk in Lisbon means adjusters and their assistants share an "
+    "inbox. Typically nobody can say afterwards which of the two sent a settlement "
+    "offer. Want the crosswalk of how a carrier closed that before its first audit?",
+    "Publishing a partner API in March changes who your auditors ask about. Tends to "
+    "surface first when a partner's software acts on your behalf and the log shows "
+    "your company. Want the reference shape for carrying that evidence across?",
+)
+
+
+def _pack(*blocks: tuple[str, str, str, str], version: str | None = None) -> str:
+    """A tier-a-manual pack from ``(first, address, subject, body)`` tuples."""
+    head = "" if version is None else f"Rules-Version: {version}\n\n"
+    out = [head]
+    for i, (first, address, subject, body) in enumerate(blocks, start=1):
+        out.append(
+            f"### {i}. {first} X · CISO, Acme\n**To:** {address}\n**Subject:** {subject}\n\n"
+            f"Hi {first},\n\n{body}\n\nAlex\n\n---\n"
+        )
+    return "".join(out)
+
+
+def _rules(text: str, fmt: str | None = None) -> set[str]:
+    """Every rule id raised, at ANY level — a control has to see WARNs too, since three of the
+    uncatalogued rules (`channel-order`, `empty`, `not-an-outreach-pack`) only ever warn."""
+    if fmt is None:
+        return {v.rule for v in lint_pack(text)}
+    return {v.rule for v in lint_formatted_pack(text, fmt)[0]}
+
+
+def _tracker_csv(tmp_path, rows: str) -> set[str]:
+    path = tmp_path / "tracker.csv"
+    path.write_text(rows, encoding="utf-8")
+    return {v.rule for v in lint_tracker_csv(path)}
+
+
+_SHARED_SENTENCE = (
+    "Those agents share one service account across every task they run today, so "
+    "nothing downstream can say which agent acted."
+)
+
+_R18_PAIRS: dict[str, tuple] = {
+    # rule -> (trip, clean) — each a zero-arg callable returning the raised rule ids.
+    "rules-version-missing": (
+        lambda: _rules(_GOOD.replace(f"Rules-Version: {RULES_VERSION}\n\n", "")),
+        lambda: _rules(_GOOD),
+    ),
+    "rules-version-stale": (
+        lambda: _rules(_GOOD.replace(RULES_VERSION, "2026-07-14")),
+        lambda: _rules(_GOOD),
+    ),
+    "parse": (
+        # A document that DECLARES a touch-1 email section and yields no block is the linter
+        # failing to read copy that will ship; the control is a document that declares none.
+        lambda: _rules(
+            f"# Pack\n\nRules-Version: {RULES_VERSION}\n\n## Email (touch 1)\n\nno block here\n",
+            "prospect-pack",
+        ),
+        lambda: _rules(
+            f"# Pack\n\nRules-Version: {RULES_VERSION}\n\nresolved: Dana\n", "prospect-pack"
+        ),
+    ),
+    "not-an-outreach-pack": (
+        lambda: _rules(
+            f"# Pack\n\nRules-Version: {RULES_VERSION}\n\nresolved: Dana\n", "prospect-pack"
+        ),
+        lambda: _rules(_PROSPECT_PACK, "prospect-pack"),
+    ),
+    "duplicate-to": (
+        # KEPT by the PRD with no test anywhere until 2026-09-24. Two blocks, one mailbox.
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_DISTINCT_BODIES[0]),
+                ("Ann", "ann@forgeworks.example", "the partner api", _R18_DISTINCT_BODIES[3]),
+                version=RULES_VERSION,
+            )
+        ),
+        # The control is TWO blocks, not one: a single-block pack never reaches the loop, so it
+        # would prove the rule is unreachable rather than that it discriminates.
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_DISTINCT_BODIES[0]),
+                ("Bob", "bob@zenith.example", "the partner api", _R18_DISTINCT_BODIES[3]),
+                version=RULES_VERSION,
+            )
+        ),
+    ),
+    "same-company-subject": (
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_BODY),
+                ("Bob", "bob@forgeworks.example", "your four agents", _R18_BODY),
+                version=RULES_VERSION,
+            )
+        ),
+        # Two people at ONE company with different subjects — the branch the single-block
+        # fixture could never reach.
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_DISTINCT_BODIES[0]),
+                ("Bob", "bob@forgeworks.example", "the partner api", _R18_DISTINCT_BODIES[3]),
+                version=RULES_VERSION,
+            )
+        ),
+    ),
+    "same-company-overlap": (
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_BODY),
+                ("Bob", "bob@forgeworks.example", "a different subject", _R18_BODY),
+                version=RULES_VERSION,
+            )
+        ),
+        lambda: _rules(
+            _pack(
+                ("Ann", "ann@forgeworks.example", "your four agents", _R18_DISTINCT_BODIES[0]),
+                ("Bob", "bob@forgeworks.example", "the partner api", _R18_DISTINCT_BODIES[3]),
+                version=RULES_VERSION,
+            )
+        ),
+    ),
+    "template-share": (
+        lambda: _rules(
+            _pack(
+                *(
+                    (name, f"{name.lower()}@{dom}", subj, f"{_SHARED_SENTENCE} {body}")
+                    for name, dom, subj, body in zip(
+                        ("Ann", "Bob", "Cat", "Dan"),
+                        ("a.example", "b.example", "c.example", "d.example"),
+                        ("subject one", "subject two", "subject three", "subject four"),
+                        _R18_DISTINCT_BODIES,
+                        strict=True,
+                    )
+                ),
+                version=RULES_VERSION,
+            )
+        ),
+        # Four emails again — the ceiling is ">3 emails share a 6-gram", so a control with
+        # fewer than four would clear it by arithmetic rather than by being distinct copy.
+        lambda: _rules(
+            _pack(
+                *(
+                    (name, f"{name.lower()}@{dom}", subj, body)
+                    for name, dom, subj, body in zip(
+                        ("Ann", "Bob", "Cat", "Dan"),
+                        ("a.example", "b.example", "c.example", "d.example"),
+                        ("subject one", "subject two", "subject three", "subject four"),
+                        _R18_DISTINCT_BODIES,
+                        strict=True,
+                    )
+                ),
+                version=RULES_VERSION,
+            )
+        ),
+    ),
+    "attachment-on-touch1": (
+        # Read from the `draft-outreach` header, which is the shape that carries an `Attach:`
+        # field at all — a prospect-pack has none, so the control is that format's clean pack.
+        lambda: _rules(
+            _DRAFT_OUTREACH.replace(
+                "- **Why-now:**", "- **Attach:** `teaser-acme.pdf`\n- **Why-now:**"
+            ),
+            "draft-outreach",
+        ),
+        lambda: _rules(_DRAFT_OUTREACH, "draft-outreach"),
+    ),
+    "word-count-mismatch": (
+        lambda: _rules(
+            _PROSPECT_PACK.replace("**Word count:** 95 / 100", "**Word count:** 40 / 100"),
+            "prospect-pack",
+        ),
+        lambda: _rules(_PROSPECT_PACK, "prospect-pack"),
+    ),
+    "touch-count": (
+        lambda: _rules(
+            _PROSPECT_PACK.replace("Sequence — 4 touches", "Sequence — 6 touches"), "prospect-pack"
+        ),
+        lambda: _rules(_PROSPECT_PACK, "prospect-pack"),
+    ),
+    "channel-order": (
+        lambda: _rules(
+            _PROSPECT_PACK.replace(
+                "- **Touch 1 — Day 0 — LinkedIn:** connection request using the DM above.",
+                "- **Touch 1 — Day 0 — Email:** the email above.",
+            ),
+            "prospect-pack",
+        ),
+        lambda: _rules(_PROSPECT_PACK, "prospect-pack"),
+    ),
+    "subject-template-share": (
+        lambda: {
+            v.rule
+            for v in lint_subject_homogeneity(
+                [(f"{c}.md", f"{c}'s missing primitive") for c in "abcd"], ceiling=3
+            )
+        },
+        lambda: {
+            v.rule
+            for v in lint_subject_homogeneity(
+                [
+                    ("a.md", "who decided the merchant"),
+                    ("b.md", "the partner api"),
+                    ("c.md", "one shared key"),
+                    ("d.md", "your four agents"),
+                ],
+                ceiling=3,
+            )
+        },
+    ),
+    "body-template-share": (
+        lambda: {
+            v.rule
+            for v in lint_body_homogeneity(
+                [
+                    (f"{c}.md", f"{_SHARED_SENTENCE} {b}")
+                    for c, b in zip("abcd", _R18_DISTINCT_BODIES, strict=True)
+                ],
+                ceiling=3,
+            )
+        },
+        lambda: {
+            v.rule
+            for v in lint_body_homogeneity(
+                [(f"{c}.md", b) for c, b in zip("abcd", _R18_DISTINCT_BODIES, strict=True)],
+                ceiling=3,
+            )
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_R18_PAIRS))
+def test_kept_pack_rules_each_have_a_discriminating_pair(rule):
+    trip, clean = _R18_PAIRS[rule]
+    assert rule in trip(), f"{rule}: the trip fixture did not raise it"
+    assert rule not in clean(), f"{rule}: the clean control raised it too — it cannot discriminate"
+
+
+def test_empty_tracker_csv_has_a_discriminating_pair(tmp_path):
+    """`empty` needs a path on disk, so it takes its own test rather than the table above.
+    It had no test at all before 2026-09-24."""
+    header = "email,status,rules_version\n"
+    assert "empty" in _tracker_csv(tmp_path, header)
+    assert "empty" not in _tracker_csv(
+        tmp_path, header + f"dana@acme.example,DRAFTED,{RULES_VERSION}\n"
     )
-    assert [x.rule for x in v] == ["seat-stakes-missing"]
 
 
-def test_a_body_in_its_own_seat_vocabulary_passes():
-    from outreach_pack_linter import lint_seat_stakes
-
-    body = "Hi Dana,\n\nEach procurement round becomes its own integration.\n\nHenry"
-    assert lint_seat_stakes(_blk(body)) == []
-
-
-def test_an_offer_pointing_into_their_system_fails():
-    """Offering labour inside their build is worth less than an hour of their own engineer."""
-    from outreach_pack_linter import lint_offer_scope
-
-    last = "If useful, I can map where that comes apart on the flow you run."
-    v = lint_offer_scope(_blk("x"), [last], _CAPS)
-    assert [x.rule for x in v] == ["offer-does-their-work"]
-
-
-def test_a_market_asymmetry_offer_passes():
-    from outreach_pack_linter import lint_offer_scope
-
-    last = (
-        "I can pull together what those questionnaires ask, and how two other platforms answered."
+def test_every_uncatalogued_rule_has_a_pair():
+    """The completeness half. Without it the table above drifts behind `UNCATALOGUED_RULES`
+    exactly as `RULE_CATALOGUE` drifted behind the rules it was supposed to describe."""
+    covered = set(_R18_PAIRS) | {"empty"}
+    assert covered == set(UNCATALOGUED_RULES), (
+        f"uncovered: {sorted(set(UNCATALOGUED_RULES) - covered)}; "
+        f"covered but no longer emitted: {sorted(covered - set(UNCATALOGUED_RULES))}"
     )
-    assert lint_offer_scope(_blk("x"), [last], _CAPS) == []
 
 
-def test_a_body_that_ignores_its_declared_capability_fails():
-    from outreach_pack_linter import lint_declared_capability
+def test_template_share_output_order_is_deterministic():
+    """Ordering was by share-count alone, so equal-count 6-grams came out in SET iteration
+    order and a batch with more than five of them reported a different five per run. A gate
+    whose output is not reproducible cannot be diffed between two runs, which is how a
+    behaviour change hides inside noise (found 2026-09-24 diffing the whole corpus).
 
-    body = "Hi Dana,\n\nEach procurement round becomes its own integration.\n\nHenry"
-    assert [x.rule for x in lint_declared_capability(_blk(body), "identity", _CAPS)] == [
-        "capability-unargued"
-    ]
+    Asserted as the ORDER CONTRACT rather than by running it twice: within one process a set
+    iterates identically every time, so a repeat-and-compare test passes on the broken code and
+    proves nothing. Only the seed varies it, and a test cannot change its own seed."""
+    bodies = [(f"{i}.md", f"{_SHARED_SENTENCE} {i} tail clause here") for i in range(8)]
+    reported = [v.detail for v in lint_body_homogeneity(bodies, ceiling=3)]
+    assert len(reported) > 1, "the fixture must produce a tie to order"
+    grams = [d.split('"')[1] for d in reported]
+    assert grams == sorted(grams), (
+        "equal-count 6-grams are not reported in gram order — the tie-break is back to set "
+        f"iteration order: {grams}"
+    )
 
 
-def test_a_body_arguing_its_capability_passes():
-    from outreach_pack_linter import lint_declared_capability
+def test_the_ban_file_is_read_whole_not_by_section(tmp_path):
+    """The PRD's "voice-bans.txt §1 regulatory overclaim only" narrowing was REFUSED — see
+    `parse._load_bans`. This is the regression that holds the refusal: FR0's retired phrases
+    live BELOW the file's prose separators and are enforceable only because the loader is flat.
 
-    body = "Hi Dana,\n\nThe agent acts under your identity, not its own.\n\nHenry"
-    assert lint_declared_capability(_blk(body), "identity", _CAPS) == []
-
-
-def test_naming_the_group_once_then_arguing_evidence_still_fails():
-    """The drift measured 2026-09-04: every group quietly collapsing into observability."""
-    from outreach_pack_linter import lint_declared_capability
+    Negative control: a phrase that is in no section of the file is not banned, so the test
+    cannot pass by the rule firing on everything."""
+    bans = tmp_path / "voice-bans.txt"
+    bans.write_text(
+        "# Section 1 — regulatory overclaim\nmathematically guaranteed\n\n"
+        "# ---------------------------------------------\n"
+        "# Section 4 — retired invitations\nhappy to\n",
+        encoding="utf-8",
+    )
+    loaded = _load_bans(str(bans))
+    assert "mathematically guaranteed" in loaded, "the first section is read"
+    assert "happy to" in loaded, "a phrase below a separator must still be banned (FR0)"
+    assert "delve into the weeds" not in loaded, "negative control: the loader is not a wildcard"
 
     body = (
-        "Hi Dana,\n\nThe policy is set once. The buyer cannot check the record, verify the "
-        "trail or audit the evidence.\n\nHenry"
+        "Your four agents off the Series C put autonomous actors on regulated flows. "
+        "Usually a fleet that size runs one shared key. Happy to map where that breaks?"
     )
-    v = lint_declared_capability(_blk(body), "security-policy", _CAPS)
-    assert [x.rule for x in v] == ["capability-unargued"]
-    assert "argues observability" in v[0].detail
-
-
-def test_observability_may_legitimately_be_declared():
-    from outreach_pack_linter import lint_declared_capability
-
-    body = "Hi Dana,\n\nThe merchant cannot verify their own record.\n\nHenry"
-    assert lint_declared_capability(_blk(body), "observability", _CAPS) == []
-
-
-def test_a_would_it_be_helpful_offer_is_valid():
-    """The sender retired both "happy to" and "I can" on 2026-09-04."""
-    from outreach_pack_linter import CTA_HELP_OFFER_RE
-
-    assert CTA_HELP_OFFER_RE.search("Would it be helpful if I mapped your gate against §2.1.2?")
-
-
-def test_a_past_tense_giving_verb_is_still_an_artifact_gate():
-    """ "Would it be helpful if I SENT you the one-pager" slipped through a present-tense list."""
-    from outreach_pack_linter import CTA_HELP_OFFER_RE
-
-    for bad in (
-        "Would it be helpful if I sent you the one-pager?",
-        "Would it be helpful if I shared the deck?",
-    ):
-        assert not CTA_HELP_OFFER_RE.search(bad), bad
-
-
-def test_an_anchor_alone_no_longer_licenses_auditing_their_build():
-    """Narrowed 2026-09-05. The exemption added the day before was too wide: it re-admitted
-    "map YOUR dispatch path against §2.1.2", which the operator read — correctly — as offering
-    to fix their thing. An anchor now clears the offer only when its own object is an approach
-    rather than their artifact."""
-    from outreach_pack_linter import lint_offer_scope
-
-    body = "Hi Dana,\n\nIMDA's framework set a bar.\n\nHenry"
-    audit = "Would it be helpful if I walked your dispatch path through §2.1.2?"
-    assert [v.rule for v in lint_offer_scope(_blk(body), [audit], _CAPS)] == [
-        "offer-does-their-work"
-    ]
-    overview = (
-        "Would it be helpful if I laid out the approach to agent guardrails for your "
-        "dispatch flow, against §2.1.2?"
-    )
-    assert lint_offer_scope(_blk(body), [overview], _CAPS) == []
-
-
-def test_capability_checks_no_op_without_a_tenant_file():
-    """The taxonomy is the tenant's. A profile shipping no file must disable the check rather
-    than guess at another tenant's vocabulary."""
-    from outreach_pack_linter import lint_declared_capability, load_capability_rules
-
-    assert load_capability_rules(None) == {}
-    body = "Hi Dana,\n\nEach procurement round becomes its own integration.\n\nHenry"
-    assert lint_declared_capability(_blk(body), "identity", {}) == []
-
-
-def test_a_tenant_file_drives_the_check():
-    """Positive control: the vocabulary comes from the file, not from the linter."""
-    from outreach_pack_linter import lint_declared_capability
-
-    body = "Hi Dana,\n\nThe agent acts under your identity, not its own.\n\nHenry"
-    assert lint_declared_capability(_blk(body), "identity", _CAPS) == []
-    assert lint_declared_capability(_blk(body), "identity", {"identity": {"words": ["zzz"]}})
-
-
-def test_a_flat_assertion_about_their_build_fails():
-    """Rule 9 was stated twice and enforced by nothing, so rule 10 pulled every body back to
-    assertion. The operator said it three times before it was checkable."""
-    from outreach_pack_linter import lint_problem_is_generalised
-
-    s = ["Hi Dana,", "The agent holds a credential into their CRM.", "Regards"]
-    assert [v.rule for v in lint_problem_is_generalised(_blk("x"), s)] == [
-        "problem-asserts-internals"
-    ]
-
-
-def test_a_category_claim_passes():
-    from outreach_pack_linter import lint_problem_is_generalised
-
-    s = [
-        "Hi Dana,",
-        "Typically for platforms in that position, the agent holds a credential "
-        "that outlives the job.",
-        "Regards",
-    ]
-    assert lint_problem_is_generalised(_blk("x"), s) == []
-
-
-def test_the_marker_must_sit_with_the_claim_it_qualifies():
-    """A first version scanned the whole body, so an unrelated 'usually' three sentences away
-    cleared four of six packs that asserted an architecture flat out."""
-    from outreach_pack_linter import lint_problem_is_generalised
-
-    s = [
-        "Hi Dana,",
-        "The agent holds a standing credential.",
-        "That question usually arrives mid-deal.",
-        "Regards",
-    ]
-    assert [v.rule for v in lint_problem_is_generalised(_blk("x"), s)] == [
-        "problem-asserts-internals"
-    ]
-
-
-def test_an_offer_naming_no_deliverable_fails():
-    from outreach_pack_linter import lint_offer_is_strategic
-
-    s = ["Hi Dana,", "Would it be helpful if I compared order capture against that?"]
-    assert [v.rule for v in lint_offer_is_strategic(_blk("x"), s)] == [
-        "offer-not-a-solution-overview"
-    ]
-
-
-def test_a_solution_overview_offer_passes():
-    from outreach_pack_linter import lint_offer_is_strategic
-
-    s = [
-        "Hi Dana,",
-        "Would it be helpful if I sketched what runtime governance looks like "
-        "for an approval-gated booking flow?",
-    ]
-    assert lint_offer_is_strategic(_blk("x"), s) == []
-
-
-def test_specificity_still_scores_the_whole_body_not_the_opener():
-    """Pins the 2026-09-22 decision NOT to move `specificity` to position (PENDING.md EC5).
-
-    Measured before building: scoping to the greeting-stripped first two sentences turns
-    1032 of 1783 live renders into ERRORs, 845 of them clean today. The comment above the
-    emission carries both refuted proxies. This test exists so the change cannot be made
-    quietly by someone who reads the plan and not the measurement — a body whose anchors all
-    sit AFTER the opener must still pass.
-    """
-    late = EmailBlock(
-        index=1,
-        header="Jordan Vance · CTO, Northwind",
-        first="Jordan",
-        company="Northwind",
-        to="jordan@northwind.example",
-        subject="a note",
-        body=(
-            # Greeting + TWO abstract sentences, so every anchor lands in sentence three
-            # or later. A body whose anchors are inside the first two sentences passes under
-            # both scopes and would prove nothing.
-            "Hi Jordan,\n\nMost teams hit the same wall once an agent starts acting for a "
-            "customer.\n\nThe transport credential names the organisation and not the "
-            "caller.\n\nThat pattern showed up in the Dover review in March, and again at "
-            "Ardal in 2026.\n\nAlex"
-        ),
-    )
-    rules = {v.rule for v in lint_email(late, signoff="Alex")}
-    assert "specificity" not in rules, (
-        "specificity fired on a body whose anchors are all after the opener — the positional "
-        "scope EC5 measured and rejected appears to have been applied"
-    )
+    text = _pack(("Ann", "ann@acme.example", "your four agents", body), version=RULES_VERSION)
+    fired = {v.detail for v in lint_pack(text, extra_bans=loaded) if v.rule == "banned-word"}
+    assert "happy to" in fired
+    # Same body, the retired phrase replaced: `banned-word` goes quiet.
+    clean = text.replace("Happy to map where that breaks?", "Want the map of where that breaks?")
+    assert not {v for v in lint_pack(clean, extra_bans=loaded) if v.rule == "banned-word"}

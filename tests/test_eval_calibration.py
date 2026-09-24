@@ -572,12 +572,17 @@ def test_every_subcheck_reads_as_yes_is_good():
 
     Every sub-check states something the labeler AGREES with by answering Y, so Y is good on
     all of them and the answer column can be scanned without decoding each question.
-    `account_fit` was added under the same constraint: Y means the account is fine.
+    `account_fit` was added under the same constraint: Y means the account is fine, and it
+    is why the card's canonical `wrong_entity_type` is stored under this surface's own
+    spelling (`gtm_core.messaging.card.LABEL_SPELLING`) rather than renamed here.
+    `claim_within_status` (2026-09-24) reads the same way: Y = the copy stays inside what
+    we can stand behind.
     """
     assert LABEL_FIELDS == (
         "fact_earns_its_place",
         "frame_fits_seat",
         "right_person",
+        "claim_within_status",
         "account_fit",
     )
     assert not any(f.startswith("fact_refutes") for f in LABEL_FIELDS)
@@ -595,6 +600,10 @@ def test_account_fit_is_the_only_account_scoped_subcheck():
         "fact_earns_its_place",
         "frame_fits_seat",
         "right_person",
+        # Argument-scoped in `gtm_core.adjudication.defects.DEFECT_SCOPE`: the account and
+        # the person are fine and the copy is re-aimable, which is exactly why a claim
+        # that outruns its status must NOT disqualify the company.
+        "claim_within_status",
     )
     assert set(LABEL_FIELDS) - set(fact_or_copy_scoped) == {"account_fit"}
 

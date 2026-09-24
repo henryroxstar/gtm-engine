@@ -133,7 +133,7 @@ def test_route_without_records_writes_state_and_status_prints_a_table(
     assert status_cli.main(["--profile", PROFILE]) == 0
     block = capsys.readouterr().out
     assert "Nothing to show yet" not in block
-    assert re.search(r"Ready to send\s+1\b", block)
+    assert re.search(r"Routed — not yet checked\s+1\b", block)
 
 
 def test_route_with_a_missing_records_path_exits_2_with_one_line(tmp_path, monkeypatch, capsys):
@@ -226,7 +226,7 @@ def test_a_record_for_someone_no_longer_in_the_list_is_not_carried_forward(
     tmp_path, monkeypatch, capsys
 ):
     """Carry-forward protects rows this CSV did not cover — not rows the list has since lost. A
-    contact removed from the pool must not keep counting as "Ready to send"."""
+    contact removed from the pool must not keep counting as "Routed — not yet checked"."""
     seq = _env(tmp_path, monkeypatch)
     pool, rows = _three_account_pool(seq)
     assert _route(csv_path=pool) == 0

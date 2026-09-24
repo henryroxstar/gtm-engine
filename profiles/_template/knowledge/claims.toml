@@ -1,0 +1,66 @@
+# Outbound claim registry — what your product does, and how sure you are of each thing.
+#
+# Read ONLY by `gtm_core.messaging.registry`. This file is facts, not copy: a body rephrases a
+# `statement`, it never contradicts one, and it never asserts a claim whose `status` is not
+# `verified`. Replace every block below with your own; the examples are here to teach the shape.
+#
+# ── The fields ────────────────────────────────────────────────────────────────────────────
+#   id          unique, lowercase, a bare name (no `/`, `\`, `..`). Ids are case-insensitive:
+#               `Audit-Signed` and `audit-signed` are the same claim, and declaring both is a
+#               refusal rather than a merge.
+#   group       a capability group of your own choosing — the bucket this claim argues inside.
+#               Keep the set small and stable; it is what coverage is measured against.
+#   status      verified | conditional | design-target        (the closed set, from
+#               `gtm_core.messaging.registry.CLAIM_STATUSES` — anything else is refused at load)
+#               verified      = you hold a primary record for it, cited in `source`
+#               conditional   = true only under a stated condition. Say the condition, or say
+#                               nothing — a condition dropped in the rewrite is an overclaim.
+#               design-target = roadmap. NEVER stated in the present indicative to a customer.
+#   statement   the fact, in the shape a body may rephrase
+#   source      REQUIRED when status = "verified". `<path>:<line>`, relative to your profile
+#               directory (NOT to `knowledge/`), so a source may cite `products/…` or
+#               `references/…` without a `../` — traversal shapes have no business in tenant
+#               data. Optional on the other two statuses, and worth adding anyway.
+#   do_not_say  phrases that overclaim THIS claim. The outreach linter refuses a body carrying
+#               one, whatever the surrounding sentence says. List the words a reader would take
+#               as a stronger promise than the statement makes.
+#   notes       optional, for the next editor. Never read by a body.
+#
+# ── Why every example below is `design-target`, and none is `verified` ─────────────────────
+#
+# `verified` is the only status a body may assert as fact, and it is legal only with a `source`
+# a reader can open. A template holds no evidence of yours, so a `verified` example could only
+# carry an invented path — which teaches exactly the reflex the status exists to prevent. The
+# examples therefore ship as `design-target`, a status no body may state in the present
+# indicative, so an un-edited template cannot put a false sentence in an email.
+#
+# Moving a claim to `verified` means adding a `source` line you have OPENED. It is an operator
+# act with evidence behind it, not an edit — two careful readers of the same product docs
+# routinely reach opposite answers about what shipped, which is why this field exists at all.
+#
+# Delete these three and write your own. A file with no `[[claim]]` block is valid and loads.
+
+[[claim]]
+id = "example-scheduled-export"
+group = "reporting"
+status = "design-target"
+statement = "A scheduled export delivers the month's figures to the finance team on a fixed day."
+do_not_say = ["real-time", "instant", "always up to date"]
+notes = "Replace with a claim of yours. `design-target` until a source line backs it."
+
+[[claim]]
+id = "example-self-serve-setup"
+group = "onboarding"
+status = "design-target"
+statement = "A new workspace is configured by its own admin without a services engagement."
+do_not_say = ["zero-touch", "no configuration", "works out of the box"]
+
+[[claim]]
+id = "example-regional-hosting"
+group = "deployment"
+status = "design-target"
+statement = "Customer records stay in the region the workspace was created in."
+# A `conditional` claim states its condition HERE, in the statement, so the condition cannot be
+# lost in the rewrite: "…on the enterprise plan", "…for workspaces created after <date>".
+do_not_say = ["never leaves", "guaranteed", "fully isolated"]
+notes = "The likeliest candidate for `conditional` in a real tenant — plan- or region-gated."

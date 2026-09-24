@@ -215,7 +215,7 @@ def segment_fit(
 
     Returns ``None`` when the comparison cannot be made at all -- no declaration, no
     usable matrix, or a cell the matrix does not place in a segment. That is reported
-    by its own existing finding (``hook-cell-missing`` / ``hook-cell-unknown``) rather
+    by its own existing finding (``angle-missing`` / ``angle-unknown``) rather
     than being restated here as a fit failure.
     """
     if declared is None or matrix is None or not matrix.ok:

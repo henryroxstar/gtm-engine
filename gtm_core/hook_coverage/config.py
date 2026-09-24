@@ -17,8 +17,7 @@ if str(_LINTER_DIR) not in sys.path:  # pragma: no cover - import plumbing
 # Imported HERE, not at module top: they only resolve once `_LINTER_DIR` is on sys.path.
 # F401 — config is the package's one home for these; every other module re-imports them
 # from here rather than repeating the sys.path dance.
-from merge_render_linter import parse_spec  # noqa: E402,F401
-from outreach_pack_linter import (  # noqa: E402,F401
+from outreach import (  # noqa: E402,F401
     JACCARD_MAX,
     MAX_NGRAM_EMAILS,
     NGRAM_N,
@@ -26,6 +25,7 @@ from outreach_pack_linter import (  # noqa: E402,F401
     _hedge_ngram_whitelist,
     _ngrams,
     _norm_tokens,
+    parse_spec,
     persona_of,
     seat_of,
 )

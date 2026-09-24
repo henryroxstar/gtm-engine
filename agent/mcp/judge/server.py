@@ -427,6 +427,10 @@ async def score_emails(
         # records, because a caller comparing two runs needs to see that the question
         # changed before it reads anything into the verdicts moving.
         "rubrics": _tally(rec.rubric for rec in records),
+        # WHICH VERSION of those rubrics — the fingerprint of the exact questions asked.
+        # `rubrics` says "full" across a change to what "full" MEANS; this does not. More
+        # than one value in a pooled comparison is the confound, stated.
+        "rubric_versions": _tally(rec.rubric_version for rec in records),
         "verdicts_by_rubric": {
             r: _tally(
                 ("unscored" if rec.unscored else rec.verdict) for rec in records if rec.rubric == r

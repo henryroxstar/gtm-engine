@@ -11,6 +11,10 @@ produces ``quorumai``. That's an accepted, documented gap for the ~800 folders t
 this module (no retroactive rename); it is not accepted for
 anything created going forward, hence one shared function everyone calls.
 
+To pick an account *folder*, call ``gtm_core.account_folder`` instead: a consistent slug
+is not enough when the same account reaches a skill under two names, and that module
+returns the folder the account already has before it falls back to this slug.
+
 VPS invocation:   python -m gtm_core.slugify "<company name>"
 Local invocation: python "$CLAUDE_PLUGIN_ROOT/lib/gtm_core/slugify.py" "<company name>"
 

@@ -49,26 +49,37 @@ def _optout(email, event="optout_detected"):
     return {"event": event, "email": email}
 
 
+#: The default single confirmed-in-one-page read-back: {currentPage: totalPages}, per
+#: the VERIFIED get_dnc_items envelope this repo's own server.py records — the paging
+#: fields are load-bearing, not decoration: `_read_back` refuses on their absence.
+_ONE_PAGE_META = {"totalItems": 1, "currentPage": 1, "itemsPerPage": 100, "totalPages": 1}
+
+
 def _stub_calls(monkeypatch, *, lists=None, add=None, items=None, seen=None):
-    """Replace the connector's `_call` with a scripted router."""
+    """Replace the connector's `_call` with a scripted router.
+
+    Routed on the VERIFIED paths (`GET /dnc`, `GET /dnc/{id}`,
+    `agent/mcp/saleshandy/server.py`'s own live-tested comments) — this stub used to route
+    on `/dnc-lists`/`.../items`, the wrong paths `dnc_dispatch.py` itself called before the
+    2026-09-24 SC9b fix, so it was passing against its own bug rather than the API.
+    """
     seen = seen if seen is not None else []
 
     async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
         seen.append((method, path, json_body))
-        if path == "/dnc-lists":
-            return (
-                lists if lists is not None else json.dumps({"payload": {"items": [{"id": "L1"}]}})
-            )
-        if path == "/dnc-lists/items":
+        if path == "/dnc":
+            return lists if lists is not None else json.dumps({"payload": [{"id": "L1"}]})
+        if path == "/dnc-lists/items":  # _add_items's endpoint — unchanged by SC9b
             return add if add is not None else json.dumps({"message": "ok"})
-        if path.endswith("/items"):
+        if path.startswith("/dnc/"):
             return (
                 items
                 if items is not None
                 else json.dumps(
                     {
                         "payload": {
-                            "dncListDetails": [{"value": "dana@acme.example", "type": "email"}]
+                            "dncListDetails": [{"value": "dana@acme.example", "type": "email"}],
+                            "meta": _ONE_PAGE_META,
                         }
                     }
                 )
@@ -182,7 +193,8 @@ def test_an_unreadable_optout_is_also_a_candidate(tmp_path, monkeypatch):
         items=json.dumps(
             {
                 "payload": {
-                    "dncListDetails": [{"value": "quinn@brightpath.example", "type": "email"}]
+                    "dncListDetails": [{"value": "quinn@brightpath.example", "type": "email"}],
+                    "meta": _ONE_PAGE_META,
                 }
             }
         ),
@@ -226,9 +238,7 @@ def test_the_list_id_is_never_taken_from_the_draft(tmp_path, monkeypatch):
 def test_several_lists_without_the_env_refuses_rather_than_guessing(tmp_path, monkeypatch):
     monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
     monkeypatch.delenv("SALESHANDY_DNC_LIST_ID", raising=False)
-    seen = _stub_calls(
-        monkeypatch, lists=json.dumps({"payload": {"items": [{"id": "L1"}, {"id": "L2"}]}})
-    )
+    seen = _stub_calls(monkeypatch, lists=json.dumps({"payload": [{"id": "L1"}, {"id": "L2"}]}))
     out = _run(
         _Cfg(tmp_path),
         _Ledgers([_optout("dana@acme.example")]),
@@ -262,7 +272,10 @@ def test_an_add_the_read_back_does_not_confirm_records_nothing(tmp_path, monkeyp
     _stub_calls(
         monkeypatch,
         add=json.dumps({"message": "ok"}),
-        items=json.dumps({"payload": {"dncListDetails": []}}),  # the re-read shows nothing
+        # the re-read shows nothing, WITH meta -- a genuinely-empty confirmed page, not
+        # an unreadable one, so this exercises the "read worked, address absent" path
+        # rather than the "no meta, refuse" path covered separately below.
+        items=json.dumps({"payload": {"dncListDetails": [], "meta": _ONE_PAGE_META}}),
     )
     ledgers = _Ledgers([_optout("dana@acme.example")])
     out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
@@ -288,6 +301,115 @@ def test_a_failed_add_call_records_nothing(tmp_path, monkeypatch):
     out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
     assert out.ok is False
     assert not ledgers.written
+
+
+# --- SC9b: read-back paging on the VERIFIED endpoint ---------------------------------------
+#
+# The endpoint fix (`/dnc-lists/{id}/items` -> `/dnc/{id}`) is exercised implicitly by
+# every test above, since the stub now only answers on the correct path -- a regression
+# back to the old path would make every one of them fail with the stub's `{}` fallback.
+# These four are the paging behaviour specifically: the thing SC9b actually adds.
+
+
+def test_the_read_back_pages_to_find_an_address_past_page_one(tmp_path, monkeypatch):
+    """The live list already holds 57 items; a newly added address is not guaranteed to
+    land on page 1. This is the defect SC9b exists to fix."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    seen = []
+
+    async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
+        seen.append((method, path, params))
+        if path == "/dnc":
+            return json.dumps({"payload": [{"id": "L1"}]})
+        if path == "/dnc-lists/items":
+            return json.dumps({"message": "ok"})
+        if path == "/dnc/L1":
+            page = (params or {}).get("page", 1)
+            if page == 1:
+                # A full page of OTHER addresses -- not the one just added.
+                details = [{"value": f"other{i}@acme.example", "type": "email"} for i in range(100)]
+                meta = {"currentPage": 1, "totalPages": 2}
+            else:
+                details = [{"value": "dana@acme.example", "type": "email"}]
+                meta = {"currentPage": 2, "totalPages": 2}
+            return json.dumps({"payload": {"dncListDetails": details, "meta": meta}})
+        return "{}"
+
+    monkeypatch.setattr("agent.mcp.saleshandy.server._call", fake_call)
+    ledgers = _Ledgers([_optout("dana@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
+    assert out.ok is True
+    assert out.added == ("dana@acme.example",)
+    read_pages = [p.get("page") for _m, path, p in seen if path == "/dnc/L1"]
+    assert read_pages == [1, 2], "did not page past the first page"
+
+
+def test_a_read_back_page_with_no_paging_signal_refuses_rather_than_confirms(tmp_path, monkeypatch):
+    """A page missing meta.currentPage/totalPages cannot be proven complete. Confirming
+    off it anyway is exactly the 'short read looks like a smaller answer' trap this fix
+    closes -- so it must refuse, even though the address IS present on the one page read."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    _stub_calls(
+        monkeypatch,
+        items=json.dumps(
+            {"payload": {"dncListDetails": [{"value": "dana@acme.example", "type": "email"}]}}
+        ),
+    )
+    ledgers = _Ledgers([_optout("dana@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
+    assert out.ok is False
+    assert not [r for r in ledgers.written if r.get("event") == "dnc_added"]
+
+
+def test_a_read_back_that_never_reaches_the_last_page_refuses(tmp_path, monkeypatch):
+    """Every page reports MORE pages remain, forever -- coverage cannot be established,
+    so the whole read-back refuses rather than banking whatever was seen so far."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+
+    async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
+        if path == "/dnc":
+            return json.dumps({"payload": [{"id": "L1"}]})
+        if path == "/dnc-lists/items":
+            return json.dumps({"message": "ok"})
+        if path == "/dnc/L1":
+            details = [{"value": "dana@acme.example", "type": "email"}]
+            meta = {"currentPage": (params or {}).get("page", 1), "totalPages": 999}
+            return json.dumps({"payload": {"dncListDetails": details, "meta": meta}})
+        return "{}"
+
+    monkeypatch.setattr("agent.mcp.saleshandy.server._call", fake_call)
+    ledgers = _Ledgers([_optout("dana@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
+    assert out.ok is False
+    assert not [r for r in ledgers.written if r.get("event") == "dnc_added"]
+
+
+def test_the_read_back_sends_pagesize_not_limit_and_filters_type_email(tmp_path, monkeypatch):
+    """The two vendor-documented parameter names. `limit` is a parameter the API does not
+    read; `pageSize` is. `type=email` matches what `_add_items` ever writes."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    read_params = []
+
+    async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
+        if path == "/dnc":
+            return json.dumps({"payload": [{"id": "L1"}]})
+        if path == "/dnc-lists/items":
+            return json.dumps({"message": "ok"})
+        if path == "/dnc/L1":
+            read_params.append(params or {})
+            details = [{"value": "dana@acme.example", "type": "email"}]
+            meta = {"currentPage": 1, "totalPages": 1}
+            return json.dumps({"payload": {"dncListDetails": details, "meta": meta}})
+        return "{}"
+
+    monkeypatch.setattr("agent.mcp.saleshandy.server._call", fake_call)
+    ledgers = _Ledgers([_optout("dana@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
+    assert out.ok is True
+    assert read_params, "the read-back never called the verified endpoint"
+    assert read_params[0].get("pageSize") == 100
+    assert "limit" not in read_params[0]
+    assert read_params[0].get("type") == "email"
 
 
 def test_a_confirmed_add_writes_both_records(tmp_path, monkeypatch):

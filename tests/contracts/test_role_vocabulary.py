@@ -290,7 +290,7 @@ def test_the_linter_defaults_are_the_module_defaults() -> None:
     whole module exists to remove — one layer down.
     """
     sys.path.insert(0, str(REPO / "tests" / "linter"))
-    import outreach_pack_linter as linter  # noqa: PLC0415
+    import outreach as linter  # noqa: PLC0415
 
     assert linter._PERSONA_RULES is DEFAULT_VOCABULARY.persona_rules
     assert linter._SEAT_RULES is DEFAULT_VOCABULARY.seat_rules

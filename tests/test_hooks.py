@@ -281,6 +281,76 @@ def test_migrate_from_matrix(tmp_profile: tuple[Path, Path, str]) -> None:
     assert "Builder" in (loaded.hooks[0].source_signal or "")
 
 
+def test_generated_matrix_refuses_rather_than_yielding_an_empty_bank(
+    tmp_profile: tuple[Path, Path, str],
+) -> None:
+    """A `hook-matrix.md` generated from `angles.toml` is not a hook bank, and must say so.
+
+    `_parse_hook_matrix` looks for a table with an `| id |` header column. The seat-axis grid
+    `gtm_core.messaging.matrix_view` writes has no id column at all, so the parser matched
+    nothing and returned `HookBank(hooks=[])` — zero hooks, no defect, and every downstream
+    gate passing by finding nothing. The tenant with a `hooks.toml` is unaffected; the next
+    tenant to adopt the generated matrix WITHOUT one is the one this refusal is for.
+    """
+    from gtm_core.messaging import matrix_view
+
+    profiles_root, content_root, profile = tmp_profile
+    matrix = profiles_root / profile / "knowledge" / "hook-matrix.md"
+    matrix.write_text(
+        matrix_view.BANNER + "\n\n"
+        "# Outreach hook matrix\n\n"
+        "| Signal → / Seat ↓ | multi-framework × account-event |\n"
+        "|---|---|\n"
+        "| security | One chain of custody per agent action. |\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="hook-matrix.md"):
+        hk.load_hooks(profiles_root, profile, content_root=content_root)
+
+    # NEGATIVE CONTROL 1 — the legacy persona × signal matrix, same directory, same call, is
+    # still parsed. Without it, "load_hooks raises" would also be satisfied by a fallback
+    # parser that had simply been switched off.
+    matrix.write_text(
+        "# Hook matrix\n\n"
+        "| id | Persona | Hook angle |\n"
+        "|---|---|---|\n"
+        '| acme-augmentation | Builder | "AI that replaces judgment is a bad trade" |\n',
+        encoding="utf-8",
+    )
+    legacy = hk.load_hooks(profiles_root, profile, content_root=content_root)
+    assert [h.id for h in legacy.hooks] == ["acme-augmentation"]
+
+    # NEGATIVE CONTROL 2 — a tenant that HAS a hooks.toml never reaches the fallback, so the
+    # generated matrix beside it is not a refusal for them. (Every live profile today.)
+    matrix.write_text(matrix_view.BANNER + "\n\n# Outreach hook matrix\n", encoding="utf-8")
+    hk.save_hooks(
+        profiles_root,
+        profile,
+        hk.HookBank(hooks=[hk.Hook(id="acme-augmentation", angle="a", payoff_promise="p")]),
+    )
+    both = hk.load_hooks(profiles_root, profile, content_root=content_root)
+    assert [h.id for h in both.hooks] == ["acme-augmentation"]
+    assert both.authoritative == "hooks.toml"
+
+
+def test_migrate_from_a_generated_matrix_is_refused(
+    tmp_profile: tuple[Path, Path, str],
+) -> None:
+    """The migration path reads the same file through the same parser, and inherits the same
+    refusal — migrating a generated grid would mint a `hooks.toml` of zero hooks and stamp it
+    with the matrix's SHA, which reads downstream as a completed migration."""
+    from gtm_core.messaging import matrix_view
+
+    profiles_root, _content_root, profile = tmp_profile
+    matrix = profiles_root / profile / "knowledge" / "hook-matrix.md"
+    matrix.write_text(matrix_view.BANNER + "\n\n# Outreach hook matrix\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="hook-matrix.md"):
+        hk.migrate_from_matrix(profiles_root, profile)
+    assert not (profiles_root / profile / "knowledge" / "hooks.toml").exists()
+
+
 def test_cross_profile_read_rejected_by_safe_segment(
     tmp_profile: tuple[Path, Path, str],
 ) -> None:

@@ -12,6 +12,8 @@
 google-oauth*.json
 # local launch config — carries env/secrets, never commit
 .claude/launch.json
+# per-user Claude Code settings (e.g. the operator's chosen output style) — never commit
+.claude/settings.local.json
 # host-specific compose overrides — carry real infra details (networks, DSNs)
 # the committed base file omits. Start from docker-compose.override.yml.example.
 docker-compose.override.yml

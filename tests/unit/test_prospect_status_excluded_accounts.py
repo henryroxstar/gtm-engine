@@ -126,7 +126,9 @@ def test_the_block_says_so_in_the_operators_own_words(tmp_path, monkeypatch, cap
     out = capsys.readouterr().out
     assert re.search(r"^  Ready\s+0\b", out, re.M)
     assert re.search(r"^  Not a fit / excluded\s+1\b", out, re.M)
-    assert re.search(r"^Ready to send\s+1\b", out, re.M)  # the contact table is left as routed
+    assert re.search(
+        r"^Routed — not yet checked\s+1\b", out, re.M
+    )  # the contact table is left as routed
     (check,) = [ln for ln in out.splitlines() if ln.startswith("Check:")]
     assert "1 contact is on the list for an account marked not a fit / excluded" in check
 

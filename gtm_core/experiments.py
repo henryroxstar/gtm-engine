@@ -78,7 +78,14 @@ OVERLAYABLE: frozenset[str] = frozenset(
         "market-scan-config.md",  # which phrases the sweep searches
         "case-studies.md",  # which proof maps to which cohort
         "premise-vocab.toml",  # the premise vocabulary
-        "role-vocabulary.toml",  # the persona/seat vocabulary (Phase 0b)
+        # The persona/seat vocabulary (Phase 0b) — and, since 2026-09-24, per-seat COPY as
+        # well: `lead_pain`, `gain`, `forbidden_pains` and `register` moved here from
+        # `voice.md`'s seat table so the fact registry has one home for slot 3. That makes the
+        # sentence a seat opens on overlayable, which it was not while the fields lived in a
+        # REFUSED file. Deliberate — an experiment testing a new ICP needs pains written for
+        # the cohort it is testing, and `voice.md` stays REFUSED so tone itself cannot be
+        # varied — but it is the reason this entry is no longer "just a cue list".
+        "role-vocabulary.toml",
     }
 )
 

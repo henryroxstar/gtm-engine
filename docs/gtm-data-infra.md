@@ -172,10 +172,14 @@ data; re-running the generator rebuilds it.
   — joins the `.campaign.toml` manifests written by `campaign-plan` against the staged
   sequencer state into one promised-vs-actual portfolio view (`campaigns.html`), auto-refreshed
   on `consolidate()`. It **reads** staged sequences; it never activates or sends.
-- **Canonical account slug** ([`gtm_core/slugify.py`](../gtm_core/slugify.py)) — the single
-  implementation that maps a target-company name to its `<account-slug>` folder. Every skill
-  that creates an account folder resolves the same name through this helper (via
-  `python -m gtm_core.slugify`), so one account never silently splits into two folders.
+- **Account-folder resolver** ([`gtm_core/account_folder.py`](../gtm_core/account_folder.py)) —
+  the single implementation that maps a target-company name to its `<account-slug>` folder.
+  Every skill that writes into an account folder resolves the name through this helper (via
+  `python -m gtm_core.account_folder "<name>" --profile <p> [--domain <d>]`), so one account
+  never silently splits into two folders. It returns the folder the account **already has** —
+  a consistent slug is not enough when the same company arrives under two names — and falls
+  back to [`gtm_core/slugify.py`](../gtm_core/slugify.py) only when the account has none.
+  `slugify` remains the slug function for everything that is not an account folder.
 
 ## The staging → promotion pattern
 

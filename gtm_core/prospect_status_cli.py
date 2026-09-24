@@ -5,6 +5,9 @@ Reads ``lanes-state.jsonl`` (the last ``lanes route`` run, per email) and ``late
 
 * the **accounts** block (companies) — :mod:`gtm_core.prospect_status_receipt`;
 * the **contacts** table (people) — the six-way status from :mod:`gtm_core.prospect_status`;
+* the **passed the checks** line, beside the routed count and never inside its total — the
+  two are the same people measured by different steps, and reading them as one number is
+  what made a routed count render as "Ready to send / nobody's — it is done";
 * the two ledger-only lines: contacts with no address, and contacts whose address is still
   being checked.
 
@@ -20,19 +23,35 @@ with a line that is not a record (or bytes that are not text), is one clear line
 Reads ``lanes-state.jsonl`` directly rather than ``ready-to-load.csv``: the CSV is a courtesy
 copy kept in sync by ``restamp_ready_to_load``, the JSONL is the source of truth. Writes
 nothing.
+
+**One deliberate exception** (PH2, 2026-09-24): the "Passed the checks" count is measured on
+``ready-to-load.csv``, because that is the file the enrollment gate itself reads. Measuring
+it on the JSONL would be a second implementation of the gate's population, which is the P6
+defect ("a wrapper around a gate becomes part of the gate while inheriting none of its
+tests") that the laned preflight already had to fix one door over.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from collections import Counter
 
+from .account_integrity import audit_rows, filter_by_verdict
 from .lanes.decisions import StateError, newest_sheet, read_state_records
 from .lanes.model import HOLD_QUESTION, QUESTION_COPY
 from .paths import resolve_content_root
-from .prospect_paths import evals_dir
+
+# `_lane_groups` is private by name but is deliberately the shared partitioner: PH2 requires
+# this count and the preflight report to split the file the same way, and a second copy is
+# how they would drift apart.
+from .preflight_report import _lane_groups as lane_groups
+from .prospect_paths import evals_dir, suppression_ledger
 from .prospect_status import (
+    CHECKED_LABEL,
+    CHECKED_NEXT_STEP,
+    CHECKED_NOT_RUN,
     CHECKING_ADDRESS_LABEL,
     CHECKING_ADDRESS_NEXT_STEP,
     LABELS,
@@ -50,7 +69,9 @@ from .prospect_status_receipt import (
     cross_check,
     format_attrition_receipt,
 )
+from .prospects_consolidate import ready_to_load_path
 from .prospects_state import load_latest
+from .suppression import load_index as load_suppression_index
 
 #: The five statuses `status_of` derives from a routed row's (lane, reason). `needs_address`
 #: is the sixth STATUSES id but comes from `latest.json`, not from a routed row — it gets
@@ -120,11 +141,33 @@ def _format_report(
     needs_address_count: int,
     checking_address_count: int = 0,
     held_back_count: int = 0,
+    checked_count: int | None = None,
 ) -> str:
-    """The contacts table, then the two ledger-only lines (which are NOT part of its total).
+    """The contacts table, then the ledger-only lines (which are NOT part of its total).
 
     Everything this returns is pasted to the operator, so it is scanned for pipeline
     vocabulary (``tests/lint/test_operator_vocabulary.py``) — plain words only in here.
+
+    ``checked_count`` is how many of the routed contacts have PASSED the enrollment checks.
+    It renders on its own line, under its own label, beside the routed count — because the
+    two answer different questions and were read as one number: the routed count carried the
+    label "Ready to send" and the next step "nobody's — it is done" while the checks had not
+    run, so an operator was told no action remained and then met a refusal.
+
+    ``None`` means the checks have not run, and renders as that rather than as ``0``.
+
+    **The premise here was wrong until 2026-09-24 (PH2), in both of its halves.** It read:
+    "these records carry no verdicts and span more than one lane, which is precisely the
+    mixed-list case ``--lane`` exists to refuse". But ``lanes-state.jsonl`` *does* carry
+    ``judge_verdict``, and spanning more than one lane stopped being a refusal when the
+    laned audit landed — ``_lane_groups`` partitions the file and audits each lane under its
+    own rules, so a mixed list is the normal case, not the impossible one. Because the
+    premise went unchallenged, nothing ever passed a count and this line read "not run yet"
+    permanently, which is the one thing worse than a wrong number: a caption that is always
+    true and therefore says nothing.
+
+    :func:`_checked_count` now supplies it. ``None`` still means genuinely unknown — no list
+    on disk, or a list that could not be read.
     """
     ledger_lines = [
         (LABELS["needs_address"], needs_address_count, NEXT_STEP["needs_address"]),
@@ -143,7 +186,9 @@ def _format_report(
     if counts.get(UNRECOGNISED):
         rows.append((UNRECOGNISED_LABEL, counts[UNRECOGNISED], UNRECOGNISED_NEXT_STEP))
     total = sum(n for _label, n, _step in rows)
-    label_width = max(len(label) for label, _n, _step in [*rows, *ledger_lines])
+    label_width = max(
+        len(label) for label, _n, _step in [*rows, *ledger_lines, (CHECKED_LABEL, 0, "")]
+    )
     count_width = max(len(str(n)) for n in [total, *(n for _l, n, _s in [*rows, *ledger_lines])])
 
     def line(label: str, count: int, step: str) -> str:
@@ -153,6 +198,12 @@ def _format_report(
     lines.append(f"{'':<{label_width}}  {'─' * count_width}")
     lines.append(line("", total, _TOTAL_CAPTION))
     lines.append("")
+    # Beside the routed count, never inside the contacts total: these are the same people
+    # measured by a different step, so adding them would double-count every one of them.
+    if checked_count is None:
+        lines.append(f"{CHECKED_LABEL:<{label_width}}  {'—':>{count_width}}   {CHECKED_NOT_RUN}")
+    else:
+        lines.append(line(CHECKED_LABEL, checked_count, CHECKED_NEXT_STEP))
     lines += [line(*row) for row in ledger_lines]
     lines.append(_PAUSED_FOOTER)
     return "\n".join(lines)
@@ -192,6 +243,59 @@ def _routed_contacts(records: list[dict]) -> list[dict]:
     ]
 
 
+def _checked_count(profile: str) -> int | None:
+    """How many routed contacts would actually be admitted, or ``None`` if not knowable.
+
+    Measured **per lane**, because the gate's rules are per lane: ``audit_rows`` demotes the
+    research-record findings to advisory in the generic lane, so auditing a mixed file
+    unlaned fails generic rows on ``signal-*`` errors the gate would have waved through.
+    Partitioning is delegated to :func:`preflight_report._lane_groups` rather than repeated
+    here — that helper *is* the lane-awareness fix, and a second copy of it is how the two
+    would drift.
+
+    **A lane whose audit fails contributes zero, not its candidate count.** The label on this
+    number reads "yours — these are the ones that may go", and nothing in a blocked batch may
+    go. ``AccountAudit.failed`` is a whole-batch boolean (there is no per-row pass result), so
+    the honest per-lane answer is all-or-nothing.
+
+    ``None`` when the list does not exist or cannot be read — the checks genuinely have not
+    seen it, and that renders as "not run yet" rather than as a confident ``0``.
+    """
+    content_root = resolve_content_root()
+    path = ready_to_load_path(profile, content_root)
+    if not path.is_file():
+        return None
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            fieldnames = list(reader.fieldnames or [])
+            rows = list(reader)
+    except OSError:
+        # Refuse rather than report a smaller number: an unreadable list is not an empty one.
+        return None
+
+    index = load_suppression_index(suppression_ledger(profile, content_root))
+    rows = [r for r in rows if not (r.get("suppression") or "").strip() and not index.match(r)]
+
+    total = 0
+    for lane, group in lane_groups(rows):
+        if lane in ("hold", "excluded"):
+            # Parked rows have no send verdict (`filter_by_verdict` refuses the lane) and are
+            # not sendable, so they add nothing to a "passed the checks" count.
+            continue
+        kept, vstats = filter_by_verdict(group, "send", lane=lane)
+        audit = audit_rows(
+            kept,
+            profile,
+            content_root,
+            fieldnames=fieldnames,
+            lane=lane,
+        )
+        if not audit.failed:
+            total += vstats.kept
+    return total
+
+
 def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -> None:
     contacts = _routed_contacts(records)
     counts = Counter(c["status"] for c in contacts)
@@ -208,6 +312,7 @@ def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -
             sum(1 for it in ledger_items if needs_address(it)),
             sum(1 for it in ledger_items if awaiting_verification(it)),
             _held_back_contacts(profile),
+            _checked_count(profile),
         )
     )
     for problem in cross_check(receipt, dict(counts), len(records)):

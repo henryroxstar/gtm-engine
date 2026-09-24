@@ -38,7 +38,7 @@ def _load(name: str):
 roster = _load("third_party_roster")
 pii_check = _load("pii_check")
 
-HAS_TENANT_DATA = bool(list(ROOT.glob("content/*/accounts")))
+HAS_TENANT_DATA = bool(roster._local_account_trees(ROOT))
 requires_tenant_data = pytest.mark.skipif(
     not HAS_TENANT_DATA, reason="derives from tenant data, which the OSS carve does not ship"
 )
@@ -68,7 +68,7 @@ def test_every_unreachable_account_falls_into_a_documented_residual():
     allowed = roster.load_third_party_allowed()
     rx = roster.matcher(roster.derive_keys(ROOT))
     unexplained = []
-    for acc in ROOT.glob("content/*/accounts"):
+    for acc in roster._local_account_trees(ROOT):
         for folder in (f for f in acc.iterdir() if f.is_dir()):
             if rx.search(folder.name.replace("-", " ")):
                 continue
@@ -205,13 +205,21 @@ def test_the_allowlist_releases_a_key(tmp_path, monkeypatch):
 
 
 @requires_tenant_data
-def test_the_committed_digest_matches_the_live_roster():
-    """CI has no tenant data and enforces against the digests. If they drift, CI is
-    enforcing a stale roster while pre-commit enforces the real one — the mirror-drift
-    footgun this repo has hit repeatedly. Regenerate with --write-digest."""
+def test_the_committed_digest_covers_the_live_roster():
+    """CI has no tenant data and enforces against the digests. A live key MISSING from the
+    digest means CI is enforcing a weaker roster than pre-commit — the mirror-drift footgun
+    this repo has hit repeatedly. Regenerate with --write-digest.
+
+    Containment, not equality. The digest is a union that only grows (`write_digest`), so
+    it legitimately holds keys the current derivation no longer produces: a consolidated
+    folder's old spelling, a tenant on external storage, a partial checkout. Those are the
+    harmless direction — the gate refusing a name nobody uses any more. Equality would
+    force the opposite, turning every such shrink into permission to name the company.
+    """
     live = {roster.digest(k) for k in roster.derive_keys(ROOT)}
-    assert live == roster.load_digests(), (
-        "third_party_digest.txt is stale — run "
+    missing = live - roster.load_digests()
+    assert not missing, (
+        f"third_party_digest.txt is missing {len(missing)} live key(s) — run "
         "`uv run python tests/lint/third_party_roster.py --write-digest`"
     )
 
@@ -305,3 +313,100 @@ def test_the_self_referential_files_carry_no_real_name():
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             findings += [f"{rel}:{lineno}: {m}" for m in rx.findall(line)]
     assert not findings, f"real third-party name in an unscanned file: {findings}"
+
+
+# --- external storage is not a source surface ----------------------------------------- #
+#
+# One tenant keeps its account and content data in a cloud-synced folder, reached through a
+# symlink at `content/<tenant>`. Those bytes are STORAGE, not source. A lint that globs
+# through the symlink makes a commit hook depend on a file provider being mounted and on
+# the OS permission that provider sits behind — neither of which is a property of the diff
+# being committed. On 2026-09-24 that is exactly what happened: `iterdir` raised
+# PermissionError from the cloud mount and the whole pre-commit run died, which reads as
+# "the lint is broken" and, worse, meant the gate reported nothing at all while three real
+# findings sat in the tree.
+
+
+def _tenant(root, name, *, external=False, tmp_path=None):
+    """A tenant account tree; `external=True` makes content/<name> a symlink elsewhere."""
+    if external:
+        outside = tmp_path / "elsewhere" / name / "accounts"
+        outside.mkdir(parents=True)
+        (outside / "northgate-systems").mkdir()
+        (root / "content").mkdir(parents=True, exist_ok=True)
+        (root / "content" / name).symlink_to(outside.parent, target_is_directory=True)
+        return outside
+    accounts = root / "content" / name / "accounts"
+    accounts.mkdir(parents=True)
+    (accounts / "harborline-freight").mkdir()
+    return accounts
+
+
+def test_a_symlinked_tenant_tree_is_never_traversed(tmp_path):
+    root = tmp_path / "repo"
+    local = _tenant(root, "acme")
+    _tenant(root, "external", external=True, tmp_path=tmp_path)
+    assert roster._local_account_trees(root) == [local]
+
+
+def test_a_symlinked_tenants_names_are_not_derived_keys(tmp_path):
+    """The stated residual: an external tenant contributes nothing to the roster."""
+    root = tmp_path / "repo"
+    _tenant(root, "acme")
+    _tenant(root, "external", external=True, tmp_path=tmp_path)
+    keys = roster.derive_keys(root)
+    assert "harborline" in keys, "the local tenant must still derive"
+    assert not any("northgate" in k for k in keys), "reached through the symlink"
+
+
+def test_the_roster_does_not_read_an_unreadable_external_tree(tmp_path):
+    """The regression proper. The external tree is unreadable exactly as a cloud mount is;
+    deriving must not raise, because it must never have gone there."""
+    root = tmp_path / "repo"
+    _tenant(root, "acme")
+    outside = _tenant(root, "external", external=True, tmp_path=tmp_path)
+    outside.chmod(0o000)
+    try:
+        assert "harborline" in roster.derive_keys(root)
+        assert roster.has_tenant_data(root)
+    finally:
+        outside.chmod(0o755)
+
+
+def test_the_digest_is_a_union_that_only_grows(tmp_path, monkeypatch):
+    """`--write-digest` must never delete a key just because the live derivation shrank.
+
+    Three things shrink it without shrinking the truth: a folder consolidation, a tenant on
+    external storage, a partial checkout. A plain rewrite hands all three back as permission
+    to name those companies again.
+    """
+    kept = roster.digest("retired account name")
+    digest_file = tmp_path / "third_party_digest.txt"
+    digest_file.write_text(f"# header\n\n{kept}\n", encoding="utf-8")
+    monkeypatch.setattr(roster, "DIGEST_FILE", digest_file)
+    root = tmp_path / "repo"
+    _tenant(root, "acme")  # derives `harborline`, and nothing else
+    roster.write_digest(root)
+    after = roster.load_digests()
+    assert kept in after, "a key present before regeneration was deleted"
+    assert roster.digest("harborline") in after, "the live key was not added"
+
+
+def test_a_digest_only_name_still_fires_when_the_live_matcher_is_active(monkeypatch):
+    """The half of the union that the local path used to throw away.
+
+    `load_roster` returned `set()` for digests whenever any local tree existed, so a name
+    the digest still banned — a renamed folder, an external tenant — passed pre-commit and
+    the export gate, both of which derive live. Both routes must run.
+    """
+    live_only, digest_only = "alphaworks", "betaworks holdings"
+    findings = pii_check._third_party_findings(
+        Path("x.md"),
+        f"the {live_only} deck and the {digest_only} deck\n",
+        "x.md",
+        roster.matcher({live_only}),
+        {roster.digest(digest_only)},
+    )
+    found = " ".join(f[2] for f in findings)
+    assert live_only in found, "the live matcher stopped working"
+    assert digest_only in found, "the digest route was not consulted beside the matcher"

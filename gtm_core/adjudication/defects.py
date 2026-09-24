@@ -37,6 +37,9 @@ import re
 #: ``bridge_depends_on_fact`` keep their own names (argument-scoped, so they route to
 #: Repair) but are NOT folded onto ``fact_earns_its_place``: :data:`TARGETING_DEFECTS`
 #: deliberately excludes them, and an alias here would widen "mis-aimed" by the back door.
+#: They are, however, subtracted from the quality card — :mod:`gtm_core.messaging.card`
+#: derives its question set from this map minus that measured-identical pair, because a
+#: routing class and a question a human is asked are different things.
 DEFECT_SCOPE: dict[str, str] = {
     "fact_earns_its_place": "argument",
     "fact_supports_pitch": "argument",
@@ -45,6 +48,11 @@ DEFECT_SCOPE: dict[str, str] = {
     "right_person": "contact",
     "wrong_entity_type": "account",
     "corrupted_scrape": "data",
+    # Added 2026-09-24 with the outbound fact registry: the body claims a capability
+    # beyond what its claim's recorded `status` allows, or cites a figure no `measured`
+    # proof supports. Argument-scoped — the account and the person are fine and the copy
+    # is re-aimable, which is exactly why it must not read as account-scoped.
+    "claim_within_status": "argument",
 }
 
 #: Observed spellings (already lower-cased, ``-``→``_``) → canonical class. Only SPELLING

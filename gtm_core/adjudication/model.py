@@ -71,9 +71,10 @@ class Adjudication:
     #: away some of the per-row independence the confusion matrix and Cohen's kappa assume.
     #: Recording the width is what keeps that trade measurable instead of assumed away.
     judge_batch: int = 1
-    #: WHICH RUBRIC produced this verdict — ``"full"`` (all three items) or
-    #: ``"seat-only"`` (``fact_earns_its_place`` withheld). Empty on a record written
-    #: before the rubric became lane-aware, or by a hand-written row.
+    #: WHICH RUBRIC produced this verdict — ``"full"`` (every item the judge declares in
+    #: :data:`gtm_core.messaging.card.JUDGE_QUESTIONS`) or ``"seat-only"``
+    #: (``fact_earns_its_place`` withheld). Empty on a record written before the rubric
+    #: became lane-aware, or by a hand-written row.
     #:
     #: Recorded for the same reason ``backend`` and ``judge_batch`` are: the two rubrics
     #: are NOT interchangeable and a holdout scored across both would otherwise be a
@@ -89,6 +90,20 @@ class Adjudication:
     #: empty"), burying the 3 findings that were real. A rubric item that every row in a
     #: lane must fail is not a gate, it is noise with a verdict attached.
     rubric: str = ""
+    #: WHICH VERSION of that rubric — a short fingerprint of the exact questions asked
+    #: (:func:`agent.mcp.judge.rubric.rubric_version`, derived from the item keys and their
+    #: wording, never typed). Empty on a record written before 2026-09-24.
+    #:
+    #: ``rubric`` says which of the two lane scopes was used; this says what those items
+    #: WERE. They are different facts, and only this one moves when the card changes: on
+    #: 2026-09-24 ``corrupted_scrape`` joined the judge's set and every prior verdict became
+    #: the output of a different instrument, while ``rubric`` stayed ``"full"`` throughout.
+    #: A holdout pooled across that boundary would move a rate with nobody having changed a
+    #: word of copy — the same silent confound ``backend`` and ``judge_batch`` exist to make
+    #: visible. Recorded, never enforced: the tally surfaces the mix per unit (beside
+    #: ``backends``) and the judge payload groups by it, which is the posture those fields
+    #: already established.
+    rubric_version: str = ""
     #: The DETERMINISTIC grounding pre-pass verdict for this body
     #: (:mod:`gtm_core.groundedness`), computed before the model saw the row and recorded
     #: alongside its guess. ``"clean"``, or a compact flag string such as
@@ -139,6 +154,7 @@ class Adjudication:
             "backend": self.backend,
             "judge_batch": self.judge_batch,
             "rubric": self.rubric,
+            "rubric_version": self.rubric_version,
             "grounding": self.grounding,
             # Emitted even when None, for the same reason `repair_attempt` is: a reader must
             # be able to tell "recorded as unvalidated" from "key absent, writer predates it".

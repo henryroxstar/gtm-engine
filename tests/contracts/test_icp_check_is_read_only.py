@@ -13,6 +13,7 @@ the existing writer.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -151,26 +152,178 @@ def test_no_write_call_targets_a_profiles_path():
     assert not offenders, f"a write naming profiles/: {offenders}"
 
 
+_RULES = Path(__file__).resolve().parents[2] / "docs" / "RULES.md"
+#: A writer row: a backticked `<name>.<attr>` label linked to the file that holds it. The
+#: link may name a flat module (`gtm_core/funnel.py`) OR a package one
+#: (`gtm_core/messaging/angle_status.py`) — the fifth writer, added 2026-09-24, is the first
+#: of the second kind, and the original flat-only pattern would have skipped its row entirely.
+#: The row would then have sat in the doc while this contract kept enforcing four, which is
+#: exactly the drift the comment block below records happening twice already.
+_WRITER_ROW = re.compile(
+    r"^\| \[`(?P<label>[a-z_]+)\.[a-z_.]+`\]\(\.\./gtm_core/(?P<path>[a-z_]+(?:/[a-z_]+)?)\.py\) \|",
+    re.M,
+)
+
+
+#: The count RULES.md TYPES, in the sentence that opens the writer set. A count in prose goes
+#: stale the moment a row lands (§R14), and `>= 7` could only ever catch a row going missing —
+#: never one arriving, which is the direction that actually happened on 2026-09-24 when
+#: `knowledge_meta.seed_file` became the eighth while three documents still said "seven".
+_WRITER_COUNT = re.compile(
+    r"`profiles/` is read-only at runtime, with\s+\*\*(?P<count>[a-z]+)\*\* exceptions"
+)
+
+#: Only the range the sentence can plausibly hold. An unrecognised word must RAISE rather than
+#: default, or a reworded sentence silently stops pinning anything (§R18).
+_NUMBER_WORDS = {
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+
+def _profiles_writer_count_from_rules(text: str) -> int:
+    """The number RULES.md spells out, as an int. Takes ``text`` so the control below can feed
+    it a sentence with a different number and prove the parse is reading, not asserting."""
+    match = _WRITER_COUNT.search(text)
+    assert match, (
+        "the sentence that states how many writers `profiles/` has no longer parses — it is "
+        "the one place the count is typed, so a reworded sentence must fail loudly here"
+    )
+    word = match.group("count")
+    assert word in _NUMBER_WORDS, f"unrecognised count word in RULES.md: {word!r}"
+    return _NUMBER_WORDS[word]
+
+
+def _profiles_writers_from_rules() -> set[str]:
+    """Dotted MODULE paths from the writer table in RULES.md — where the set is stated once.
+
+    The name a row *displays* and the file it *links to* must agree, or the row is naming one
+    writer and pointing at another. Returns the module, not the package head
+    (`messaging.angle_status`, `messaging.matrix_view`), because two writers now share the
+    `messaging` package: collapsing to the head would make the set smaller than the table and
+    a missing row would be invisible to any count. The import ban below re-derives the coarse
+    head from these, deliberately — exactly as `funnel` bans the whole module rather than
+    `record_actuals` alone.
+    """
+    text = _RULES.read_text(encoding="utf-8")
+    start = text.index("The writer set for `profiles/`, stated once")
+    end = text.index("\n\n", text.index("| Writer |", start))
+    out = set()
+    for match in _WRITER_ROW.finditer(text[start:end]):
+        path = match.group("path")
+        assert path.split("/")[0] == match.group("label"), (
+            f"RULES.md writer row displays `{match.group('label')}` but links gtm_core/{path}.py"
+        )
+        out.add(path.replace("/", "."))
+    return out
+
+
 def test_the_package_imports_no_writer_for_profiles():
     """It may resolve a profiles path to READ it; it must never import something that stages,
     promotes or otherwise writes tenant knowledge."""
-    # The modules that actually write under `profiles/`. `knowledge_staging.promote` writes
-    # the knowledge CORPUS; `hooks.save_hooks` and `brandkit.set_identity_value` are the two
-    # other key-scoped writers. An earlier version of this list named only the first two and
-    # would have passed `from ..hooks import save_hooks`.
-    banned = {"knowledge_staging", "knowledge_refresh", "hooks", "brandkit"}
+    # The modules that actually write under `profiles/`, READ FROM the table docs/RULES.md
+    # states them in ("The writer set for `profiles/`, stated once"). This set was hand-typed
+    # twice and drifted twice: first it named only two of them and would have passed
+    # `from ..hooks import save_hooks`; then `funnel.record_actuals` joined the table on
+    # 2026-09-23 and the set stayed at three, while SECURITY-SELF-ASSESSMENT.md said "a
+    # contract test bans importing any of them". Deriving it makes the doc the owner.
+    #
+    # Third time, prevented rather than recorded: `messaging.angle_status` (2026-09-24) is the
+    # first writer living in a PACKAGE, and `_WRITER_ROW` matched a flat module path only — so
+    # the row would have landed in the doc and this set would have quietly stayed at four. The
+    # count alone cannot catch that (the other four still parse), so the new member is asserted
+    # BY NAME: "the regex still does not match" has to fail loudly rather than pass.
+    #
+    # Fourth time, same shape, same day: `messaging.matrix_view` shipped in the SAME working
+    # tree as `angle_status` and was left out of the table, and `voc.registry` had been
+    # unlisted for months. Neither is catchable by a count — `matrix_view` shares the
+    # `messaging` head with a row that already parses — so both are asserted by name too.
+    writers = _profiles_writers_from_rules()
+    assert writers, f"RULES.md writer table did not parse: {writers}"
+    for module in ("messaging.angle_status", "messaging.matrix_view", "voc.registry"):
+        assert module in writers, (
+            f"the writer row for `{module}` did not parse — _WRITER_ROW must accept "
+            f"gtm_core/<pkg>/<mod>.py, not only gtm_core/<mod>.py. Parsed: {sorted(writers)}"
+        )
+
+    # The ban itself stays coarse — the package HEAD, so `from ..voc.registry import apply` and
+    # `from ..voc import registry` are both caught — but it is matched on dotted SEGMENTS, not
+    # as a substring. A substring rule made `voc` match `role_vocabulary`, which icp_check
+    # legitimately imports: a contract that cries wolf on an unrelated module gets switched off.
+    banned = {module.split(".")[0] for module in writers}
     offenders = []
     for path in _SOURCES:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
-                if any(b in node.module for b in banned):
-                    offenders.append(f"{path.name}:{node.lineno} {node.module}")
+                names = [node.module]
             elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if any(b in alias.name for b in banned):
-                        offenders.append(f"{path.name}:{node.lineno} {alias.name}")
+                names = [alias.name for alias in node.names]
+            else:
+                continue
+            for name in names:
+                if banned & set(name.split(".")):
+                    offenders.append(f"{path.name}:{node.lineno} {name}")
     assert not offenders, f"icp_check imported a writer of profiles/: {offenders}"
+
+
+def test_the_typed_count_and_the_table_are_one_fact():
+    """The prose count and the table are the SAME fact, so they may not disagree.
+
+    `>= 7` could only catch a row going missing. The direction that keeps happening is the
+    other one: a row lands, the table grows, and the word typed in RULES.md — plus the two
+    documents that restate it — stays at the old number, green. Equality is what makes adding
+    a writer a change you cannot land half of.
+    """
+    writers = _profiles_writers_from_rules()
+    typed = _profiles_writer_count_from_rules(_RULES.read_text(encoding="utf-8"))
+    assert len(writers) == typed, (
+        f"RULES.md's sentence says there are {typed} writers of profiles/, but its table lists "
+        f"{len(writers)}: {sorted(writers)}. Update the sentence and the table together — and "
+        "the two name lists elsewhere that link back to this table rather than restating it."
+    )
+
+
+def test_the_count_parser_reads_rather_than_asserts():
+    """§R18 control: a sentence with a different number must yield that different number.
+
+    Without this, `_profiles_writer_count_from_rules` could return a constant 8 and the
+    equality above would pass for the wrong reason.
+    """
+    fixture = (
+        "**The writer set for `profiles/`, stated once.** `profiles/` is read-only at runtime, "
+        "with **four** exceptions — a singleton claim would be wrong."
+    )
+    assert _profiles_writer_count_from_rules(fixture) == 4
+    assert _profiles_writer_count_from_rules(fixture.replace("**four**", "**eleven**")) == 11, (
+        "the parser must track the word it reads, not a hardcoded number"
+    )
+
+    with pytest.raises(AssertionError):
+        _profiles_writer_count_from_rules("the writer set is large")
+    with pytest.raises(AssertionError):
+        _profiles_writer_count_from_rules(fixture.replace("**four**", "**fourteen**"))
+
+
+def test_the_import_ban_matches_a_segment_and_not_a_substring():
+    """§R18 control, both directions, for the segment rule above.
+
+    Without it the ban is unfalsifiable in one direction (nothing in `icp_check` imports a
+    writer today, so "no offenders" proves nothing) and wrong in the other (`voc` inside
+    `role_vocabulary` is not an import of the `voc` package).
+    """
+    banned = {"voc", "hooks"}
+    assert banned & set("voc.registry".split(".")), "a real writer import must be caught"
+    assert not banned & set("role_vocabulary".split(".")), "a substring match must not fire"
+    assert not banned & set("hook_coverage.matrix".split("."))
 
 
 def _declared_flags() -> set[str]:

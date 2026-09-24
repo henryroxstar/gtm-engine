@@ -311,13 +311,35 @@ def toml_inline_list(items: list[str]) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def hooks_toml_path(profiles_root: Path, profile: str, product: str | None = None) -> Path:
-    """Resolve the hooks.toml path using the standard knowledge-file fallback."""
-    return resolve_knowledge_file(profiles_root, profile, "hooks.toml", product=product)
+def hooks_toml_path(
+    profiles_root: Path,
+    profile: str,
+    product: str | None = None,
+    overlay: str | None = None,
+) -> Path:
+    """Resolve the hooks.toml path using the standard knowledge-file fallback.
+
+    ``overlay`` is the messaging experiment rung, admitted since 2026-09-23. Explicit and
+    never ambient, exactly like ``product``: an experiment that could be bound from the
+    environment would outlive the run that asked for it, and a week of copy would quietly
+    be written against a hook bank nobody chose that morning. Whether the experiment exists
+    and may override this file is decided once by ``gtm_core.experiments.admit``; this is a
+    path resolver and validates nothing.
+    """
+    return resolve_knowledge_file(
+        profiles_root, profile, "hooks.toml", product=product, overlay=overlay
+    )
 
 
-def hooks_matrix_path(profiles_root: Path, profile: str, product: str | None = None) -> Path:
-    return resolve_knowledge_file(profiles_root, profile, "hook-matrix.md", product=product)
+def hooks_matrix_path(
+    profiles_root: Path,
+    profile: str,
+    product: str | None = None,
+    overlay: str | None = None,
+) -> Path:
+    return resolve_knowledge_file(
+        profiles_root, profile, "hook-matrix.md", product=product, overlay=overlay
+    )
 
 
 def _read_toml(path: Path) -> dict:
@@ -331,14 +353,20 @@ def load_hooks(
     *,
     product: str | None = None,
     content_root: Path | None = None,
+    overlay: str | None = None,
 ) -> HookBank:
     """Load the hook bank for `profile`.
 
     Reads `hooks.toml` if it exists and is authoritative. Falls back to parsing
     `hook-matrix.md` if `hooks.toml` is absent. Existing tenants keep working
     unchanged during the migration window.
+
+    The fallback **refuses** a `hook-matrix.md` generated from `angles.toml`
+    (`ValueError`, see `_parse_hook_matrix`) rather than returning an empty bank:
+    a tenant on the generated matrix with no `hooks.toml` has no hooks, and that
+    must be said rather than silently returned as a bank of zero.
     """
-    toml_path = hooks_toml_path(profiles_root, profile, product=product)
+    toml_path = hooks_toml_path(profiles_root, profile, product=product, overlay=overlay)
     if toml_path.is_file():
         data = _read_toml(toml_path)
         return HookBank(
@@ -348,7 +376,7 @@ def load_hooks(
             migrated_from_sha=data.get("migrated_from_sha"),
         )
 
-    matrix_path = hooks_matrix_path(profiles_root, profile, product=product)
+    matrix_path = hooks_matrix_path(profiles_root, profile, product=product, overlay=overlay)
     if matrix_path.is_file():
         return _parse_hook_matrix(matrix_path)
 
@@ -380,12 +408,33 @@ def save_hooks(
 def _parse_hook_matrix(path: Path) -> HookBank:
     """Best-effort parse of a markdown hook-matrix table into a HookBank.
 
-    The existing `hook-matrix.md` uses tables with columns `id`, `Persona`,
+    The legacy `hook-matrix.md` uses tables with columns `id`, `Persona`,
     `Signal to open on`, `Hook angle`. We map those to `id`, `angle`, and stash
     the persona/signal in `source_signal`. Status defaults to `test`; formats is
     empty (to be filled by the operator during migration).
+
+    **A GENERATED matrix is refused, not parsed.** Since FR2 (2026-09-24)
+    `gtm_core.messaging.matrix_view` renders `hook-matrix.md` from `angles.toml`
+    on a seat × (premise × opener_kind) axis, with no `id` column at all — so the
+    `table_re` below matched nothing and this returned `HookBank(hooks=[])`: zero
+    hooks, no defect, and every hook gate downstream passing by finding nothing.
+    A tenant that adopts the generated matrix needs a real `hooks.toml`; the two
+    files answer different questions and one is not a fallback for the other.
+    Detected with `matrix_view.is_generated`, so there is one definition of "this
+    file is generated" rather than a second banner test here. Imported inside the
+    function because that package pulls the registry in with it, and a hook bank
+    load must not depend on it at import time.
     """
+    from .messaging.matrix_view import is_generated
+
     text = path.read_text(encoding="utf-8")
+    if is_generated(text):
+        raise ValueError(
+            f"{path}: this hook-matrix.md is GENERATED from angles.toml (seat × premise) and "
+            "carries no hook ids — it is not a hook bank. Author "
+            f"{path.parent / 'hooks.toml'} instead; an empty bank here would read as "
+            "'no hooks configured' everywhere downstream."
+        )
     hooks: list[Hook] = []
 
     # Match markdown tables with an id column.

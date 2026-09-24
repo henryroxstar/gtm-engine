@@ -13,7 +13,7 @@ No. You never open a "terminal" or type commands. You talk to the assistant in p
 For this non-technical guide, the **Claude desktop app** ([claude.ai/download](https://claude.ai/download)). Technical users and developers can also run GTM Engine in **Google Antigravity**, **Cursor**, or **Codex**.
 
 **Can I use ChatGPT, Gemini, or Copilot instead?**
-For general non-technical chat, the guide is written for Claude desktop Cowork mode because it requires zero configuration. If you work in developer environments, **Gemini (via Google Antigravity)** and **Copilot/Codex** are supported out of the box using the repository's `.agents/` configuration and tool translation rules.
+For general non-technical chat, the guide is written for the Claude desktop app's **Code** tab because it requires zero configuration (not the app's separate Cowork tab, which is a different product and cannot run the engine). If you work in developer environments, **Gemini (via Google Antigravity)** and **Copilot/Codex** are supported out of the box using the repository's `.agents/` configuration and tool translation rules.
 
 **How long until I'm actually using it?**
 About 30 minutes, and most of that is the engine reading your website and materials. The "set me up" conversation itself is a couple of minutes of your attention.

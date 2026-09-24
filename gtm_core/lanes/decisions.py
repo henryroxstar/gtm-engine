@@ -29,9 +29,10 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..account_exclusion_keys import ledger_account_keys, row_account_keys
 from ..eval_calibration import evals_dir
 from ..prospect_paths import suppression_ledger
-from ..prospects_state import set_status
+from ..prospects_state import ACCOUNT_ID_FIELD, _identity_key, load_latest, set_status
 from ..suppression import EVAL_DISQUALIFIED, Suppression, append
 from .model import DECISIONS, SALVAGE_KINDS, Routed
 from .router import RoutingResult, account_key
@@ -390,10 +391,58 @@ def plan_apply(entries: list[DecisionEntry], prior: dict[tuple[str, str], dict])
     return plan
 
 
+def _retire_updates(
+    entries: list[DecisionEntry], profile: str, content_root: Path | None
+) -> dict[str, str]:
+    """``{ledger key -> "disqualified"}`` for the accounts an operator chose to retire.
+
+    Resolves each entry to the ledger ITEM first — offering **every** key the row can be
+    reached under, the same widened join ``prospects_consolidate`` and ``enrollment_gate``
+    already share — then keys the update by that item's own identity key, which is the only
+    key :func:`set_status` can look it up under.
+
+    Keying the update straight off ``DecisionEntry.account_key`` did not do this.
+    :func:`gtm_core.lanes.router.account_key` returns exactly ONE key (stamped id, else
+    company domain, else the exact company name), so a retire whose single key was not the
+    one the ledger item happened to carry — a blanked domain, a name recorded with its legal
+    suffix on one side and without it on the other — matched nothing. ``set_status`` reported
+    it under ``unmatched`` and :func:`apply` threw that report away, so the retire looked
+    like it had landed and the account stayed enrollable.
+
+    ``account_key`` itself is unchanged: it is the identity the decisions ledger has already
+    RECORDED against every prior decision, and re-deriving it would make those rows
+    unfindable. One key is the right answer for "what is this decision filed under" and the
+    wrong one for "which account does it retire" — the split ``_identity_key`` and
+    ``_identity_keys`` already make.
+    """
+    index: dict[str, dict] = {}
+    for item in load_latest(profile, content_root).get("items", []):
+        if not isinstance(item, dict):
+            continue
+        for key in ledger_account_keys(item):
+            index.setdefault(key, item)
+
+    updates: dict[str, str] = {}
+    for e in entries:
+        row = {
+            "company": e.company,
+            "company_domain": e.company_domain,
+            ACCOUNT_ID_FIELD: e.account_id,
+            "email": e.email,
+        }
+        item = next((index[k] for k in row_account_keys(row) if k in index), None)
+        # Falling back to the recorded key when nothing resolves is deliberate: it makes the
+        # miss show up in `unmatched` under the name the operator will recognise, rather
+        # than disappearing from the update dict entirely.
+        updates[(_identity_key(item) if item else "") or e.account_key] = "disqualified"
+    return updates
+
+
 def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None = None) -> dict:
     """Write the ledgers. Suppression first, so a failed second write still protects the person."""
     ledger = suppression_ledger(profile)
     added = skipped = 0
+    unmatched: list[str] = []
     if plan.suppress:
         entries = [
             Suppression(
@@ -407,14 +456,18 @@ def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None =
             for e in plan.suppress
         ]
         added, skipped = append(ledger, entries)
-        updates = {e.account_key: "disqualified" for e in plan.suppress}
-        set_status(
+        updates = _retire_updates(plan.suppress, profile, content_root)
+        # Reported, never discarded. `set_status` names every key that matched no account
+        # and refuses to invent one; throwing that away is what let a retire that reached
+        # nothing read as a retire that worked.
+        summary = set_status(
             profile,
             updates,
             reason=EVAL_DISQUALIFIED,
             source=f"hold-{stamp}",
             content_root=content_root,
         )
+        unmatched = list(summary["unmatched"])
     recorded = []
     for kind in ("suppress", "generic", "salvage"):
         for e in getattr(plan, kind):
@@ -435,7 +488,12 @@ def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None =
         feedback_path(profile, content_root),
         [{"kind": "hold-decision", **r} for r in recorded if r["note"] or r["salvage_kind"]],
     )
-    return {"suppressed": added, "suppression_skipped": skipped, "recorded": len(recorded)}
+    return {
+        "suppressed": added,
+        "suppression_skipped": skipped,
+        "recorded": len(recorded),
+        "retire_unmatched": unmatched,
+    }
 
 
 def today_stamp() -> str:

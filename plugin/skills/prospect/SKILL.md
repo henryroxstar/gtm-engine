@@ -131,7 +131,7 @@ handed back five "qualified, Tier-A, lane: repair" accounts. What was actually l
 | Step | CLI | What went dark |
 |---|---|---|
 | 1 | `latest.json` read + 60-day exclude set | the run could not tell it was re-working known accounts |
-| 1 | `python -m gtm_core.slugify` | account folders hand-kebab-cased — the documented way one account silently gets two folders |
+| 1 | `python -m gtm_core.account_folder` | account folders hand-kebab-cased — the documented way one account silently gets two folders |
 | 3 | budget pre-check → `costs.jsonl` | the §R2 cap. 209 metered lookups with the guard non-functional and **no cost row written** — no cap, no audit |
 | 7 | `gtm_core.account_integrity` | **the gate that refuses.** The judge *ranks*; this is what says no. Every lane verdict was a model's opinion |
 | 10 | `gtm_core.prospects_consolidate` / `prospects_import finalize` | the consolidate sweep and the merge-only writer; `latest.json` never learned about the accounts |
@@ -177,9 +177,11 @@ export CSV, `latest.json`, the pool) live under `content/<active>/prospects/`. *
 deliverables — outreach packs, dossiers, briefs — live under
 `content/<active>/accounts/<canonical-slug>/`**, which is the only place the outreach-log rollup
 reads (it globs `accounts/*/prospects-*outreach-*.md`). A pack written anywhere else is invisible
-to the rollup and to every later run looking for prior work. Resolve the slug with
-`python -m gtm_core.slugify "<company name>"` — never hand-kebab-case it, or the same account ends
-up with two folders. Print this profile's exact paths at any time:
+to the rollup and to every later run looking for prior work. Resolve the folder with
+`python -m gtm_core.account_folder "<company name>" --profile <active> --domain <company_domain>` —
+never hand-kebab-case it, or the same account ends up with two folders (exit 3 = ambiguous: choose
+among the candidates it prints; unattended, skip that account and report it as `folder-ambiguous`).
+Print this profile's exact paths at any time:
 ```bash
 uv run python -m gtm_core.prospects paths --profile <active>
 ```
@@ -396,8 +398,14 @@ judge, where the only remedy was a data fix plus a re-route. Run the same audit 
 just wrote, before Step 8, and fix or drop what blocks:
 
 ```bash
-uv run python -m gtm_core.account_integrity --csv <the rows you just recorded>.csv --profile <active>
+uv run python -m gtm_core.account_integrity --csv <the rows you just recorded>.csv \
+  --profile <active> --lane <the lane these rows were routed into>
 ```
+
+`--lane` is **required**, here and everywhere else this command appears. It does not tune how
+strict the run is — it selects *which rules apply*, so leaving it off would not produce a stricter
+read, it would produce a read whose rules do not match the list. Name the one lane these rows were
+routed into; a list carrying more than one is two runs, not one.
 
 `agent-kind-contradiction` (clause says "agent", kind says `none`) and `signal-subject-mismatch`
 (subject ≠ the row's `company` after normalisation) are the two that survived longest; both are
@@ -411,7 +419,7 @@ axis checkable the way the persona axis already is:
 | field | what goes in it |
 |---|---|
 | `signal_column` | the matrix's **signal column label**, written verbatim, for this account's own **segment** grid — e.g. `Compliance event (audit, breach)` or `Partner / third-party agents entering the estate`. This is the one non-derivable fact: the account's persona already comes from its title and its segment is already a column, so this is the only atom worth writing by hand. `gtm_core.hook_coverage.derive_row_cell` combines it with the row's own title and segment to compute the full cell — record this and `hook_cell` below is optional. |
-| `hook_cell` | the full matrix cell (**segment × observed signal**), written verbatim in the matrix's labels — a shortcut if you already know it, but `signal_column` is what actually needs writing down. Recording either is what turns `cell-segment-fit` / `cell-signal-fit` / the merge-render linter's `signal-cell-mismatch` from heuristics into an equality test at drafting time — today the spec declares a cell and nothing says which cell the *row* belongs to, so the check has to infer the row's half from free text. This skill already picks a hook per account and then throws away which one; stop throwing it away. |
+| `hook_cell` | the full matrix cell (**segment × observed signal**), written verbatim in the matrix's labels — a shortcut if you already know it, but `signal_column` is what actually needs writing down. Recording either is what turns `cell-segment-fit` / `cell-signal-fit` from heuristics into an equality test at drafting time — today the spec declares a cell and nothing says which cell the *row* belongs to, so the check has to infer the row's half from free text. (The outreach linter's own cell rules retired on 2026-09-24: a spec's cell is now derived from its declared `angle:`.) This skill already picks a hook per account and then throws away which one; stop throwing it away. |
 
 Resolve the matrix through `python -m gtm_core.resolve_knowledge hook-matrix.md --profile <active>
 [--product <slug>]` (product-first, profile-fallback per CLAUDE.md) rather than reading
@@ -514,10 +522,10 @@ widens `--require-verdict` to that lane's admissible set:
 **Read that middle column again: `re-angle` and blank are enrollable in the generic lane.** They
 were not always — the gate hard-dropped every non-`send` row and stranded 461 of 598 pooled rows,
 which is the defect `gtm_core.lanes` was built (2026-09-03) to fix. In the generic lane
-`no-dossier`, `verdict-missing` and `relation-unresolved` report as one advisory line each rather
-than per-row errors, because a body referencing no research cannot be wrong about research — only
-an **absent** record is advisory. Every other class — competitor (a listed name or alias, any
-subdomain, or the contact's email domain), academic domain, stale artifact, why-now shape, and a
+`no-dossier`, `verdict-missing`, `relation-unresolved` and `why-now-not-a-signal` report as one
+advisory line each rather than per-row errors, because a body referencing no research cannot be
+wrong about research — only an **absent** record is advisory. Every other class — competitor (a listed name or alias, any
+subdomain, or the contact's email domain), academic domain, stale artifact, and a
 **wrong** record (`signal-stale`, future-dated, a search-page source, subject mismatch, human-agent)
 — stays a hard ERROR in **every** lane. With `--lane`, a verdict the lane does not admit is a
 `verdict-inadmissible` ERROR whether or not `--require-verdict` is passed. At enrollment, add
@@ -609,7 +617,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
 
   **"How many emails are ready to send"
   is always consolidate's `ready_to_load` output, never a hand-built or dated list.**
-- For **each Tier-A (🔥)** account: `prospects-YYYYMMDD-outreach-[company-slug].md` using the Tier-A pack template — a pre-drafted **4-touch / 2-channel arc** (LinkedIn first, then email, over ~12 days) threading **4–6 personas** with role-differentiated first lines. The exact touch shape lives in `references/output-templates.md`, which renders the ceiling `voice.md` sets — do not restate a touch count here, or the two drift (they did: this file said 5 while `voice.md` said 4, and packs shipped both). **Read `profiles/<active>/knowledge/voice.md` first**; every line must pass the voice rules. These are drafts — never auto-send, and never presented as sendable until the pack passes `tests/linter/outreach_pack_linter.py --format prospect-pack` with zero errors (run it `--batch` over the run so cross-account subject/hedge reuse is caught too).
+- For **each Tier-A (🔥)** account: `prospects-YYYYMMDD-outreach-[company-slug].md` using the Tier-A pack template — a pre-drafted **4-touch / 2-channel arc** (LinkedIn first, then email, over ~12 days) threading **4–6 personas** with role-differentiated first lines. The exact touch shape lives in `references/output-templates.md`, which renders the ceiling `voice.md` sets — do not restate a touch count here, or the two drift (they did: this file said 5 while `voice.md` said 4, and packs shipped both). **Read `profiles/<active>/knowledge/voice.md` first**; every line must pass the voice rules. These are drafts — never auto-send, and never presented as sendable until the pack passes `tests/linter/outreach_linter.py pack --format prospect-pack` with zero errors (run it `--batch` over the run so cross-account subject/hedge reuse is caught too).
 - **Nurture split (5/95):** fit-but-cold accounts (Tier-B, heat 0) get **no meeting-ask sequence** — list them in the run file under "Nurture" with a suggested monthly no-ask value touch (give-first artifact, LinkedIn presence). A later signal promotes them into a sequence.
 - **Refresh the outreach log** — after writing this run's outreach pack(s), regenerate the cross-run rollup so there's always one place to see everything drafted:
   ```bash
@@ -755,11 +763,13 @@ re-generated under a second, duplicate folder.
      **research-pack mode** for everything else (a markdown-only pass at the same research depth, no
      docx/pdf/images — the mode this sweep needs to stay affordable across hundreds of accounts;
      output `content/<active>/accounts/<canonical-slug>/dossier-<canonical-slug>-<YYYY-MM-DD>.md`).
-     Both use the CLI-computed slug the sweep already returned as `canonical_slug` — never
-     hand-kebab-case it.
+     Both write to the folder `python -m gtm_core.account_folder "<company>" --profile <active>
+     --domain <company_domain>` returns, **not** the sweep's `canonical_slug`: an account with no
+     dossier can still have a folder holding its outreach packs, and a dossier written to
+     `canonical_slug` beside it is the split this resolver exists to stop.
   2. Invoke `draft-outreach` for that account's resolved contact, saved with the same naming
-     convention Step 10 already uses (`prospects-YYYYMMDD-outreach-[company-slug].md`, same canonical
-     slug) — this is what makes the draft automatically show up in the outreach-log rollup below with
+     convention Step 10 already uses (`prospects-YYYYMMDD-outreach-[company-slug].md`, same resolved
+     folder) — this is what makes the draft automatically show up in the outreach-log rollup below with
      zero new plumbing.
 - **Re-run the outreach log** after the loop so the rollup reflects every draft just generated:
   ```bash

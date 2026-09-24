@@ -77,6 +77,7 @@ from .finding_budget import (
 )
 from .paths import resolve_content_root, resolve_profiles_root
 from .prospect_paths import ready_to_load, suppression_ledger
+from .prospects_consolidate.confidence import org_token
 
 __all__ = [
     "OK",
@@ -192,34 +193,111 @@ def _minus(findings: list[str], already: Counter) -> list[str]:
     return out
 
 
+def _across_groups(findings: list[str], seen: set[str]) -> list[str]:
+    """``findings`` less any this check already emitted for an EARLIER lane group.
+
+    Intra-group multiplicity is kept (the same finding twice in one lane is two real rows);
+    only a repeat across groups is dropped, because that is one account being audited once
+    per lane it appears in rather than one fact occurring twice. ``seen`` is mutated.
+    """
+    out = [f for f in findings if f not in seen]
+    seen.update(out)
+    return out
+
+
+def _lane_groups(rows: list[dict]) -> list[tuple[str, list[dict]]]:
+    """``rows`` partitioned by their ``lane`` column, in file order within each group.
+
+    ``ready-to-load.csv`` is a MIXED-lane file — ``consolidate`` stamps each row with the
+    lane the router chose, blank while unrouted — and the gate's rules differ by lane:
+    ``audit_rows(..., lane="generic")`` demotes the research-record findings to advisory,
+    because a generic body references no research. Until 2026-09-23 this module audited the
+    whole file unlaned, so a routed generic row failed the daily unit on ``signal-*`` and
+    ``why-now-not-a-signal`` errors the gate itself would have waved through: the P6 defect
+    ("a wrapper around a gate becomes part of the gate while inheriting none of its tests")
+    one door over. A blank lane is audited unlaned, exactly as before; sorted so it comes
+    first and the report order is stable.
+
+    **The column is taken on trust here, and that is deliberate.** The enrollment gate does
+    not trust it alone — `account_integrity` calls `_refuse_lane_state_mismatch`, because a
+    stale or hand-edited lane must not enrol on an old column's strength. This module is a
+    read-only daily report that enrols nothing, so the worst a wrong lane can do is soften
+    or harden one morning's advisory tier; the refusal still runs at the door that spends
+    money. Re-running the mismatch check here would also re-read `lanes-state.jsonl` on
+    every timer fire for a verdict nothing acts on. If this report ever gates an action,
+    that trade stops holding and the refusal has to come with it.
+    """
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r.get("lane") or "").strip().lower(), []).append(r)
+    return sorted(groups.items())
+
+
+def _lane_detail(groups: list[tuple[str, list[dict]]]) -> str:
+    return ", ".join(f"{lane or 'unrouted'}={len(rows)}" for lane, rows in groups)
+
+
 def _run_account_integrity(i: _Inputs) -> CheckResult:
     if i.rows is None:
         return _no_list("account_integrity", i)
-    a = account_integrity.audit_rows(
-        i.rows,
-        i.profile,
-        content_root=i.content_root,
-        profiles_root=i.profiles_root,
-        fieldnames=i.fieldnames,
-        acked=i.acked,
-        budget=i.budget,
-        as_of=i.as_of,
+    groups = _lane_groups(i.rows)
+    errors: list[str] = []
+    warnings: list[str] = []
+    seen_errors: set[str] = set()
+    seen_warnings: set[str] = set()
+    rows = accounts = 0
+    for lane, group in groups:
+        a = account_integrity.audit_rows(
+            group,
+            i.profile,
+            content_root=i.content_root,
+            profiles_root=i.profiles_root,
+            fieldnames=i.fieldnames,
+            acked=i.acked,
+            budget=i.budget,
+            as_of=i.as_of,
+            lane=lane,
+        )
+        # `audit_rows` runs `audit_records` inside itself, so the record tier arrives here
+        # a second time. `signal_record` owns those findings; this entry keeps only what
+        # is genuinely account-level (no-dossier, domain-*, competitor, leadership).
+        #
+        # `_across_groups` is what stops the NUMERATOR repeating the mistake the account
+        # count made below. `audit_rows` dedupes its account tier per CALL, so an account
+        # whose rows sit in two lanes is audited twice and reports `no-dossier` (and the
+        # competitor / leadership lines) once per lane — against a denominator that is now
+        # distinct over the whole file. A rate with a summed numerator over a distinct
+        # denominator is wrong in the direction that reads as precise. Within one group the
+        # multiset is preserved: a CSV genuinely carrying the same person twice is a
+        # finding, not a duplicate — the same rule `_minus` follows.
+        errors += _across_groups(_minus(list(a.errors), i.record_seen), seen_errors)
+        # A header predating the research record is one file-level fact, not N row facts —
+        # `signal_record` reports it that way and this must not re-expand it.
+        errors += _across_groups(
+            [f"record-columns-missing: {c}" for c in a.record_missing_columns], seen_errors
+        )
+        warnings += _across_groups(_minus(list(a.warnings), i.record_seen), seen_warnings)
+        rows += a.rows
+    # Counted across the WHOLE file, never summed over the lane groups. An account's rows
+    # can sit in two lanes at once — 25 of 578 did on the first live run, mostly
+    # `excluded`+`generic` — and summing each group's own distinct count reported 603.
+    # That number is not just printed: it is the `denominators` base every WARN-tier rate
+    # is measured against, so the inflation quietly understated all of them. `org_token` is
+    # the identity `audit_rows` itself dedupes on, so the two cannot drift apart.
+    accounts = len(
+        {
+            tok
+            for r in i.rows
+            if (tok := org_token(r.get("company_domain", ""), r.get("company", "")))
+        }
     )
-    # `audit_rows` runs `audit_records` inside itself, so the record tier arrives here a
-    # second time. `signal_record` owns those findings; this entry keeps only what is
-    # genuinely account-level (no-dossier, domain-*, competitor, leadership).
-    errors = _minus(list(a.errors), i.record_seen)
-    # A header predating the research record is one file-level fact, not N row facts —
-    # `signal_record` reports it that way and this must not re-expand it.
-    errors += [f"record-columns-missing: {c}" for c in a.record_missing_columns]
-    warnings = _minus(list(a.warnings), i.record_seen)
     return CheckResult(
         name="account_integrity",
         status=FAIL if errors else OK,
-        detail=f"{a.rows} row(s), {a.accounts} account(s)",
+        detail=f"{rows} row(s), {accounts} account(s); lanes: {_lane_detail(groups)}",
         errors=errors,
         warnings=warnings,
-        denominators=dict.fromkeys((f.partition(": ")[0] for f in warnings), a.accounts or a.rows),
+        denominators=dict.fromkeys((f.partition(": ")[0] for f in warnings), accounts or rows),
     )
 
 
@@ -340,16 +418,32 @@ def _run_groundedness(i: _Inputs) -> CheckResult:
 def _run_signal_record(i: _Inputs) -> CheckResult:
     if i.rows is None:
         return _no_list("signal_record", i)
-    a = signal_record.audit_records(i.rows, i.fieldnames, as_of=i.as_of)
-    errors = list(a.errors)
-    errors += [f"record-columns-missing: {c}" for c in a.missing_columns]
+    groups = _lane_groups(i.rows)
+    errors: list[str] = []
+    warnings: list[str] = []
+    checked = rows = 0
+    missing: list[str] = []
+    for lane, group in groups:
+        a = signal_record.audit_records(group, i.fieldnames, as_of=i.as_of)
+        errs, warns = list(a.errors), list(a.warnings)
+        if lane == "generic":
+            # The gate's own rule for this lane (`audit_rows(..., lane="generic")`), applied
+            # by the same function so the daily unit and the gate cannot disagree.
+            errs, demoted = account_integrity.demote_generic_advisory(errs)
+            warns += demoted
+        errors += errs
+        warnings += warns
+        checked += a.checked
+        rows += a.rows
+        missing = a.missing_columns  # a property of the header, identical for every group
+    errors += [f"record-columns-missing: {c}" for c in missing]
     return CheckResult(
         name="signal_record",
         status=FAIL if errors else OK,
-        detail=f"{a.checked}/{a.rows} row(s) checked",
+        detail=f"{checked}/{rows} row(s) checked; lanes: {_lane_detail(groups)}",
         errors=errors,
-        warnings=list(a.warnings),
-        denominators=dict.fromkeys((f.partition(": ")[0] for f in a.warnings), a.checked or a.rows),
+        warnings=warnings,
+        denominators=dict.fromkeys((f.partition(": ")[0] for f in warnings), checked or rows),
     )
 
 

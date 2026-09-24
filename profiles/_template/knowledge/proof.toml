@@ -1,0 +1,71 @@
+# Outbound proof registry — what attests a number, an obligation, or a result.
+#
+# Read ONLY by `gtm_core.messaging.registry`. A claim says what the product does; a proof says
+# why a reader should believe a figure or take an expectation seriously. They are two tables
+# because a claim can be true with no proof for a given market, and an external expectation is
+# true whether or not you sell. Replace every block below with your own.
+#
+# ── The fields ────────────────────────────────────────────────────────────────────────────
+#   id            unique, lowercase, a bare name (no `/`, `\`, `..`); case-insensitive
+#   kind          anchor | stat | outcome     (`gtm_core.messaging.registry.PROOF_KINDS`)
+#                 anchor  = an external framework/regulator expectation for one market
+#                 stat    = a third-party measurement of the PROBLEM
+#                 outcome = a result from your own work (the solution proof)
+#   market        the reader's market, in the ONE canonical spelling
+#                 `gtm_core.email_compliance.normalize_market` produces — lowercase, no
+#                 annotation ("singapore", not "SG" or "Singapore (primary)"). A second spelling
+#                 does not fail loudly; it produces a lane that matches nobody. Leave it EMPTY
+#                 for a global figure rather than guessing a market for it.
+#   figure_kind   measured | illustrative | disputed | none   (…registry.FIGURE_KINDS)
+#                 measured     = a figure from a dated primary you have read
+#                 illustrative = offered as a shape, not as a measurement
+#                 disputed     = a figure you cannot stand behind. Deliberately representable,
+#                                so a retracted number is NAMEABLE instead of coming back as a
+#                                "memory" six weeks later.
+#                 none         = carries no figure at all (what most anchors are)
+#   statement     what may be said, in the shape a body rephrases
+#   source        `<path>[:<line>]` relative to your profile directory (see `claims.toml`'s
+#                 header for why the profile root and not `knowledge/`)
+#   binding       false for guidance. Cite a regulator's EXPECTATION, never an obligation:
+#                 telling a stranger they must comply is the worst kind of false to put in cold
+#                 mail, and it is the first thing their counsel will check.
+#   notes         optional, for the next editor
+#
+# ── A market with no anchor is RECORDED AS ABSENT, never filled ────────────────────────────
+#
+# You will sell into markets that have no framework worth citing. The temptation is to reach for
+# a neighbouring market's anchor, because it reads fine — the sentence is true, it is just true
+# about somewhere else, and the recipient is the one person guaranteed to know that. Do not.
+# Write the absence down instead, in a dated comment like the block below, and let that market's
+# copy lean on a `stat` or an `outcome`. An absence you can see is a gap someone can close; an
+# anchor borrowed from next door is a gap nobody can see.
+#
+#   # ANCHOR COVERAGE — reviewed <date>
+#   #   <market a>  → <anchor id below>
+#   #   <market b>  → NO ANCHOR, recorded absent <date>
+#
+# Delete these three and write your own. A file with no `[[proof]]` block is valid and loads.
+
+[[proof]]
+id = "example-anchor-market-guidance"
+kind = "anchor"
+market = "singapore"
+figure_kind = "none"
+binding = false
+statement = "The market's published guidance expects an accountable owner named for each automated process."
+notes = "Replace with the framework your buyers in this market actually answer to, and cite it."
+
+[[proof]]
+id = "example-problem-stat"
+kind = "stat"
+figure_kind = "illustrative"
+statement = "Finance teams commonly spend the first week of a quarter reconciling figures by hand."
+# No `market`: a figure that is not about one market leaves this EMPTY rather than guessing.
+notes = "`illustrative` because it is offered as a shape. A read, dated primary makes it `measured`."
+
+[[proof]]
+id = "example-customer-outcome"
+kind = "outcome"
+figure_kind = "illustrative"
+statement = "A mid-market operator cut month-end reconciliation from nine days to two."
+notes = "Name no customer here without their written permission; the shape of the result carries it."

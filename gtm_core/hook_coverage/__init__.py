@@ -16,7 +16,10 @@ This module is the *measurement* half (phase H0). It changes no behaviour and is
 into no gate; it only makes four questions answerable:
 
 * :func:`parse_matrix` — what cells does the tenant's matrix actually offer?
-* :func:`declared_cell` — which cell does a spec claim to implement?
+* :func:`resolve_declared_cell` — which cell does a spec implement, derived from its
+  declared ``angle:`` where it has one and read off a legacy ``hook_cell:`` where it does
+  not? (:func:`declared_cell` is the second half of that answer, and reads the legacy
+  field alone — call the resolver, not it, unless you specifically mean the legacy field.)
 * :func:`argument_distinctness` — are two specs the same argument wearing two subjects?
 * :func:`persona_coverage` — which personas hold recipients that no spec addresses?
 
@@ -31,6 +34,7 @@ exactly as ``outreach_pack_linter._SEAT_RULES`` already does for seats.
 from __future__ import annotations
 
 from .audit import audit_campaign, campaign_packs  # noqa: F401
+from .backlog import Backlog, BacklogCell, BacklogUnreadable, backlog, render_backlog
 from .cli import main  # noqa: F401
 
 # Eager, complete re-export of the pre-split module surface (PRD §5 rule 1):
@@ -62,6 +66,7 @@ from .declared import (  # noqa: F401
     _STAKES_RE,
     DeclaredCell,
     declared_cell,
+    resolve_declared_cell,
 )
 from .distinctness import (  # noqa: F401
     _GREETING_RE,
@@ -92,11 +97,12 @@ from .matrix import (  # noqa: F401
     Cell,
     Matrix,
     MatrixShape,
+    RowAxis,
     UnknownHookCell,
     _cells_equal,
     _clean_cell,
     _column_index,
-    _detect_shape,
+    _detect,
     _join_bullets,
     _parse_grid_section,
     _parse_rows_section,
@@ -105,6 +111,9 @@ from .matrix import (  # noqa: F401
     _split_row,
     parse_matrix,
     persona_key_of_label,
+    row_key_of_label,
+    row_key_of_title,
+    seat_key_of_label,
 )
 from .premise import (  # noqa: F401
     _PREMISE_VOCAB_FILE,
@@ -125,6 +134,11 @@ from .render import render  # noqa: F401
 from .rows import RowCell, classify_rows, derive_row_cell  # noqa: F401
 
 __all__ = [
+    "Backlog",
+    "BacklogCell",
+    "BacklogUnreadable",
+    "backlog",
+    "render_backlog",
     "JACCARD_MAX",
     "MAX_NGRAM_EMAILS",
     "NGRAM_N",
@@ -144,6 +158,7 @@ __all__ = [
     "campaign_packs",
     "classify_rows",
     "declared_cell",
+    "resolve_declared_cell",
     "declared_stakes",
     "derive_row_cell",
     "segment_fit",

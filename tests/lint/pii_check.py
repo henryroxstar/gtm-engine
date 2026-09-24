@@ -196,12 +196,25 @@ def in_third_party_scope(path: Path) -> bool:
 
 
 def load_roster() -> tuple[re.Pattern[str] | None, set[str]]:
-    """(matcher, digests). Derived from live tenant data when the account tree is present;
-    otherwise the committed digests, so CI — which checks out no content/ — enforces the
-    same roster rather than the partial one `profiles/` alone would yield."""
-    if third_party_roster.has_tenant_data(ROOT):
-        return third_party_roster.matcher(third_party_roster.derive_keys(ROOT)), set()
-    return None, third_party_roster.load_digests()
+    """(matcher, digests) — both, and the caller applies both.
+
+    The matcher is derived from live tenant data when a LOCAL account tree is present, and
+    is ``None`` otherwise (CI, which checks out no content/). The committed digests are
+    returned ALWAYS, because they are a union that only grows: they still hold names whose
+    account folder has been renamed, retired, or moved to external storage, and a company
+    does not stop being real when its folder does.
+
+    "Local" is load-bearing: `third_party_roster._local_account_trees` skips a tenant whose
+    content directory is a symlink to external storage, so this never touches a cloud mount
+    and never depends on one being available. That narrowing is exactly why the digests are
+    no longer dropped here — the two together cover what the live derivation alone cannot.
+    """
+    live = (
+        third_party_roster.matcher(third_party_roster.derive_keys(ROOT))
+        if third_party_roster.has_tenant_data(ROOT)
+        else None
+    )
+    return live, third_party_roster.load_digests()
 
 
 def load_allowlist() -> tuple[set[str], list[str], set[str]]:
@@ -373,8 +386,19 @@ def _third_party_findings(
     """
     out: list[tuple[object, int, str]] = []
     for lineno, seg in data_regions(path, text):
-        hits = roster.findall(seg) if roster is not None else _digest_hits(seg, digests or set())
-        out.extend((rel, lineno, f"third-party name {hit!r}") for hit in hits)
+        # BOTH, never either/or. The live matcher knows the tenants this checkout can
+        # read; the committed digest is a union that also remembers names whose folder has
+        # since been renamed, retired, or moved to external storage. Running only the live
+        # matcher locally would let a name the digest still bans pass pre-commit and then
+        # fail in CI — or, worse, pass both because the export layer derives live too.
+        hits = list(roster.findall(seg)) if roster is not None else []
+        hits += _digest_hits(seg, digests or set())
+        seen: set[str] = set()
+        for hit in hits:
+            if hit.lower() in seen:
+                continue  # the same name found by both routes is one finding
+            seen.add(hit.lower())
+            out.append((rel, lineno, f"third-party name {hit!r}"))
     return out
 
 

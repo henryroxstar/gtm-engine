@@ -14,6 +14,13 @@ So the roster is DERIVED from the tenant data that already names them, never typ
     content/<tenant>/accounts/<slug>/                       one folder per real account
     profiles/<tenant>/knowledge/outreach-case-studies.txt   one name per line
 
+A tenant whose `content/<tenant>/` is a SYMLINK to external storage is skipped — see
+`_local_account_trees`. Storage is not source, and a lint that globs through the symlink makes
+a commit hook depend on a file provider being mounted. The residual is that a name appearing
+ONLY in such a tenant is not a derived key; the committed digest still carries it if it was
+ever derived (`write_digest` is a union), and beyond that it falls to `carve-preflight` and
+the human identity read.
+
 Both are LISTS OF NAMES by construction. An earlier draft also scraped `### ` headings out
 of `case-studies.md`, which produced keys like "reusable messaging hooks" from the
 document's own structural headings — prose is not a roster, and the curated .txt already
@@ -53,7 +60,8 @@ roster look unusable; measured on this repo it cut the finding count by two thir
 THE ROSTER IS ITSELF PII, so it is never committed in plaintext. Two modes:
 
   * derive (default) — read the live tenant data. Used by pre-commit, the export gate and
-    the identity read, all of which run where content/ and profiles/ exist.
+    the identity read, all of which run where content/ and profiles/ exist. `pii_check`
+    applies this ALONGSIDE the digests, never instead of them.
   * digest — the salted sha256 of each key, committed as tests/lint/third_party_digest.txt
     so CI (which has no tenant data) enforces the same rule. A digest of a short company
     name is brute-forceable by anyone holding a wordlist, which is why the salt is here
@@ -89,6 +97,7 @@ DIGEST_FILE = Path(__file__).resolve().parent / "third_party_digest.txt"
 # Not a secret: it exists so the digest file is specific to this repo, not so it resists
 # an attacker holding the repo. See the module docstring.
 DIGEST_SALT = "gtm-engine-third-party-roster-v1"
+
 
 # A single token shorter than this is a collision generator, not an identity: three-letter
 # tickers and abbreviations (`anz`, `ema`, `zeb`) appear inside ordinary prose constantly.
@@ -239,7 +248,31 @@ def has_tenant_data(root: Path = ROOT) -> bool:
     case-study names: non-empty, and a silently weaker gate than the committed digests.
     A gate that quietly degrades is worse than one that is absent.
     """
-    return any(root.glob("content/*/accounts"))
+    return any(_local_account_trees(root))
+
+
+def _local_account_trees(root: Path = ROOT) -> list[Path]:
+    """Every ``content/<tenant>/accounts`` that is LOCAL to this checkout.
+
+    A tenant's ``content/<tenant>/`` may be a symlink to external storage — the operator
+    keeps one tenant's account and content data in a cloud-synced folder. Those bytes are
+    storage, not source, and **no lint in this repo may reach into them**: doing so makes a
+    commit hook depend on a file provider being mounted and on whatever OS permission that
+    provider sits behind, which is not a property of the code being committed. Until
+    2026-09-24 this globbed straight through the symlink and a commit died on a
+    ``PermissionError`` from the cloud mount — a gate failing for a reason that had nothing
+    to do with the diff.
+
+    The consequence is stated rather than hidden: a name appearing ONLY in an external
+    tenant's account folders is not a derived key, so it falls to the human identity read
+    exactly like the all-English-name residual this module already documents. Every other
+    tenant is local and still derives normally.
+    """
+    return [
+        accounts
+        for accounts in sorted(root.glob("content/*/accounts"))
+        if not accounts.parent.is_symlink() and not accounts.is_symlink()
+    ]
 
 
 def _raw_names(root: Path, words: set[str] | None = None) -> set[str]:
@@ -247,7 +280,7 @@ def _raw_names(root: Path, words: set[str] | None = None) -> set[str]:
     words = _dictionary() if words is None else words
     names: set[str] = set()
 
-    for accounts in root.glob("content/*/accounts"):
+    for accounts in _local_account_trees(root):
         for folder in accounts.iterdir():
             if folder.is_dir() and not folder.name.startswith("."):
                 names.add(folder.name.replace("-", " "))
@@ -324,8 +357,24 @@ def _require_dictionary() -> None:
 
 
 def write_digest(root: Path = ROOT) -> int:
+    """Regenerate the committed digest as a UNION with what is already there.
+
+    Append-only by construction, and that is the whole design. The digest is a list of
+    names never to write into source, and a name does not stop being someone's the day its
+    account folder is renamed, retired, or moved to storage this checkout cannot read.
+    Three things shrink the live derivation without shrinking the truth: a folder
+    consolidation (the 2026-09-23 merge retired ~29 alternate spellings), a tenant whose
+    tree is a symlink to external storage (:func:`_local_account_trees`), and a machine that
+    simply has fewer tenants checked out. A plain rewrite would silently hand all three back
+    as permission to name those companies again — the leak this file exists to stop.
+
+    The cost of keeping a stale key is that the gate also refuses a name nobody uses any
+    more, which is the harmless direction. `--prune` is deliberately absent: removing a key
+    is a decision to allow a name, and that belongs in `[third-party-allowed]` with a
+    written reason, one name at a time.
+    """
     _require_dictionary()
-    keys = derive_keys(root)
+    keys = {digest(k) for k in derive_keys(root)} | load_digests()
     body = [
         "# Salted sha256 of every third-party name the tenant data records.",
         "# GENERATED by tests/lint/third_party_roster.py --write-digest — never hand-edit.",
@@ -333,9 +382,13 @@ def write_digest(root: Path = ROOT) -> int:
         "# The roster itself is PII and is not committed. CI has no content/ or profiles/,",
         "# so it enforces the rule against these digests; pre-commit and the export derive",
         "# the live roster instead. Regenerate whenever accounts or case studies change.",
+        "#",
+        "# UNION, never a replacement: this file only ever grows. A name that leaves the",
+        "# live derivation — a renamed folder, a tenant on external storage, a smaller",
+        "# checkout — has not stopped being a real company. See write_digest's docstring.",
         "",
     ]
-    body.extend(sorted(digest(k) for k in keys))
+    body.extend(sorted(keys))
     DIGEST_FILE.write_text("\n".join(body) + "\n", encoding="utf-8")
     return len(keys)
 

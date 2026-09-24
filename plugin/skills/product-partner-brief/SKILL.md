@@ -85,11 +85,14 @@ brand.
 - If the partner or the product in scope is **missing or ambiguous**, ask **one** concise clarifying
   question before researching.
 
-**Resolve the account slug before writing anything:**
+**Resolve the account folder before writing anything:**
 
 ```bash
-python -m gtm_core.slugify "<partner company name>"
+python -m gtm_core.account_folder "<partner company name>" --profile <active> [--domain <domain>]
 ```
+
+It prints the folder the account already has, or a new slug when it has none. Exit 3 means
+ambiguous: choose among the candidates it prints, and never create a new folder to get past it.
 
 Always run the CLI — never hand-kebab-case it, or the same account silently ends up with two
 folders. Everything this skill produces goes to `content/<active>/accounts/<account-slug>/`.

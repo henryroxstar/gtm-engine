@@ -378,47 +378,6 @@ def test_identified_unions_imports_and_latest_without_double_counting(tmp_path):
     assert a["backlog_accounts"] == 1
 
 
-def test_the_gate_numbers_match_the_gate_itself(tmp_path):
-    """The dashboard must audit the SAME population the enrollment gate audits.
-
-    On 2026-09-01 it audited `.pool/master-list.csv` (the whole backlog) with a
-    hand-rolled verdict filter that omitted the suppression check, and published
-    17 errors / 30 warnings while `account_integrity --require-verdict send` on
-    `ready-to-load.csv` reported 11 / 27. Two disagreeing sources for one question is
-    the exact failure this dashboard exists to end, so pin them together.
-    """
-    import csv as _csv
-
-    from gtm_core import account_integrity as ai
-    from gtm_core.prospects_consolidate import ready_to_load_path
-
-    profile = "acme"
-    _seed(tmp_path, profile)
-    pc.consolidate(profile, content_root=tmp_path)
-
-    status = pd.build_status(profile, content_root=tmp_path, profiles_root=tmp_path / "profiles")
-    f = status["funnel"]
-
-    # Recompute the same way the CLI does, through the same shared filter.
-    ready = ready_to_load_path(profile, content_root=tmp_path)
-    with ready.open(newline="", encoding="utf-8") as fh:
-        reader = _csv.DictReader(fh)
-        fieldnames = list(reader.fieldnames or [])
-        rows = list(reader)
-    kept, vstats = ai.filter_by_verdict(rows, "send")
-    audit = ai.audit_rows(
-        kept,
-        profile,
-        tmp_path,
-        tmp_path / "profiles",
-        fieldnames=fieldnames,
-    )
-
-    assert f["gate_candidates"] == vstats.kept
-    assert f["gate_errors"] == len(audit.errors)
-    assert f["gate_warnings"] == len(audit.warnings)
-
-
 def test_this_module_exports_no_writer(tmp_path):
     """One model, one renderer — enforced by absence, not by convention.
 

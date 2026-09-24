@@ -542,17 +542,36 @@ GENERIC_LANE_ADVISORY = frozenset(
         "signal-subject-missing",
         "agent-kind-unresolved",
         "agent-kind-unused",
+        # Added 2026-09-23. It escaped the 2026-09-21 classification because it is not a
+        # member of `_ROW_LEVEL_RULES`, and the membership test iterated that set — so the
+        # test written to prevent unclassified rules could not see this one, and it stayed
+        # an ERROR in every lane until an operator hit it. A `why_now` reading "no dated
+        # public why-now found this pass" is an honest ABSENCE, which is what this set is
+        # for; it is not the prefix-based demotion the 2026-09-21 split ended, because that
+        # reversal waved through records that were present and FALSE.
+        "why-now-not-a-signal",
     }
 )
-#: The other half: record rules that mean the record is present and WRONG — stale, dated in
+#: The other half: everything the generic lane does NOT demote.
+#:
+#: Its core is the record rules that mean the record is present and WRONG — stale, dated in
 #: the future, sourced from a search page or a non-URL, contradicted by its own evidence,
 #: about a different company, or classifying the "agents" as people. Freshness and truth
 #: are an ERROR in every lane: the row carries a false record whether or not this body
-#: quotes it, and the next lane it is re-routed into will. Listed (rather than "everything
-#: not advisory") so a rule added later must be classified — a test pins advisory + this
-#: set to exactly the `signal-*` / `agent-kind-*` members of `_ROW_LEVEL_RULES`.
+#: quotes it, and the next lane it is re-routed into will.
+#:
+#: Widened 2026-09-23 to every OTHER rule this gate can emit — the competitor, domain,
+#: freshness, artifact and verdict classes — so the two sets together are **exhaustive**
+#: rather than "the record rules, plus an unexamined default for everything else". This
+#: changes no behaviour: demotion keys on :data:`GENERIC_LANE_ADVISORY` membership alone,
+#: so these rules already stayed errors. What changes is that a rule can no longer sit
+#: outside the classification unnoticed. `why-now-not-a-signal` did exactly that for two
+#: days because the membership test iterated `_ROW_LEVEL_RULES`, which it is not a member
+#: of — the test written to prevent unclassified rules could not see the unclassified rule.
+#: The test now derives every emittable rule from the source and pins the union to it.
 GENERIC_LANE_STAYS_ERROR = frozenset(
     {
+        # the record is present and wrong
         "signal-source-malformed",
         "signal-source-is-search",
         "signal-observed-future",
@@ -564,6 +583,26 @@ GENERIC_LANE_STAYS_ERROR = frozenset(
         "agent-kind-unknown",
         "agent-kind-human",
         "agent-kind-contradiction",
+        # the account is one we must not write to at all
+        "competitor-direct",
+        "competitor-flag",
+        "relation-competitor",
+        "relation-regulator",
+        "relation-partner",
+        "relation-adjacent",
+        # the contact's own address is wrong or unusable — a property of the row, not of
+        # its research record, so no lane's body style makes it safe
+        "domain-academic",
+        "domain-academic-medical",
+        "domain-mismatch",
+        "domain-personal",
+        "domain-unverifiable",
+        # present and stale, or present and malformed
+        "leadership-freshness",
+        "stale-artifact-string",
+        "verdict-unknown",
+        "verdict-reason-missing",
+        "verdict-inadmissible",
     }
 )
 
@@ -606,6 +645,29 @@ def filter_by_verdict(
     return kept, stats
 
 
+def demote_generic_advisory(errors: list[str]) -> tuple[list[str], list[str]]:
+    """``(errors kept, aggregate warnings)`` — the GENERIC-lane demotion as a pure function.
+
+    Shared with :mod:`gtm_core.preflight_report`, which audits the same rows a day earlier
+    and must apply the same rule to the same lane, or the daily unit fails on findings the
+    gate would wave through. One implementation, so the two cannot drift.
+    """
+    keep: list[str] = []
+    demoted: dict[str, int] = {}
+    for line in errors:
+        rule = line.split(":", 1)[0].strip()
+        if _is_generic_advisory(rule):
+            demoted[rule] = demoted.get(rule, 0) + 1
+        else:
+            keep.append(line)
+    warnings = [
+        f"{rule}: {n} finding(s) — advisory in the GENERIC lane, whose body references "
+        f"no research; a personalised send would still block on them"
+        for rule, n in sorted(demoted.items())
+    ]
+    return keep, warnings
+
+
 def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
     """Generic lane only: each advisory class becomes ONE aggregate warning.
     Per row they would saturate the WARN budget on exactly the lists the lane
@@ -614,20 +676,8 @@ def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
     """
     if lane.strip().lower() != "generic":
         return
-    keep: list[str] = []
-    demoted: dict[str, int] = {}
-    for line in a.errors:
-        rule = line.split(":", 1)[0].strip()
-        if _is_generic_advisory(rule):
-            demoted[rule] = demoted.get(rule, 0) + 1
-        else:
-            keep.append(line)
-    a.errors = keep
-    for rule, n in sorted(demoted.items()):
-        a.warnings.append(
-            f"{rule}: {n} finding(s) — advisory in the GENERIC lane, whose body references "
-            f"no research; a personalised send would still block on them"
-        )
+    a.errors, demoted = demote_generic_advisory(a.errors)
+    a.warnings.extend(demoted)
 
 
 def _competitor_finding(
@@ -740,10 +790,18 @@ def audit_rows(
         why_not = why_now_not_a_signal(r.get("why_now", ""))
         if why_not:
             a.why_now_not_signal += 1
-            a.errors.append(
-                f"why-now-not-a-signal: {company!r} — {why_not}. why_now is the merge "
-                f"field; this row would open its email with that sentence"
+            # The consequence clause is lane-dependent, and stating the personalised one
+            # in the generic lane is simply false: `{{Why Now}}` is never merged into a
+            # generic body, so that row does not open its email with that sentence. A
+            # finding whose stated consequence the operator can see is untrue is how a
+            # real rule gets read past.
+            consequence = (
+                "why_now is not merged into a generic body, so no recipient reads this "
+                "sentence — but the row has no dated why-now for a personalised send"
+                if lane.strip().lower() == "generic"
+                else "why_now is the merge field; this row would open its email with that sentence"
             )
+            a.errors.append(f"why-now-not-a-signal: {company!r} — {why_not}. {consequence}")
 
         artifact = stale_artifact_string(company)
         if artifact:
@@ -914,15 +972,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--lane",
-        default="",
-        # Derived, never typed: the enrollable lanes are exactly the keys of LANE_VERDICTS.
+        required=True,
+        # Required, not defaulted. `--lane` does not tune strictness; it selects WHICH RULE
+        # SET applies, so omitting it did not produce a stricter run — it produced a run
+        # whose rules did not match its list. Measured 2026-09-23: a generic-lane list was
+        # gated with no `--lane`, so `wanted` fell back to the bare `--require-verdict`
+        # value and `_demote_generic_lane_findings` returned untouched; 138 contacts were
+        # reported blocked that were not, and the report carried a section defending the
+        # number. A default would still be a silent choice, made by the code, about which
+        # lane's rules a list gets — which is why this is `required` and not `default=`.
+        # `email-sequence/SKILL.md` has stated "at enrollment, --lane is not optional"
+        # since 2026-09-09; this is the program agreeing with the instructions (§R18).
+        #
+        # Derived, never typed: the enrollable lanes are exactly the NON-EMPTY keys of
+        # LANE_VERDICTS. The empty key stays in that mapping for the Python API but is not
+        # offered here — `--lane ""` would be the unlaned path back, spelled differently.
         # `personalised` was missing from a hand-written list until 2026-09-09, so the
         # router's own best lane could not be named at the gate — `--lane signal` was
         # refused on the lane-column check and the operator's only route was to omit the
         # flag, which skips that check for every list, not just this one.
-        choices=sorted(LANE_VERDICTS),
+        choices=sorted(k for k in LANE_VERDICTS if k),
         help=(
-            "which lane this list is being enrolled into (gtm_core.lane_router). Widens "
+            "REQUIRED. Which lane this list is being enrolled into (gtm_core.lane_router). "
+            "Selects which rule set applies, so there is no safe default. Widens "
             "--require-verdict to the lane's admissible verdicts; WITHOUT --require-verdict "
             "a row whose verdict the lane does not admit is a `verdict-inadmissible` ERROR. "
             "For `generic`, an ABSENT research record (no-dossier, verdict-missing, "
@@ -992,10 +1064,10 @@ def main(argv: list[str] | None = None) -> int:
         want = args.require_verdict.strip().lower()
         unfiltered = rows
         rows, vstats = filter_by_verdict(rows, want, lane=lane)
-        admitted = "/".join(sorted(v or "(empty)" for v in LANE_VERDICTS[lane])) if lane else want
+        admitted = "/".join(sorted(v or "(empty)" for v in LANE_VERDICTS[lane]))
         print(
             f"verdict filter: kept {vstats.kept}/{vstats.total} row(s) with verdict in "
-            f"{admitted!r}" + (f" (lane {lane})" if lane else "")
+            f"{admitted!r} (lane {lane})"
         )
         if vstats.judge_dropped:
             print(f"  judge (calibrated) additionally removed {vstats.judge_dropped} row(s)")
@@ -1004,7 +1076,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"  judge flagged {vstats.judge_advisory} row(s) `drop` but is NOT calibrated — "
                 f"kept, and reported below. Seal a holdout to make these binding."
             )
-        wanted = LANE_VERDICTS[lane] if lane else frozenset({want})
+        # `--lane` is required, so the unlaned fallback `filter_by_verdict` still carries
+        # for its Python callers is unreachable from here.
+        wanted = LANE_VERDICTS[lane]
         for line in refused_lines(unfiltered, rows, wanted):
             print(line)
         print()

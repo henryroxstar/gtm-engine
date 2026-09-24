@@ -440,3 +440,132 @@ def test_no_roster_module_reaches_a_model_or_the_network(mod):
     if not path.is_file():
         pytest.skip(f"{mod} is not a single-file module")
     assert not (_imported_names(path) & _FORBIDDEN_IMPORTS)
+
+
+# --- the lane rule reaches the daily unit -----------------------------------
+#
+# `ready-to-load.csv` is mixed-lane: `consolidate` stamps each row with the lane the router
+# chose. The gate audits a generic row under `--lane generic`, where the research-record
+# findings are advisory (a generic body references no research). Until 2026-09-23 this
+# module audited the whole file unlaned, so every routed generic row turned the daily unit
+# red on findings the gate itself waves through — the P6 defect one door over.
+
+_GENERIC_ROW = {
+    "why_now": "No dated public why-now found this pass.",
+    "signal_clause": "",
+    "signal_source_url": "",
+    "signal_observed": "",
+    "signal_evidence": "",
+    "signal_subject": "",
+    "signal_agent_kind": "",
+    "verdict": "",
+    "verdict_reason": "",
+}
+
+
+def _staged_with_lanes(tmp_path: Path, profile: str, rows: list[dict]) -> Path:
+    seq = tmp_path / profile / "prospects" / "sequences"
+    seq.mkdir(parents=True, exist_ok=True)
+    out = seq / "ready-to-load.csv"
+    header = [*_HEADER, "lane"]
+    with out.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=header)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in header})
+    return out
+
+
+def _by_name(rep) -> dict:
+    return {c.name: c for c in rep.checks}
+
+
+class TestTheLaneRuleReachesTheDailyUnit:
+    def test_a_routed_generic_row_is_advisory_in_both_record_checks(self, tmp_path):
+        _staged_with_lanes(tmp_path, "acme", [_row(lane="generic", **_GENERIC_ROW)])
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        for name in ("signal_record", "account_integrity"):
+            assert by[name].errors == [], f"{name} refused what the gate admits: {by[name].errors}"
+            assert by[name].status == pr.OK
+        assert any("advisory in the GENERIC lane" in w for w in by["signal_record"].warnings)
+        assert "generic=1" in by["signal_record"].detail
+
+    def test_the_same_row_unrouted_still_fails(self, tmp_path):
+        """Positive control: the demotion is the LANE's, not a blanket softening."""
+        _staged_with_lanes(tmp_path, "acme", [_row(lane="", **_GENERIC_ROW)])
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        assert by["signal_record"].status == pr.FAIL
+        assert any(e.startswith("signal-source-missing") for e in by["signal_record"].errors)
+
+    def test_a_signal_row_beside_a_generic_row_keeps_its_own_rules(self, tmp_path):
+        """One file, two lanes: the generic row demotes, the signal row still blocks."""
+        signal_bad = _row(lane="signal", email="tam@acme.example", first="Tam", **_GENERIC_ROW)
+        _staged_with_lanes(tmp_path, "acme", [_row(lane="generic", **_GENERIC_ROW), signal_bad])
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        assert by["signal_record"].status == pr.FAIL
+        assert all("tam@acme.example" in e for e in by["signal_record"].errors), by[
+            "signal_record"
+        ].errors
+        assert "generic=1, signal=1" in by["signal_record"].detail
+
+    def test_one_account_split_across_two_lanes_is_counted_once(self, tmp_path):
+        """The account count is distinct over the FILE, never summed over the lane groups.
+
+        Found by running this module against a live 650-row list (PH9, 2026-09-24): it
+        reported 603 accounts where the file held 578, because 25 accounts had rows in two
+        lanes at once — mostly `excluded` beside `generic` — and each group contributed its
+        own distinct count. The printed number was the smaller half of the problem: the same
+        total is the `denominators` base every WARN-tier rate is measured against, so an
+        inflated count silently understated all of them.
+        """
+        both = [
+            _row(lane="generic", **_GENERIC_ROW),
+            _row(lane="excluded", email="tam@acme.example", first="Tam", **_GENERIC_ROW),
+        ]
+        _staged_with_lanes(tmp_path, "acme", both)
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        ai = by["account_integrity"]
+        assert "2 row(s), 1 account(s)" in ai.detail, ai.detail
+        assert set(ai.denominators.values()) <= {1}, ai.denominators
+
+    def test_one_accounts_findings_are_not_repeated_once_per_lane(self, tmp_path):
+        """The numerator half of the same defect. `audit_rows` dedupes its account tier per
+        CALL, so an account audited once per lane reports `no-dossier` once per lane — over
+        a denominator that is now distinct across the whole file. A summed numerator on a
+        distinct denominator is wrong in the direction that reads as precise.
+
+        No dossier is written here, so the finding fires. Both lanes are NON-generic on
+        purpose: `no-dossier` is in `GENERIC_LANE_ADVISORY`, so a generic row demotes it to
+        a warning and the pair would straddle the two tiers instead of duplicating inside
+        one — which is exactly how a first attempt at this test passed against the defect.
+        `excluded` + `repair` is a real pairing; the live list carries two of them.
+        """
+        both = [
+            _row(lane="excluded", **_GENERIC_ROW),
+            _row(lane="repair", email="tam@acme.example", first="Tam", **_GENERIC_ROW),
+        ]
+        _staged_with_lanes(tmp_path, "acme", both)
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        no_dossier = [e for e in by["account_integrity"].errors if e.startswith("no-dossier:")]
+        assert len(no_dossier) == 1, no_dossier
+
+    def test_a_repeated_row_inside_one_lane_still_counts_twice(self, tmp_path):
+        """Positive control: only a repeat ACROSS groups collapses. Two identical rows in
+        one lane are two real rows, exactly as `_minus` treats them."""
+        dup = _row(lane="generic", **_GENERIC_ROW)
+        _staged_with_lanes(tmp_path, "acme", [dup, dict(dup)])
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        assert "generic=2" in by["signal_record"].detail
+
+    def test_generic_record_findings_are_not_reported_twice(self, tmp_path):
+        """`record_seen` still de-duplicates the demoted tier across the two checks."""
+        _staged_with_lanes(tmp_path, "acme", [_row(lane="generic", **_GENERIC_ROW)])
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        record_tier = [w for w in by["account_integrity"].warnings if w.startswith("signal-")]
+        assert record_tier == [], record_tier

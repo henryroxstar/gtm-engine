@@ -36,10 +36,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gtm_core.account_integrity import audit_rows, filter_by_verdict
 from gtm_core.outreach_log import collect_rows
 from gtm_core.paths import resolve_content_root
-from gtm_core.prospect_paths import suppression_ledger
 from gtm_core.prospects_backlog import enrichment_queue_path
 from gtm_core.prospects_consolidate import (
     _load_master,
@@ -56,7 +54,6 @@ from gtm_core.prospects_consolidate import (
     org_token as _org_token,
 )
 from gtm_core.prospects_state import load_latest
-from gtm_core.suppression import load_index as _load_suppression_index
 
 # Reference cost figures (NOT live — see gtm_core cost ledger for actuals).
 # Sourced from the Vibe/RocketReach cost-model notes; shown so the operator can
@@ -314,37 +311,13 @@ def build_status(
         and r.get("verdict").strip().lower() != r.get("judge_verdict").strip().lower()
     )
 
-    # The enrollment gate itself, on the SAME population and the SAME filter
-    # `account_integrity --require-verdict send` uses — never `master-list.csv` (the
-    # whole backlog, most of it not yet even judged) and never a hand-rolled verdict
-    # filter that quietly drops the suppression check or the calibrated-judge rule.
-    # Both this dashboard and the CLI now call `filter_by_verdict`, so they cannot
-    # report two different counts for the same list again.
-    ready_path = ready_to_load_path(profile, content_root)
-    if ready_path.exists():
-        with ready_path.open(newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            ready_fieldnames = list(reader.fieldnames or [])
-            ready_rows = list(reader)
-        index = _load_suppression_index(suppression_ledger(profile, content_root))
-        ready_rows = [
-            r for r in ready_rows if not (r.get("suppression") or "").strip() and not index.match(r)
-        ]
-        gate_candidates, vstats = filter_by_verdict(ready_rows, "send", lane="signal")
-        gate_audit = audit_rows(
-            gate_candidates,
-            profile,
-            content_root,
-            profiles_root,
-            fieldnames=ready_fieldnames,
-        )
-        gate_kept = vstats.kept
-        gate_errors = len(gate_audit.errors)
-        gate_warnings = len(gate_audit.warnings)
-        gate_ok = gate_kept > 0 and not gate_audit.failed
-    else:
-        gate_kept = gate_errors = gate_warnings = 0
-        gate_ok = False
+    # NOTE (PH1, 2026-09-24): a full unlaned `audit_rows` used to run here on every
+    # dashboard build, producing four `gate_*` keys no renderer ever read — dead since
+    # `d27f8153`. Deleted rather than repaired: it also carried an F-B-shaped defect,
+    # a `lane="signal"` verdict filter feeding an UNLANED audit, and its only test
+    # recomputed the same numbers the same way, so it could never have caught that.
+    # "Can I send?" is answered by `go_live_status` and the preflight report, both of
+    # which are lane-aware. Do not reintroduce a second, unlaned gate count here.
 
     sequences = _load_sequences(profile, content_root)
 
@@ -377,15 +350,6 @@ def build_status(
             "judged": judged,
             "judge_calibrated": judge_calibrated,
             "disagreements": disagreements,
-            # `gate_candidates` is a COUNT, not a pass/fail claim — it is how many
-            # ready-to-load.csv rows survived suppression + `verdict=send` before the
-            # account-integrity audit ran against them. Whether that set actually
-            # clears the gate is `gate_ok`; `account_integrity.AccountAudit.failed` is
-            # a whole-batch boolean, so there is no per-row "passed" count to report.
-            "gate_candidates": gate_kept,
-            "gate_errors": gate_errors,
-            "gate_warnings": gate_warnings,
-            "gate_ok": gate_ok,
         },
         "sequences": sequences,
         "sequence": sequences[0] if sequences else None,  # back-compat

@@ -37,7 +37,7 @@ _LINTER_DIR = Path(__file__).resolve().parent.parent / "tests" / "linter"
 if str(_LINTER_DIR) not in sys.path:  # pragma: no cover - import plumbing
     sys.path.insert(0, str(_LINTER_DIR))
 
-from merge_render_linter import (  # noqa: E402
+from outreach import (  # noqa: E402
     _load_bans,
     _load_domain_aliases,
     _load_premise_vocab,
@@ -83,6 +83,10 @@ def baseline_predictions(
     ban_file: Path | None = None,
     case_study_file: Path | None = None,
     stem_file: Path | None = None,
+    # Accepted and unused since 2026-09-24: `cta-unstaged-artifact` and the `hook-cell-*` /
+    # `signal-cell-*` rules that read them retired with the outbound fact registry (FR3).
+    # Kept on the signature so the skill command strings that still pass `--artifact-file` /
+    # `--hook-matrix` do not die at argparse mid-migration; delete both when they stop.
     artifact_file: Path | None = None,
     hook_matrix: Path | None = None,
 ) -> dict[str, bool]:
@@ -126,9 +130,7 @@ def baseline_predictions(
         extra_bans=_load_bans(ban_file) if ban_file else (),
         case_studies=_load_bans(case_study_file) if case_study_file else (),
         banned_stems=_load_bans(stem_file) if stem_file else (),
-        gift_artifacts=_load_bans(artifact_file) if artifact_file else (),
         spec_text=spec_text,
-        hook_matrix=(Path(hook_matrix).read_text(encoding="utf-8") if hook_matrix else ""),
         premise_vocab=_load_premise_vocab(profile) if profile else None,
         domain_aliases=_load_domain_aliases(profile) if profile else None,
     )

@@ -37,3 +37,13 @@ tests/lint/cross_tenant_allow.txt:
 # the real numbers a human would otherwise have to re-derive by hand. Filtered by path
 # so a copy elsewhere still flags.
 tests/contracts/test_dashboard_roster_identity.py:
+
+# The outbound fact registry's TENANT-DATA contracts (2026-09-24). Each asserts against the
+# real profile on disk — the claim statuses settled that day, the anchors that exist and the
+# markets that deliberately have none, the seats' lead pains, the AP2/UCP roadmap corrections,
+# and the voice.md split. Same reasoning as the two above: the tenant name IS the fixture, and
+# none of these has a fictional-profile equivalent, because what they check is that a specific
+# tenant's facts say what a human decided they say. The fictional-fixture halves of the same
+# work live in tests/unit/test_messaging_*.py and test_role_vocabulary_seat_fields.py, which
+# carry no tenant token at all — the split is deliberate and is what keeps this list short.
+# Filtered by path, so a copy elsewhere still flags.

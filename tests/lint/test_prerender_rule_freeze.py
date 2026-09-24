@@ -24,7 +24,13 @@ REPO = Path(__file__).resolve().parents[2]
 #: SKILL.md-cited commands don't touch video) keep working where the video tier is absent
 #: (the OSS carve withholds gtm_core.video_lint entirely); _video_post_check refuses
 #: outright rather than reporting a hollow pass when the guard trips (§R18).
-MAX_PRERENDER_LINES = 4695
+#: 2026-09-23 +3 (4695->4698): gtm_core/content_quality/sources.py's `load_hook_matrix`
+#: gained an `overlay` parameter so a messaging experiment can resolve an alternate
+#: hook-matrix.md (P1). This is NOT a new pre-render text rule — no judgement, no threshold
+#: and no finding is added; it is one more argument on an existing path resolver, and the
+#: three lines are the reformatted signature. The rule this freeze protects is unchanged:
+#: effort goes to post-render measurement, not to more pre-render prose checks.
+MAX_PRERENDER_LINES = 4698
 
 PRE_RENDER_PACKAGES = (
     "gtm_core/shots_lint",

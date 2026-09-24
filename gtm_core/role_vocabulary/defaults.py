@@ -457,3 +457,32 @@ DEFAULT_SEGMENTS: tuple[str, ...] = ("enterprise", "startup", "builder", "unspec
 #: The segment kept for a row nobody classified. Never selected into a run mix, never owed
 #: a hook grid — see ``tests/lint/test_profile_targeting_invariants.py``.
 UNSPECIFIED_SEGMENT = "unspecified"
+
+
+# --- the seat's outbound-copy facts (added 2026-09-24, outbound fact registry) ----------
+#
+# A ``[[seat]]`` may carry the four copy facts an outbound email is built from — the pain it
+# LEADS on, the gain it promises, the pains that belong to another seat and must never be
+# fired at this one, and the register it reads in — plus the segments it is aimed at. They
+# live on the seat because that is where "which argument does this person read" already
+# lives; before this they were restated in prose tables across five knowledge files, each
+# free to drift from the others with nothing able to see the drift.
+
+#: The registers a seat may declare. CLOSED on purpose: a register selects a whole surface
+#: of copy, so an unrecognised one has only two possible behaviours, and both are invisible
+#: at send time — fall back silently to a register the tenant did not choose, or render
+#: nothing. Refusing at load is the only outcome an operator can see.
+SEAT_REGISTERS: frozenset[str] = frozenset({"standard", "technical", "executive"})
+
+#: The shipped default declares NONE of them, and that is deliberate rather than pending.
+#: Everything else in this file is a generic B2B-SaaS *vocabulary* — cues, seat names,
+#: stakes words — which is reasonable to guess for a tenant that never customised. A lead
+#: pain is not a vocabulary; it is a sentence claiming to know what a stranger's buyer loses
+#: sleep over. Shipping one would put it in the mouth of every profile that never opted in,
+#: and the tenant would have no way to tell an inherited guess from its own decision. A seat
+#: with no lead pain reads as "" everywhere, which the registry can see and refuse.
+DEFAULT_SEAT_LEAD_PAIN: dict[str, str] = {}
+DEFAULT_SEAT_GAIN: dict[str, str] = {}
+DEFAULT_SEAT_FORBIDDEN_PAINS: dict[str, tuple[str, ...]] = {}
+DEFAULT_SEAT_REGISTER: dict[str, str] = {}
+DEFAULT_SEAT_SEGMENTS: dict[str, tuple[str, ...]] = {}

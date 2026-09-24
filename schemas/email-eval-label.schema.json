@@ -74,6 +74,13 @@
       ],
       "description": "True when the body's lead pain matches the seat holding it (the machine-detected `persona-lead-mismatch` class this label calibrates)."
     },
+    "claim_within_status": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "True when the email stays inside what the sender can stand behind: no capability claimed beyond the recorded `status` of the claim it rests on (claims.toml), and no figure in the body that a `measured` proof does not support (proof.toml). Added 2026-09-24 with the outbound fact registry, as the human-side counterpart to the deterministic `claim-status` / `proof-status` linter rules — the rules check the registry, this field checks whether the operator would defend the sentence. Null means not answered; every label file written before this date loads as null, which is why adding it needs no migration."
+    },
     "account_fit": {
       "type": [
         "boolean",

@@ -9,10 +9,13 @@ prospect data; the real run against a real profile is a separate, explicit opera
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from gtm_core.build_eval_sheet import (
+REPO = Path(__file__).resolve().parents[1]
+
+from gtm_core.build_eval_sheet import (  # noqa: E402
     INJECTION_RECIPES,
     all_live_rows,
     build_golden_set,
@@ -23,12 +26,18 @@ from gtm_core.build_eval_sheet import (
     write_golden_set,
 )
 
+#: The donor copy has to be CLEAN of every rule a recipe plants, or the differential check in
+#: `build_injected_golden_rows` correctly refuses to credit the mutation. This said "the
+#: question an auditor asks first" until 2026-09-24, and `auditor` is a security-seat cue — so
+#: every CEO donor in the fixture already raised `persona-lead-mismatch` before any recipe
+#: touched it, and the recipe for that rule had no usable donor in the whole pool. Keep this
+#: body free of seat vocabulary.
 SPEC_TEXT = """
 **Step 1 — Day 1** · Subject: `identity in production`
 > Hi {{First Name}},
 >
 > {{Why Now}}. Once agents at {{Company}} move from retrieving data to acting on it,
-> identity becomes the question an auditor asks first. Tell me if you've got this
+> identity becomes the first question anyone asks. Tell me if you've got this
 > covered: your logs capture which account touched a record but not which agent held
 > the authority to act.
 >
@@ -56,7 +65,7 @@ def _csv_row(i, *, title="CISO", suppressed=False):
     return (
         f"Chris{i},Renner{i},chris{i}@cascade{i}.example,{title},Cascade{i},"
         f"cascade{i}.example,enterprise,A,"
-        f'"Cascade{i} sits on the AARM agent-runtime-security working group",'
+        f'"Cascade{i} sits on the BRIGHTPATH agent-runtime-security working group",'
         f"{'yes' if suppressed else ''}\n"
     )
 
@@ -403,6 +412,244 @@ def test_unusable_recipes_are_reported_not_silently_dropped(profile_fixture):
     assert "email-domain-mismatch" in unusable
     # ...and none of them silently became a sheet row.
     assert not (set(unusable) & {g.injected_rule for g in injected})
+
+
+# --- a recipe's `rule` is a claim about the gate, and it is checked (FR3, 2026-09-24) -----
+#
+# `injected_rule` is the key `rule_lifecycle_report` buckets every operator label under. On
+# 2026-09-24 EIGHT of the recipes here named rules the FR3 retirement had deleted, so ~8 of
+# every ~20 sheet rows carried a planted defect attributed to a rule with no denominator.
+# Every check in this file passed them, because the text HAD changed.
+
+
+def test_no_recipe_names_a_rule_no_gate_can_raise():
+    """The catalogue check the eight stale recipes would have failed for two days.
+
+    Two admissible homes, and the second is why this is not a one-line subset assert: the
+    copy gate's own inventory (`outreach.ALL_RULE_IDS`), and the research-record gate, whose
+    ids live in `gtm_core.signal_record` and are named by `RESEARCH_RECORD_RULES` — pinned
+    below by a control that makes `check_record` actually emit each one."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests" / "linter"))
+    from outreach import ALL_RULE_IDS
+
+    from gtm_core.build_eval_sheet import RESEARCH_RECORD_RULES
+
+    known = set(ALL_RULE_IDS) | set(RESEARCH_RECORD_RULES)
+    orphans = sorted({r["rule"] for r in INJECTION_RECIPES} - known)
+    assert not orphans, (
+        f"{orphans} name no rule any gate can raise; every row they plant is labelled "
+        f"against a rule `rule_lifecycle_report` has no denominator for"
+    )
+
+
+def test_the_research_record_rules_are_really_raisable():
+    """§R12 positive control for the allowlist above. Without it `RESEARCH_RECORD_RULES`
+    would be a way to exempt any id from the catalogue check by typing it in."""
+    from gtm_core.build_eval_sheet import RESEARCH_RECORD_RULES
+    from gtm_core.signal_record import check_record
+
+    rows = {
+        "relation-competitor": {"company": "Cascade", "category_relation": "competitor"},
+        "relation-regulator": {"company": "Cascade", "category_relation": "regulator"},
+        "signal-subject-mismatch": {
+            "company": "Cascade",
+            "category_relation": "prospect",
+            # A clause is required: a row with no clause and no why_now is a generic-arc
+            # row, which makes no dated claim and so has no subject to mismatch.
+            "signal_clause": "expanded its autonomous dispatch programme",
+            "signal_subject": "Northwind Logistics Group",
+        },
+    }
+    assert set(rows) == set(RESEARCH_RECORD_RULES), "a rule was added without a control"
+    for rule, row in rows.items():
+        assert rule in {f.rule for f in check_record(row)}, f"{rule} is not raisable"
+
+
+def test_a_recipe_that_changes_the_text_without_raising_its_rule_is_refused(profile_fixture):
+    """The class closure. A recipe that edits the body but plants nothing must be reported
+    unusable and must never emit a row — the state the eight retired recipes were in."""
+    from gtm_core.build_eval_sheet import _mutate_text
+
+    rows, touches_by_spec = all_live_rows("demo", profile_fixture)
+    liar = _mutate_text("em-dash", lambda s, b: (s, b.replace("identity", "identity")[:-1] + "."))
+    injected, unusable = build_injected_golden_rows(rows, touches_by_spec, [liar], n_injected=5)
+    assert injected == []
+    assert "em-dash" in unusable
+
+    # Negative control: the SAME rule, the same donors, a recipe that really does plant it.
+    honest = _mutate_text("em-dash", lambda s, b: (s, b.replace(". ", " — ", 1)))
+    injected, unusable = build_injected_golden_rows(rows, touches_by_spec, [honest], n_injected=5)
+    assert injected, "the check rejects every recipe — it cannot discriminate"
+    assert "em-dash" not in unusable
+
+
+def test_a_donor_that_already_trips_the_rule_is_not_credited_with_a_planted_defect(tmp_path):
+    """The differential half. A donor whose CLEAN render already raises the rule would be
+    recorded as carrying a planted defect that was there before anyone planted anything —
+    and the operator's label would be attributed to a mutation that changed nothing about
+    why the rule fires."""
+    from gtm_core.build_eval_sheet import _mutate_text
+
+    content = tmp_path / "content"
+    seq = content / "demo" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    # This body already carries an em dash, so `em-dash` fires on the donor untouched.
+    (seq / "spec-demo-2026-08-20.md").write_text(
+        SPEC_TEXT.replace("identity becomes the first", "identity — and only identity — is the"),
+        encoding="utf-8",
+    )
+    (seq / "clean-demo.csv").write_text(
+        CSV_HEADER + "".join(_csv_row(i) for i in range(6)), encoding="utf-8"
+    )
+    (seq / "cells.toml").write_text(
+        '[[sequence]]\nid = "seq1"\ntitle = "Demo"\ncsv = "clean-demo.csv"\n'
+        'spec = "spec-demo-2026-08-20.md"\ncampaign = "demo"\n',
+        encoding="utf-8",
+    )
+    rows, touches_by_spec = all_live_rows("demo", content)
+    recipe = _mutate_text("em-dash", lambda s, b: (s, b.replace(". ", " — ", 1)))
+    injected, unusable = build_injected_golden_rows(rows, touches_by_spec, [recipe], n_injected=5)
+    assert injected == [], "a donor that was already in violation was labelled as planted"
+    assert "em-dash" in unusable
+
+
+def test_registry_recipes_plant_the_derivation_rules(tmp_path):
+    """`claim-status` and `proof-status` replace four of the retired copy recipes. Both are
+    built from the TENANT's own registry (§R4: a `do_not_say` phrase cannot be a literal in
+    `gtm_core`), so this proves the closure carries the real value through.
+
+    Its own fixture, with DIGIT-FREE company names. The shared fixture's companies are
+    `Cascade0`…`Cascade39`, and until 2026-09-24 `proof-status` read every digit in the copy as
+    a magnitude claim — so the donors already raised it before any recipe ran, and the
+    differential check rightly refused to credit the mutation. On a real list the sweep just
+    walks to the next donor; a fixture of forty identical offenders has no next donor. The rule
+    now needs a unit, so a company name no longer trips it; the fixture stays digit-free anyway,
+    because what it isolates is the recipe and not the figure predicate."""
+    from gtm_core.build_eval_sheet import registry_recipes
+    from gtm_core.messaging.registry import Claim, Proof, Registry
+
+    content = tmp_path / "content"
+    seq = content / "demo" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    (seq / "spec-demo-2026-08-20.md").write_text(SPEC_TEXT, encoding="utf-8")
+    companies = ("Cascade", "Northwind", "Meridian", "Vertex", "Harbourline", "Kestrel")
+    (seq / "clean-demo.csv").write_text(
+        CSV_HEADER
+        + "".join(
+            f"Ada,Okonkwo,ada.{c.lower()}@{c.lower()}.example,CEO,{c},{c.lower()}.example,"
+            f'enterprise,A,"{c} joined the BRIGHTPATH agent-runtime-security working group",\n'
+            for c in companies
+        ),
+        encoding="utf-8",
+    )
+    (seq / "cells.toml").write_text(
+        '[[sequence]]\nid = "seq1"\ntitle = "Demo"\ncsv = "clean-demo.csv"\n'
+        'spec = "spec-demo-2026-08-20.md"\ncampaign = "demo"\n',
+        encoding="utf-8",
+    )
+    profile_fixture = content
+
+    registry = Registry(
+        claims={
+            "mtls": Claim(
+                id="mtls",
+                group="identity",
+                status="verified",
+                statement="Requests are authenticated at the gateway.",
+                do_not_say=("mutual TLS is available",),
+            )
+        },
+        proof={
+            "retracted-figure": Proof(
+                id="retracted-figure",
+                kind="result",
+                figure_kind="disputed",
+                statement="A 90% reduction in verification time. RETRACTED.",
+            )
+        },
+        angles={},
+        seats={},
+    )
+    recipes = registry_recipes(registry)
+    assert [r["rule"] for r in recipes] == ["claim-status", "proof-status"]
+
+    rows, touches_by_spec = all_live_rows("demo", profile_fixture)
+    injected, unusable = build_injected_golden_rows(
+        rows, touches_by_spec, recipes, n_injected=2, registry=registry
+    )
+    assert not unusable_minus_declared(unusable), unusable
+    planted = {g.injected_rule: g.body for g in injected}
+    assert set(planted) == {"claim-status", "proof-status"}
+    assert "mutual TLS is available" in planted["claim-status"]
+    assert "90" in planted["proof-status"]
+
+    # §R18 negative control: WITHOUT the registry the gate cannot raise either rule, so the
+    # recipes must come back unusable rather than stamping two rows with an unraisable label.
+    injected, unusable = build_injected_golden_rows(rows, touches_by_spec, recipes, n_injected=2)
+    assert injected == []
+    assert {"claim-status", "proof-status"} <= set(unusable)
+
+
+def unusable_minus_declared(unusable):
+    """`unusable` always carries the structurally-invisible declarations; this drops them so
+    a test can assert on what the SWEEP found."""
+    from gtm_core.build_eval_sheet import STRUCTURALLY_INVISIBLE_RULES
+
+    return sorted(set(unusable) - set(STRUCTURALLY_INVISIBLE_RULES))
+
+
+def test_slot_attribution_is_declared_invisible_because_a_slot_never_renders(profile_fixture):
+    """`slot-attribution` gets a DECLARATION, not a recipe, and this is the control for it.
+
+    The rule works — removing a `slot_<id>:` line raises it — and the rendered body is
+    byte-identical either way, which is exactly why no labeling sheet can carry the defect
+    and why a recipe for it would be a mutation that no-ops. Declared, so the rule lands in
+    `not-human-visible` (never a delete candidate) instead of `no-control` (unknown)."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests" / "linter"))
+    from outreach.parse import parse_spec as _parse
+    from outreach.parse import render as _render
+    from outreach.rules_derivation import lint_slot_attribution
+
+    from gtm_core.build_eval_sheet import (
+        INJECTION_RECIPES,
+        STRUCTURALLY_INVISIBLE_RULES,
+        build_injected_golden_rows,
+    )
+    from gtm_core.messaging.registry import Angle
+
+    angle = Angle(
+        id="a1",
+        seat="ceo",
+        premise="agents-in-path",
+        claim="c1",
+        proof="p1",
+        opener_kind="account-event",
+        summary="s",
+        status="live",
+    )
+    front = "```\nangle: a1\nslot_signal: row.signal_evidence\nslot_claim: c1\n"
+    complete = front + "slot_pain: ceo\nslot_hedge: voice.cues\nslot_proof: p1\n```\n"
+    broken = front + "slot_pain: ceo\nslot_hedge: voice.cues\n```\n"
+
+    # The rule discriminates...
+    assert not lint_slot_attribution(complete + SPEC_TEXT, angle)
+    assert lint_slot_attribution(broken + SPEC_TEXT, angle)
+    # ...and the body a labeler would read is the same either way.
+    row = {"first": "Chris", "company": "Cascade", "why_now": "x", "email": "c@cascade.example"}
+    assert _render(_parse(complete + SPEC_TEXT)[0].body, row) == _render(
+        _parse(broken + SPEC_TEXT)[0].body, row
+    )
+
+    assert "slot-attribution" in STRUCTURALLY_INVISIBLE_RULES
+    rows, touches_by_spec = all_live_rows("demo", profile_fixture)
+    _, unusable = build_injected_golden_rows(
+        rows, touches_by_spec, INJECTION_RECIPES, n_injected=len(INJECTION_RECIPES)
+    )
+    assert "slot-attribution" in unusable
 
 
 def test_every_injected_row_differs_from_its_clean_render(profile_fixture):

@@ -64,6 +64,7 @@ from .judge_calibration import (
     self_agreement,
     write_score_record,
 )
+from .messaging import card
 from .paths import _safe_segment, resolve_content_root
 
 
@@ -148,7 +149,7 @@ def draft_cell_dirs(profile: str, content_root: Path | None = None) -> list[tupl
 #: `send_it` (not in this tuple) is the only field that is never null — it is what the
 #: judge is validated against and what seals the holdout.
 #:
-#: The first five are scoped to the ROW's fact and copy. `account_fit` is the one
+#: Every field but one is scoped to the ROW's fact and copy. `account_fit` is the one
 #: account-scoped question, added 2026-08-23 because nothing else here can express
 #: "the email is fine, the company is wrong" — see
 #: :func:`gtm_core.eval_writeback._is_disqualifying` for the defect that required it.
@@ -163,12 +164,13 @@ def draft_cell_dirs(profile: str, content_root: Path | None = None) -> list[tupl
 #: exactly 1 had the three fields disagreeing, so the merge is lossless to a rounding error
 #: on the corpus that motivated it. See `_MERGED_LABEL_FIELDS` for how old records still
 #: carry the pre-merge keys and load correctly without being rewritten.
-LABEL_FIELDS = (
-    "fact_earns_its_place",
-    "frame_fits_seat",
-    "right_person",
-    "account_fit",
-)
+#:
+#: DERIVED since 2026-09-24 from the one quality card
+#: (:data:`gtm_core.messaging.card.LABEL_QUESTIONS`, spelled for this surface by
+#: :func:`~gtm_core.messaging.card.label_fields`), so the sheet, the judge rubric and this
+#: schema are three declared subsets of one question set rather than three lists. The
+#: card's derivation already honours the kappa merge above — it does not re-split it.
+LABEL_FIELDS = card.label_fields(card.LABEL_QUESTIONS)
 
 #: Renamed 2026-08-21, and the VALUES are inverted with it. It was
 #: ``fact_refutes_pitch``, the one sub-check where Y meant BAD while the other three
@@ -424,7 +426,11 @@ def group_rows_by_body(rows: Sequence[GoldenRow]) -> list[BodyGroup]:
     return result
 
 
-def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | None = None) -> str:
+def render_labeling_sheet(
+    rows: Sequence[GoldenRow],
+    prefill: dict[str, dict] | None = None,
+    fields: Sequence[str] = LABEL_FIELDS,
+) -> str:
     """Spec-major markdown labeling sheet: each shared body template is rendered ONCE as a
     `## Body` header block, with only each row's own varying paragraph(s) listed beneath
     it under a `### Row` card — the thing being judged is the thing that visually varies.
@@ -437,6 +443,13 @@ def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | 
     fault-injected row's mutated paragraph is simply part of what varies within its
     group, alongside every organic variation (an interpolated `{{Company}}`, a different
     signal clause), with no separate rendering mode for it.
+
+    ``fields`` is the sheet's own declared subset of the quality card, in the label
+    spelling — passed in by :mod:`gtm_core.build_eval_sheet` (the module that owns the
+    sheet surface) and defaulting to everything a label can carry. It is a parameter
+    rather than a read of :data:`LABEL_FIELDS` so that "what the sheet asks" and "what a
+    label stores" are two declarations a test can compare, instead of one fact wearing
+    two names.
 
     ``prefill`` maps ``row_id -> {"send_it": bool, ..., "note": str}``. A row present in it
     is rendered with those answers already filled in, for the operator to CORRECT rather
@@ -452,7 +465,7 @@ def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | 
     """
     prefill = prefill or {}
     n_blank = sum(1 for r in rows if r.row_id not in prefill)
-    field_list = " / ".join(f"`{f}`" for f in LABEL_FIELDS)
+    field_list = " / ".join(f"`{f}`" for f in fields)
     lines = [
         "# Email eval — labeling sheet",
         "",
@@ -465,6 +478,10 @@ def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | 
         "without THIS fact, or would the sentence after it read exactly the same under a "
         "different one? Y = the email needs this fact.",
         "",
+        "**`claim_within_status`** — would you defend every sentence here? N when the body "
+        "claims a capability we cannot yet stand behind, or cites a figure we cannot show "
+        "was measured. Y = nothing in it outruns what we can back.",
+        "",
         "**`account_fit` is the only question about the COMPANY.** Answer N only when this "
         "company should not be contacted at all — they sell what we sell, they regulate it, "
         "they already shipped it. A weak opener, a claim that does not land, or copy you would "
@@ -473,7 +490,7 @@ def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | 
         "send, not just this one.",
         "",
         f"**Answer `send_it` on your own read of the email, not by adding up the "
-        f"{len(LABEL_FIELDS)} sub-checks.** It is the label the judge is validated against; "
+        f"{len(fields)} sub-checks.** It is the label the judge is validated against; "
         "deriving it from the others turns a taste judgment into arithmetic.",
         "",
     ]
@@ -525,12 +542,12 @@ def render_labeling_sheet(rows: Sequence[GoldenRow], prefill: dict[str, dict] | 
             if pre:
                 answers = "  ".join(
                     [f"`send_it:` {_fmt(pre.get('send_it'))}"]
-                    + [f"`{f}:` {_fmt(pre.get(f))}" for f in LABEL_FIELDS]
+                    + [f"`{f}:` {_fmt(pre.get(f))}" for f in fields]
                 )
                 note = f"`note:` {pre.get('note', '')}"
                 marker = ""
             else:
-                answers = "  ".join(["`send_it:` ___"] + [f"`{f}:` ___" for f in LABEL_FIELDS])
+                answers = "  ".join(["`send_it:` ___"] + [f"`{f}:` ___" for f in fields])
                 note = "`note:`"
                 marker = "  **← label this one cold**" if prefill else ""
             own = group.own(r)
@@ -579,6 +596,11 @@ class Label:
     fact_earns_its_place: bool | None = None
     frame_fits_seat: bool | None = None
     right_person: bool | None = None
+    #: Does the email stay inside what the sender can stand behind — no capability claimed
+    #: beyond its registry `status`, no figure without a `measured` proof? Added 2026-09-24
+    #: with the fact registry, and migration-safe for the same reason `account_fit` was:
+    #: every label file written before it loads as None, which is "not answered".
+    claim_within_status: bool | None = None
     #: The one ACCOUNT-scoped judgment on the label. True = the company is a fine
     #: prospect and whatever is wrong here is wrong with the *email*; False = do not
     #: contact this company regardless of what the copy says; None = not answered.

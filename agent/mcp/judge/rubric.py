@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+from gtm_core.messaging import card
+
 #: The rubric, as an ORDERED tuple. Order is data, not prose, because PRD §3.2's stability
 #: control reverses it and requires the verdicts to stay put. A flip-rate run against a
 #: rubric that was never actually reversed reports 0% flips and reads as the strongest
@@ -26,34 +28,23 @@ from collections.abc import Sequence
 #: (PRD §3.2): 3 items reverse to fewer distinguishable orderings than 5 did. Paid
 #: deliberately, because a rubric item that never once differed from its neighbours (as
 #: `bridge_depends_on_fact` never did) was adding order-sensitivity without adding signal.
-RUBRIC_ITEMS: tuple[tuple[str, str], ...] = (
-    (
-        "fact_earns_its_place",
-        "Does the fact this email opens on earn its place? Three things at once, because "
-        "they were measured to be one: does it create a problem for THIS person in THIS "
-        "seat; does the recipient's own recorded evidence establish what the body then "
-        "claims; and does the sentence right after it actually depend on THIS fact rather "
-        "than reading the same under any other true fact about any other company. A true, "
-        "on-topic, correctly-attributed fact that fails any of those is the most common "
-        "defect in this pipeline, and it is invisible to every regex.",
-    ),
-    (
-        "frame_fits_seat",
-        "Would someone in this seat recognise this framing as their problem — not their "
-        "colleague's, and not their vendor's?",
-    ),
-    (
-        "right_person",
-        "Is this person plausibly the one who would act on this? A great email to someone "
-        "who cannot buy, cannot decide, and does not own the problem is a wasted send and "
-        "a complaint risk.",
-    ),
-)
+#:
+#: Since 2026-09-24 the items are not written here: the rubric is the judge's DECLARED
+#: SUBSET of the one quality card (:mod:`gtm_core.messaging.card`), rendered from the
+#: card's own wording, so the question this model is asked and the question the operator
+#: sheet asks cannot drift into two. Which questions the judge takes — and the two it
+#: deliberately does not — is argued at :data:`card.JUDGE_QUESTIONS`. **This is a change
+#: to the measurement only.** The judge's model role (`judge`, a Claude model, bound there
+#: for a PII reason) and its key-first/OAuth-fallback transport selection live in
+#: :mod:`.scoring` and are untouched by anything in this module.
+RUBRIC_ITEMS: tuple[tuple[str, str], ...] = card.questions_for(card.JUDGE_QUESTIONS)
 
 
 #: Rubric items that can only be answered when the row carries a researched fact about
 #: THIS recipient. Withheld on a lane that has none — see :data:`SIGNAL_FREE_LANES`.
-REQUIRES_SIGNAL = frozenset({"fact_earns_its_place"})
+#: DERIVED from the card's two declared subsets, so the seat-only rubric is the generic
+#: lane's declared question set rather than a filter someone re-guesses here.
+REQUIRES_SIGNAL = frozenset(card.JUDGE_QUESTIONS) - frozenset(card.SEAT_ONLY_QUESTIONS)
 
 #: Lanes whose rows carry no per-row signal BY CONSTRUCTION, and are therefore scored on
 #: the seat items alone.
@@ -101,6 +92,23 @@ def rubric_id(lane: str = "") -> str:
     return RUBRIC_SEAT_ONLY if lane.strip().lower() in SIGNAL_FREE_LANES else RUBRIC_FULL
 
 
+def rubric_version(lane: str = "") -> str:
+    """The IDENTITY of the instrument a row in ``lane`` is scored by.
+
+    :func:`rubric_id` names the rubric (``full`` / ``seat-only``); this identifies it. The
+    two are not the same fact, and only the second survives a change to what the rubric
+    asks: on 2026-09-24 ``corrupted_scrape`` joined the judge's question set, and every
+    verdict written before that was produced by a different instrument. ``rubric`` stayed
+    ``"full"`` across that change — so a holdout pooled on it alone would mix two
+    populations and move a rate with nobody having touched the copy. The same confound
+    ``backend`` and ``judge_batch`` are recorded for, one level up.
+
+    Derived from the items themselves (:func:`gtm_core.messaging.card.fingerprint`), so it
+    cannot go stale: nobody has to remember to bump it.
+    """
+    return card.fingerprint(key for key, _ in rubric_for(lane))
+
+
 def rubric_for(lane: str = "") -> tuple[tuple[str, str], ...]:
     """The rubric items in force for ``lane``, in canonical order.
 
@@ -109,7 +117,7 @@ def rubric_for(lane: str = "") -> tuple[tuple[str, str], ...]:
     """
     if rubric_id(lane) == RUBRIC_FULL:
         return RUBRIC_ITEMS
-    return tuple((key, text) for key, text in RUBRIC_ITEMS if key not in REQUIRES_SIGNAL)
+    return card.questions_for(card.SEAT_ONLY_QUESTIONS)
 
 
 def rubric_text(*, reverse: bool = False, lane: str = "") -> str:

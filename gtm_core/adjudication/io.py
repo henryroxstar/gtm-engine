@@ -44,6 +44,7 @@ def read_records(path: Path) -> list[Adjudication]:
                 backend=d.get("backend", ""),
                 judge_batch=int(d.get("judge_batch") or 1),
                 rubric=d.get("rubric", ""),
+                rubric_version=d.get("rubric_version", ""),
                 grounding=d.get("grounding", ""),
                 calibrated=(None if raw_calibrated is None else bool(raw_calibrated)),
             )

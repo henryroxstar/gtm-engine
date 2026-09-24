@@ -44,6 +44,11 @@ class TallyRow:
     body_stable: bool = True
     row_ids: tuple[str, ...] = ()
     backends: tuple[str, ...] = ()
+    #: Every rubric VERSION that judged this unit. More than one means the runs being
+    #: pooled asked different questions, which moves a verdict without the copy having
+    #: changed — surfaced here for the same reason ``backends`` is, and by the same
+    #: posture: reported, never refused.
+    rubric_versions: tuple[str, ...] = ()
     calibrated: bool | None = None
 
     def to_dict(self) -> dict:
@@ -67,6 +72,7 @@ class TallyRow:
             "body_stable": self.body_stable,
             "row_ids": list(self.row_ids),
             "backends": list(self.backends),
+            "rubric_versions": list(self.rubric_versions),
             "calibrated": self.calibrated,
         }
 
@@ -198,6 +204,9 @@ def tally(
         body_hash = next(iter(hashes)) if len(hashes) == 1 else ""
         row_ids = tuple(sorted({rec.row_id for _, rec in group if rec.row_id}))
         backends = tuple(sorted({rec.backend for _, rec in group if rec.backend}))
+        rubric_versions = tuple(
+            sorted({rec.rubric_version for _, rec in group if rec.rubric_version})
+        )
 
         cal_values = [rec.calibrated for _, rec in scored]
         if any(v is False for v in cal_values):
@@ -275,6 +284,7 @@ def tally(
                 body_stable=len(hashes) <= 1,
                 row_ids=row_ids,
                 backends=backends,
+                rubric_versions=rubric_versions,
                 calibrated=calibrated,
             )
         )

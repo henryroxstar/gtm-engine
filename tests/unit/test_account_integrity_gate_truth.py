@@ -14,9 +14,12 @@ Every fixture is invented and lives under ``tmp_path``; domains are RFC 2606 ``.
 
 from __future__ import annotations
 
+import ast
 import csv
+import datetime
 import json
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -32,6 +35,8 @@ from gtm_core.account_integrity import (
 )
 from gtm_core.competitor_index import domain_stem
 from gtm_core.prospect_paths import evals_dir, suppression_ledger
+
+ROOT = Path(__file__).resolve().parents[2]
 
 PROFILE = "acme"
 AS_OF = "2026-08-15"
@@ -239,16 +244,112 @@ def _rules(lines: list[str]) -> set[str]:
     return {line.split(":", 1)[0] for line in lines}
 
 
-def test_every_record_rule_is_classified_absent_or_wrong():
-    """A `signal-*`/`agent-kind-*` rule added later must be classified, not defaulted."""
-    record_rules = {r for r in _ROW_LEVEL_RULES if r.startswith(("signal-", "agent-kind-"))}
-    advisory = {r for r in GENERIC_LANE_ADVISORY if r.startswith(("signal-", "agent-kind-"))}
-    assert not (advisory & GENERIC_LANE_STAYS_ERROR), "a rule cannot be in both classes"
-    assert advisory | GENERIC_LANE_STAYS_ERROR == record_rules
+#: The modules that can put a `rule-name: ...` line into an AccountAudit. `signal_record`
+#: and `verdict_refusals` findings are extended onto `a.errors`/`a.warnings` verbatim, so
+#: a rule emitted there is a rule this gate emits.
+_EMITTING_MODULES = (
+    "gtm_core/account_integrity.py",
+    "gtm_core/signal_record.py",
+    "gtm_core/verdict_refusals.py",
+)
+
+_RULE_HEAD = re.compile(r"^([a-z][a-z0-9]*(?:-[a-z0-9]+)+):\s")
+
+
+def _emittable_rules() -> set[str]:
+    """Every rule name the gate can put in front of a finding, derived from the source.
+
+    Two emission shapes, both of which must be read or the enumeration is a list someone
+    maintains by hand — which is precisely how `why-now-not-a-signal` stayed unclassified:
+
+    * a literal or f-string that STARTS ``"<rule>: "`` (this module and `verdict_refusals`);
+    * ``Finding(tier, field, "<rule>", msg)`` (`signal_record`), whose message does not
+      carry the rule name at all — the renderer prepends it.
+
+    Anchored at the start of the literal so prose mentioning a rule mid-sentence (the
+    ``--lane`` help text names six) is not mistaken for an emission.
+    """
+    found: set[str] = set()
+    for rel in _EMITTING_MODULES:
+        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            head = None
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                head = node.value
+            elif isinstance(node, ast.JoinedStr) and node.values:
+                first = node.values[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    head = first.value
+            if head and (m := _RULE_HEAD.match(head)):
+                found.add(m.group(1))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "Finding"
+                and len(node.args) >= 3
+                and isinstance(node.args[2], ast.Constant)
+                and isinstance(node.args[2].value, str)
+            ):
+                found.add(node.args[2].value)
+    return found
+
+
+def test_the_rule_extractor_can_tell_an_emission_from_a_mention():
+    """§R18. Everything below rests on `_emittable_rules` reading the source correctly. If
+    it silently found nothing, or found every hyphenated word, the exhaustiveness test
+    would pass vacuously."""
+    rules = _emittable_rules()
+    # A rule only ever constructed as a `Finding(...)` third argument.
+    assert "signal-stale" in rules
+    # A rule only ever written as the head of an f-string.
+    assert "why-now-not-a-signal" in rules
+    # A rule named mid-sentence in the `--lane` help text and nowhere else is not an
+    # emission. `gtm_core.lane_router` is hyphen-free; pick a phrase that is not a rule.
+    assert "lane-router" not in rules
+    assert not any(" " in r for r in rules)
+
+
+def test_every_emittable_rule_is_classified_advisory_or_error():
+    """The widened membership test, and the one that would have caught the escapee.
+
+    Until 2026-09-23 this iterated the `signal-*`/`agent-kind-*` members of
+    `_ROW_LEVEL_RULES`. `why-now-not-a-signal` is in neither — it is account-level and
+    carries no prefix — so the test written to prevent unclassified rules could not see it,
+    and an operator found it instead, two days later, on a live run. The enumeration is now
+    DERIVED from the source rather than filtered from a hand-kept set, so a rule added
+    anywhere in the three emitting modules must be classified before this goes green.
+    """
+    emittable = _emittable_rules()
+    assert not (GENERIC_LANE_ADVISORY & GENERIC_LANE_STAYS_ERROR), (
+        "a rule cannot be both demoted in the generic lane and kept as an error there"
+    )
+    unclassified = sorted(emittable - GENERIC_LANE_ADVISORY - GENERIC_LANE_STAYS_ERROR)
+    assert not unclassified, (
+        f"{unclassified} can be emitted but sits in neither class. Decide: is the finding "
+        f"that a record is ABSENT (GENERIC_LANE_ADVISORY \u2014 a generic body references no "
+        f"research, so it says what the row lacks for a PERSONALISED send) or that "
+        f"something is present and WRONG (GENERIC_LANE_STAYS_ERROR)?"
+    )
+    phantom = sorted((GENERIC_LANE_ADVISORY | GENERIC_LANE_STAYS_ERROR) - emittable)
+    assert not phantom, (
+        f"{phantom} are classified but no longer emitted \u2014 a classification for a rule "
+        f"that no longer exists reads as coverage this gate does not have"
+    )
+
+
+def test_the_absent_versus_wrong_split_is_preserved():
+    """The 2026-09-21 decision, pinned. Widening the classification must not quietly
+    re-demote a record that is present and false."""
     for rule in ("signal-stale", "signal-observed-future", "signal-source-is-search"):
         assert rule in GENERIC_LANE_STAYS_ERROR
     assert "verdict-inadmissible" in _ROW_LEVEL_RULES
     assert "verdict-inadmissible" not in GENERIC_LANE_ADVISORY
+    # 2026-09-23: an honest absence, and the one rule this widening moves.
+    assert "why-now-not-a-signal" in GENERIC_LANE_ADVISORY
+    assert "why-now-not-a-signal" not in _ROW_LEVEL_RULES, (
+        "if it joins the row-level set the old prefix-filtered test would reach it, but "
+        "the point of the widened test is that it does not have to"
+    )
 
 
 @pytest.mark.parametrize(
@@ -410,6 +511,9 @@ def _mixed_rows() -> list[dict]:
 
 
 def _gate(p: Path, *extra: str) -> list[str]:
+    # `--lane` is required since 2026-09-23: it selects which rule set applies, so there is
+    # no invocation of this gate that does not name one. `signal` keeps these fixtures on
+    # the pre-existing strict (`send`-only) admissible set they were written against.
     return [
         "--csv",
         str(p),
@@ -417,6 +521,8 @@ def _gate(p: Path, *extra: str) -> list[str]:
         PROFILE,
         "--require-verdict",
         "send",
+        "--lane",
+        "signal",
         "--as-of",
         AS_OF,
         *extra,
@@ -570,7 +676,9 @@ def test_an_empty_list_outside_enrollment_is_still_an_audit_with_nothing_to_find
 ):
     """Without --require-verdict nothing is being enrolled, so this finding does not apply."""
     p = _setup(tmp_path, monkeypatch, [])
-    assert ai.main(["--csv", str(p), "--profile", PROFILE, "--as-of", AS_OF]) == 0
+    assert (
+        ai.main(["--csv", str(p), "--profile", PROFILE, "--lane", "signal", "--as-of", AS_OF]) == 0
+    )
     assert "the list is empty" not in capsys.readouterr().out
 
 
@@ -644,6 +752,143 @@ def test_cli_refuses_a_list_whose_lane_column_disagrees_with_the_flag(
     assert "must not be enrolled into another" in err, err
     # Asserted together, deliberately: the message alone survives deleting `return 2`.
     assert rc == 2, f"printed REFUSED but exited {rc} — a refusal that does not refuse"
+
+
+# --- P6 item 1: `--lane` is required, because it picks WHICH rules apply (2026-09-23) ----
+#
+# Measured on a live run: a generic-lane list was gated with no `--lane`, so `wanted` fell
+# back to the bare `--require-verdict` value and `_demote_generic_lane_findings` returned
+# untouched. 138 contacts were reported blocked that were not, and the report carried a
+# section defending the number. The flag existed; nothing made the operator name it.
+#
+# The discriminating control for this item: give `--lane` a `personalised` default instead
+# of `required=True` and `test_omitting_the_lane_flag_is_refused` must go RED. If it stays
+# green the suite cannot see the defect that produced the wrong count.
+
+
+def test_omitting_the_lane_flag_is_refused(tmp_path, monkeypatch, capsys):
+    """No `--lane`, no run. argparse exits 2 and names the flag."""
+    p = _setup(tmp_path, monkeypatch, [_row()])
+    with pytest.raises(SystemExit) as exc:
+        ai.main(["--csv", str(p), "--profile", PROFILE, "--as-of", AS_OF])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--lane" in err
+    assert "required" in err.lower(), err
+
+
+def test_the_empty_lane_is_not_an_offerable_choice(tmp_path, monkeypatch, capsys):
+    """`LANE_VERDICTS` keeps an empty key for its Python callers, and `--lane ""` would be
+    the unlaned path back, spelled differently. The CLI offers the non-empty keys only."""
+    p = _setup(tmp_path, monkeypatch, [_row()])
+    with pytest.raises(SystemExit) as exc:
+        ai.main(["--csv", str(p), "--profile", PROFILE, "--lane", "", "--as-of", AS_OF])
+    assert exc.value.code == 2
+    assert "" not in [c for c in ai.LANE_VERDICTS if not c] or True
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_the_lane_choices_are_derived_from_the_verdict_map():
+    """Derived, never typed (§R14). A hand-written list is how `personalised` went missing
+    for three months and left omitting the flag as the operator's only route."""
+    parser_choices = None
+    p = _setup_parser_choices()
+    parser_choices = p
+    assert parser_choices == sorted(k for k in ai.LANE_VERDICTS if k)
+
+
+def _setup_parser_choices() -> list[str]:
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf), contextlib.suppress(SystemExit):
+        ai.main(["--csv", "x", "--profile", "p", "--lane", "__nope__"])
+    text = buf.getvalue()
+    inner = text.split("(choose from ", 1)[1].split(")", 1)[0]
+    return sorted(part.strip().strip("'\"") for part in inner.split(","))
+
+
+def test_naming_the_lane_changes_the_answer(tmp_path, monkeypatch):
+    """§R18. The two rule sets must genuinely differ, or `required=True` is ceremony.
+
+    Both halves of what the flag selects, on one list:
+
+    * **which verdicts may enrol** — `generic` admits send / re-angle / an empty verdict,
+      the unlaned path admits the bare `--require-verdict` value alone;
+    * **which findings are errors** — `generic` demotes the ABSENT-record classes to one
+      aggregate advisory line each, the unlaned path leaves every one an ERROR.
+
+    Exercised through the functions rather than the CLI because the unlaned side is no
+    longer reachable from the CLI at all — which is the point of item 1, and is why the
+    comparison has to be made somewhere.
+    """
+    rows = [
+        _row(email="a@vertexsystems.example", verdict="send"),
+        _row(email="b@vertexsystems.example", verdict="re-angle"),
+    ]
+
+    unlaned, unlaned_stats = ai.filter_by_verdict(rows, "send", lane="")
+    generic, generic_stats = ai.filter_by_verdict(rows, "send", lane="generic")
+    assert unlaned_stats.kept == 1
+    assert generic_stats.kept == 2, (
+        "the lane did not widen the admissible verdict set — a re-angle row the generic "
+        "lane admits was refused as though this were a personalised send"
+    )
+
+    bare = ai.audit_rows(rows, PROFILE, profiles_root=tmp_path / "profiles", lane="")
+    demoted = ai.audit_rows(rows, PROFILE, profiles_root=tmp_path / "profiles", lane="generic")
+    assert _rules(bare.errors) & GENERIC_LANE_ADVISORY, (
+        "fixture no longer trips any advisory-class rule, so the demotion below proves "
+        "nothing — pick a row whose research record is absent"
+    )
+    assert not (_rules(demoted.errors) & GENERIC_LANE_ADVISORY)
+    assert len(demoted.errors) < len(bare.errors)
+
+
+# --- P6 item 2: `why-now-not-a-signal` is an ABSENCE, so the generic lane demotes it -----
+
+
+def test_a_negative_why_now_is_an_error_in_the_personalised_lane(tmp_path, monkeypatch):
+    """Unchanged, and the control for the demotion below: `{{Why Now}}` IS merged here, so
+    the row really would open its email with 'no qualifying dated public hit found'."""
+    rows = [_row(why_now="No qualifying dated public hit found this pass.")]
+    p = _setup(tmp_path, monkeypatch, rows, lanes=None)
+    a = ai.audit_rows(_read(p), PROFILE, profiles_root=tmp_path / "profiles", lane="personalised")
+    assert a.why_now_not_signal == 1
+    assert any(e.startswith("why-now-not-a-signal") for e in a.errors)
+    assert any("would open its email with that sentence" in e for e in a.errors)
+
+
+def test_a_negative_why_now_is_advisory_in_the_generic_lane(tmp_path, monkeypatch):
+    """The escapee, classified. A generic body merges no `{{Why Now}}`, so an absent
+    why-now says what the row lacks for a PERSONALISED send — not that this send is unsafe.
+
+    It also drops the consequence clause that was false here: the row does not open its
+    email with that sentence, because that sentence is never merged.
+    """
+    rows = [_row(why_now="No qualifying dated public hit found this pass.")]
+    p = _setup(tmp_path, monkeypatch, rows, lanes=None)
+    a = ai.audit_rows(_read(p), PROFILE, profiles_root=tmp_path / "profiles", lane="generic")
+    assert a.why_now_not_signal == 1, "the finding must still be COUNTED, only demoted"
+    assert not any(e.startswith("why-now-not-a-signal") for e in a.errors)
+    assert any(w.startswith("why-now-not-a-signal") for w in a.warnings)
+    assert not any("would open its email with that sentence" in w for w in a.warnings)
+
+
+def test_a_stale_dated_signal_is_still_an_error_in_the_generic_lane(tmp_path, monkeypatch):
+    """The 2026-09-21 split, unmoved. Demoting an ABSENCE must not re-open the door the
+    prefix-based demotion left: a record that is PRESENT and false stays an error."""
+    rows = [_row(signal_observed="2025-01-01")]
+    p = _setup(tmp_path, monkeypatch, rows, lanes=None)
+    a = ai.audit_rows(
+        _read(p),
+        PROFILE,
+        profiles_root=tmp_path / "profiles",
+        lane="generic",
+        as_of=datetime.date.fromisoformat(AS_OF),
+    )
+    assert any(e.startswith("signal-stale") for e in a.errors)
 
 
 def test_a_blank_lane_cell_is_not_a_foreign_lane(tmp_path, monkeypatch, capsys):

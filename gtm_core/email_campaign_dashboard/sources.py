@@ -101,19 +101,19 @@ def samples_model(profile: str, campaign: str, content_root: Path | None = None)
       what is sent, verbatim.
     * **Sequence touches** are templates. They are shown WITH their merge tags intact rather
       than filled in with a sample row, because filling them here would be a second renderer
-      beside ``merge_render_linter.render``, and two renderers is how a page starts showing
+      beside ``outreach.render``, and two renderers is how a page starts showing
       copy nobody sends. The merge-render gate is what proves the template renders.
 
     Parsers come from ``hook_coverage.config``, which is this package's one home for the
     linter import — not a third copy of the pack/spec parsing.
     """
-    from merge_render_linter import render
+    from outreach import render
 
     from ..hook_coverage.config import parse_spec
     from ..hook_coverage.declared import _CAPABILITY_RE
 
     try:
-        from outreach_pack_linter import parse_ladder, parse_prospect_pack
+        from outreach import parse_ladder, parse_prospect_pack
     except ImportError:  # pragma: no cover - the import above puts it on sys.path
         return {"packs": [], "touches": [], "rendered": []}
 

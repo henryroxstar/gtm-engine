@@ -7,6 +7,13 @@
 # A missing file — or one with no entries, like this starter — disables the exemption
 # entirely, which is the safe default: nothing is waved through until someone declares it.
 #
+# DO NOT DELETE THIS FILE — RECORDED SCOPE DEVIATION (2026-09-24, outbound fact registry FR3)
+# The PRD lists it for deletion in FR1. It was NOT deleted: `body-template-share` is a kept rule,
+# so the file still has live readers (`lint_body_homogeneity`, the `--shared-phrase-file` flag,
+# and the `REFUSED` overlay map in `gtm_core/experiments.py`). Deleting it switches an exemption
+# off rather than retiring a rule. `knowledge/capability-argument.toml` — whose reader rules DID
+# retire — was deleted in the same pass; this one was not.
+#
 # WHY THIS FILE EXISTS
 # `body-template-share` polices *personalisation* — the hedge, the gap framing, the ask. Those
 # must read as written for one account. It is not a rule against having consistent product

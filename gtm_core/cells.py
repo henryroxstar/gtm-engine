@@ -54,7 +54,7 @@ _LINTER_DIR = Path(__file__).resolve().parent.parent / "tests" / "linter"
 if str(_LINTER_DIR) not in sys.path:  # pragma: no cover - import plumbing
     sys.path.insert(0, str(_LINTER_DIR))
 
-from outreach_pack_linter import seat_of  # noqa: E402
+from outreach import seat_of  # noqa: E402
 
 #: Cell dimension used when the CSV carries no segment for a row. Never guessed —
 #: an unknown segment is reported as unknown so the gap is visible in the table.

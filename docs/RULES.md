@@ -46,16 +46,113 @@ in review, and neither should be listed as one.
 | **Staged-topic extension allowlist** | [`gtm_core/knowledge_staging.py`](../gtm_core/knowledge_staging.py) — `_ALLOWED_SUFFIXES = {".md", ".toml"}` | A staged topic carrying any other extension raises. A topic with no extension still defaults to `.md`. Coercion is what produced the defect this closes — appending `.md` to `icp-scoring.toml` left the three machine-readable targeting files with no staged-review path at all — so the fix cannot be more coercion. |
 
 **The writer set for `profiles/`, stated once.** `profiles/` is read-only at runtime, with
-**three** key-scoped exceptions — a singleton claim would be wrong, and was restated in four docs
-before this was checked:
+**eight** exceptions — a singleton claim would be wrong, and was restated in four docs
+before this was checked. **This section is the only place the SHAPE of those writes is
+stated.** Every other document that mentions them carries the name list and a link back here;
+a restatement of the scope is what drifted last time, and three documents ended up giving three
+different counts, two of them also miscounting which writers were key-scoped. The eight fall
+into three groups, and the difference between the groups is the whole guarantee:
+
+- **Three are key-scoped and re-parsed** — `brandkit.set_identity_value`,
+  `funnel.record_actuals`, `messaging.angle_status`. Each locates one key, changes it, and
+  re-parses to prove nothing else moved. A reviewer can read the diff.
+- **Three replace the whole file** — `knowledge_staging.promote`, `hooks.save_hooks`,
+  `messaging.matrix_view.write_matrix`. There is no key to scope and no diff worth reading, so
+  each is bounded by something else: an operator `diff`-then-`promote` step, the bank's own
+  verbs, a generated-banner refusal. See the two paragraphs below for what makes each
+  acceptable — none of them is a licence to whole-file-replace a knowledge fact generally.
+- **Two only ADD** — `voc.registry.apply` appends `[[competitor]]` blocks;
+  `knowledge_meta.seed_file` prepends a frontmatter block to a managed topic that has none.
+  Neither rewrites an existing byte, and neither is verified to round-trip the way the
+  key-scoped three are.
+
+The `Scope` column says which shape each row is, rather than letting the table imply one
+guarantee for all eight:
 
 | Writer | Writes | Scope |
 |---|---|---|
 | [`knowledge_staging.promote`](../gtm_core/knowledge_staging.py) | the knowledge **corpus** (`knowledge/<topic>`) | operator-invoked, `diff`-before-`promote` |
 | [`hooks.save_hooks`](../gtm_core/hooks.py) | `knowledge/hooks.toml` | the hook bank's own verbs |
 | [`brandkit.set_identity_value`](../gtm_core/brandkit.py) | `knowledge/BRAND.toml` identity handles | `identity-kit`, key-scoped, atomic |
+| [`funnel.record_actuals`](../gtm_core/funnel.py) | `knowledge/funnel-yields.toml` measured yields | the `prospect` skill at run end; closed `STAGES` key set, merge-and-preserve |
+| [`messaging.angle_status`](../gtm_core/messaging/angle_status.py) | one `[[angle]]`'s `status` in `knowledge/angles.toml`, plus a dated history comment inside that same block | `messaging angle promote\|retire`, operator-invoked; one line edited in place, verified to round-trip before it lands, atomic |
+| [`messaging.matrix_view.write_matrix`](../gtm_core/messaging/matrix_view.py) | the **whole** of `knowledge/hook-matrix.md` — a regeneration, not an edit | `messaging matrix`, operator-invoked; **not key-scoped**. Bounded by a banner check instead: a target whose line 1 lacks `<!-- gtm_core.messaging:generated` is refused outright — never merged, never backed up and replaced. Acceptable only because the file is **derived**: every byte is a function of `angles.toml`, so a lost edit is a rebuild rather than a loss |
+| [`voc.registry.apply`](../gtm_core/voc/registry.py) | appends operator-accepted `[[competitor]]` blocks to `knowledge/competitors.toml`, and restamps the file's global `reviewed` date | `python -m gtm_core.voc.registry apply --accept <name>`, reached from `market-harvest`; **not key-scoped** — one block per name the operator explicitly named, duplicates skipped and reported, no existing competitor row rewritten |
+| [`knowledge_meta.seed_file`](../gtm_core/knowledge_meta.py) | a frontmatter block (`source` / `refreshed` / `review`) at the TOP of a managed topic under `knowledge/**` or `products/**` that has none | `python -m gtm_core.knowledge_meta seed --profile <p>\|--all`, operator-invoked and routine — it is the Definition-of-Done fix the frontmatter gate itself prints. **Add-only, not key-scoped**: idempotent (a topic that already has frontmatter is returned untouched), and it PREPENDS — the file's existing bytes are re-written verbatim after the block, so no prose is ever rewritten. It is the only writer whose target set is *every* managed topic in a profile at once rather than one named file |
 
-Every other module — `icp_check` included — holds no writer for `profiles/` at all. Of the three,
+**What makes a whole-file write acceptable is the target, never the writer.**
+`matrix_view.write_matrix` replaces the entire file, so there is no key to scope and no diff
+worth reading. What makes that acceptable is not care in the writer but the *nature of the
+target*:
+`hook-matrix.md` is **derived and reproducible** — `render()` is a pure function of
+`angles.toml`, so an overwrite destroys nothing that cannot be rebuilt by rerunning the
+command. The banner is what keeps that claim true: a tenant's hand-authored matrix carries
+months of judgement and no banner, and is therefore refused rather than regenerated. Do **not**
+read this row as a licence to whole-file-replace a knowledge fact; for anything that is not
+derived, the key-scoped shape above is the rule. The other two whole-file writes are bounded
+differently and neither is derived: `knowledge_staging.promote` writes the live topic only
+after an operator has read a `diff` of the staged bytes against it, and `hooks.save_hooks`
+renders a bank the hook verbs have already validated in memory.
+
+**The add-only pair is bounded by never rewriting a byte.** `voc.registry.apply` appends one
+`[[competitor]]` block per name the operator explicitly accepted (duplicates against the
+existing registry are skipped and reported) and restamps the file's global `reviewed` date.
+`knowledge_meta.seed_file` prepends a frontmatter block, and only to a topic that has none —
+a topic that already carries one is returned untouched, which is what makes `seed --all` safe
+to re-run. Neither is verified to round-trip the way the key-scoped three are, and that is the
+trade both accept in exchange for touching nothing that exists.
+
+**The fifth was the first in a package rather than a flat module**, which is not a cosmetic
+difference: `tests/contracts/test_icp_check_is_read_only.py` derives this set by regex from the
+table below, and the original pattern matched `gtm_core/<module>.py` only — so a package row
+would have been added here and silently enforced nowhere. The regex now accepts
+`gtm_core/<pkg>/<mod>.py` and the contract asserts each package row by **name**, because
+"the row is in the doc" and "the row is being read" are different facts, and a count alone
+cannot catch an omission while the other rows still parse. It is the only writer
+with a **direction** that is gated: `promote` (toward `live`, the status that makes an angle
+sendable) requires a cited outcome cell and refuses an angle whose claim is not `verified`;
+`retire` requires neither, because a rule that made stopping harder than starting would be the
+wrong way round. Nothing here deletes an angle — `retire` sets a status.
+
+**The fourth was added to this table on 2026-09-23, having existed unlisted since August.** It
+is the one a reader is most likely to miss, because it does not look like a knowledge write: a
+run measures its own yields and writes them back so the model self-corrects. It is the weakest
+of the eight — no operator invokes it and no human sees a diff — so it is bounded instead by its
+key set: an unknown stage name raises rather than being written,
+a corrupt file is refused rather than overwritten, and the write merges into the existing table
+rather than replacing it, which is what keeps a tenant's derivation block alive across runs.
+Widening it past `STAGES` is the same class of change as adding a ninth writer.
+
+**The sixth and seventh were added on 2026-09-24, and only one of them was noticed by a human.**
+`messaging.matrix_view` landed in the same working tree as the fifth and was left out of this
+table; `voc.registry.apply` had been writing `knowledge/competitors.toml` unlisted for far
+longer. Both were found the same way, and it is the way that matters: until then the writer set
+was enforced **doc↔doc only** — one test counted the rows, another banned importing the names
+they yield — and nothing read `gtm_core/**` to ask the opposite question, *is there a write here
+that the table does not name?*
+[`tests/contracts/test_profiles_writer_set_is_complete.py`](../tests/contracts/test_profiles_writer_set_is_complete.py)
+now asks it, by tainting `resolve_knowledge_file` / `resolve_profiles_root` / a
+`profiles_root` parameter through assignments, `/` joins and calls, and failing on any write
+whose target is tainted in a module this table does not list. Its own docstring states what it
+still cannot see, because a detector whose blind spots are unwritten is one the next reader
+will over-trust.
+
+**The eighth was found by that detector's own blind spot, one day later.**
+`knowledge_meta.seed_file` had been prepending frontmatter to every managed topic in a profile
+since the metadata gate shipped, and the new detector went **green with it present** — its
+taint crossed `=` and `with` but not a `for` target or a comprehension target, and
+`knowledge_meta` reaches its write through nothing else
+(`for root, prefix in managed_roots(...)` over a list comprehension, then
+`for path in iter_managed_topics(root)` over an accumulated list). A detector that stops at the
+binding forms it happened to be written against is a detector whose green means *the shapes I
+check are clean*, not *the tree is clean* — the exact over-trust its docstring exists to
+prevent. Taint now crosses `for`, comprehensions, generator `yield`s, `sorted(...)`-style
+passthroughs and list accumulation, element-wise where a tuple's shape is knowable, and the
+count in the sentence that opens this section is parsed and asserted **equal** to the number of
+rows below (`tests/contracts/test_icp_check_is_read_only.py`), so a row can no longer land
+while the prose stays at the old number.
+
+Every other module — `icp_check` included — holds no writer for `profiles/` at all. Of the eight,
 `knowledge_staging.promote` is the one the extension allowlist governs, and the `.toml`
 half of that allowlist is paired with a round-trip parse gate: a staged `.toml` must
 `tomllib.loads` (and parse to something non-empty) *before* it may overwrite the live file. A
@@ -467,10 +564,16 @@ why six of the nine leaks were caught (if at all) by a human recalling the name 
 against a roster of 1,200+ accounts that grows daily. `tests/lint/third_party_roster.py` derives
 that roster from the tenant data itself — account folders and the curated case-study lists — and
 `pii_check` applies it word-bounded. The roster is PII, so it is never committed: the layers that
-run where `content/` exists derive it live, and CI matches against committed salted digests
-(`third_party_digest.txt`, regenerated with `--write-digest`). Known residual: a company whose
-name is ordinary English ("harmonic", "new york life") yields no key — keying on it could not tell
-the company from the prose. Those stay with the human identity read.
+run where `content/` exists derive it live **and also match the committed salted digests**
+(`third_party_digest.txt`, regenerated with `--write-digest`, which is a UNION that only ever
+grows); CI, which has no `content/`, matches the digests alone. Two known residuals. A company
+whose name is ordinary English ("harmonic", "new york life") yields no key — keying on it could
+not tell the company from the prose. And a tenant whose `content/<tenant>/` is a **symlink to
+external storage is not traversed at all** (`_local_account_trees`): storage is not source, and a
+lint must not depend on a file provider being mounted, so a name appearing only there is a
+derived key on no machine. The digest still carries it if it was ever derived, which is why
+regeneration may not shrink. Both residuals stay with `carve-preflight` and the human identity
+read.
 
 **Write the fictional value with the tool, not by hand.** `python -m gtm_core.fictionalize
 <kind> "<value>"` returns a shape-preserving fake — trailing sibilant, leading article, ampersand,

@@ -1365,7 +1365,7 @@ def test_tier_a_needing_dossier_includes_account_with_no_dossier(tmp_path):
         profile,
         [
             _master_row(
-                company="A Better Place",
+                company="A Fernway Capital",
                 company_domain="seniorpath.example",
                 tier="A",
                 email="lead@seniorpath.example",
@@ -1378,8 +1378,8 @@ def test_tier_a_needing_dossier_includes_account_with_no_dossier(tmp_path):
     out = pc.tier_a_needing_dossier(profile, content_root=tmp_path)
     assert len(out) == 1
     cand = out[0]
-    assert cand["company"] == "A Better Place"
-    assert cand["canonical_slug"] == "a-better-place"
+    assert cand["company"] == "A Fernway Capital"
+    assert cand["canonical_slug"] == "a-fernway-capital"
     assert cand["existing_legacy_folder"] is None
     assert cand["why_now"] == "regulatory deadline"
     assert cand["cohort"] == "healthcare-life-sciences"

@@ -289,14 +289,20 @@ def test_status_tiles_render_a_dash_when_the_router_has_never_run(tmp_path):
     Includes positive and negative controls (§R18)."""
     profile = _seed(tmp_path)
     page = _page(tmp_path, profile)
-    for label in (
-        "Waiting on you",
-        "Ready to send",
-        "Being fixed",
-        "In the sending tool",
-        "Not emailing",
+    # Derived from `prospect_status.LABELS`, never retyped: this page and the terminal
+    # report read the same dict, and a copy here would let the two drift apart silently —
+    # which is exactly how "Ready to send" survived on one surface after the other was
+    # corrected (2026-09-23, P6 item 3).
+    from gtm_core.prospect_status import LABELS
+
+    for status in (
+        "waiting_on_you",
+        "ready_to_send",
+        "being_fixed",
+        "in_sending_tool",
+        "not_emailing",
     ):
-        assert label in page
+        assert LABELS[status] in page
     assert "run your prospecting first" in page
     assert "Needs an address" in page
 
@@ -409,7 +415,13 @@ def test_status_column_appears_on_both_row_level_tables_and_marks_seat_kind_tech
     )
     page = _page(tmp_path, profile)
     assert page.count("<th>Status</th>") == 2, "one on the worklist table, one on who's"
-    assert "Ready to send" in page
+    from gtm_core.prospect_status import LABELS
+
+    assert LABELS["ready_to_send"] in page
+    assert "Ready to send" not in page, (
+        "the routed count must not render under a name that can be read as finished — the "
+        "checks that decide whether a row may go have not run at this point"
+    )
     assert '<th class="tech">Seat kind</th>' in page
     assert '<th class="tech">Research verdict</th>' in page
 
@@ -551,7 +563,13 @@ def test_m16_unmapped_status(tmp_path):
     assert (
         _row_status(m, "unmapped@example.com") == '<span class="pill warn">status unmapped</span>'
     )
-    assert _row_status(m, "good@example.com") == "Ready to send"
+    from gtm_core.prospect_status import LABELS
+
+    assert _row_status(m, "good@example.com") == LABELS["ready_to_send"]
+    assert _row_status(m, "good@example.com") == "Routed — not yet checked", (
+        "the per-row cell is where this surface carries the routed-is-not-checked "
+        "correction; it has no count to put a checked figure beside"
+    )
     assert _row_status(m, "other@example.com") == '<span class="muted">not yet routed</span>'
 
 

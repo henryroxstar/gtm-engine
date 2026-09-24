@@ -24,10 +24,14 @@ from gtm_core.hook_coverage import (
     MAX_SPECS_PER_CAPABILITY,
     Coverage,
     MatrixShape,
+    RowAxis,
     RowCell,
     SignalFit,
     UnknownHookCell,
     _cells_equal,
+    _clean_cell,
+    _sections,
+    _split_row,
     argument_distinctness,
     audit_campaign,
     campaign_packs,
@@ -46,6 +50,7 @@ from gtm_core.hook_coverage import (
     persona_of,
     premise_unsupported,
     render,
+    seat_key_of_label,
     seat_of,
     shared_phrases,
     signal_columns_for_segment,
@@ -179,6 +184,100 @@ def test_a_matrix_with_no_persona_or_signal_axis_is_named_unsupported_not_empty(
     assert "no persona axis" in m.reason
 
 
+# --- the row axis (FR2, 2026-09-24) --------------------------------------------------
+#
+# A matrix row is only useful because a recipient can be put on it. Which resolver does that
+# is decided by the file's own header cell, and the two key spaces are never mixed: `ceo` is
+# a legal key in BOTH, so a report that resolved row labels as seats and recipients as
+# personas would look right and count wrong, with no defect anywhere to find it.
+
+SEAT_GRID_MATRIX = """---
+source: generated
+---
+# Hook matrix — Northwind Systems
+
+## Enterprise
+
+| Signal → / Seat ↓ | shipping-agents × account-event | shipping-agents × public-event |
+| --- | --- | --- |
+| security | "One trust perimeter across two estates." | — |
+| ceo | — | "Win the deal that slipped." |
+"""
+
+#: Header cell 0 naming BOTH axis words. Undecidable, so refused — see `RowAxis`.
+AMBIGUOUS_GRID_MATRIX = SEAT_GRID_MATRIX.replace("Signal → / Seat ↓", "Signal → / Seat ↓ (persona)")
+
+SEAT_ROWS_MATRIX = """---
+source: manual
+---
+# Hook matrix — Halden Labs
+
+## Product A
+
+| id | Seat | Signal to open on | Hook angle |
+|---|---|---|---|
+| ha-sec-perimeter | security | Rebuilding auth per framework | "One perimeter, not four." |
+"""
+
+
+def test_a_persona_grid_still_reads_as_a_persona_axis_and_joins_on_personas():
+    """**The negative control.** A hand-kept matrix is unchanged by the seat axis existing:
+    same shape, same axis, same key for every row label, same key for every recipient."""
+    m = parse_matrix(GRID_MATRIX)
+    assert m.shape == MatrixShape.GRID
+    assert m.row_axis == RowAxis.PERSONA
+    assert m.row_key("CISO") == persona_key_of_label("CISO") == "ciso"
+    assert m.recipient_key("Chief Information Security Officer") == persona_of(
+        "Chief Information Security Officer"
+    )
+    # The seat resolver would answer differently for the SAME label — which is exactly why
+    # the axis has to be read from the file and never guessed.
+    assert seat_key_of_label("CISO") == "security" != m.row_key("CISO")
+
+
+def test_a_seat_grid_reads_as_a_seat_axis_and_joins_recipients_by_seat():
+    m = parse_matrix(SEAT_GRID_MATRIX)
+    assert m.shape == MatrixShape.GRID
+    assert m.row_axis == RowAxis.SEAT
+    # Read on the persona axis these rows resolve to NOTHING, which is the failure this
+    # dispatch exists to prevent: every recipient booked unassignable, report reads zero.
+    assert persona_key_of_label("security") is None
+    assert m.row_key("security") == "security"
+    assert m.recipient_key("Chief Information Security Officer") == "security"
+    assert m.row_key("security") == m.recipient_key("Head of Security")
+    assert not m.unmapped_personas()
+
+
+def test_a_seat_row_written_as_a_title_resolves_through_persona_to_seat():
+    """Rung 2 of `seat_key_of_label`: a label that is a title, not a seat name. Uses the one
+    persona→seat mapping (`RoleVocabulary.persona_to_seat`), never a second table."""
+    assert seat_key_of_label("CISO") == "security"
+    assert seat_key_of_label("Chief Technology Officer") == "cto"
+    assert seat_key_of_label("Head of Interpretive Dance") is None
+
+
+def test_a_header_naming_both_axes_is_refused_rather_than_guessed():
+    m = parse_matrix(AMBIGUOUS_GRID_MATRIX)
+    assert m.shape == MatrixShape.UNSUPPORTED
+    assert not m.ok and m.cells == {}
+    assert "BOTH" in m.reason and "seat" in m.reason
+
+
+def test_a_rows_matrix_can_carry_a_seat_column():
+    """The axis is read from the same column head the shape came from, for every shape that
+    has one — otherwise a file could be detected on one word and parsed off the other."""
+    m = parse_matrix(SEAT_ROWS_MATRIX)
+    assert m.shape == MatrixShape.ROWS
+    assert m.row_axis == RowAxis.SEAT
+    assert m.find("security", "Rebuilding auth per framework") is not None
+
+
+def test_a_sections_matrix_keeps_the_persona_axis():
+    """Section headings carry no axis word, and every `sections` matrix in this repo heads
+    its sections with a persona. Defaulting elsewhere would silently re-key a live tenant."""
+    assert parse_matrix(SECTIONS_MATRIX).row_axis == RowAxis.PERSONA
+
+
 def test_matrix_carries_no_hook_of_its_own():
     """Every hook string in the result came out of the file."""
     m = parse_matrix(GRID_MATRIX)
@@ -286,6 +385,122 @@ def test_an_unknown_cell_is_a_hard_error_when_the_matrix_is_supplied():
 def test_a_known_cell_validates_against_the_matrix():
     m = parse_matrix(GRID_MATRIX)
     assert declared_cell(_spec("hook_cell: CISO × Compliance event\n"), m) is not None
+
+
+# --- resolving the cell from the declared angle (FR3, 2026-09-24) ---------------------
+#
+# FR2 removed `hook_cell:` from the shipped spec template and made the cell a DERIVATION of
+# the declared `angle:`. Nothing here read `angle:`, so every spec written to the new
+# template counted as undeclared and `angle-missing` (then named `hook-cell-missing`)
+# reported the whole campaign — a coverage report that lies about the artifact the same
+# skill just produced.
+
+#: A miniature of what `gtm_core.messaging.matrix_view.render` now generates: SEAT rows,
+#: `premise × opener_kind` columns, one section per segment. Invented (R9).
+_SEAT_MATRIX = """---
+source: generated
+---
+# Outreach hook matrix — Northwind Systems
+
+## builder
+
+| Signal → / Seat ↓ | agents-in-path × account-event | agents-in-path × public-event |
+| --- | --- | --- |
+| ceo | "Prove whose authority the agent carries." | — |
+| cto | "One rotation point instead of eighty secrets." | — |
+"""
+
+
+def _registry(angle_id: str = "handoff-evidence-ceo", seat: str = "ceo"):
+    """A two-angle fact registry, built in memory. No tenant file is read (R9)."""
+    from gtm_core.messaging.registry import Angle, Claim, Proof, Registry
+
+    return Registry(
+        claims={
+            "handoff-attested": Claim(
+                id="handoff-attested",
+                group="identity",
+                status="verified",
+                statement="Each call writes a signed audit entry.",
+            )
+        },
+        proof={
+            "market-governance-anchor": Proof(
+                id="market-governance-anchor",
+                kind="anchor",
+                figure_kind="none",
+                statement="The market's AI governance guidance names agent accountability.",
+                market="SG",
+            )
+        },
+        angles={
+            angle_id: Angle(
+                id=angle_id,
+                seat=seat,
+                premise="agents-in-path",
+                claim="handoff-attested",
+                proof="market-governance-anchor",
+                opener_kind="account-event",
+                summary="Prove whose authority the agent carries.",
+                status="live",
+            )
+        },
+        seats={seat: (angle_id,)},
+    )
+
+
+def test_resolve_declared_cell_derives_the_cell_from_the_declared_angle():
+    """The migrated shape: `angle:` only, no `hook_cell:` anywhere in the spec."""
+    from gtm_core.hook_coverage import resolve_declared_cell
+
+    reg = _registry()
+    m = parse_matrix(_SEAT_MATRIX)
+    d = resolve_declared_cell(_spec("angle:      handoff-evidence-ceo\n"), m, reg)
+    assert d is not None, "a spec written to the shipped template resolves no cell"
+    assert (d.persona, d.signal) == ("ceo", "agents-in-path × account-event")
+    assert d.argument_id == "handoff-evidence-ceo", (
+        "the angle id is the stable argument slug; without it `Coverage.arguments` falls "
+        "back to counting cells and two angles on one cell read as one argument"
+    )
+
+
+def test_resolve_declared_cell_falls_back_to_hook_cell_for_an_unmigrated_spec():
+    """The transitional shape: 24 specs on disk declare `hook_cell:` and no `angle:`."""
+    from gtm_core.hook_coverage import resolve_declared_cell
+
+    m = parse_matrix(GRID_MATRIX)
+    d = resolve_declared_cell(_spec("hook_cell: CISO × Compliance event\n"), m, _registry())
+    assert d is not None
+    assert (d.persona, d.signal) == ("CISO", "Compliance event")
+
+
+def test_resolve_declared_cell_reports_nothing_when_a_spec_declares_neither():
+    """§R18 negative control: the resolver must still be able to say 'no declaration'."""
+    from gtm_core.hook_coverage import resolve_declared_cell
+
+    assert resolve_declared_cell(_spec(), parse_matrix(GRID_MATRIX), _registry()) is None
+
+
+def test_an_angle_the_registry_does_not_hold_is_refused_rather_than_read_as_undeclared():
+    """A spec free to invent an angle id can claim conformance to an argument nobody wrote —
+    the same refusal `UnknownHookCell` already makes for an invented cell. Reported as a
+    finding, never as a silent fall-through to `hook_cell:`."""
+    from gtm_core.hook_coverage import resolve_declared_cell
+
+    with pytest.raises(UnknownHookCell):
+        resolve_declared_cell(
+            _spec("angle: no-such-angle\n"), parse_matrix(_SEAT_MATRIX), _registry()
+        )
+
+
+def test_an_angle_declaration_inside_a_touch_body_is_not_a_declaration():
+    """§R5 on the spec surface: a body carries scraped provider text, and a fenced touch
+    block looks exactly like a fenced front block. `declaration_surface` is what keeps the
+    two apart, and this resolver has to read through it like every other angle reader."""
+    from gtm_core.hook_coverage import resolve_declared_cell
+
+    forged = _spec(body="Hi {{First Name}},\n>\n> angle: handoff-evidence-ceo")
+    assert resolve_declared_cell(forged, parse_matrix(_SEAT_MATRIX), _registry()) is None
 
 
 # --- distinctness ---------------------------------------------------------------------
@@ -445,7 +660,7 @@ def test_render_reports_an_unsupported_matrix_by_name():
 # --- the campaign gate, end to end ----------------------------------------------------
 #
 # audit_campaign is the campaign-scope half of the H2 gate (the per-spec half is
-# merge_render_linter's hook-cell-* rules). A gate needs its PASS state pinned as hard as
+# the outreach linter's angle-* rules). A gate needs its PASS state pinned as hard as
 # its FAIL state: without the negative control below, a bug that made every campaign fail
 # would look exactly like the gate working.
 
@@ -461,11 +676,17 @@ def _campaign(
     evidence: dict[str, str] | None = None,
     recorded: dict[str, str] | None = None,
     matrix: str | None = None,
+    angles: dict[str, str] | None = None,
 ):
     """Build a throwaway profile + content tree and return (profiles_root, content_root).
 
     ``specs`` maps a spec filename to ``(hook_cell, touch-1 body)``. Every recipient is
     invented (R9).
+
+    ``angles[name]`` writes that spec an ``angle:`` declaration INSTEAD of the
+    ``hook_cell:``/``argument_id:`` pair — the shape the shipped template produces since
+    FR2. Passing both is the conflict `DerivedFieldConflict` exists for and is not a shape
+    this helper builds.
 
     ``segments`` and ``evidence`` are optional per-spec columns used by the list-vs-cell
     fit checks. Omitting them writes no such column at all, which is the shape every
@@ -491,6 +712,8 @@ def _campaign(
     cells = []
     for i, (name, (cell, body)) in enumerate(sorted(specs.items())):
         front = f"hook_cell:   {cell}\nargument_id: arg-{i}\n" if cell else ""
+        if (angles or {}).get(name):
+            front = f"angle:       {angles[name]}\n"
         (seq / name).write_text(_spec(front, body), encoding="utf-8")
 
         csv_name = f"list-{i}.csv"
@@ -571,7 +794,122 @@ def test_a_campaign_where_every_spec_declares_nothing_fails(tmp_path):
     )
     cov = audit_campaign("northwind", "test-campaign", content_root=content, profiles_root=profiles)
     assert cov.failed
-    assert any(f.startswith("hook-cell-missing") for f in cov.findings)
+    assert any(f.startswith("angle-missing") for f in cov.findings)
+
+
+# --- the audit reads `angle:`, and still reads `hook_cell:` (FR3, 2026-09-24) ---------
+
+
+def test_a_campaign_of_angle_declaring_specs_is_not_reported_undeclared(tmp_path):
+    """The shipped template writes `angle:` and no `hook_cell:`. Before this, every spec
+    written to it was counted as undeclared by the very report the same skill runs."""
+    from gtm_core.hook_coverage import audit_campaign
+
+    profiles, content = _campaign(
+        tmp_path,
+        {
+            "spec-ceo.md": ("", "Regulators now ask which agent took an action on a record."),
+            "spec-cto.md": ("", "Eight agents across ten services is eighty secrets in memory."),
+        },
+        angles={"spec-ceo.md": "handoff-evidence-ceo", "spec-cto.md": "handoff-evidence-cto"},
+        matrix=_SEAT_MATRIX,
+    )
+    reg = _registry()
+    reg.angles.update(_registry("handoff-evidence-cto", seat="cto").angles)
+    cov = audit_campaign(
+        "northwind",
+        "test-campaign",
+        content_root=content,
+        profiles_root=profiles,
+        registry=reg,
+        min_arguments=2,
+        min_recipients=999,
+    )
+    assert cov.declared_count == 2, cov.findings
+    assert cov.arguments == 2
+    assert not any(f.startswith("angle-missing") for f in cov.findings), cov.findings
+
+
+def test_a_spec_declaring_an_angle_the_registry_lacks_reports_angle_unknown(tmp_path):
+    """The id, not just the message. FR3 retired `hook-cell-unknown` into `angle-unknown`
+    on the copy-linter surface, and this report kept raising the retired name for a day —
+    one fact answering to two ids across two surfaces, which is what
+    `rule_lifecycle_report` cannot bucket. The positive control for the rename; the
+    negative control is the test above, which asserts the finding is absent."""
+    from gtm_core.hook_coverage import audit_campaign
+
+    profiles, content = _campaign(
+        tmp_path,
+        {"spec-ceo.md": ("", "Regulators now ask which agent took an action on a record.")},
+        angles={"spec-ceo.md": "handoff-evidence-invented"},
+        matrix=_SEAT_MATRIX,
+    )
+    cov = audit_campaign(
+        "northwind",
+        "test-campaign",
+        content_root=content,
+        profiles_root=profiles,
+        registry=_registry(),
+        min_recipients=999,
+    )
+    assert [f for f in cov.findings if f.startswith("angle-unknown")], cov.findings
+    assert not [f for f in cov.findings if f.startswith("hook-cell-")], cov.findings
+
+
+def test_a_campaign_of_hook_cell_specs_is_unchanged_by_the_angle_path(tmp_path):
+    """The transitional control. Every spec on disk today declares `hook_cell:` and no
+    `angle:`; a rewire that resolved only angles would turn the live report red."""
+    from gtm_core.hook_coverage import audit_campaign
+
+    profiles, content = _campaign(
+        tmp_path,
+        {
+            "spec-a.md": (
+                "CISO × Compliance event",
+                "Regulators now ask which agent took an action, and the login record "
+                "cannot answer that question for anybody reviewing the estate.",
+            ),
+            "spec-b.md": (
+                "FinOps lead × M&A / consolidation",
+                "Two merged platforms bill artificial intelligence as one line item, so "
+                "nobody can price a team against what it actually consumed last quarter.",
+            ),
+        },
+    )
+    cov = audit_campaign(
+        "northwind",
+        "test-campaign",
+        content_root=content,
+        profiles_root=profiles,
+        registry=_registry(),
+        min_arguments=2,
+        min_recipients=40,
+    )
+    assert cov.declared_count == 2, cov.findings
+    assert not cov.failed, cov.findings
+
+
+def test_a_campaign_declaring_an_angle_the_registry_lacks_is_a_named_finding(tmp_path):
+    """§R18: the angle path must be able to REFUSE, not only to resolve. Without this an
+    invented angle id would fall through to 'declares no cell' and read as an unmigrated
+    spec — the fail-open `UndeclaredAngle` was written to end."""
+    from gtm_core.hook_coverage import audit_campaign
+
+    profiles, content = _campaign(
+        tmp_path,
+        {"spec-ceo.md": ("", "Regulators now ask which agent took an action on a record.")},
+        angles={"spec-ceo.md": "an-angle-nobody-wrote"},
+        matrix=_SEAT_MATRIX,
+    )
+    cov = audit_campaign(
+        "northwind",
+        "test-campaign",
+        content_root=content,
+        profiles_root=profiles,
+        registry=_registry(),
+        min_recipients=999,
+    )
+    assert any("an-angle-nobody-wrote" in f for f in cov.findings), cov.findings
 
 
 def test_a_campaign_repeating_one_phrase_across_every_spec_fails(tmp_path):
@@ -829,7 +1167,7 @@ def test_an_attested_signal_is_quiet(tmp_path):
 
 
 def test_a_spec_declaring_no_cell_reports_no_fit_rather_than_a_second_failure(tmp_path):
-    """``hook-cell-missing`` already covers it; restating it as a fit failure double-counts."""
+    """``angle-missing`` already covers it; restating it as a fit failure double-counts."""
     from gtm_core.hook_coverage import audit_campaign
 
     profiles, content = _campaign(
@@ -971,6 +1309,62 @@ def test_evidence_is_read_across_all_three_record_fields(tmp_path):
 
 def test_a_profile_with_no_vocab_file_disables_the_check(tmp_path):
     assert load_premise_vocab("acme", tmp_path) == {}
+
+
+# --- the resolver rung ladder (2026-09-23) -----------------------------------
+#
+# `load_premise_vocab` hand-built `<root>/<profile>/knowledge/<file>` while `capability_vocab`
+# two functions below it used `resolve_knowledge_file`. So the premise vocabulary reached
+# neither the product rung nor the overlay rung: a tenant who wrote a product-level vocabulary
+# was silently served the profile-level one, with nothing reporting the substitution. These
+# three tests are the discriminating control - point the function back at the hand-built path
+# and the first one goes red while the other two stay green.
+
+
+def test_a_product_level_vocab_wins_over_the_profile_level_one(tmp_path):
+    """The rung that did not exist. Two files, same name, different arity."""
+    (tmp_path / "acme" / "knowledge").mkdir(parents=True)
+    (tmp_path / "acme" / "knowledge" / "premise-vocab.toml").write_text(
+        'schema = 1\n[premise.ships-agents]\nmin_distinct = 1\nterms = ["agent"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "acme" / "products" / "widgets").mkdir(parents=True)
+    (tmp_path / "acme" / "products" / "widgets" / "premise-vocab.toml").write_text(
+        'schema = 1\n[premise.ships-agents]\nmin_distinct = 2\nterms = ["agent", "assistant"]\n',
+        encoding="utf-8",
+    )
+    profile_level = load_premise_vocab("acme", tmp_path)
+    product_level = load_premise_vocab("acme", tmp_path, product="widgets")
+    assert profile_level["ships-agents"].min_distinct == 1
+    assert product_level["ships-agents"].min_distinct == 2, (
+        "a product-level premise-vocab.toml did not win - load_premise_vocab is not going "
+        "through resolve_knowledge_file, so the product rung is unreachable"
+    )
+
+
+def test_a_product_with_no_vocab_of_its_own_falls_back_to_the_profile(tmp_path):
+    """The rung ladder's middle step is a fallback, not a requirement: a product that ships no
+    vocabulary of its own inherits the tenant's rather than losing the check entirely."""
+    (tmp_path / "acme" / "knowledge").mkdir(parents=True)
+    (tmp_path / "acme" / "knowledge" / "premise-vocab.toml").write_text(
+        'schema = 1\n[premise.ships-agents]\nmin_distinct = 1\nterms = ["agent"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "acme" / "products" / "widgets").mkdir(parents=True)
+    vocab = load_premise_vocab("acme", tmp_path, product="widgets")
+    assert vocab["ships-agents"].min_distinct == 1
+
+
+def test_a_traversing_product_slug_is_refused_not_resolved(tmp_path):
+    """The rung the resolver adds also brings its guard: a product segment is `_safe_segment`ed,
+    so a slug is a bare name or it is nothing. Returning `{}` rather than raising keeps this
+    consistent with every other unreadable-vocab case in this module."""
+    (tmp_path / "acme" / "knowledge").mkdir(parents=True)
+    (tmp_path / "acme" / "knowledge" / "premise-vocab.toml").write_text(
+        'schema = 1\n[premise.ships-agents]\nmin_distinct = 1\nterms = ["agent"]\n',
+        encoding="utf-8",
+    )
+    assert load_premise_vocab("acme", tmp_path, product="../../etc") == {}
 
 
 def test_declared_premise_reads_the_front_block():
@@ -1412,6 +1806,95 @@ def test_capability_vocab_is_empty_when_the_profile_has_no_taxonomy(tmp_path):
     assert capability_vocab("demo", tmp_path / "profiles") == {}
 
 
+# --- capability groups come from `claims.toml` once a tenant ships one (FR2 Task 2.8) ---
+#
+# The taxonomy in `product.md` is prose; `claims.toml` is the file the outbound linter, the
+# generated matrix and the angle resolver all derive from. Two answers to "which capability
+# groups exist" drift, and the drift is invisible because both keep answering. The tests below
+# pin the rung order AND the failure posture — a broken `claims.toml` must not resolve to an
+# empty vocabulary, because an empty vocabulary turns `capability-unknown` off on every spec in
+# the campaign: a gate that passes by finding nothing.
+
+_CLAIMS_TOML = """\
+[[claim]]
+id = "trail-signed"
+group = "observability"
+status = "design-target"
+statement = "Each entry in the trail is signed."
+
+[[claim]]
+id = "per-tool-scope"
+group = "credentials-delegation"
+status = "design-target"
+statement = "A tool's scope is brokered per call."
+"""
+
+
+def _registry_profile(tmp_path, name: str, claims: str | None, product: str | None = None):
+    """A tmp ``profiles/`` root holding one profile, and return the root.
+
+    ``registry.load`` is all-or-nothing and requires all three tables to exist, so the two it
+    is not being asked about here are written empty rather than omitted.
+    """
+    kb = tmp_path / name / "demo" / "knowledge"
+    kb.mkdir(parents=True)
+    if claims is not None:
+        (kb / "claims.toml").write_text(claims, encoding="utf-8")
+        (kb / "proof.toml").write_text("", encoding="utf-8")
+        (kb / "angles.toml").write_text("", encoding="utf-8")
+    if product is not None:
+        (kb / "product.md").write_text(product, encoding="utf-8")
+    return tmp_path / name
+
+
+def test_capability_vocab_prefers_claims_toml_over_the_product_md_taxonomy(tmp_path):
+    """Both files present: the facts win, and the prose is not consulted at all.
+
+    ``product.md`` here declares `identity` — a group `claims.toml` does not have — so an
+    implementation that merged the two, or that read the wrong one, cannot pass.
+    """
+    root = _registry_profile(tmp_path, "both", _CLAIMS_TOML, _TAXONOMY)
+    assert set(capability_vocab("demo", root)) == {"observability", "credentials-delegation"}
+
+
+def test_capability_vocab_without_claims_toml_keeps_todays_behaviour(tmp_path):
+    """The negative control that matters: nothing regresses for a profile that has not
+    migrated. Same fixture, same assertion, minus `claims.toml`."""
+    root = _registry_profile(tmp_path, "unmigrated", None, _TAXONOMY)
+    assert set(capability_vocab("demo", root)) == {
+        "identity",
+        "credentials-delegation",
+        "observability",
+    }
+
+
+def test_a_broken_claims_toml_raises_rather_than_emptying_the_vocabulary(tmp_path):
+    """A `verified` claim with no source is a registry the loader refuses.
+
+    Asserting the raise is only half of it. The two failure modes worth ruling out are silent:
+    returning `{}` (every spec passes `capability-unknown`) and falling back to `product.md`
+    (answering from a file the tenant stopped maintaining). Both would look like success here,
+    so the test asserts the *call*, not a value.
+    """
+    from gtm_core.messaging.registry import RegistryError
+
+    broken = _CLAIMS_TOML.replace('status = "design-target"', 'status = "verified"', 1)
+    root = _registry_profile(tmp_path, "broken", broken, _TAXONOMY)
+    with pytest.raises(RegistryError) as exc:
+        capability_vocab("demo", root)
+    assert "claims.toml" in str(exc.value) and "trail-signed" in str(exc.value)
+
+    # Negative control: the same fixture with the one defect repaired loads, and returns the
+    # claims groups — so the refusal above is about the defect, not about the fixture.
+    fixed = broken.replace(
+        'statement = "Each entry in the trail is signed."',
+        'statement = "Each entry in the trail is signed."\nsource = "knowledge/x.md:1"',
+        1,
+    )
+    ok = _registry_profile(tmp_path, "repaired", fixed, _TAXONOMY)
+    assert set(capability_vocab("demo", ok)) == {"observability", "credentials-delegation"}
+
+
 def test_declared_capability_reads_the_front_block_and_normalises_it():
     spec = "```\nargument_id: x\ncapability:  Credentials & delegation\n```\n"
     assert declared_capability(spec) == "credentials-delegation"
@@ -1582,6 +2065,58 @@ def _recorded_campaign(tmp_path, recorded: str | None):
     )
 
 
+SEAT_GRID_FOR_CAMPAIGN = """\
+# Hook matrix — Northwind Systems
+
+## Enterprise
+
+| Signal → / Seat ↓ | Agents in the estate | Partner agents |
+|---|---|---|
+| security | "One trust perimeter across two estates." | "Admit a partner's agents safely." |
+| ceo | "Win the deal that slipped." | "The responsibility narrative." |
+"""
+
+
+def test_a_seat_matrix_counts_recipients_by_seat_not_by_persona(tmp_path):
+    """On a seat matrix, "which rows hold recipients" is a SEAT question.
+
+    Two lists: one of security seats, one of a persona the vocabulary recognises and
+    deliberately gives no seat (a resolver-only persona). Three things must follow, and each
+    is a place the old persona-keyed answer would be confidently wrong:
+
+    1. ``axis_counts`` is keyed by the matrix's rows, so it can be compared to a row label at
+       all. Keyed by persona it would hold ``ciso``/``finops`` — neither of which is a row in
+       this matrix — and every one of them would read as an unaddressed gap.
+    2. ``persona-unaddressed`` therefore stays silent: the one populated row IS argued.
+    3. A recipient with a persona but no seat is counted as *unplaceable*, not as placed.
+       Reading that off the persona bucket would say 0 and lose 50 rows from the one line
+       that totals what no cell can hold.
+    """
+    profiles, content = _campaign(
+        tmp_path,
+        {
+            "spec-sec.md": (
+                "security × Agents in the estate",
+                "Regulators now ask which agent took an action, and the login record "
+                "cannot answer that question for anybody reviewing the estate.",
+            ),
+            "spec-fin.md": (
+                "FinOps lead × Partner agents",
+                "Spend per agent is invisible when eight of them share one key, so the "
+                "bill arrives as a single number nobody can allocate to a team.",
+            ),
+        },
+        matrix=SEAT_GRID_FOR_CAMPAIGN,
+    )
+    cov = _audit(profiles, content)
+    assert cov.matrix.row_axis == RowAxis.SEAT
+    assert dict(cov.axis_counts) == {"security": 50}, dict(cov.axis_counts)
+    assert dict(cov.personas) == {"ciso": 50, "finops": 50}, "the persona view is still reported"
+    assert cov.unresolved_axis_rows == 50, "the seatless list is 50 rows no row can hold"
+    assert not [f for f in cov.findings if f.startswith("persona-unaddressed")], cov.findings
+    assert "unresolved seat" in render(cov), "the report must name the axis it counted on"
+
+
 def _audit(profiles, content):
     from gtm_core.hook_coverage import audit_campaign
 
@@ -1700,37 +2235,125 @@ def test_every_parsing_hook_matrix_maps_every_persona_onto_the_role_vocabulary()
 
 
 @pytest.mark.private_tree  # carve ships profiles/_template only; its hook bank is not a matrix
-def test_every_committed_grid_matrix_is_dense():
-    """A grid with a hole is a persona x signal a skill can select and find nothing behind.
+def test_a_hand_kept_matrix_resolves_exactly_as_it_did_before_the_seat_axis():
+    """**The live negative control for the axis fork.** No tenant's numbers move because a
+    second key space now exists.
 
-    Grid-shaped only: `sections` and `rows` matrices carry a hook per entry rather than a
-    full cross-product, so density is meaningless for them. For a grid it is the whole
-    contract, and `zip(..., strict=False)` drops a half-widened row with no diagnostic —
-    so a hole reads as a smaller grid rather than an error. This is the only check anywhere
-    that the "100% dense" property, until now prose in a PRD, actually holds.
+    Every committed matrix whose header names no seat is read on the persona axis, and every
+    one of its row labels resolves through the same function the module used before
+    2026-09-24. Paired with the assertion that a seat-axis matrix IS committed: a control
+    over a fork nobody takes proves nothing (§R18).
+    """
+    checked = 0
+    axes = {}
+    for profile, path in _live_matrices():
+        m = parse_matrix(path, profile=profile)
+        axes[profile] = m.row_axis
+        if not m.ok or m.row_axis != RowAxis.PERSONA:
+            continue
+        for label in m.personas:
+            assert m.row_key(label) == persona_key_of_label(label, profile), (
+                f"{profile}: row label {label!r} now resolves differently on the persona "
+                "axis — a hand-kept matrix must be byte-for-byte unaffected by the fork"
+            )
+        checked += 1
+    assert checked, "no persona-axis matrix committed — this control would pass vacuously"
+    assert RowAxis.SEAT in axes.values(), (
+        "no seat-axis matrix is committed, so this control is comparing the persona path "
+        f"against itself and would pass with the fork deleted: {axes}"
+    )
+
+
+#: Written-out blanks, restated here on purpose rather than imported from
+#: ``gtm_core.hook_coverage.matrix``. This test compares the PARSE against the SOURCE;
+#: importing the parser's own placeholder set would make that comparison compare a function
+#: with itself, and a widening of that set — the change that would start swallowing real
+#: hooks — would be invisible here (§R18).
+_WRITTEN_BLANKS = {"", "\u2014", "\u2013", "-", "--", "n/a", "na", "tbd", "?"}
+
+
+def _grid_tables(text: str) -> list[tuple[str, list[str], list[list[str]]]]:
+    """``[(segment, column heads, data rows)]`` — the raw markdown, before any parsing."""
+    out = []
+    for heading, body in _sections(text):
+        header: list[str] | None = None
+        rows: list[list[str]] = []
+        for line in body.splitlines():
+            row = _split_row(line)
+            if row is None:
+                continue
+            if header is None:
+                header = row
+            else:
+                rows.append(row)
+        if header and rows:
+            out.append((heading or "default", [_clean_cell(c) for c in header[1:]], rows))
+    return out
+
+
+@pytest.mark.private_tree  # carve ships profiles/_template only; its hook bank is not a matrix
+def test_every_committed_grid_matrix_keeps_every_hole_visible():
+    """Every grid coordinate reaches the parser, and a hole arrives AS a hole.
+
+    **This replaces a 100%-density assertion, and the reasoning matters.** Until 2026-09-24
+    a hole in a grid was a defect, so "every row-label x signal pair is filled" was both the
+    editorial contract and a proxy for the mechanical one. FR2 ended it on both sides.
+    ``hook-matrix.md`` is now generated from ``angles.toml``, and a seat with no angle for a
+    column renders ``—`` *deliberately* — omit the row and the gap is invisible to the human
+    reading the file (``gtm_core/messaging/matrix_view.py``). The same change taught
+    ``parse_matrix`` to read ``—`` as no cell, which applies to hand-kept matrices too. So
+    parsed density is no longer a property ANY matrix in this repo can hold, generated or
+    hand-kept; asserting it would be asserting something nothing can satisfy, which is a
+    different thing from exempting one tenant from it.
+
+    What was load-bearing underneath it survives intact and is what is asserted here — the
+    mechanical failure the old docstring named: ``zip(signals, row[1:], strict=False)`` drops
+    a half-widened row with **no diagnostic**, so a row that lost a column reads as a smaller
+    grid rather than an error and every coordinate past the break silently ceases to exist.
+    Two independent assertions, both against the raw markdown:
+
+    1. **Rectangular** — every data row carries exactly as many cells as the header. This is
+       the one ``zip(strict=False)`` cannot report.
+    2. **The parse drops exactly the written blanks** — every coordinate the parser did not
+       produce is a source cell that says nothing (:data:`_WRITTEN_BLANKS`), and every
+       coordinate it did produce had something there. A hook swallowed by a widened
+       placeholder rule, or a hole promoted to coverage, fails here.
     """
     checked = 0
     for profile, path in _live_matrices():
-        m = parse_matrix(path)
+        text = path.read_text(encoding="utf-8")
+        m = parse_matrix(text)
         if m.shape != MatrixShape.GRID:
             continue
-        for segment in m.segments:
-            cells = [c for c in m.cells.values() if c.segment == segment]
-            personas = {c.persona for c in cells}
-            signals = {c.signal for c in cells}
-            missing = {
-                (p, s)
-                for p in personas
-                for s in signals
-                if not any(c.persona == p and c.signal == s for c in cells)
+        for segment, columns, rows in _grid_tables(text):
+            for row in rows:
+                assert len(row) - 1 == len(columns), (
+                    f"{profile}/{segment}: row {_clean_cell(row[0])!r} carries "
+                    f"{len(row) - 1} cell(s) for {len(columns)} column(s). "
+                    "`zip(strict=False)` drops the difference with no diagnostic \u2014 widen "
+                    "the header AND every row together."
+                )
+            source_filled = {
+                (_clean_cell(row[0]), col)
+                for row in rows
+                if _clean_cell(row[0])
+                for col, cell in zip(columns, row[1:], strict=True)
+                if col and _clean_cell(cell).lower() not in _WRITTEN_BLANKS
             }
-            assert not missing, (
-                f"{profile}/{segment}: {len(cells)} cells for a "
-                f"{len(personas)}x{len(signals)} grid — {len(missing)} hole(s), e.g. "
-                f"{sorted(missing)[:3]}. Widen the header AND every persona row together."
+            parsed = {
+                (c.persona, c.signal)
+                for c in m.cells.values()
+                if (c.segment or "default") == segment
+            }
+            assert parsed == source_filled, (
+                f"{profile}/{segment}: the parse and the file disagree about which "
+                f"coordinates carry a hook \u2014 only in the file "
+                f"{sorted(source_filled - parsed)[:3]}, only in the parse "
+                f"{sorted(parsed - source_filled)[:3]}. A hole that parses as coverage reads "
+                "the report high by exactly the number of holes."
             )
         checked += 1
-    assert checked, "no grid-shaped hook-matrix.md found — this test would pass vacuously"
+    assert checked, "no grid-shaped hook-matrix.md found \u2014 this test would pass vacuously"
 
 
 # --- 1:1 outreach packs (added 2026-09-04) ------------------------------------------
@@ -1822,7 +2445,7 @@ def test_a_campaign_slug_with_no_date_globs_nothing(tmp_path):
     assert campaign_packs("northwind", "no-date-here", content_root=content) == []
 
 
-def test_hook_cell_missing_now_convicts_a_pack(tmp_path):
+def test_angle_missing_now_convicts_a_pack(tmp_path):
     """Inverted 2026-09-04. Packs were exempt because `draft-outreach` did not ask for a hook
     cell, which made the exemption the honest reading. It now does (Compose step 1), and six
     Tier-A packs had shipped in one campaign never having opened the matrix — so a pack with no
@@ -1835,7 +2458,7 @@ def test_hook_cell_missing_now_convicts_a_pack(tmp_path):
         profiles_root=profiles,
         include_packs=True,
     )
-    assert [f for f in cov.findings if f.startswith("hook-cell-missing")]
+    assert [f for f in cov.findings if f.startswith("angle-missing")]
 
 
 def test_a_pack_declaring_its_cell_clears_the_finding(tmp_path):

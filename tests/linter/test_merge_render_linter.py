@@ -12,21 +12,18 @@ Each defect class below is a value that was actually in ``ready-to-load.csv`` th
 from __future__ import annotations
 
 import pytest
-from merge_render_linter import (
+from outreach import (
     DEFAULT_FIELD_LABELS,
     RULES_VERSION,
     Touch,
     Violation,
-    _anchor_report,
-    _company_invisible,
     _craft_report,
     _is_data_borne,
-    _selftest,
+    _selftest_render,
     _syllables,
     capacity_note,
     lint_article_collision,
     lint_empty_merge_tags,
-    lint_hedge_stem,
     lint_merge_render,
     lint_merge_tags,
     lint_possessive,
@@ -38,7 +35,6 @@ from merge_render_linter import (
     parse_spec,
     render,
 )
-from outreach_pack_linter import MIN_ANCHORS, SOFT_ANCHORS
 
 SPEC = """
 **Step 1 — Day 1** · Subject: `your agents in production`
@@ -190,12 +186,35 @@ def test_copy_violations_in_a_render_are_reported_per_touch():
 
 
 def test_stats_count_every_render():
-    _, stats = lint_merge_render(parse_spec(SPEC), [_row(), _row(email="b@x.com")], signoff="Henry")
+    _, stats = lint_merge_render(
+        parse_spec(SPEC), [_row(), _row(email="b@x.example")], signoff="Henry"
+    )
     assert stats == {"rows": 2, "touches": 2, "renders": 4}
 
 
 def test_rules_version_is_pinned():
-    assert RULES_VERSION == "2026-08-20"
+    # 2026-08-20 -> 2026-09-04 on 2026-09-24, when the two linters merged. This module's old
+    # value gated nothing (it appeared in `_report`'s header line and the CLI description and
+    # nowhere else); the pack linter's DID — `rules-version-stale` compares a pack header
+    # against it — so the merge kept the gating one rather than stamping a third date and
+    # marking every fresh pack on disk stale in a commit that changed no rule.
+    #
+    # FR3 (2026-09-24) DID change the rule set — 25 retired, 6 added — so the merge's reason
+    # no longer holds and the stamp is now held for a different, weaker one, recorded here so
+    # the next reader does not mistake it for nobody having noticed. `rules-version-stale` is
+    # an ERROR that refuses a pack outright, so bumping it would block the live send on every
+    # pack on disk. It would also carry no information: the retirements only ever REMOVE a
+    # refusal, the additions are re-evaluated live on every run, and the three new ERRORs they
+    # raise on real packs are already reported by name. A blanket "regenerate before sending"
+    # on top of that is a worse signal than the three findings it would bury.
+    #
+    # The bump belongs with FR4's FIRST commit — the same one that regenerates the packs it
+    # would flag — never landed standalone. A standalone bump refuses every pack that has not
+    # been regenerated yet, which on the day it lands is all of them; bundling the two makes
+    # "stale" mean "not yet touched by this change" instead of "blocked with no path forward".
+    # Trigger: the current ~1,000-account send clears, per PENDING.md. Until then this value is
+    # a DEFERRAL, not a claim that the rule set is unchanged.
+    assert RULES_VERSION == "2026-09-04"
 
 
 # --- possessive against sibilant company names ---------------------------
@@ -213,7 +232,7 @@ def test_possessive_against_sibilant_company_is_flagged():
 
 def test_possessive_is_reported_once_per_touch_not_once_per_row():
     # 66 identical row warnings would bury the single template line that needs changing.
-    rows = [_row(company="Acme Solutions", email=f"a{i}@x.com") for i in range(20)]
+    rows = [_row(company="Acme Solutions", email=f"a{i}@x.example") for i in range(20)]
     v = lint_possessive([_possessive_touch()], rows)
     assert len(v) == 1
     assert "20/20 rows" in v[0].detail
@@ -242,12 +261,14 @@ def _article_touch() -> Touch:
 
 def test_the_before_company_tag_is_flagged_for_companies_carrying_an_article():
     # Regression: fixing the possessive ({{Company}}'s -> the {{Company}}) introduced this.
-    v = lint_article_collision([_article_touch()], [_row(company="The Meridian Group")])
+    v = lint_article_collision([_article_touch()], [_row(company="The Summitline Health")])
     assert [x.rule for x in v] == ["article-collision"]
-    assert "the The Meridian Group" in v[0].detail
+    assert "the The Summitline Health" in v[0].detail
 
 
-@pytest.mark.parametrize("company", ["The Meridian Group", "A Better Place", "The Regional Banker"])
+@pytest.mark.parametrize(
+    "company", ["The Summitline Health", "A Fernway Capital", "The Regional Banker"]
+)
 def test_every_article_form_is_caught(company):
     assert lint_article_collision([_article_touch()], [_row(company=company)])
 
@@ -259,7 +280,10 @@ def test_no_collision_for_ordinary_company_names():
 def test_the_at_form_is_correct_for_articles_and_sibilants_alike():
     # "the stack at {{Company}}" is the one phrasing safe for both collision classes.
     safe = Touch(1, 1, "s", "Hi {{First Name}},\n\nThe stack at {{Company}}.\n\nHenry")
-    rows = [_row(company="The Meridian Group"), _row(company="Gears & Vectors", email="b@x.com")]
+    rows = [
+        _row(company="The Summitline Health"),
+        _row(company="Gears & Vectors", email="b@x.example"),
+    ]
     assert lint_article_collision([safe], rows) == []
     assert lint_possessive([safe], rows) == []
 
@@ -272,7 +296,7 @@ def test_populated_why_now_that_no_touch_renders_is_flagged():
     # "Series C" is under SIGNAL_MIN_CHARS and reduces to nothing, which is a different rule.
     rows = [
         _row(why_now="Series C led by Founders Fund 2026-07-29"),
-        _row(email="b@x.com", why_now=""),
+        _row(email="b@x.example", why_now=""),
     ]
     v = lint_unused_signal_columns(parse_spec(SPEC), rows)
     assert [x.rule for x in v] == ["unused-signal-column"]
@@ -304,7 +328,7 @@ def _signal_touch() -> Touch:
 
 def test_a_tag_blank_for_some_rows_is_an_error():
     # Saleshandy substitutes an empty string, so this ships "Saw the news out of Acme: ."
-    rows = [_row(signal_clause="Series C 2026-07-29"), _row(email="b@x.com", signal_clause="")]
+    rows = [_row(signal_clause="Series C 2026-07-29"), _row(email="b@x.example", signal_clause="")]
     v = lint_empty_merge_tags([_signal_touch()], rows)
     assert [x.rule for x in v] == ["empty-merge-tag"]
     assert [x.level for x in v] == ["ERROR"]
@@ -312,7 +336,7 @@ def test_a_tag_blank_for_some_rows_is_an_error():
 
 
 def test_no_finding_when_every_row_fills_the_tag():
-    rows = [_row(signal_clause="Series C"), _row(email="b@x.com", signal_clause="Launch")]
+    rows = [_row(signal_clause="Series C"), _row(email="b@x.example", signal_clause="Launch")]
     assert lint_empty_merge_tags([_signal_touch()], rows) == []
 
 
@@ -323,7 +347,7 @@ def test_a_tag_the_copy_does_not_render_is_not_checked():
 
 def test_signal_copy_against_an_unsplit_list_fails_closed():
     # The end-to-end guard: pointing signal-led copy at the whole pool must not pass.
-    errs = _errors([_row(), _row(email="b@x.com")], touches=[_signal_touch()])
+    errs = _errors([_row(), _row(email="b@x.example")], touches=[_signal_touch()])
     assert "empty-merge-tag" in errs
 
 
@@ -333,8 +357,8 @@ def test_signal_copy_against_an_unsplit_list_fails_closed():
 def test_unused_signal_counts_only_rows_that_reduce_to_a_clause():
     rows = [
         _row(why_now="Agent Control Layer launch (2026-06-09)"),  # usable
-        _row(email="b@x.com", why_now="machine learning (intent score 81)"),  # intent label
-        _row(email="c@x.com", why_now="No dated funding round confirmed"),  # no signal
+        _row(email="b@x.example", why_now="machine learning (intent score 81)"),  # intent label
+        _row(email="c@x.example", why_now="No dated funding round confirmed"),  # no signal
     ]
     v = lint_unused_signal_columns(parse_spec(SPEC), rows)
     assert len(v) == 1
@@ -400,22 +424,25 @@ def _warns(rows, touches) -> list:
 
 
 def test_a_finding_on_every_render_collapses_to_one_template_wide_line():
-    # cta-unanchored depends only on the template, so it fires on all N renders with the
-    # same message. 334 identical lines bury the per-row findings that actually differ.
+    # `time-ask` depends only on the template, so it fires on all N renders with the same
+    # message. 334 identical lines bury the per-row findings that actually differ.
+    #
+    # Driven by `time-ask` since 2026-09-24: this test used `cta-unanchored`, which retired
+    # with the rest of the CTA shape rules. What is pinned is the COLLAPSE, never which rule
+    # happens to be template-only — so the fixture moved to the cheapest surviving one.
     t = Touch(
         1,
         1,
         "subject here",
-        "Hi {{First Name}},\n\nMy read, tell me if you've got this covered: {{Company}} logs "
-        "which account touched a record in 2026, not which agent held authority. Teams hit "
-        "this when an agent acts rather than reads. Should I send the one-pager?\n\nHenry",
+        "Hi {{First Name}},\n\nUsually {{Company}} logs which account touched a record, not "
+        "which agent held authority, and that gap widens the moment one agent hands work to "
+        "another. Worth a quick call to walk through how another platform closed it before "
+        "its first enterprise review?\n\nHenry",
     )
-    rows = [_row(email=f"a{i}@x.com", company="Cascade") for i in range(5)]
-    # Severity-agnostic on purpose: this pins the COLLAPSE behaviour, not the rule's level
-    # (cta-unanchored was promoted WARN -> ERROR on 2026-08-17).
+    rows = [_row(email=f"a{i}@x.example", company="Cascade") for i in range(5)]
     violations, _ = lint_merge_render([t], rows, signoff="Henry")
-    hits = [v for v in violations if v.rule == "cta-unanchored"]
-    assert len(hits) == 1
+    hits = [v for v in violations if v.rule == "time-ask"]
+    assert len(hits) == 1, [f"{v.email}: {v.detail}" for v in hits]
     assert "all 5 renders" in hits[0].email
     assert "template-wide" in hits[0].detail
 
@@ -430,9 +457,9 @@ def test_a_finding_on_only_some_renders_stays_itemized():
     # this test pins is the ITEMIZATION, never which level word-count happens to report at.
     touches = parse_spec(SPEC)
     rows = [
-        _row(email="short@x.com", company="Relay"),  # 88 words — inside the band
+        _row(email="short@x.example", company="Relay"),  # 88 words — inside the band
         _row(
-            email="long@x.com",
+            email="long@x.example",
             company="Universal Property and Casualty Insurance Company of North America",
         ),  # 104 words
     ]
@@ -440,26 +467,25 @@ def test_a_finding_on_only_some_renders_stays_itemized():
     hits = [v for v in violations if v.rule == "word-count"]
     assert hits, "expected the long company name to push a render outside the band"
     assert all("all " not in v.email for v in hits)
-    assert any("long@x.com" in v.email for v in hits)
-    assert not any("short@x.com" in v.email for v in hits)
+    assert any("long@x.example" in v.email for v in hits)
+    assert not any("short@x.example" in v.email for v in hits)
 
 
 def test_collapse_reports_variant_messages_when_a_rule_fires_on_every_row():
     # Same rule, same level, slightly DIFFERENT message per row — still one template problem.
     #
-    # Driven by word-count rather than specificity since 2026-08-21. specificity's WARN band
-    # is now [MIN_ANCHORS, SOFT_ANCHORS) = [2, 3), a single reachable value, so it can only
-    # ever emit one message and cannot exercise the variant-message path at all. word-count
-    # reports the actual count, so two company names of different lengths give two messages
-    # for one template defect — which is the case this collapse logic exists to handle.
+    # Driven by word-count rather than specificity since 2026-08-21 (and specificity itself
+    # retired 2026-09-24). word-count reports the actual count, so two company names of
+    # different lengths give two messages for one template defect — which is the case this
+    # collapse logic exists to handle.
     touches = parse_spec(SPEC)
     rows = [
         _row(
-            email="a@x.com",
+            email="a@x.example",
             company="Universal Property and Casualty Insurance of North America",
         ),  # 102 words
         _row(
-            email="b@x.com",
+            email="b@x.example",
             company="Universal Property and Casualty Insurance Company of North America",
         ),  # 104 words
     ]
@@ -504,7 +530,7 @@ def test_off_topic_signal_clause_is_an_error():
     # do not connect — the single most detectable "this is a template" tell.
     rows = [
         _row(
-            email="off@x.com",
+            email="off@x.example",
             signal_clause="Relay advises fintech and wealth firms on their sale transactions",
         )
     ]
@@ -513,14 +539,16 @@ def test_off_topic_signal_clause_is_an_error():
 
 
 def test_on_topic_signal_clause_passes():
-    rows = [_row(email="on@x.com", signal_clause="Relay ships an agentic AI claims assistant")]
+    rows = [_row(email="on@x.example", signal_clause="Relay ships an agentic AI claims assistant")]
     assert not [x for x in lint_signal_relevance([_signal_touch()], rows) if x.level == "ERROR"]
 
 
 def test_standing_description_is_only_a_warning():
     # True and specific, just not a dated trigger. Advisory: suppressing these would cost
     # more rows than the campaign can afford.
-    rows = [_row(email="static@x.com", signal_clause="Relay runs an agentic AI claims platform")]
+    rows = [
+        _row(email="static@x.example", signal_clause="Relay runs an agentic AI claims platform")
+    ]
     v = lint_signal_relevance([_signal_touch()], rows)
     assert not [x for x in v if x.level == "ERROR"]
     assert [x.rule for x in v] == ["signal-not-an-event"]
@@ -528,7 +556,7 @@ def test_standing_description_is_only_a_warning():
 
 def test_signal_relevance_is_silent_when_the_copy_never_renders_the_clause():
     plain = Touch(1, 1, "subject", "Hi {{First Name}},\n\nAbout {{Company}}.\n\nHenry")
-    rows = [_row(email="off@x.com", signal_clause="Relay makes industrial fasteners in Ohio")]
+    rows = [_row(email="off@x.example", signal_clause="Relay makes industrial fasteners in Ohio")]
     assert lint_signal_relevance([plain], rows) == []
 
 
@@ -542,7 +570,7 @@ def test_touch_that_varies_only_by_company_name_is_an_error():
         "Hi {{First Name}},\n\n" + "Filler words here. " * 20 + "\n\nAt {{Company}}.\n\nHenry",
     )
     rows = [
-        _row(email=f"a{i}@x.com", signal_clause="Relay ships an agentic AI claims assistant")
+        _row(email=f"a{i}@x.example", signal_clause="Relay ships an agentic AI claims assistant")
         for i in range(3)
     ]
     v = lint_touch_personalisation([boilerplate], rows)
@@ -559,7 +587,7 @@ def test_same_thread_followup_is_exempt_from_the_personalisation_floor():
         "Hi {{First Name}},\n\n" + "Filler words here. " * 20 + "\n\nAt {{Company}}.\n\nHenry",
     )
     rows = [
-        _row(email=f"a{i}@x.com", signal_clause="Relay ships an agentic AI claims assistant")
+        _row(email=f"a{i}@x.example", signal_clause="Relay ships an agentic AI claims assistant")
         for i in range(3)
     ]
     assert lint_touch_personalisation([in_thread], rows) == []
@@ -567,7 +595,7 @@ def test_same_thread_followup_is_exempt_from_the_personalisation_floor():
 
 def test_touch_carrying_the_clause_is_personalised_enough():
     rows = [
-        _row(email=f"a{i}@x.com", signal_clause="Relay ships an agentic AI claims assistant")
+        _row(email=f"a{i}@x.example", signal_clause="Relay ships an agentic AI claims assistant")
         for i in range(3)
     ]
     assert lint_touch_personalisation([_signal_touch(3)], rows) == []
@@ -577,33 +605,16 @@ def test_personalisation_rule_is_silent_when_no_row_carries_usable_signal():
     # A generic sequence has nothing to personalise with; failing it would block a
     # legitimate send rather than improve one.
     boilerplate = Touch(2, 4, "", "Hi {{First Name}},\n\nAt {{Company}}.\n\nHenry")
-    assert lint_touch_personalisation([boilerplate], [_row(email="a@x.com")]) == []
-
-
-def test_repeated_hedge_stem_across_touches_is_an_error():
-    touches = [
-        Touch(1, 1, "s", "Hi {{First Name}},\n\nMy read, and correct me if wrong: a.\n\nHenry"),
-        Touch(2, 4, "", "Hi {{First Name}},\n\nMy hunch, and tell me: b.\n\nHenry"),
-        Touch(3, 9, "s", "Hi {{First Name}},\n\nMy bet, and tell me: c.\n\nHenry"),
-    ]
-    v = lint_hedge_stem([(f"step {t.number}", t.body) for t in touches])
-    assert [x.rule for x in v] == ["hedge-stem-repeat"]
-    assert "3 touches" in v[0].detail
-
-
-def test_one_hedge_stem_per_sequence_is_allowed():
-    touches = [
-        Touch(1, 1, "s", "Hi {{First Name}},\n\nMy read, and correct me if wrong: a.\n\nHenry"),
-        Touch(2, 4, "", "Hi {{First Name}},\n\nYou may well have this covered.\n\nHenry"),
-    ]
-    assert lint_hedge_stem([(f"step {t.number}", t.body) for t in touches]) == []
+    assert lint_touch_personalisation([boilerplate], [_row(email="a@x.example")]) == []
 
 
 def test_persona_mismatch_sourced_from_merged_data_is_not_the_copys_fault():
     # A recipient whose own signal clause contains "attribution" ("...CreatorOS for
     # creator commerce attribution") tripped the seat-lead rule on copy that led on
     # nothing of the sort.
-    v = Violation("ERROR", "a@x.com", "persona-lead-mismatch", "exec seat led on (attribution) x")
+    v = Violation(
+        "ERROR", "a@x.example", "persona-lead-mismatch", "exec seat led on (attribution) x"
+    )
     # Third argument (2026-09-22): the unrendered TEMPLATE. Here it does not carry the
     # borrowed term, which is the case these two were always about - the term arrived with
     # the row. Their verdicts are unchanged.
@@ -615,7 +626,7 @@ def test_persona_mismatch_sourced_from_merged_data_is_not_the_copys_fault():
 
 
 def test_data_borne_filter_never_suppresses_a_mechanical_rule():
-    v = Violation("ERROR", "a@x.com", "word-count", "104 words (hard 50-99)")
+    v = Violation("ERROR", "a@x.example", "word-count", "104 words (hard 50-99)")
     assert not _is_data_borne(v, "104 words", "Hi {{First Name}},\n\nHenry")
 
 
@@ -625,7 +636,7 @@ def test_a_digit_inside_the_company_name_is_not_a_stray_digit():
     # Solutions and B2Bnow both had a verified trigger and no sendable clause.
     rows = [
         _row(
-            email="k9@x.com",
+            email="k9@x.example",
             company="K9 Risk Solutions",
             signal_clause="K9 Risk Solutions added EverSure AI powered merchant risk products",
         )
@@ -637,7 +648,7 @@ def test_a_digit_inside_the_company_name_is_not_a_stray_digit():
 def test_a_date_or_metric_in_the_clause_is_still_an_error():
     rows = [
         _row(
-            email="k9@x.com",
+            email="k9@x.example",
             company="K9 Risk Solutions",
             signal_clause="K9 Risk Solutions raised 45 million for its AI merchant risk products",
         )
@@ -802,7 +813,7 @@ def test_the_craft_report_flag_reaches_the_report(tmp_path, capsys):
     csv_path = tmp_path / "rows.csv"
     csv_path.write_text("First Name,Company\n", encoding="utf-8")
 
-    assert main([str(spec), "--csv", str(csv_path), "--craft-report"]) == 0
+    assert main(["render", str(spec), "--csv", str(csv_path), "--craft-report"]) == 0
     out = capsys.readouterr().out
     assert "craft report" in out, "--craft-report did not reach _craft_report"
     assert _craft_rows(out), "--craft-report printed no data rows"
@@ -832,7 +843,7 @@ def test_data_borne_suppression_requires_every_borrowed_term():
     suppressing on a partial hit hands whoever wrote the scraped text a way to delete a real
     finding one word at a time."""
     v = _mismatch("attribution, audit trail")
-    partial = "influenceos for creator commerce attribution"
+    partial = "meridians for creator commerce attribution"
     copy = "Hi {{First Name}}, agents now act for customers.\n\nHenry"
     assert _is_data_borne(v, partial, copy) is False
     assert _is_data_borne(v, partial + " and audit trail tooling", copy) is True
@@ -862,12 +873,12 @@ def test_data_borne_suppression_does_not_fire_when_the_copy_carries_the_term():
 
 
 def test_the_linter_selftest_actually_runs(capsys):
-    """`_selftest()` asserts a good row produces zero ERRORs and is the home the 2026-09-22
+    """`_selftest_render()` asserts a good row produces zero ERRORs and is the home the 2026-09-22
     craft plan picks for the reference copy (the linters' first positive control). Nothing
     invoked it: not CI, not pre-commit, not `email-sequence`'s gate step, and no test — 21
     statements, zero coverage. A positive control written into a function nobody calls is a
     positive control that has never once run."""
-    assert _selftest() == 0
+    assert _selftest_render() == 0
     assert "selftest OK" in capsys.readouterr().out
 
 
@@ -908,46 +919,6 @@ _ANCHOR_TOUCH = Touch(
     subject="a note",
     body="Hi {{First Name}},\n\nThe {{Company}} rollout in March met the Dover review.\n\nAlex",
 )
-
-
-def test_anchor_report_runs_and_always_exits_zero(capsys):
-    """Read-only, never fails a run — the same contract `--craft-report` carries."""
-    rows = [_anchor_row("Northwind Systems", "Jordan")]
-    assert _anchor_report([_ANCHOR_TOUCH], rows) == 0
-    out = capsys.readouterr().out
-    assert "anchor report" in out
-    assert f"MIN_ANCHORS={MIN_ANCHORS}" in out and f"SOFT_ANCHORS={SOFT_ANCHORS}" in out
-
-
-def test_anchor_report_headroom_is_measured_from_the_worst_enforced_row(capsys):
-    """Headroom is `min(enforced) - MIN_ANCHORS`, and it must key off the WORST enforced row,
-    not the median and not the worst overall. The gate fails on that row, so a median with
-    slack is not slack — a report that averaged it away would tell an author they can afford
-    to delete a capitalised token when they cannot.
-
-    Two rows, one deliberately thinner than the other. Both companies are invented (§R9)."""
-    rich = _anchor_row("Northwind Systems", "Jordan")
-    thin = _anchor_row("Ardal", "Sam")
-    assert _anchor_report([_ANCHOR_TOUCH], [rich, thin]) == 0
-    row = _anchor_rows(capsys.readouterr().out)["T1"]
-    lo, _med, hi, headroom = int(row[0]), row[1], int(row[2]), int(row[3])
-    assert lo <= hi, f"min above max: {row}"
-    assert headroom == lo - MIN_ANCHORS, (
-        f"headroom {headroom} is not min(enforced) - MIN_ANCHORS ({lo} - {MIN_ANCHORS}): {row}"
-    )
-
-
-def test_anchor_report_excludes_the_rows_the_gate_cannot_fail(capsys):
-    """The report's closing line promises "the gate cannot ERROR on those, so nor does this".
-    A lowercase brand is invisible to the anchor proxy, so `_company_invisible` exempts it and
-    the gate skips its specificity ERROR; counting it as at-floor would overstate the risk of
-    an edit and train the reader to ignore the report."""
-    lowercase_brand = _anchor_row("medipath", "Sam")
-    assert _company_invisible(lowercase_brand, render(_ANCHOR_TOUCH.body, lowercase_brand))
-    assert _anchor_report([_ANCHOR_TOUCH], [lowercase_brand]) == 0
-    row = _anchor_rows(capsys.readouterr().out)["T1"]
-    assert int(row[5]) == 1, f"the exempt row was not counted as exempt: {row}"
-    assert row[3] == "n/a", f"headroom over zero enforced rows must be n/a, got {row[3]!r}"
 
 
 def test_craft_report_counts_a_sentence_initial_sender(capsys):
@@ -999,5 +970,5 @@ def test_craft_report_runs_without_a_send_list(tmp_path, capsys):
     render, so rows are its input, not decoration."""
     spec = tmp_path / "spec.md"
     spec.write_text(SPEC, encoding="utf-8")
-    assert main([str(spec), "--craft-report"]) == 0
+    assert main(["render", str(spec), "--craft-report"]) == 0
     assert _craft_rows(capsys.readouterr().out), "no data rows without a CSV"

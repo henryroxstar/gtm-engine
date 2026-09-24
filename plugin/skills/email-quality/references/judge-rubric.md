@@ -1,7 +1,7 @@
-# Judge rubric — v3 (2026-09-02)
+# Judge rubric — v4 (2026-09-24)
 
 **This file is documentation of the rubric, not its source.** The rubric the judge actually sends
-lives in `RUBRIC_ITEMS` in [`agent/mcp/judge/scoring.py`](../../../../agent/mcp/judge/scoring.py),
+lives in `RUBRIC_ITEMS` in [`agent/mcp/judge/rubric.py`](../../../../agent/mcp/judge/rubric.py),
 as an ordered tuple, for one reason: PRD §3.2's stability control reverses the item order and
 requires the verdicts to stay put. Order has to be data a function can reverse, not prose someone
 re-types. A copy of the rubric that drifts from the one being sent would make every flip-rate and
@@ -49,6 +49,16 @@ rejected rather than coerced to a default.
 | v1 | 2026-08-22 | initial four items, mirroring the label schema's sub-checks | the judge is validated against those labels, so it must be asked the same questions the operator is |
 | v2 | 2026-09-01 | added `bridge_depends_on_fact` (5 items) — never logged here at the time | a 35-row blind round scored `fact_creates_problem: No` on every row while the operator's notes distinguished good facts from bad ones; the missing field was the transition sentence after the fact, not the fact itself |
 | v3 | 2026-09-02 | merged `fact_creates_problem` / `fact_supports_pitch` / `bridge_depends_on_fact` into `fact_earns_its_place` (5 items → 3) | Cohen's kappa between the three, measured over the 28-label 2026-09-01 round, was 1.00 / 0.84 / 0.84 — three questions, one answer on real data. `bridge_depends_on_fact` in particular never once differed from its neighbours, adding order-sensitivity to the flip-rate control without adding signal |
+
+| v4 | 2026-09-24 | the rubric stopped being its own list and became a **declared subset of the quality card** ([`gtm_core/messaging/card.py`](../../../../gtm_core/messaging/card.py)); `corrupted_scrape` joined the items it asks | the card is one tuple shared by the operator sheet, this rubric and the label schema, so the three surfaces cannot drift — which they had: the sheet and the label list were the same object, and this file named a module the rubric had already left. `corrupted_scrape` arrived because the card requires every question to have an asking surface, and it had none; it reads the rendered body, which is what the judge sees. **Two items are deliberately NOT here:** `claim_within_status` (the judge cannot read the fact registry, and the deterministic `claim-status` linter rule is authoritative — a soft opinion beside a hard gate is how a gate gets argued with) and `wrong_entity_type` (an account judgment with durable consequences, which the operator surface owns) |
+
+> **v3 and v4 verdicts are not comparable, and the record now says which is which.** Every
+> `Adjudication` carries a `rubric_version` — a fingerprint of the item keys AND their wording,
+> order-insensitive so PRD §3.2's reversal control still pairs. `rubric` stayed `"full"` straight
+> through this change, which is exactly why pooling on `rubric` alone was unsafe. The tally and the
+> judge payload surface the versions present rather than refusing a mix, matching how `backend` is
+> already handled — nothing in the repo refuses on that either. Read a κ or flip-rate number only
+> within one `rubric_version`.
 
 ## Context changes (not rubric revisions — the items and the output shape are unchanged)
 

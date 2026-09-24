@@ -59,7 +59,7 @@ def _parses(spec_path: Path) -> bool:
     import sys
 
     sys.path.insert(0, "tests/linter")
-    from merge_render_linter import parse_spec
+    from outreach import parse_spec
 
     return bool(parse_spec(spec_path.read_text(encoding="utf-8")))
 

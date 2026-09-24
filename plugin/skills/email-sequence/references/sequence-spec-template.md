@@ -14,9 +14,11 @@ and approved. Fill every field; keep it scannable. Save to:
 
 ## Front block (machine-read — keep it a fenced `Key: value` block)
 
-This block is parsed, one regex per line: `merge_render_linter` reads `Sign-off:` and
-`gtm_core.hook_coverage` reads `hook_cell:` / `argument_id:`. Keep the fence and the
-`Key:   value` shape; a markdown table here is not readable by those gates.
+This block is parsed, one regex per line: `outreach_linter render` reads `Sign-off:` and the five
+`slot_*:` lines, and `gtm_core.hook_coverage` reads `angle:` — from which it derives the matrix
+cell this spec implements, so the campaign coverage report counts the spec instead of listing it
+as undeclared. Keep the fence and the `Key:   value` shape; a markdown table here is not readable
+by those gates, and a declaration written outside this fenced block is not read as one.
 
 ```
 Campaign:    <name>
@@ -24,17 +26,58 @@ Profile:     <active>        Product: <default_product or the product this campa
 Provider:    <saleshandy|apollo|gmass|manual>   Status: STAGED PAUSED — activated by a human in the provider UI
 Sign-off:    <name>
 Variant:     1 <segment/seat>-scoped x <n> touches · <n> rows
-hook_cell:   <Persona> × <Signal>
-argument_id: <short-stable-slug>
-Gate:        tests/linter/merge_render_linter.py must report 0 errors across every touch x every row
+angle:       <angle-id>
+slot_signal: row.signal_evidence
+slot_claim:  <claim-id the angle derives>
+slot_pain:   <seat the angle derives>
+slot_hedge:  voice-rules.hedge.cues
+slot_proof:  <proof-id the angle derives>
+Gate:        tests/linter/outreach_linter.py render must report 0 errors across every touch x every row
 ```
 
-**`hook_cell` names a cell that exists in the tenant's `hook-matrix.md`**, written in the matrix's
-own persona and signal labels — it is the one field that makes "which argument is this?"
-answerable instead of a judgement call. `argument_id` is a short stable slug that travels into
-outcomes, so **do not change it once a touch has shipped**. One spec file is one variant and one
-cell; two specs on the same cell are one argument wearing two subjects. Verify the campaign as a
-whole with:
+**The five `slot_*:` lines say where each sentence of the body came from.** A body has five
+slots — signal, claim, pain, hedge, proof — and `slot-attribution` (ERROR) refuses a spec whose
+`angle:` resolves while any of them names no source. Copy whose provenance cannot be checked is
+copy nobody can stand behind, and this is the field that makes "where did this sentence come
+from" answerable instead of a reviewer's guess. Two of the five are presence-only by
+construction: `slot_signal` is the ROW's researched fact, which varies per recipient, and
+`slot_hedge` is the tenant's own cue table — neither is a registry id. The other three are
+**cross-checked against the angle**, so fill them from what it derives rather than by hand:
+
+```bash
+uv run python -m gtm_core.messaging resolve --profile <active> --csv <pool.csv>
+```
+
+Use `slot_proof: none` only on the no-anchor offer shape — a reader whose market the registry
+records as having no anchor. It is the one sanctioned exception, and it is accepted nowhere else.
+
+**`angle:` is the one declared field, and everything else derives from it.** Resolve it with
+`uv run python -m gtm_core.messaging resolve --profile <active> --csv <pool.csv>`; the id names a
+`[[angle]]` in the tenant's `knowledge/angles.toml`, which carries the seat, the premise, the
+claim, the proof and the opener kind. It is the field that makes "which argument is this?"
+answerable instead of a judgement call, and it travels into outcomes — so **do not change it once
+a touch has shipped**. One spec file is one variant and one angle; two specs on the same angle are
+one argument wearing two subjects.
+
+> **Changed 2026-09-24 (FR2).** `hook_cell:` and `argument_id:` are gone from this block.
+> `hook_cell`, `capability`, `premise` and `stakes` are now **derived** from the angle and are
+> checked against it — a declared value that disagrees is an ERROR, not a warning, because one
+> fact with two declarations is a fact that can be wrong in one place and right in the other.
+> `argument_id` is superseded outright: the angle id *is* the stable slug. A spec with no `angle:`
+> reports `angle-missing` (WARN, because 0 of the live fleet has migrated) and loses
+> `slot-attribution` entirely; an id `angles.toml` does not hold is `angle-unknown` (ERROR). Both
+> fire on pack shapes the old `hook_cell` regex could not read — that fail-open is the 2026-09-04
+> lesson this replaces. `hook-matrix.md` is now a **generated view** of
+> `angles.toml`, so its cells are no longer a vocabulary you write against by hand.
+>
+> **Changed 2026-09-24 (FR3).** The campaign coverage audit now resolves a spec's matrix cell
+> from its `angle:` (`hook_coverage.declared.resolve_declared_cell`), falling back to a legacy
+> `hook_cell:` only where a spec declares no angle. Until it did, a spec written to this
+> template counted as undeclared in the report the same skill runs, and that report's
+> `hook-cell-missing` finding (since renamed `angle-missing`, which is what you will see
+> today) named every one of them. The five `slot_*:` lines landed in the same change, for the mirror
+> reason: `slot-attribution` was raising five ERRORs on a spec written exactly to this template.
+Verify the campaign as a whole with:
 
 ```bash
 uv run python -m gtm_core.hook_coverage --profile <active> --campaign <campaign-slug>

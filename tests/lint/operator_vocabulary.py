@@ -44,6 +44,10 @@ _BASE_WORD_TOKENS: tuple[str, ...] = (
     "lane_reason",
     "signal_clause",
     "gtm_core",
+    # 2026-09-23. "gated" was used in one operator-facing report for BOTH *passed the
+    # checks* and *held by them* — opposite meanings, one word, and the reader could not
+    # tell which had happened. The checks pass or they refuse; those are the two words.
+    "gated",
 )
 
 

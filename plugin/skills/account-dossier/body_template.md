@@ -173,9 +173,10 @@ pdftoppm -jpeg -r 150 <doc>.pdf page   # one page-NN.jpg per page → eyeball + 
 
    If it overflows 4 pages, tighten prose / trim table rows in the spec and re-run Step 6.
 3. **Save** the final `.docx` to the **per-account folder** `content/<active>/accounts/<account-slug>/`
-   (`<account-slug>` = `python -m gtm_core.slugify "<company name>"` — always run the CLI, never
-   hand-kebab-case it, so every skill lands on the same folder for the same account; create the
-   folder if needed — see CLAUDE.md "Per-account outputs"), named
+   (`<account-slug>` = `python -m gtm_core.account_folder "<company name>" --profile <active>
+   [--domain <domain>]` — always run the CLI, never hand-kebab-case it, so every skill lands on the
+   folder the account already has; create the folder only when the CLI returns a new one, and on exit
+   3 (ambiguous) choose among the candidates it prints — see CLAUDE.md "Per-account outputs"), named
    `account-dossier-[account]-[YYYY-MM-DD].docx`. Never save it to the repo root or the bare working
    folder.
 4. **Present** a one-line summary of what's inside and append a `⟦FILE:…⟧` sentinel for each
@@ -309,8 +310,9 @@ because it may run across many accounts in one pass, not just one.
   `scripts/render_dossier_pydocx.py` pipeline (Steps 6-7 unchanged), validate + rasterize to
   confirm **exactly 1 page**.
 - **Output path:** `content/<active>/accounts/<account-slug>/prospecting-brief-<account-slug>-<YYYY-MM-DD>.docx`,
-  where `<account-slug>` is computed via `python -m gtm_core.slugify "<company name>"` — the
-  canonical slug, not a hand-picked one, so the pipeline's dossier-existence check
+  where `<account-slug>` is resolved via `python -m gtm_core.account_folder "<company name>"
+  --profile <active> --domain <domain>` — the folder the account already has, not a hand-picked
+  one, so the pipeline's dossier-existence check
   (`tier-a-needing-dossier`) and the status dashboard can both find it reliably. The
   `prospecting-brief-` filename prefix is deliberate — distinct from `account-dossier-` and
   `*-onepager-` — so a filesystem check for "does this account already have a dossier of any kind"
@@ -363,8 +365,9 @@ clause.
   "Why now" bullets are dated and sourced, same discipline as the standard dossier's §6/§11 — mark
   unknowns as unknown, never invent a date or a source.
 - **Output path:** `content/<active>/accounts/<account-slug>/dossier-<account-slug>-<YYYY-MM-DD>.md`,
-  where `<account-slug>` is computed via `python -m gtm_core.slugify "<company name>"` — the canonical
-  slug, so the pipeline's dossier-existence check (`accounts-needing-dossier`) and the status dashboard
+  where `<account-slug>` is resolved via `python -m gtm_core.account_folder "<company name>"
+  --profile <active> --domain <domain>` — the folder the account already has, so the pipeline's
+  dossier-existence check (`accounts-needing-dossier`) and the status dashboard
   both find it. The `dossier-` prefix (vs. `prospecting-brief-`/`account-dossier-`/`*-onepager-`) keeps
   every variant distinguishable by filename alone.
 - **No `⟦FILE:…⟧` sentinel** — this variant is written straight to the account folder as part of a

@@ -175,6 +175,7 @@ packages = [
     "gtm_core.icp_check",
     "gtm_core.lanes",
     "gtm_core.merge_hygiene",
+    "gtm_core.messaging",
     "gtm_core.prospects_consolidate",
     "gtm_core.role_vocabulary",
     "gtm_core.scorecard",
@@ -318,7 +319,13 @@ ignore = ["E501"]
 "scripts/entitlement_sync_smoke.py" = ["C901"]
 "tests/lint/pii_check.py" = ["C901"]
 "tests/linter/content_linter.py" = ["C901", "PLR0912"]
-"tests/linter/outreach_pack_linter.py" = ["C901", "PLR0912", "PLR0915"]
+# 2026-09-24 — RELOCATED, not joined. `tests/linter/outreach_pack_linter.py`'s entry moved
+# here when the two linters merged into `tests/linter/outreach/`; the two survivors are the
+# same two functions it always carried (`lint_email`, `lint_pack`), unchanged. The split
+# SHRANK the grandfathered surface: one whole file became two named functions' files, and
+# `merge_render_linter.py` never needed an entry and still does not.
+"tests/linter/outreach/rules_batch.py" = ["C901"]                             # lint_pack
+"tests/linter/outreach/rules_copy.py" = ["C901", "PLR0912", "PLR0915"]        # lint_email
 "tests/linter/partnership_brief_linter.py" = ["C901", "PLR0912"]
 
 # §R10 thresholds. Ruff's defaults (10 / 12 / 50 / 6) hit 123 / 67 / 49 / 32 sites; these
@@ -349,8 +356,9 @@ skips = ["B101"]
 [tool.coverage.run]
 source = ["agent", "backend", "cockpit", "gtm_core", "mcp_server", "tests/linter"]
 branch = true
-# `tests/linter/` is the one directory under tests/ that holds PRODUCTION code: the four
-# copy/merge linters that gate outbound email, sitting beside their own tests. The blanket
+# `tests/linter/` is the one directory under tests/ that holds PRODUCTION code: the copy
+# linters that gate outbound email (the `outreach/` package since the 2026-09-24 merge, plus
+# `content_linter.py` and `partnership_brief_linter.py`), beside their own tests. The blanket
 # `tests/*` omit that used to be here hid them from every coverage run this repo takes —
 # and since nothing else under tests/ is in `source`, that omit was protecting nothing.
 # Two defects sat behind the blind spot until 2026-09-22: a refusal path in the enrollment
@@ -373,6 +381,13 @@ exclude_lines = [
   "if TYPE_CHECKING:",
   "raise NotImplementedError",
   "if __name__ == .__main__.:",
-  "pass",
-  "\\.\\.\\.",
+  # Anchored on purpose. coverage applies these with re.search and excludes the WHOLE block
+  # when a matched line opens one, so a bare `pass` matched `tuple[str, ...]` in a def
+  # signature and hid 166 functions (agent/publish.py:publish among them) from every report
+  # until 2026-09-23. tests/lint/test_coverage_exclusions_are_anchored.py holds the line.
+  # `[ \\t]*`, not `\\s*`: coverage searches the WHOLE file with re.MULTILINE, so `\\s*`
+  # would span a newline and pull the `def` line above a `...` body into the exclusion.
+  "^[ \\t]*pass[ \\t]*(#.*)?$",
+  "^[ \\t]*\\.\\.\\.[ \\t]*(#.*)?$",
+  ":[ \\t]*\\.\\.\\.[ \\t]*(#.*)?$",
 ]

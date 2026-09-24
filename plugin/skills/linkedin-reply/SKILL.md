@@ -356,7 +356,7 @@ self-check, to the destination below (the presented-inline copy and the saved fi
 content). The only time you skip the save is if the colleague explicitly says not to.
 - If the post maps to a **named target account**, save to
   `content/<active>/accounts/<account-slug>/linkedin-reply-<account-slug>-<YYYYMMDD>.md`
-  (`<account-slug>` = the target company, kebab-cased — see CLAUDE.md "Per-account outputs").
+  (`<account-slug>` = `python -m gtm_core.account_folder "<company name>" --profile <active> [--domain <domain>]` — see CLAUDE.md "Per-account outputs").
 - Otherwise save to `content/<active>/linkedin/linkedin-reply-<post-slug>-<YYYYMMDD>.md`, where
   `<post-slug>` is a short kebab-cased label for the post (author + topic).
 

@@ -13,7 +13,13 @@ from .config import (
 from .declared import DeclaredCell
 from .distinctness import PairOverlap, SharedPhrase
 from .fit import SegmentFit, SignalFit
-from .matrix import Matrix, persona_key_of_label
+from .matrix import Matrix, RowAxis, persona_key_of_label
+
+#: The bucket ``audit`` files a recipient in when no seat resolves. A module constant, not a
+#: literal in two files, because ``Coverage.axis_counts`` has to exclude exactly the bucket
+#: ``audit`` writes — and a typo in either copy would silently report "no spec addresses
+#: unresolved (34)" as a real coverage gap.
+UNRESOLVED_SEAT = "unresolved"
 
 # --- the campaign-level report ------------------------------------------------------
 
@@ -51,8 +57,9 @@ class Coverage:
     drafts: set[str] = field(default_factory=set)
     #: 1:1 Tier-A outreach packs folded into this audit, by key. Same purpose as
     #: ``drafts``: a pack is a manual artifact with no enrolled list, so a reader must be
-    #: able to tell which findings are about it. ``hook_cell`` is a sequence-spec field and
-    #: is NOT expected on a pack, so ``hook-cell-missing`` deliberately skips these.
+    #: able to tell which findings are about it. Packs were exempt from the declaration
+    #: finding (``angle-missing``) until 2026-09-04 and are not exempt now — see the note on
+    #: it in :mod:`gtm_core.hook_coverage.audit`.
     packs: set[str] = field(default_factory=set)
     #: spec -> (Counter of the cell each ROW recorded at research time, rows scanned).
     #: Empty counter with a non-zero count means the list predates ``hook_cell`` on the row.
@@ -71,6 +78,23 @@ class Coverage:
     min_arguments: int = MIN_ARGUMENTS
     min_segment_fit: float = MIN_SEGMENT_FIT
     min_signal_attestation: float = MIN_SIGNAL_ATTESTATION
+
+    @property
+    def axis_counts(self) -> Counter:
+        """Recipients bucketed in the MATRIX's own key space — the counter the
+        ``persona-unaddressed`` finding is answerable against.
+
+        Both counters above are kept and both are still reported: ``seats`` is the copy
+        axis the persona-lead lint works on, ``personas`` the finer message axis. Which one
+        can be compared to a matrix row label, though, is decided by the matrix, and only
+        one of them can — a seat matrix's rows are seats, so asking "does any spec address
+        ``ciso``" of a matrix that has no ``ciso`` row reports a gap that is an artifact of
+        the question. ``unresolved`` is dropped because it is a bucket of titles, not a row
+        a spec could address; ``personas`` already keeps its unresolved rows separately.
+        """
+        if self.matrix is not None and self.matrix.row_axis == RowAxis.SEAT:
+            return Counter({k: n for k, n in self.seats.items() if k != UNRESOLVED_SEAT})
+        return self.personas
 
     @property
     def specs(self) -> int:
@@ -110,9 +134,21 @@ class Coverage:
         return sum(self.unresolved.values())
 
     @property
+    def unresolved_axis_rows(self) -> int:
+        """Rows whose title resolves to no row label on the MATRIX's axis.
+
+        Derived from :attr:`axis_counts` rather than read off a second counter, so the two
+        halves of the "unassignable" arithmetic below can never disagree: on a seat matrix a
+        title can carry a persona and still no seat (``finops``, ``partnership``), and
+        counting those as *placeable* because a persona resolved is how a row that no cell
+        can hold vanishes from the one line that exists to total them.
+        """
+        return max(self.rows - sum(self.axis_counts.values()), 0)
+
+    @property
     def unassignable_rows(self) -> int:
-        """Total rows no matrix cell can hold: unresolved persona + wrong-grid persona."""
-        return self.unresolved_rows + sum(self.unassignable.values())
+        """Total rows no matrix cell can hold: no row label + wrong-grid row label."""
+        return self.unresolved_axis_rows + sum(self.unassignable.values())
 
     @property
     def failed(self) -> bool:
@@ -137,7 +173,11 @@ def persona_coverage(
     for d in declared.values():
         if d is None:
             continue
-        key = persona_key_of_label(d.persona)
+        # Resolved on the MATRIX's axis, because ``personas`` is bucketed on it too (see
+        # ``audit._recipient_keys``). Falling back to the raw label keeps a spec that names
+        # something the vocabulary has never heard of visible as its own unaddressed entry
+        # rather than silently merging into another key.
+        key = matrix.row_key(d.persona) if matrix is not None else persona_key_of_label(d.persona)
         addressed.add(key or d.persona.lower())
 
     populated = [(p, n) for p, n in personas.most_common() if n >= min_recipients]

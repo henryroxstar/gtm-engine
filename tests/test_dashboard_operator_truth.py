@@ -198,7 +198,7 @@ def test_every_number_on_the_page_is_the_number_the_terminal_prints(
         "Ready": 1,
         "All accounts": 7,
         "Waiting on you": 2,
-        "Ready to send": 1,
+        "Routed — not yet checked": 1,
         "Being fixed": 0,
         "In the sending tool": 0,
         "Not emailing": 1,
