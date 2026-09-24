@@ -571,7 +571,17 @@ def test_every_tabled_writer_is_still_reachable_by_the_scan(findings):
     all reachable today. A writer that moves out of the scanner's sight (a string-literal path, a
     dynamic dispatch) should fail here and be dealt with, not quietly stop being checked.
     """
-    missing = sorted(_tabled_writers() - set(findings))
+    tabled = _tabled_writers()
+    if not (_REPO / "scripts" / "oss-export.sh").is_file():
+        # The public cut: it has no export script, and it withholds some tabled writers (e.g.
+        # voc.registry) while shipping the RULES.md table that names them. A module that is not
+        # there cannot be stale. In the private tree this branch never runs.
+        tabled = {
+            m
+            for m in tabled
+            if (_REPO / "gtm_core" / Path(*m.split("."))).with_suffix(".py").is_file()
+        }
+    missing = sorted(tabled - set(findings))
     assert not missing, (
         f"RULES.md names {missing} as writer(s) of profiles/, but the scan sees no tainted "
         "write there — either the writer moved out of the detector's reach (see the blind-spot "

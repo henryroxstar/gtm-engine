@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-09-24
+
+### Fixed
+- The repository's own CI now passes on the published tree. The release carried lint and test
+  configuration that referred to modules not included in this distribution: a complexity
+  allowlist naming files that are not shipped, an import in the cockpit that sorted differently
+  without them, and two tests that check operator-private data. No runtime behaviour changed.
+
 ## [0.21.0] - 2026-09-24
 
 ### Added

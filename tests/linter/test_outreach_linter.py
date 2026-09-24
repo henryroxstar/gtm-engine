@@ -476,6 +476,8 @@ def test_selftest_loads_the_tenant_ban_file():
 
     Both halves are planted, because they load the set separately and one could regress alone.
     """
+    if not (REPO / "scripts" / "oss-export.sh").is_file():
+        pytest.skip("public cut: no tenant profile, so no tenant ban file to load")
     from outreach import cli
 
     bans = cli._tenant_ban_phrases()

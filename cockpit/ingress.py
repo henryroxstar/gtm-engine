@@ -54,12 +54,15 @@ class IngressHandlers(CockpitComponent):
         edit.
         """
         try:
-            from gtm_core.creator_brief import BRIEF_FILENAME
+            # Imported as a module, not `from gtm_core.creator_brief import …`: the public cut
+            # withholds creator_brief, and ruff files a missing submodule as third-party, so the
+            # from-form sorted differently there and failed the public repo's lint.
+            from gtm_core import creator_brief
             from gtm_core.house_notes import append
             from gtm_core.paths import resolve_content_root
 
             video_dir = resolve_content_root() / profile / "video"
-            if not any(video_dir.glob(f"*/{BRIEF_FILENAME}")):
+            if not any(video_dir.glob(f"*/{creator_brief.BRIEF_FILENAME}")):
                 return
             append(profile, notes)
         except Exception:  # noqa: BLE001 — taste capture is never worth failing a gate edit over
