@@ -443,6 +443,7 @@ class ErrorDetail(BaseModel):
     code: str
     message: str
     details: Any = None
+    next_step: str | None = None
 
 
 class ErrorResponse(BaseModel):

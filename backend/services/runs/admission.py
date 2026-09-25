@@ -37,13 +37,23 @@ async def resolve_acting_agent(pool, workspace_id: str, body) -> tuple[dict | No
     # paused and archived both refuse new runs (agent.schema.json lifecycle), and each says
     # which, so the app can offer "resume this agent" rather than "pick another".
     if agent_row["status"] == "paused":
-        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_paused"})
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "agent_paused", "message": "Agent is paused"},
+        )
     if agent_row["status"] != "active":
-        raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_archived"})
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "agent_archived", "message": "Agent is archived"},
+        )
     if body.profile_name and body.profile_name != agent_row["profile_name"]:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            {"code": "agent_profile_mismatch", "agent_profile": agent_row["profile_name"]},
+            {
+                "code": "agent_profile_mismatch",
+                "message": f"Agent is bound to profile '{agent_row['profile_name']}'",
+                "agent_profile": agent_row["profile_name"],
+            },
         )
     return agent_row, agent_row["profile_name"]
 
@@ -62,7 +72,8 @@ def _guard_profile_segment(profile_name: str | None) -> None:
         _safe_segment(profile_name or "", "profile_name")
     except ValueError as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "invalid_profile_name"}
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"code": "invalid_profile_name", "message": "Invalid profile name"},
         ) from exc
 
 
@@ -106,13 +117,26 @@ async def resolve_pack_for_run(
         if exc.code == "unknown_variant":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown pack variant") from exc
         if exc.code == "pack_not_activated":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "pack_not_activated"}) from exc
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "pack_invalid"}) from exc
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {
+                    "code": "pack_not_activated",
+                    "message": "This pack isn't switched on for your workspace.",
+                    "next_step": "Activate it in your workspace settings, or ask for it to be added.",
+                },
+            ) from exc
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"code": "pack_invalid", "message": "Pack configuration is invalid"},
+        ) from exc
 
     # A4 narrowing at use: effective packs = agent.packs ∩ currently-activated (the
     # profile-activation side was just enforced by resolve_variant above).
     if agent_row is not None and not agent_pack_allowed(agent_row["packs"], body.pack):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "agent_pack_not_allowed"})
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            {"code": "agent_pack_not_allowed", "message": "Agent is not allowed to use this pack"},
+        )
 
     # Effective floor: `resolved.graph` is ALREADY the tenant-override merge
     # (resolve_variant -> merge_pack_override), so a tenant override that adds a higher-tier
@@ -125,7 +149,15 @@ async def resolve_pack_for_run(
         explicit=resolved.graph.min_entitlement,
     )
     if not entitlement_meets(entitlement, run_min_entitlement):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "entitlement_required"})
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            {
+                "code": "entitlement_required",
+                "message": f"This run requires the {run_min_entitlement} tier or higher.",
+                "next_step": "Upgrade your plan to unlock this pack.",
+                "required_tier": run_min_entitlement,
+            },
+        )
 
     profile_file = profiles_root / profile_name / "PROFILE.md"
     profile_text = profile_file.read_text(encoding="utf-8") if profile_file.is_file() else None
@@ -134,7 +166,11 @@ async def resolve_pack_for_run(
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            {"code": "missing_settings", "missing": missing},
+            {
+                "code": "missing_settings",
+                "message": "Required settings are missing",
+                "missing": missing,
+            },
         )
 
     # Pre-fill any missing inputs from profile_text defaults so execution receives them
@@ -165,6 +201,7 @@ async def resolve_pack_for_run(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             {
                 "code": "pack_not_ready",
+                "message": "Pack requirements are not met",
                 "blocked": [
                     {
                         "kind": "setting",
@@ -177,7 +214,12 @@ async def resolve_pack_for_run(
     blocked = blocked_items(report, resolved)
     if blocked:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "pack_not_ready", "blocked": blocked}
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {
+                "code": "pack_not_ready",
+                "message": "Pack requirements are not met",
+                "blocked": blocked,
+            },
         )
     return resolved
 

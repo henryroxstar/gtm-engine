@@ -347,3 +347,39 @@ def test_a_paraphrase_is_missed_and_that_is_the_documented_limit(tree):
         "the paraphrase was matched — good, but then this test is no longer describing the "
         "module's behaviour and §6 needs updating rather than this assertion loosening"
     )
+
+
+def test_cli_accepts_pdf_by_converting_via_docling(tmp_path, monkeypatch, tree):
+    import subprocess
+
+    from gtm_core import material_intake
+
+    pdf = tmp_path / "deck.pdf"
+    pdf.write_bytes(b"%PDF dummy")
+
+    def fake_run(cmd, capture_output=True, text=True):
+        out_dir = Path(cmd[cmd.index("--output") + 1])
+        (out_dir / "deck.md").write_text(
+            "# Deck\n\n- Platform Director questionnaire arrived\n", encoding="utf-8"
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("shutil.which", lambda bin_name: "/usr/local/bin/docling")
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(tree))
+
+    rc = material_intake.main(["classify", "--profile", PROFILE, "--file", str(pdf)])
+    assert rc == 0
+
+
+def test_cli_refuses_pdf_when_docling_missing(tmp_path, monkeypatch, capsys):
+    from gtm_core import material_intake
+
+    pdf = tmp_path / "deck.pdf"
+    pdf.write_bytes(b"%PDF dummy")
+
+    monkeypatch.setattr("shutil.which", lambda bin_name: None)
+    rc = material_intake.main(["classify", "--profile", PROFILE, "--file", str(pdf)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "docling is not installed on PATH" in err

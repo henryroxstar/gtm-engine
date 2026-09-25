@@ -91,6 +91,7 @@ gtm_planning:    monthly + quarterly review   # Phase 4
 ```
 # Before any metered call, the skill estimates cost, shows it, and stops at the cap.
 # Free paths (web search, browser) never count against budget.
+# monthly_tool_budget_usd is the single budget cap for tools across the engine.
 monthly_tool_budget_usd: 50
 per_run_cap_usd:         10
 tools_metered:           [Vibe Prospecting, RocketReach, Apollo, Firecrawl]

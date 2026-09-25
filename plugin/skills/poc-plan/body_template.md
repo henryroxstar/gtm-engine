@@ -85,7 +85,7 @@ Save as **`poc-plan-[company]-[YYYY-MM-DD].md`** in the account folder
 6. **Risks to the POC itself** — access, data, people, environment.
 7. **Technical-win memo** — the skeleton from Step 5, unfilled.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 ## Guardrails
 

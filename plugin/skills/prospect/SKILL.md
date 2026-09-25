@@ -165,12 +165,12 @@ uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-The first command refreshes the checks' answer (free and network-free by contract; `--warn-only` so a failing list never stops the run) — the status block READS that answer, and says *unknown* rather than a number when the list changed after the checks last ran. Paste only the second command's output, unedited, between the markers below (if it exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
-Step 13 paste again at the end of the run, so the operator reads progress as movement between two
+The first command refreshes the checks' answer (free and network-free by contract; `--warn-only` so a failing list never stops the run) — the status block READS that answer, and says *unknown* rather than a number when the list changed after the checks last ran. Paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (if it exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
+Step 13 report again at the end of the run, so the operator reads progress as movement between two
 identical snapshots rather than as three reports in three vocabularies:
 
 <!-- operator -->
-[paste the command's output here, unedited]
+[paste the lede (the lines above 'For the record') here]
 <!-- /operator -->
 
 **Where output goes — two folders, not interchangeable.** Run-level files (the run markdown, the
@@ -211,11 +211,17 @@ It maps connectors → capabilities (`discovery`, `intent`, `double_intent`, `co
 > "Working: Vibe, RocketReach. Not connected: Apollo (plan does not include API access)."
 <!-- /operator -->
 
-and repeat any degradation in the final report. **On exit 2, stop and tell the operator what to connect** — do not spend and then apologise. `--need` must list what this run actually promises: a run that will produce outreach needs `contacts`; a re-score needs only `intent`.
+and repeat any degradation in the final report. **On `web_floor_offer` (preflight exit 2 because a requested step falls back to free web search):** ask the founder the one question ("Run it on free web search? You will get companies only, no verified contacts, nothing to load into a sender.") and proceed only on an explicit yes (unattended default: stop, report `web-floor-offered`). Otherwise on exit 2, stop and tell the operator what to connect — do not spend and then apologise. `--need` must list what this run actually promises: a run that will produce outreach needs `contacts`; a re-score needs only `intent`.
 
 Distinguish the two Apollo failure modes (they look alike, mean opposites): no Apollo tools at all ⇒ genuinely absent; tools present but `error_code: API_INACCESSIBLE` ⇒ connected on a plan without API access — record `api_inaccessible`, do not retry, do not report it as an outage. **A missing MCP server is not a broken API**: RocketReach was reported "not working" on 2026-08-11 when in fact the server simply was not loaded in that session; `account` later showed 1,285 premium lookups remaining and every rate limit healthy. Consult your available tools or MCP resources list before concluding a provider is down.
 
 **Step 3 — Budget pre-check (only if using a metered source).** Read budget caps. Before any fetch/lookup, estimate spend across **all connected metered sources** — Vibe `estimate-cost` / credit balance, the RocketReach metered-unit count against its plan quota, **and**, if Apollo is connected, its remaining credit allowance from the Apollo preflight tool — and show it. The monthly cap and what it covers come from PROFILE (Claude Max is a flat brain seat, not metered here; RocketReach and Apollo signal/person **searches** are credit-free — only enrichment and Apollo company search spend); if the run would breach `per_run_cap_usd` or the remaining monthly budget, trim (drop optional signal layers, then enrichment depth) or fall back to the web path — never silently overspend. If Vibe balance < ~200 credits, RocketReach is near its plan quota, or Apollo's remaining allowance is low, tell the user before spending — never auto-purchase.
+
+Run the budget check:
+```bash
+uv run python -m gtm_core.prospect_guards --check budget --profile <active> --estimated-spend <usd>
+```
+and quote its line in the run header; on refusal (exit 2) stop.
 
 **Step 4 — Funnel sizing (MANDATORY when the operator names a number; free; before ANY spend).** A target is ambiguous and the ambiguity is expensive: "500 accounts" almost always means **500 deliverable contacts**, not 500 discovered rows. Every stage has a yield, and their product is small — so a run sized as if `discovered == delivered` narrows silently and lands a fraction of the ask at the very end, after the money is spent. On 2026-08-12 exactly that happened: 500 discovered → 7 sequence-ready, discovered only in the final report.
 
@@ -334,6 +340,18 @@ is, and the sweep concludes in plain language:
 > "No dated public reason to reach out — this account keeps its place, on a standard email."
 <!-- /operator -->
 
+**Re-research that retires a signal an account already carries** records the negative as a state,
+not a sentence: `python -m gtm_core.prospects_state mutate --profile <active> --account <id> --set
+signal_state=cleared`, plus the verdict as above, and blank the old clause and its provenance on
+the account. Blanking alone is not enough: a blank record means *no opinion* and never overwrites
+a row, so every pooled row would keep the old source, date, evidence and subject, and
+`account_integrity` blocks them. `cleared` is the one value `consolidate` acts on: it blanks the
+whole signal group (`why_now`, the six provenance columns, `signal_column`) on the account's rows.
+Never write a marker such as "no signal found (re-researched <date>)" into `why_now` instead; its
+digits read as an unsourced number (`signal-number-unsourced`). When research finds a signal again,
+lift the state with `--set signal_state=`. While both are set, cleared wins, and `consolidate`
+reports the account under `signal_cleared_conflicts`.
+
 
 **Step 7 — Record the signal, don't just write the clause.** A why-now is not finished when a
 sentence exists. The sentence is the *output*; what makes it checkable later is the record behind it.
@@ -416,7 +434,9 @@ routed into; a list carrying more than one is two runs, not one.
 
 `agent-kind-contradiction` (clause says "agent", kind says `none`) and `signal-subject-mismatch`
 (subject ≠ the row's `company` after normalisation) are the two that survived longest; both are
-one field each, and both are yours to get right here.
+one field each, and both are yours to get right here. A subject that is only the company's shorter
+form ("Quillon" for "Quillon Financial") is not the ERROR but the WARN `signal-subject-short-form`
+— confirm it is the same company; write the full company name as the subject when you can.
 
 **Also record which matrix SIGNAL this account's own why-now attests — this is the field that was
 missing, not just hand-typed and thrown away.** Two more columns, neither gated at load (a list
@@ -464,6 +484,11 @@ researched this and it is weak":
 uv run python -m gtm_core.scorecard score --profile <active> --items <rows.json>
 ```
 
+**Every row in `<rows.json>` carries its `signal_agent_kind` from the Step 7 record; do not type
+`agent_evidence`.** The engine derives it from the kind (`ai` → present, `none`/`human` → absent,
+blank/`unclear` → categorised as not assessed), refuses a supplied word that contradicts the kind,
+and needs `agent_evidence` supplied only to refine `none`/`human` to `industry_only`.
+
 Its JSON output carries an `event` object ready for the ledger — append it with the same
 `ledger_cli append-history` call Step 10 already uses, so the run records **which rubric, at which
 version**, scored how many rows into which tiers. That field is what lets `outcomes-sync`
@@ -472,8 +497,8 @@ be measured at all. The scorecard never writes the ledger itself — it computes
 
 Add `--product <slug>` when the run is bound to one product and `--overlay <slug>` when an
 experiment was admitted, exactly as every other knowledge read in this skill does. `explain`
-prints the resolved card, its axes and the inputs it requires, which is the fastest way to see
-what a row is missing. Each scored item comes back with `rubric_source` + `rubric_version` on it
+prints the resolved card, its axes, the inputs it requires and the inputs it derives (and from
+which record field), which is the fastest way to see what a row is missing. Each scored item comes back with `rubric_source` + `rubric_version` on it
 — **carry those through to `finalize`, which refuses a scored row without them.** A profile with
 no card falls back to the hand-applied rubric below; it does not silently score against a default,
 because a default rubric is the undeclared rubric this whole step exists to prevent.
@@ -620,7 +645,14 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
   ```
   `--promote` writes each record onto its account in `latest.json` and reports any record whose row
   has no account rather than dropping it; the next `consolidate` carries it back onto every row.
-  Aiming `--out` at a pooled CSV is refused outright.
+  Aiming `--out` at a pooled CSV is refused outright. A record that carries a `verdict` also stamps
+  the account's `verdict_on` with today's date, and so does `prospects_state mutate --set
+  verdict=… --reason "…"`. The stamp is what lets a newer research `send` lift pool rows still
+  holding an older `re-angle`. Without it the account's verdict can only make a row stricter.
+  `consolidate` promotes only `re-angle` → `send`, only on a stamp newer than the row's, and only
+  when the account carries its clause, source, date and evidence. `drop` never moves. Always pass
+  a new `--reason` with the verdict: the reason travels with it, and a stale one would sit beside
+  the `send`.
 
   **"How many emails are ready to send"
   is always consolidate's `ready_to_load` output, never a hand-built or dated list.**
@@ -737,10 +769,10 @@ python -m gtm_core.prospects_consolidate accounts-needing-dossier --profile <act
 ```
 Pass `--tier A` to restrict to the old Tier-A-only scope (rarely needed — the wider check is cheap to
 run and idempotent, see below). This returns accounts (across the **whole cumulative** `master-list.csv`,
-not just this run's new accounts) that don't yet have a dossier of any kind — checked both by the
-canonical account-slug folder and, for accounts dossiered before that convention existed, a fuzzy match
-against every existing legacy folder name, so an already-covered account is never silently
-re-generated under a second, duplicate folder.
+not just this run's new accounts) whose own folder — the one `python -m gtm_core.account_folder`
+resolves — holds no dossier of any kind. An account whose folder is ambiguous (exit 3) is listed too:
+decide which folder is the account's before generating, and never create a new folder to get past it.
+The `canonical_slug` field is `slug(company)`, not the account's folder — write through `account_folder`.
 
 - If the candidate list is empty, say so in one line and move on — nothing to do.
 - Otherwise, **ask the operator once via `ask_question`**, naming the count and a few example companies, before
@@ -810,11 +842,10 @@ uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table) — byte-identical to the block Step 1
-opened the run with and the block Step 13 closes it with:
+and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table) — matching the block Step 1 opened the run with and the block Step 13 closes it with:
 
 <!-- operator -->
-[paste the command's output here, unedited]
+[paste the lede (the lines above 'For the record') here]
 <!-- /operator -->
 
 **Reading the block.** It opens with a short lede — *As of …*, *Today: …* (how many can go out
@@ -856,10 +887,10 @@ uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table):
+and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table):
 
 <!-- operator -->
-[paste the command's output here, unedited]
+[paste the lede (the lines above 'For the record') here]
 <!-- /operator -->
 
 
@@ -903,3 +934,17 @@ A grouping key is a claim about identity — prove it before you group on it.
 - **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced as the *Yours* line at the top of the status block and the status page.
 - **Portable & private:** no live CRM; outputs are local files; no secret is read from or written to any file.
 - **Market-aware:** everything keys off PROFILE `target_markets` — never hardcode geographies.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

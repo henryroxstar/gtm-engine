@@ -334,6 +334,7 @@ def test_create_superset_packs_rejected_subset_ok(ws_env, db):
         assert bad.status_code == 422
         assert bad.json()["detail"] == {
             "code": "packs_not_narrowing",
+            "message": "Packs must narrow active workspace packs",
             "not_activated": ["prospecting"],
         }
         ok = client.post(  # positive control
@@ -355,7 +356,11 @@ def test_create_budget_over_cap_rejected(ws_env, db):
             json={"name": "rich", "profile_name": PROFILE, "monthly_budget_usd": 100.0},
         )
         assert bad.status_code == 422
-        assert bad.json()["detail"] == {"code": "budget_exceeds_cap", "cap_usd": 50.0}
+        assert bad.json()["detail"] == {
+            "code": "budget_exceeds_cap",
+            "message": "Agent budget exceeds workspace cap of $50.00",
+            "cap_usd": 50.0,
+        }
         ok = client.post(
             "/v1/agents",
             json={"name": "frugal", "profile_name": PROFILE, "monthly_budget_usd": 10.0},

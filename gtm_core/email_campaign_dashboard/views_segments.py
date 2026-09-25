@@ -64,7 +64,7 @@ def segment_mix(m: dict) -> str:
             f'<div class="note">{_e(", ".join(where))}</div></td>{cells}</tr>'
         )
     return f"""
-      <div class="card" data-no-filter data-stale-when-filtered>
+      <div class="card">
         <h2>Customer type across {_e(scope_label(m))}</h2>
         {_barlist(segments, r.get("accounts") or 0)}
         <p class="note">Every figure is distinct accounts, so an account two campaigns both
@@ -73,6 +73,6 @@ def segment_mix(m: dict) -> str:
         segment the programme has tested twice.</p>
         <table><thead><tr><th>Customer type</th>{head}</tr></thead>
         <tbody>{"".join(body)}</tbody></table>
-        <p class="why" hidden title="Not filtered &mdash; this IS the breakdown by customer type, so narrowing to one would leave it with a single bar. Select a customer type above to filter the account table and the tiles; read the split here.">not filtered</p>
       </div>
+
 """

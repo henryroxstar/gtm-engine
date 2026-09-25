@@ -33,7 +33,7 @@ from gtm_core.signal_record import (
 AS_OF = datetime.date(2026, 8, 19)
 
 _EVIDENCE = (
-    "Halden Systems raised a $40M Series B led by Northgate to expand its agent "
+    "Halden Systems raised a $40M Series B led by Fernway Ventures to expand its agent "
     "orchestration platform across Europe."
 )
 
@@ -240,7 +240,7 @@ def test_normalise_company_ignores_legal_suffixes_and_punctuation():
 
 def test_subject_mismatch_blocks():
     """The fact is about the investor; the email goes to the portfolio company."""
-    rules = _rules(check_record(_row(signal_subject="Northgate Capital"), as_of=AS_OF))
+    rules = _rules(check_record(_row(signal_subject="Fernway Ventures"), as_of=AS_OF))
     assert "signal-subject-mismatch" in rules
 
 
@@ -253,6 +253,104 @@ def test_subject_absent_from_evidence_is_advisory():
     findings = check_record(row, as_of=AS_OF)
     absent = [f for f in findings if f.rule == "signal-subject-absent-from-evidence"]
     assert absent and absent[0].level == "warn"
+
+
+# PH16: the subject is the row's full company name; a source names the same company the way
+# people say it. Conservative by design (a gate that passes a wrong-company row is worse than
+# noise): a one-word form counts only as a possessive or before a capitalised product name,
+# and any form followed by a qualifier the subject lacks is a namesake.
+@pytest.mark.parametrize(
+    "subject,evidence",
+    [
+        ("Brightpath Health", "He will lead Brightpath's efforts to use AI for patients."),
+        ("Brightpath Health", "He will lead Brightpath’s efforts to use AI for patients."),
+        ("Northwind AI", "Northwind's platform powers the clinical agents."),
+        ("Marlowe Healthcare", "The site was purchased by Marlowe Hospital last month."),
+        ("Riverbend Systems", "Riverbend ClaimsDesk is an agentic compliance assistant."),
+        ("Eastvale Card Centre", "Eastvale's collaboration with the network centres on agents."),
+        ("R.J. Halden Companies", "R.J. Halden announced today it advised on the sale."),
+        ("The Lantern Group", "Lantern's rollout reaches every branch."),
+        ("Quillon Companies", "Quillon Companies announced an agent pilot."),
+        # A one-word name is the row's own name, not a shortening of it.
+        ("Wideloop", "Wideloop announced an agent pilot."),
+        # ACCEPTED RESIDUAL (2026-09-25), pinned so tightening it is deliberate: a one-word
+        # full name that is also a dictionary word passes on a sentence-initial use.
+        ("Wideloop", "Wideloop of adoption rose across the sector."),
+        # The full name's own legal form, and a qualifier that belongs to the next list item.
+        ("Halden", "The platform company Halden Inc. today unveiled agent tooling."),
+        ("Bank of Lantern", "Six banks -- Bank of Lantern, Capital Quarry and others -- joined."),
+    ],
+)
+def test_subject_present_in_evidence_under_a_shorter_form(subject, evidence):
+    row = _row(company=subject, signal_subject=subject, signal_evidence=evidence)
+    assert "signal-subject-absent-from-evidence" not in _rules(check_record(row, as_of=AS_OF))
+
+
+@pytest.mark.parametrize(
+    "subject,evidence",
+    [
+        # First-person quote naming no company: nothing ties the fact to the subject.
+        ("Brightpath Health", "AI allows us to simplify workflows and give caregivers time."),
+        # A namesake: the core followed by a qualifier the subject does not carry.
+        ("Cascade Health", "Cascade Insurance announced an agentic intake pilot."),
+        ("Quarry Financial", "Quarry plc announced an agentic intake pilot."),
+        ("Brightpath Health", "Brightpath Healthcare announced an agentic intake pilot."),
+        # A namesake on a domain-style name.
+        ("Wavelet Card", "Wavelet.example launched agents for retail banking."),
+        ("Wideloop", "WIDELOOP.AI launched agents for retail banking."),
+        # A bare one-word form: a sentence-initial dictionary word, or a same-named stranger.
+        ("Marlowe HealthCare", "The Marlowe said it would expand its agent programme."),
+        ("Lantern Financial", "Lantern, the bank said, will pilot agents next year."),
+        ("Quillon AI", "Quillon of adoption rose across the sector."),
+        ("Cascade Health", "Cascade of alerts overwhelmed the operations team."),
+        ("Riverbend Systems", "Riverbend announced an agent pilot."),
+        ("Marlowe HealthCare", "Marlowe, Wideloop and Quarry announced an agent pilot."),
+        # Lowercase, and part of a longer word, never count.
+        ("First Eastvale Financial", "It was the first quarter of net interest growth."),
+        ("Lantern AI", "Lanterns lined the route of the product launch."),
+        ("Quarry", "The research team mines quarry data daily."),
+        ("The Lantern Group", "The group said the rollout reaches every branch."),
+    ],
+)
+def test_subject_absent_still_warns_when_no_form_of_it_is_named(subject, evidence):
+    row = _row(company=subject, signal_subject=subject, signal_evidence=evidence)
+    assert "signal-subject-absent-from-evidence" in _rules(check_record(row, as_of=AS_OF))
+
+
+@pytest.mark.parametrize(
+    "subject,company",
+    [
+        ("Quillon", "Quillon Financial"),
+        ("Eastvale", "EastVale AI"),
+        ("Wideloop", "WIDELOOP.AI"),
+        ("Wavelet", "Wavelet Card"),
+        ("Marlowe", "Marlowe HealthCare"),
+        ("Quarry", "Quarry Financial"),
+        ("Lantern", "Lantern Financial"),
+    ],
+)
+def test_a_short_form_subject_is_surfaced_not_silenced(subject, company):
+    """The subject is the company's core: usually the same company, sometimes a namesake.
+    Not an ERROR (it is the likely case) and never silent (it is not always true)."""
+    findings = check_record(_row(company=company, signal_subject=subject), as_of=AS_OF)
+    short = [f for f in findings if f.rule == "signal-subject-short-form"]
+    assert short and short[0].level == "warn"
+    assert "signal-subject-mismatch" not in _rules(findings)
+
+
+@pytest.mark.parametrize(
+    "subject,company",
+    [
+        # Same leading word, different descriptor: neither is the other's short form.
+        ("Quillon Health", "Quillon Financial"),
+        # The subject is the LONGER form: the email goes to a name the fact is not about.
+        ("Quillon Financial", "Quillon"),
+        ("Fernway Ventures", "Halden Systems"),
+    ],
+)
+def test_subject_sharing_only_a_leading_word_is_still_a_mismatch(subject, company):
+    row = _row(company=company, signal_subject=subject)
+    assert "signal-subject-mismatch" in _rules(check_record(row, as_of=AS_OF))
 
 
 # --- agent homonym -------------------------------------------------------
@@ -281,7 +379,7 @@ def test_agent_kind_none_is_fine_when_the_clause_never_says_agent():
     """A funding round or a leadership hire is a legitimate signal with no agents in
     it at all — the common case, and it must not be a finding."""
     row = _row(
-        signal_clause="raised a Series B led by Northgate",
+        signal_clause="raised a Series B led by Fernway Ventures",
         signal_evidence=_EVIDENCE,
         signal_agent_kind="none",
     )
@@ -356,7 +454,7 @@ def test_a_pre_record_list_produces_one_file_level_finding_not_one_per_row():
 
 
 def test_audit_records_reports_per_row_once_the_columns_exist():
-    rows = [_row(), _row(email="b@halden.example", signal_subject="Northgate Capital")]
+    rows = [_row(), _row(email="b@halden.example", signal_subject="Fernway Ventures")]
     a = audit_records(rows, list(rows[0]), as_of=AS_OF)
     assert a.checked == 2
     assert any("signal-subject-mismatch" in e for e in a.errors)

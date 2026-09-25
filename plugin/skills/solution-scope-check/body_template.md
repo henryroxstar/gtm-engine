@@ -252,7 +252,7 @@ Save as **`solution-scope-check-[company]-[YYYY-MM-DD].docx`** in the account fo
 and generate a Quick Look thumbnail (`qlmanage -t`) to confirm the font renders as **Arial, not a serif
 fallback**. Report the page count.
 
-After all prose, append the `⟦FILE:…⟧` sentinel so the cockpit delivers the file:
+After all prose, only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel so the cockpit delivers the file:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/accounts/<account-slug>/solution-scope-check-[company]-[YYYY-MM-DD].docx⟧

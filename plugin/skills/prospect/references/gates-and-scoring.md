@@ -100,6 +100,9 @@ refuses to emit a number when an input is missing:
 uv run python -m gtm_core.scorecard score --profile <active> --items <rows.json>
 ```
 
+Each row carries `signal_agent_kind` from the prospect skill's Step 7 record; `agent_evidence` is
+derived from it (a contradicting supplied word is refused), so supply it only as `industry_only`.
+
 It prints `scored N · categorised C · rubric <source>@<version>` plus the tier spread, and returns
 each row's outcome with the provenance attached. A profile without a card runs this same order of
 operations by hand — the sufficiency step is not optional because it is manual.

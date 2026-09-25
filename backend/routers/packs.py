@@ -51,7 +51,8 @@ async def _profile_for(
             _safe_segment(profile_name, "profile_name")
         except ValueError as exc:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "invalid_profile_name"}
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"code": "invalid_profile_name", "message": "Invalid profile name"},
             ) from exc
         return profile_name
     pool = request.app.state.pool
@@ -187,8 +188,18 @@ async def variant_readiness_detail(
         if exc.code == "unknown_variant":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown pack variant") from exc
         if exc.code == "pack_not_activated":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "pack_not_activated"}) from exc
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "pack_invalid"}) from exc
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {
+                    "code": "pack_not_activated",
+                    "message": "This pack isn't switched on for your workspace.",
+                    "next_step": "Activate it in your workspace settings, or ask for it to be added.",
+                },
+            ) from exc
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"code": "pack_invalid", "message": "Pack configuration is invalid"},
+        ) from exc
 
     try:
         report = variant_readiness(profiles_root, profile, resolved)

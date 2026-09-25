@@ -23,6 +23,7 @@ from .account_exclusion_keys import (
 )
 from .prospect_paths import evals_dir
 from .prospects_state import RETIRED_STATUSES, latest_path, load_latest
+from .refusal_copy import Refusal
 
 #: Accounts in latest.json that mean "already in conversation" (PS6)
 DEFAULT_ENGAGED_STATUSES = frozenset(
@@ -123,15 +124,25 @@ def _refuse_lane_state_mismatch(
     )
 
 
+def missing_lanes_state_refusal(empty: bool = False) -> Refusal:
+    state_desc = "empty" if empty else "missing"
+    return Refusal(
+        what="I haven't loaded anyone into the sending tool",
+        why="this list hasn't been sorted since it last changed",
+        next_step="say 'sort my list' and I'll do it",
+        alternative=None,
+        cost="Nothing was spent.",
+        technical=f"REFUSED: evals/lanes-state.jsonl is {state_desc} — run `lanes route` before enrolling this list",
+    )
+
+
 def _load_lanes_state(
     profile: str, content_root: Path | None = None
 ) -> tuple[dict[str, dict] | None, str | None]:
     state_file = evals_dir(profile, content_root) / "lanes-state.jsonl"
     if not state_file.is_file():
-        return None, (
-            "REFUSED: evals/lanes-state.jsonl is missing — "
-            "run `lanes route` before enrolling this list"
-        )
+        refusal = missing_lanes_state_refusal(empty=False)
+        return None, f"REFUSED: {refusal.render()}\n\n{refusal.details()}".rstrip()
     state_by_email: dict[str, dict] = {}
     with state_file.open(encoding="utf-8") as fh:
         for line in fh:
@@ -148,10 +159,8 @@ def _load_lanes_state(
             if email:
                 state_by_email[email] = rec
     if not state_by_email:
-        return None, (
-            "REFUSED: evals/lanes-state.jsonl is empty — "
-            "run `lanes route` before enrolling this list"
-        )
+        refusal = missing_lanes_state_refusal(empty=True)
+        return None, f"REFUSED: {refusal.render()}\n\n{refusal.details()}".rstrip()
     return state_by_email, None
 
 

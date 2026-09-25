@@ -50,6 +50,7 @@ _UNIFORM_FEDERATED_401 = {
     "code": "federated_token_invalid",
     "message": "Invalid federated token",
     "details": None,
+    "next_step": None,
 }
 
 
@@ -603,7 +604,10 @@ class TestPatchAccount:
             headers=_auth_header(),
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"] == {"code": "no_password_credential"}
+        assert resp.json()["detail"] == {
+            "code": "no_password_credential",
+            "message": "No password set for this federated account",
+        }
         assert not any("UPDATE users" in str(call) for call in conn.execute.call_args_list)
 
     def test_federated_user_can_still_update_display_name(self, client):
@@ -931,7 +935,10 @@ class TestDeleteAccountFederated:
             json={"idp_token": _token(idp_key, sub="alice")},
         )
         assert resp.status_code == 503
-        assert resp.json()["detail"] == {"code": "federation_not_configured"}
+        assert resp.json()["detail"] == {
+            "code": "federation_not_configured",
+            "message": "Federated authentication is not configured",
+        }
         assert not self._deleted(conn)
 
 

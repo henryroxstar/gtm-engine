@@ -66,10 +66,10 @@ def _counts_from_output(out: str) -> dict[str, int]:
     for label, key in [
         ("Waiting on you", "waiting_on_you"),
         ("Sorted — not yet checked", "ready_to_send"),
-        ("Being fixed", "being_fixed"),
+        ("Being reworked", "being_fixed"),
         ("In the sending tool", "in_sending_tool"),
-        ("Not emailing", "not_emailing"),
-        ("Needs an address", "needs_address"),
+        ("Closed — not contacting", "not_emailing"),
+        ("Still finding the right person", "needs_address"),
     ]:
         line = next(line for line in out.splitlines() if line.startswith(label))
         counts[key] = int(re.search(r"\d+", line).group())
@@ -162,7 +162,7 @@ def test_why_non_question_status_groups_by_reason(tmp_path, monkeypatch, capsys)
     _write_jsonl(tmp_path / "acme" / "prospects" / "evals" / "lanes-state.jsonl", rows)
     assert cli.main(["--profile", "acme", "--why", "not_emailing"]) == 0
     out = capsys.readouterr().out
-    assert "Not emailing — 3 — by reason:" in out
+    assert "Closed — not contacting — 3 — by reason:" in out
     lines = out.splitlines()
     assert any("2" in line and "competitor-direct" in line for line in lines)
     assert any("1" in line and "researcher-drop" in line for line in lines)

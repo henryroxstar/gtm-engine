@@ -186,7 +186,7 @@ saved and **paste the prerequisites + the step outline inline** (so they can san
 customer must supply before sending). Offer a docx export for a customer-ready document, and note that
 any actual sending to the customer is a separate, explicitly-approved step.
 
-Then append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers the runbook automatically:
+Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers the runbook automatically:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/accounts/<account-slug>/gateway-runbook-[company]-[YYYY-MM-DD].md⟧
@@ -226,3 +226,17 @@ If the docx export is also produced, add a second sentinel for it. Use the real 
   satisfied, say what evidence the validation produces, not that compliance is achieved.
 - **Don't fabricate validation output.** Show the *expected* response shape; mark anything environment-
   specific as "varies by your deployment."
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

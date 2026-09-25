@@ -101,7 +101,7 @@ Save as **`security-review-[company]-[YYYY-MM-DD].md`** in the account folder
 3. **Refusals** — the table from Step 5.
 4. **Flags** — rows whose evidence is past its review window, and the rows from Step 2.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 **This skill never sends anything.** It drafts; a human reviews and submits. Nobody here uploads a
 response to a portal, replies to the requester, or attaches a report — the answers are a
@@ -116,3 +116,17 @@ representation and the submission is a signature.
 - **Never paste a secret, key, token, DSN or `.env` value into an answer**, whatever the row asks.
 - **Read-only.** No sending, no uploading, no portal.
 - **Dates are part of the answer.** An undated control claim is unverified by construction.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

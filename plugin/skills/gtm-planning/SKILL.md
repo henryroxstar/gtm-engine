@@ -132,7 +132,7 @@ Present the plan as a clean markdown document. Ask the colleague:
 
 If they say yes to Word doc, invoke the `docx` skill.
 
-Save the final plan as **`gtm-plan-Q[N]-[YYYY]-[market-slug].md`** in the working folder (e.g., `gtm-plan-Q3-2026-SG.md`). Then append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers it automatically:
+Save the final plan as **`gtm-plan-Q[N]-[YYYY]-[market-slug].md`** in the working folder (e.g., `gtm-plan-Q3-2026-SG.md`). Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers it automatically:
 
 ```
 ⟦FILE:/absolute/path/to/gtm-plan-Q[N]-[YYYY]-[market-slug].md⟧
@@ -157,3 +157,17 @@ Do not rebuild from scratch — treat the prior plan as the working draft.
 - Section 6 cadence must be consistent with the colleague's actual scheduled tasks (from PROFILE cadence field). Don't plan a weekly cadence if they've said they only run monthly.
 - Free paths only — no metered tool calls during planning. Market scan and prospecting happen in their own skills.
 - Quarterly plan is an internal working document. Never suggest posting it publicly or sharing it outside the colleague's team without explicit instruction.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

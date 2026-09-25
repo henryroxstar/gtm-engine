@@ -115,14 +115,13 @@ from .confidence import (  # noqa: F401
 from .consolidate import consolidate  # noqa: F401
 from .dossier import (  # noqa: F401
     _DOSSIER_GLOB_PATTERNS,
-    _GEO_QUALIFIERS,
     DOSSIER_GLOB_BRIEF,
     DOSSIER_GLOB_FULL,
     DOSSIER_GLOB_ONEPAGER,
-    _drop_geo_suffix,
     _folder_has_dossier,
     account_has_dossier,
     accounts_needing_dossier,
+    dossier_folder,
     tier_a_needing_dossier,
 )
 from .io import (  # noqa: F401
@@ -179,6 +178,7 @@ __all__ = [
     "DOSSIER_GLOB_BRIEF",
     "account_has_dossier",
     "accounts_needing_dossier",
+    "dossier_folder",
     "tier_a_needing_dossier",
     "next_verification_batch",
 ]

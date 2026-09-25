@@ -159,6 +159,7 @@ _SCORECARD_ROW: dict[str, object] = {
     "in_region": True,
     "researched": True,
     "agent_evidence": "present",
+    "signal_agent_kind": "ai",  # PH15: the word is derived from the record, which must be there
 }
 
 
@@ -183,6 +184,7 @@ def test_a_near_miss_is_not_a_classification(value: str) -> None:
 @pytest.mark.parametrize("value", SCORECARD_ABSENT)
 def test_a_row_missing_a_required_input_categorises_rather_than_scoring(value: object) -> None:
     row = dict(_SCORECARD_ROW)
+    del row["signal_agent_kind"]  # with no record, nothing supplied can stand in for one
     row["agent_evidence"] = value
     result = score_row(_scorecard(), row)
     assert isinstance(result, Categorised)
@@ -394,3 +396,41 @@ def test_a_warn_or_risk_class_with_no_listed_reason_is_a_violation(tmp_path) -> 
         "</body>", '<span class="zz" data-risk="not-a-real-reason">x</span></body>'
     )
     assert reason_violations(unlisted) != []
+
+
+@pytest.mark.parametrize("value", ABSENT + ("prospects",))
+def test_a_bounce_source_other_than_emails_yields_no_rate(value: object) -> None:
+    """PS20 T3.6 / TP §4.2: Bounce rate must only be derived from the per-email status block
+    (`bounce_source == "emails"`). Any absent value, or the prospect-level fallback
+    (`"prospects"`), or an unknown word, yields 'not available' rather than computing a rate."""
+    from gtm_core.email_campaign_dashboard.views_results import _seq_bounce_rate
+
+    live = {"bounce_source": value, "bounced": 5, "delivered": 95}
+    assert _seq_bounce_rate(live) == '<span class="muted">not available</span>'
+
+
+def test_the_emails_bounce_source_is_the_one_granting_value() -> None:
+    """The instrument check for bounce_source: 'emails' DOES compute the rate, and enforces
+    the strictly-above-BOUNCE_RISK_PCT threshold for the risk pill."""
+    from gtm_core.email_campaign_dashboard.views_results import _seq_bounce_rate
+
+    # denominator zero -> em dash
+    assert (
+        _seq_bounce_rate({"bounce_source": "emails", "bounced": 0, "delivered": 0})
+        == '<span class="muted">—</span>'
+    )
+
+    # genuine 0 bounced -> 0.0%
+    assert _seq_bounce_rate({"bounce_source": "emails", "bounced": 0, "delivered": 100}) == "0.0%"
+
+    # 2.9% -> no pill
+    assert _seq_bounce_rate({"bounce_source": "emails", "bounced": 29, "delivered": 971}) == "2.9%"
+
+    # exactly 3.0% -> no pill (strictly greater than)
+    assert _seq_bounce_rate({"bounce_source": "emails", "bounced": 30, "delivered": 970}) == "3.0%"
+
+    # 3.1% -> pill
+    assert (
+        _seq_bounce_rate({"bounce_source": "emails", "bounced": 31, "delivered": 969})
+        == "<span class='pill risk' data-risk='bounce-rate'>3.1%</span>"
+    )

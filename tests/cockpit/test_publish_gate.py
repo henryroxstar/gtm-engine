@@ -198,7 +198,7 @@ def test_cancel_publish_drops_draft(monkeypatch, tmp_path):
 
     assert cockpit._pending_publish == {}
     assert publisher.calls == []
-    assert any("Publish cancelled — nothing sent." in r for r in query.message.replies)
+    assert any("Cancelled — nothing sent." in r for r in query.message.replies)
 
 
 # ── end-to-end guards with the REAL publisher ────────────────────────────────

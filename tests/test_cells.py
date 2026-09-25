@@ -8,8 +8,38 @@ import pytest
 
 from gtm_core import cells
 from gtm_core import prospects_consolidate as pc
+from gtm_core.role_vocabulary import clear_cache as clear_vocab_cache
 
 CSV_HEADER = "first,last,email,title,company,company_domain,city,country,segment,tier,signal_clause,why_now,case_study,src,suppression,suppression_date\n"
+
+#: A persona/seat pair the BUILT-IN DEFAULT vocabulary does not have, so a resolved
+#: "operations" seat can only mean the tenant's own file was read (PH13).
+_TENANT_VOCAB = """\
+default_persona = "kiln-warden"
+segments = ["enterprise", "unspecified"]
+security_only = []
+non_buyer_cues = []
+ceo_title_cues = []
+
+[[persona]]
+name = "kiln-warden"
+cues = ["kiln warden"]
+
+[[seat]]
+name = "operations"
+personas = ["kiln-warden"]
+stakes = ["throughput"]
+"""
+
+
+def _write_tenant_vocab(tmp_path, profile, monkeypatch):
+    profiles_root = tmp_path / "profiles"
+    (profiles_root / profile / "knowledge").mkdir(parents=True)
+    (profiles_root / profile / "knowledge" / "role-vocabulary.toml").write_text(
+        _TENANT_VOCAB, encoding="utf-8"
+    )
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    clear_vocab_cache()
 
 
 def _row(title, segment, suppression=""):
@@ -360,3 +390,59 @@ def test_cells_rejects_absolute_path_traversal(tmp_path):
 
     with pytest.raises(ValueError, match="unsafe csv"):
         cells.build_cells(profile, root)
+
+
+def test_build_cells_resolves_seat_against_the_tenant_vocabulary(tmp_path, monkeypatch):
+    """PH13: ``build_cells`` (via ``_enrolled_cells``) must resolve a recipient's seat
+    against the ACTIVE PROFILE's ``role-vocabulary.toml``, not the built-in default —
+    "Kiln Warden" is a title only this tenant's file knows."""
+    profile = "acme"
+    content_root = tmp_path / "content"
+    _write_tenant_vocab(tmp_path, profile, monkeypatch)
+    _write_seq(content_root, profile, "list.csv", [_row("Kiln Warden", "enterprise")])
+    _write_map(
+        content_root,
+        profile,
+        '[[sequence]]\nid = "S1"\ncsv = "list.csv"\nspec = "spec-alpha-2026-08-18.md"\n',
+    )
+
+    model = cells.build_cells(profile, content_root)
+    by_id = {c["cell_id"]: c for c in model["cells"]}
+    assert by_id.get("base:enterprise:operations:alpha", {}).get("enrolled") == 1, (
+        f"tenant seat 'operations' not resolved — cells={sorted(by_id)}"
+    )
+
+
+def test_email_index_resolves_seat_against_the_tenant_vocabulary(tmp_path, monkeypatch):
+    """PH13: same defect, ``email_index``'s cell_id join."""
+    profile = "acme"
+    content_root = tmp_path / "content"
+    _write_tenant_vocab(tmp_path, profile, monkeypatch)
+    _write_seq(content_root, profile, "list.csv", [_row("Kiln Warden", "enterprise")])
+    _write_map(
+        content_root,
+        profile,
+        '[[sequence]]\nid = "S1"\ncsv = "list.csv"\nspec = "spec-alpha-2026-08-18.md"\n',
+    )
+
+    index = cells.email_index(profile, content_root)
+    assert index["ada@acme.example"] == "base:enterprise:operations:alpha"
+
+
+def test_supply_profile_resolves_seat_against_the_tenant_vocabulary(tmp_path, monkeypatch):
+    """PH13: same defect, ``supply_profile``'s seat/unplaced counters."""
+    profile = "acme"
+    content_root = tmp_path / "content"
+    _write_tenant_vocab(tmp_path, profile, monkeypatch)
+    _write_seq(content_root, profile, "list.csv", [_row("Kiln Warden", "enterprise")])
+    _write_map(
+        content_root,
+        profile,
+        '[[sequence]]\nid = "S1"\ncsv = "list.csv"\nspec = "spec-alpha-2026-08-18.md"\n',
+    )
+
+    supply = cells.supply_profile(profile, content_root)
+    seats = {s["name"]: s["n"] for s in supply["seats"]}
+    unplaced = {u["name"] for u in supply["unplaced_titles"]}
+    assert seats.get("operations") == 1, f"seats={seats}"
+    assert "Kiln Warden" not in unplaced, f"unplaced={unplaced}"

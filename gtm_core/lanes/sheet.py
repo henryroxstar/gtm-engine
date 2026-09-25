@@ -25,31 +25,34 @@ from pathlib import Path
 
 from ..cells import seat_of
 from ..htmlpage import script_json as _json
+from .decisions import _raw_detail
 from .model import HOLD_ORDER, HOLD_QUESTION, QUESTION_COPY, SALVAGE_KINDS
 
 TEMPLATE = Path(__file__).with_name("template_hold.html")
 
 
-def _seat(title: str) -> str:
+def _seat(title: str, profile: str | None = None) -> str:
     try:
-        return seat_of(title or "") or "unresolved"
+        return seat_of(title or "", profile) or "unresolved"
     except Exception:  # noqa: BLE001 — a seat resolver failure must not block review
         return "unresolved"
 
 
 def build_sheet_payload(
-    hold_rows: list[dict], *, bodies: dict[str, str] | None = None
+    hold_rows: list[dict], *, bodies: dict[str, str] | None = None, profile: str | None = None
 ) -> tuple[list[dict], list[dict]]:
     """``(groups, rows)`` from hold-CSV rows (the columns ``decisions.HOLD_COLUMNS`` writes).
 
     ``bodies`` maps a seat (or ``"*"``) to the shared email text to show collapsed per group.
+    ``profile`` resolves seats against the tenant's own ``role-vocabulary.toml`` rather than
+    the built-in default vocabulary; omitted, it falls back exactly as before.
     """
     bodies = bodies or {}
     groups: dict[tuple[str, str], list[dict]] = {}
     for i, r in enumerate(hold_rows):
         trigger = (r.get("trigger") or "").strip().lower()
         question = HOLD_QUESTION.get(trigger, trigger)
-        seat = _seat(r.get("title") or "")
+        seat = _seat(r.get("title") or "", profile)
         groups.setdefault((question, seat), []).append((i, r))
     # A question's risk position is the earliest (riskiest) HOLD_ORDER trigger that maps to
     # it, so e.g. `account-off-limits` (earliest member `competitor-adjacent`, index 0) still
@@ -93,7 +96,9 @@ def build_sheet_payload(
                     "tier": r.get("tier") or "",
                     "clause": r.get("signal_clause") or "",
                     "evidence": r.get("evidence") or "",
-                    "detail": r.get("lane_reason") or "",
+                    # The RAW detail: this key is what the export hands `hold-apply`, and the
+                    # router compares it verbatim. The composed `lane_reason` never matches.
+                    "detail": _raw_detail(r),
                     "defect": r.get("judge_defect_class") or "",
                     "prior": r.get("prior_decision") or "",
                     "trigger": trigger,
@@ -110,8 +115,9 @@ def render_sheet(
     auto: list[dict] | None = None,
     bodies: dict[str, str] | None = None,
     export_name: str | None = None,
+    profile: str | None = None,
 ) -> str:
-    groups, rows = build_sheet_payload(hold_rows, bodies=bodies)
+    groups, rows = build_sheet_payload(hold_rows, bodies=bodies, profile=profile)
     export = export_name or f"hold-decisions-{stamp}.jsonl"
     html = TEMPLATE.read_text(encoding="utf-8")
     for token, value in (
@@ -133,9 +139,13 @@ def write_sheet(
     stamp: str,
     auto: list[dict] | None = None,
     bodies: dict[str, str] | None = None,
+    profile: str | None = None,
 ) -> Path:
     with hold_csv.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_sheet(rows, stamp=stamp, auto=auto, bodies=bodies), encoding="utf-8")
+    out.write_text(
+        render_sheet(rows, stamp=stamp, auto=auto, bodies=bodies, profile=profile),
+        encoding="utf-8",
+    )
     return out

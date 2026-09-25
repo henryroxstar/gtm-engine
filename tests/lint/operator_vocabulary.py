@@ -87,6 +87,10 @@ DEFAULT_GLOBS: tuple[str, ...] = (
     "plugin/skills/email-sequence/body_template.md",
     "plugin/skills/prospect/SKILL.md",
     "plugin/skills/email-sequence/SKILL.md",
+    "gtm_core/enrollment_gate.py",
+    "gtm_core/prospect_guards.py",
+    "gtm_core/account_folder.py",
+    "gtm_core/preflight_report.py",
 )
 
 
@@ -103,7 +107,7 @@ def _scan(source: str, text: str, start_lineno: int = 1) -> list[tuple[str, int,
     return out
 
 
-def _scan_text(source: str, raw: str) -> list[tuple[str, int, str, str]]:
+def _scan_text(source: str, raw: str) -> list[tuple[str, int, str, str]]:  # noqa: C901 — one linear scan over the marker grammar
     """Scan raw text, validating operator markers and checking contents."""
     out: list[tuple[str, int, str, str]] = []
 
@@ -134,6 +138,46 @@ def _scan_text(source: str, raw: str) -> list[tuple[str, int, str, str]]:
             start_lineno = raw[:block_start].count("\n") + 1
             block_text = m.group(1)
             out += _scan(source, block_text, start_lineno=start_lineno)
+    elif source.endswith(".py"):
+        import ast
+
+        try:
+            tree = ast.parse(raw, filename=source)
+        except SyntaxError:
+            return out
+
+        def _get_str(node: ast.AST) -> str | None:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.JoinedStr):
+                parts = []
+                for val in node.values:
+                    if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                        parts.append(val.value)
+                return "".join(parts) if parts else None
+            return None
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = ""
+                if isinstance(node.func, ast.Name):
+                    name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                if name == "Refusal":
+                    for arg in node.args[:5]:  # what, why, next_step, alternative, cost
+                        s = _get_str(arg)
+                        if s:
+                            out += _scan(
+                                source, s, start_lineno=getattr(arg, "lineno", node.lineno)
+                            )
+                    for kw in node.keywords:
+                        if kw.arg in {"what", "why", "next_step", "alternative", "cost"}:
+                            s = _get_str(kw.value)
+                            if s:
+                                out += _scan(
+                                    source, s, start_lineno=getattr(kw.value, "lineno", node.lineno)
+                                )
     else:
         out += _scan(source, raw, start_lineno=1)
     return out
@@ -150,8 +194,9 @@ def _scan_prospect_status() -> list[tuple[str, int, str, str]]:
 
 
 def findings(
-    root: Path | None = None,
+    text_or_root: Path | str | None = None,
     *,
+    root: Path | None = None,
     globs: Sequence[str] = (),
     text: str | None = None,
 ) -> list[tuple[str, int, str, str]]:
@@ -163,6 +208,20 @@ def findings(
     repo root) if given. ``globs``/``text`` are independent and additive; passing neither
     scans only this module's one built-in source.
     """
+    if isinstance(text_or_root, str):
+        is_dir = False
+        if len(text_or_root) < 256:
+            try:
+                is_dir = Path(text_or_root).is_dir()
+            except OSError:
+                is_dir = False
+        if globs or (root is None and is_dir):
+            root = Path(text_or_root)
+        else:
+            text = text_or_root if text is None else text
+    elif isinstance(text_or_root, Path):
+        root = text_or_root
+
     out = _scan_prospect_status()
     if text is not None:
         out += _scan_text("<text>", text)

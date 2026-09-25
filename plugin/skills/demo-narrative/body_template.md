@@ -85,7 +85,7 @@ Save as **`demo-narrative-[company]-[YYYY-MM-DD].md`** in the account folder
 5. **Interruptions** — the wanted question, the three likely ones, the failure plan, the stop.
 6. **Setup checklist** — what must be seeded, logged in, or pre-warmed, and by when.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 Offer the hand-offs: `demo-capture` (record a beat once and reuse it), `build-deck` (the slides
 around it), `poc-plan` (when the room's real question is "does it work on *our* data", which is not

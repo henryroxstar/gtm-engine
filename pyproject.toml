@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtm-engine-runtime"
 version = "0.1.0"
-description = "GTM Content OS runtime: headless Claude Code (Agent SDK) brain + Telegram cockpit."
+description = "GTM Engine runtime: headless Claude Code (Agent SDK) brain + Telegram cockpit."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }

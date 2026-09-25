@@ -38,11 +38,25 @@ def test_check_reports_absent_generated_files_as_drift(tmp_path):
 
 def test_prompt_body_passes_through_verbatim():
     for skill in registry.all_skills():
-        if skill.fallback_note:
-            continue  # body is followed by an appended degraded-mode section
         body_file = PLUGIN / "skills" / skill.name / "body_template.md"
         if not body_file.exists():
             continue  # private-distribution stub (OSS carve paid-tier stub) — no source to check
         body = body_file.read_text(encoding="utf-8")
         generated = (PLUGIN / "skills" / skill.name / "SKILL.md").read_text(encoding="utf-8")
-        assert generated.endswith(body), f"{skill.name}: prompt body not preserved verbatim"
+        assert body.rstrip("\n") in generated, f"{skill.name}: prompt body not preserved verbatim"
+        assert generated.endswith(codegen.OPERATOR_CLOSE_BLOCK), (
+            f"{skill.name}: missing operator close block"
+        )
+
+
+def test_say_phrases():
+    prospect_skill = next(s for s in registry.all_skills() if s.name == "prospect")
+    phrases = codegen.say_phrases(prospect_skill.description)
+    assert phrases == (
+        "prospect for accounts",
+        "find buyers at [company]",
+        "build prospect list for [industry]",
+        "qualify leads",
+        "run prospecting sweep",
+    )
+    assert codegen.say_phrases("A description with no trigger clause") == ()

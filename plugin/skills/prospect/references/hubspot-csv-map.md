@@ -65,6 +65,7 @@ columns an input that claimed to be judged would be believed by nothing.
 | `judge_defect_class` | written by the judge — the normalised defect class (routing key) |
 | `pool_row_id` | stamped once by consolidate; never supplied |
 | `account_id` | stamped by latest.json, joined here; never supplied |
+| `verdict_on` | the account's research date for its verdict, carried with it; never supplied |
 
 ## The record is not optional
 

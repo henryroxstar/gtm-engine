@@ -89,10 +89,10 @@ the env: `HERMES_PUBLISH_ENABLED=true` + `HERMES_PUBLISH_URL` set → VPS mode; 
 **VPS mode (cockpit present):** proceed to Step 2 normally. The cockpit shows the gate block to the
 operator in Telegram and publishes only on "Approve & publish".
 
-**Local mode (no cockpit):** emit the gate block inline in the chat (same format below). Then
+**Local mode (no cockpit):** show the content as a quoted block headed "This is exactly what would go out." (do not emit the `⟦…⟧` markers). Then
 **stop** and tell the operator: "This is your post — copy it above and paste it into LinkedIn
 yourself. When you've posted, reply `posted <url>` so I can record it." Do not emit anything after
-the gate block. The invariant holds: the model never posts, never calls HTTP.
+the quoted block. The invariant holds: the model never posts, never calls HTTP.
 
 ## Step 2 — Emit the publish gate (this is your ONLY action)
 

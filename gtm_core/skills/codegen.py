@@ -89,13 +89,29 @@ def render_frontmatter(skill: GTMSkill) -> str:
     return "\n".join(out) + "\n"
 
 
+OPERATOR_CLOSE_BLOCK = """## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.
+"""
+
+
 def render(skill: GTMSkill, body: str) -> str:
     text = render_frontmatter(skill) + body
     if skill.fallback_note:
         text = text.rstrip("\n") + (
             "\n\n## Degraded mode (no paid connectors)\n\n" + skill.fallback_note + "\n"
         )
-    return text
+    return text.rstrip("\n") + "\n\n" + OPERATOR_CLOSE_BLOCK
 
 
 def generate(skill: GTMSkill, plugin_root: Path | None = None) -> Path:
@@ -117,9 +133,33 @@ def skills_index_path(plugin_root: Path) -> Path:
     return plugin_root.parent / "docs" / "SKILLS.md"
 
 
+def say_phrases(description: str) -> tuple[str, ...]:
+    """Parse trigger phrases from a skill's description.
+
+    Finds the clause starting with 'says' and extracts all double-quoted
+    strings that follow it. Returns () if no such clause exists.
+    """
+    import re
+
+    match = re.search(r"\bsays\b(.*)", description, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ()
+    tail = match.group(1)
+    quotes = re.findall(r'"([^"]+)"', tail)
+    return tuple(quotes)
+
+
+def _say_cell(description: str) -> str:
+    phrases = say_phrases(description)
+    if not phrases:
+        return ""
+    return ", ".join(f'"{p}"' for p in phrases)
+
+
 def _blurb(description: str, width: int = 116) -> str:
     """One-line table cell from a (long) description — markdown stripped, word-boundary truncation."""
-    d = " ".join(description.replace("**", "").replace("`", "").split())
+    clean = description.split("Trigger when the user says")[0].strip()
+    d = " ".join(clean.replace("**", "").replace("`", "").split())
     if len(d) <= width:
         return d
     return d[:width].rsplit(" ", 1)[0].rstrip(",;:—- ") + "…"
@@ -128,7 +168,9 @@ def _blurb(description: str, width: int = 116) -> str:
 def render_index(skills: list[GTMSkill]) -> str:
     rows = [
         f"| [`{s.name}`](../plugin/skills/{s.name}/SKILL.md) | {s.capability_tier.value} "
-        f"| {', '.join(s.requires_capability) if s.requires_capability else '—'} | {_blurb(s.description)} |"
+        f"| {', '.join(s.requires_capability) if s.requires_capability else '—'} "
+        f"| {_say_cell(s.description)} "
+        f"| {_blurb(s.description)} |"
         for s in sorted(skills, key=lambda x: x.name)
     ]
     header = [
@@ -141,8 +183,8 @@ def render_index(skills: list[GTMSkill]) -> str:
         f"**{len(skills)} skills**, generated from the manifests in `gtm_core/skills/`. This is the "
         "single source of truth for the skill inventory — other docs link here rather than restate it.",
         "",
-        "| Skill | Tier | Requires product capability | What it does |",
-        "|---|---|---|---|",
+        "| Skill | Tier | Requires product capability | Say this | What it does |",
+        "|---|---|---|---|---|",
     ]
     return "\n".join(header + rows) + "\n"
 
@@ -204,6 +246,28 @@ def check(plugin_root: Path | None = None) -> list[str]:
     return drift
 
 
+def generate_overlays(overlays_root: Path | None = None) -> list[Path]:
+    from . import registry
+
+    if overlays_root is None:
+        overlays_root = (
+            Path(__file__).resolve().parents[2] / "oss" / "overlays" / "plugin" / "skills"
+        )
+    if not overlays_root.is_dir():
+        return []
+    skills_by_name = {s.name: s for s in registry.all_skills()}
+    written: list[Path] = []
+    for body_file in sorted(overlays_root.glob("*/body_template.md")):
+        skill_name = body_file.parent.name
+        skill = skills_by_name.get(skill_name)
+        if skill is None:
+            continue
+        target = body_file.parent / "SKILL.md"
+        target.write_text(render(skill, body_file.read_text(encoding="utf-8")), encoding="utf-8")
+        written.append(target)
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gtm_core.skills.codegen")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -211,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         sp = sub.add_parser(name)
         sp.add_argument("name")
     sub.add_parser("generate-all")
+    sub.add_parser("generate-overlays")
     sub.add_parser("check")
     args = parser.parse_args(argv)
 
@@ -231,6 +296,10 @@ def main(argv: list[str] | None = None) -> int:
         for skill in skills:
             print(f"wrote {generate(skill)}")
         print(f"wrote {generate_index(skills)}")
+        return 0
+    if args.cmd == "generate-overlays":
+        for path in generate_overlays():
+            print(f"wrote {path}")
         return 0
     if args.cmd == "check":
         drift = check()

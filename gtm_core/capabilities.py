@@ -359,6 +359,87 @@ def probe(repo_root=None) -> Capabilities:
     )
 
 
+FOUNDER_WORDS: dict[str, tuple[str, str]] = {
+    "Vibe Prospecting": (
+        "Finds companies that fit your ICP",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "RocketReach": (
+        "Finds verified buyer email and phone numbers",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "Firecrawl": (
+        "Deep web research and scraping",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "Saleshandy": (
+        "Cold email sending and sequencing",
+        "configured on server",
+    ),
+    "Syften": (
+        "Community social listening across Reddit, X, and forums",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "Google": (
+        "Reads email and calendar context",
+        "Settings → Connectors",
+    ),
+    "Telegram Cockpit": (
+        "Mobile approval gates and notifications",
+        "configured on server",
+    ),
+    "ElevenLabs": (
+        "Voice synthesis and spoken audio",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "Higgsfield": (
+        "AI video and motion visuals",
+        "Settings → Connectors → Add custom connector",
+    ),
+    "Gemini": (
+        "Image rendering and visual analysis",
+        "Settings → Connectors → Add custom connector",
+    ),
+}
+
+
+def _probe_tool(name: str) -> bool:  # noqa: PLR0911 — one early return per connector probe
+    if name == "Vibe Prospecting":
+        return os.getenv("VIBE_PROSPECTING_CONNECTED", "false").strip().lower() == "true"
+    if name == "RocketReach":
+        return bool(os.getenv("ROCKETREACH_API_KEY"))
+    if name == "Firecrawl":
+        return bool(os.getenv("FIRECRAWL_API_KEY"))
+    if name == "Saleshandy":
+        return bool(os.getenv("SALESHANDY_API_KEY"))
+    if name == "Syften":
+        return bool(os.getenv("SYFTEN_API_KEY"))
+    if name == "Google":
+        return bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID"))
+    if name == "Telegram Cockpit":
+        return bool(os.getenv("TELEGRAM_BOT_TOKEN"))
+    if name == "ElevenLabs":
+        return bool(os.getenv("ELEVENLABS_API_KEY"))
+    if name == "Higgsfield":
+        return bool(os.getenv("HIGGSFIELD_API_KEY"))
+    if name == "Gemini":
+        return bool(os.getenv("GEMINI_API_KEY"))
+    return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    for tool_name, (what, where) in FOUNDER_WORDS.items():
+        try:
+            connected = _probe_tool(tool_name)
+            if connected:
+                print(f"{tool_name} — {what} — connected")
+            else:
+                print(f"{tool_name} — {what} — not connected ({where})")
+        except Exception as exc:
+            print(f"{tool_name} — {what} — couldn't check ({exc})")
+    return 0
+
+
 # ── Convenience factories ─────────────────────────────────────────────────────
 
 

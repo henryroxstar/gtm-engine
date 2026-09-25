@@ -1,4 +1,4 @@
-"""Environment self-check for the GTM engine.
+"""Environment self-check for GTM Engine.
 
 Run it to see, at a glance, which capability tier your environment unlocks:
 
@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
+
+from gtm_core.runtime_kind import is_desktop_session
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,23 @@ def render(stream=sys.stdout) -> bool:
     tier0_ok = True
     print("gtm-engine — environment check\n", file=stream)
 
+    desktop = is_desktop_session()
+    if desktop:
+        print("TIER 0 — the brain", file=stream)
+        print(
+            "        [READY]  You're signed in through the Claude app, so there is no key to set.",
+            file=stream,
+        )
+        if _is_set("ANTHROPIC_API_KEY"):
+            print(
+                "        Note: an ANTHROPIC_API_KEY is also set. The app does not need it, and some steps would bill you twice. Remove it unless you run the self-hosted server.",
+                file=stream,
+            )
+        print("", file=stream)
+
     for tier in TIERS:
+        if desktop and tier.required:
+            continue
         set_count = sum(1 for v in tier.vars if _is_set(v.name))
         total = len(tier.vars)
 

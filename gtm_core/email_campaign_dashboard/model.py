@@ -15,21 +15,23 @@ from ..prospect_lede import compose_lede
 from ..prospect_paths import evals_dir
 from ..prospect_readiness import load_readiness
 from ..prospect_status import (
-    STATUSES,
-    UnmappedStatus,
     compute_attrition_receipt,
-    needs_address,
-    status_of,
 )
 from ..prospect_status_receipt import cross_check
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
 from ..prospects_state import load_latest
 from .aggregate import _scope_figures
+from .config import resolve_seat_coverage
 from .format import _rate_of
-from .health import capability_rows_for, list_rows, page_extras, page_go_live
-from .lane_state import LaneStateUnreadable as LaneStateUnreadable
-from .lane_state import _read_lane_state
+from .health import capability_rows_for, list_rows, page_extras, page_go_live, scoped_trust
+from .lane_state import (
+    LaneStateUnreadable as LaneStateUnreadable,
+)
+from .lane_state import (
+    _read_lane_state,
+    prospect_status_model,
+)
 from .loadfiles import load_files
 from .sources import (  # noqa: F401  (re-exported: model is the package's assembly point)
     packs_model,
@@ -38,62 +40,6 @@ from .sources import (  # noqa: F401  (re-exported: model is the package's assem
     samples_model,
     seat_fit,
 )
-
-#: The five statuses `status_of` derives from a routed row's (lane, reason). `needs_address`
-#: is the sixth `STATUSES` id but comes from `latest.json`, not from a routed row — see
-#: `prospect_status_model`, which gives it its own key rather than folding it into this tuple.
-_LANE_STATUSES: tuple[str, ...] = tuple(s for s in STATUSES if s != "needs_address")
-
-
-def prospect_status_model(profile: str, content_root: Path | None = None) -> dict:
-    """PS14's population: the six-way operator status, derived the one place it is derived
-    (`gtm_core.prospect_status`) — never re-implemented here, so the page and `prospects
-    status` cannot disagree about what one of these words means.
-
-    A `(lane, reason)` pair `status_of` has never seen is a real gap in the mapping (see
-    that module's docstring), and `prospects status` answers for nothing else on a run, so
-    it can afford to raise loudly on one. A dashboard render answers for the WHOLE page —
-    one such row must not blank every tile beside it, so it is counted separately
-    (`unmapped`) rather than raising. Both surfaces read the same file through the same
-    function; only the failure mode differs, and this is where that divergence is decided
-    and recorded.
-
-    `needs_address` is a different, larger population (the account ledger, not the current
-    routed list) and is never summed into `total` — see `gtm_core.prospect_status.
-    needs_address`'s own docstring.
-    """
-    records = _read_lane_state(profile, content_root)
-    counts: dict[str, int] = dict.fromkeys(_LANE_STATUSES, 0)
-    by_email: dict[str, str] = {}
-    unmapped = 0
-    for rec in records:
-        reason = rec.get("reason") or rec.get("trigger") or ""
-        email = (rec.get("email") or "").strip().lower()
-        try:
-            status = status_of(rec.get("lane") or "", reason)
-        except UnmappedStatus:
-            unmapped += 1
-            if email:
-                by_email[email] = "unmapped"
-            continue
-        counts[status] += 1
-        if email:
-            by_email[email] = status
-    items = load_latest(profile, content_root).get("items", [])
-    return {
-        # Whether `lanes route` has ever produced output for this profile — the tiles
-        # render "—" rather than a misleading zero when this is False.
-        "available": bool(records),
-        "counts": counts,
-        "total": sum(counts.values()),
-        "unmapped": unmapped,
-        "needs_address": sum(1 for item in items if needs_address(item)),
-        # `email -> status`, for the worklist and who-tab tables' Status column. A miss is
-        # ordinary (a roster row and a router row are different populations) and is handled
-        # by the reader, not by this dict.
-        "by_email": by_email,
-    }
-
 
 # --- model ----------------------------------------------------------------------
 
@@ -193,22 +139,31 @@ def inbound_health(profile: str, content_root: Path | None = None) -> dict:
     The point of surfacing these is that a sweep or a sync that quietly stopped looks
     identical to one that is working — the same failure `prospecting_runs` exists to catch.
     """
+    from gtm_core.optout_sets import optout_sets
     from gtm_core.prospects_import import _ledgers
 
-    latest: dict = {"capability": None, "dnc": None, "unreadable": 0, "unreadable_recent": []}
-    for ev in _ledgers(profile, content_root).iter_history():
+    latest: dict = {"capability": None, "dnc": None, "unreadable_recent": []}
+    history = list(_ledgers(profile, content_root).iter_history())
+    for ev in history:
         event = ev.get("event")
         if event == "capability_asserted":
             latest["capability"] = ev
         elif event in ("dnc_reconciled", "dnc_sync_skipped", "dnc_sync_refused"):
             latest["dnc"] = ev
         elif event == "optout_unreadable":
-            latest["unreadable"] += 1
             latest["unreadable_recent"].append(
                 {"email": ev.get("email", ""), "ts": (ev.get("ts") or "")[:10]}
             )
     latest["unreadable_recent"] = latest["unreadable_recent"][-5:]
-    return dict(latest, capability_rows=capability_rows_for(latest["capability"]))
+    detected, unreadable, added, unattributable = optout_sets(history)
+    return dict(
+        latest,
+        capability_rows=capability_rows_for(latest["capability"]),
+        optout_detected=len(detected),
+        optout_dnc_added=len(detected & added),
+        optout_unattributable=unattributable,
+        unreadable=len(unreadable),
+    )
 
 
 def _lint_records(profile: str, content_root: Path | None) -> dict[str, dict]:
@@ -347,6 +302,7 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
         )
     m["status"] = dict(m["status"], sequences=seqs, sequence=(seqs[0] if seqs else {}))
     m["campaigns"] = dict(m["campaigns"], campaigns=wanted, unlinked_sequences=[])
+    m.update(scoped_trust(m, ids))
     m["messages"] = [x for x in m.get("messages", []) if x.get("sequence_id") in ids]
 
     # Packs carry no sequence id; they are tied to the campaign by its date suffix, which is
@@ -355,23 +311,22 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
     # one can claim none — leaving the full list in place would have let `agent-gateway-cross-org`
     # display six packs written for a different campaign.
     dates = {mm.group(1) for s in slugs if (mm := re.search(r"(\d{8})$", s))}
-    if True:
-        pm = m.get("packs") or {}
-        rows = [r for r in pm.get("packs", []) if r["date"].replace("-", "") in dates]
-        spread: dict[str, int] = {}
-        for r in rows:
-            if r["capability"]:
-                spread[r["capability"]] = spread.get(r["capability"], 0) + 1
-        # Packs in the capability era but belonging to ANOTHER campaign are dropped by the
-        # date filter. Counted here rather than silently vanishing — a pack that exists and
-        # appears in no total is how a lane goes missing in the first place.
-        m["packs"] = dict(
-            pm,
-            packs=rows,
-            spread=sorted(spread.items(), key=lambda kv: -kv[1]),
-            undeclared=sum(1 for r in rows if not r["capability"]),
-            other_campaigns=len(pm.get("packs", [])) - len(rows),
-        )
+    pm = m.get("packs") or {}
+    rows = [r for r in pm.get("packs", []) if r["date"].replace("-", "") in dates]
+    spread: dict[str, int] = {}
+    for r in rows:
+        if r["capability"]:
+            spread[r["capability"]] = spread.get(r["capability"], 0) + 1
+    # Packs in the capability era but belonging to ANOTHER campaign are dropped by the
+    # date filter. Counted here rather than silently vanishing — a pack that exists and
+    # appears in no total is how a lane goes missing in the first place.
+    m["packs"] = dict(
+        pm,
+        packs=rows,
+        spread=sorted(spread.items(), key=lambda kv: -kv[1]),
+        undeclared=sum(1 for r in rows if not r["capability"]),
+        other_campaigns=len(pm.get("packs", [])) - len(rows),
+    )
     m["roster"] = roster_model(m["profile"], roster_sources(wanted), m.get("_content_root"))
     samples: dict = {"packs": [], "touches": [], "rendered": []}
     for s in slugs:
@@ -494,6 +449,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         "roster": roster_model(profile, roster_sources(campaigns.get("campaigns")), content_root),
         "cells": cellmodel,
         "supply": supply,
+        "seat_coverage": resolve_seat_coverage(profile, content_root=content_root),
         "intent": intent,
         "messages": messages,
         "outcome_rows": len(rows),

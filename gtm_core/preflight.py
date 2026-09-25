@@ -202,6 +202,17 @@ def adjudicate(
                 blocking.append(name)
             else:
                 degraded.append(name)
+
+    web_floor_offer = False
+    if blocking:
+        web_causes = [
+            c
+            for c in blocking
+            if caps[c]["available"] and caps[c]["via"] == "web" and not no_fallback
+        ]
+        if len(web_causes) == len(blocking):
+            web_floor_offer = True
+
     return {
         "observed": observed,
         "capabilities": caps,
@@ -209,6 +220,7 @@ def adjudicate(
         "blocking": blocking,
         "degraded": degraded,
         "proceed": not blocking,
+        "web_floor_offer": web_floor_offer,
     }
 
 
@@ -225,7 +237,23 @@ def render(verdict: dict) -> str:
         if cap["degraded"] and cap["note"]:
             lines.append(f"         {cap['note']}")
     lines.append("=" * 62)
-    if verdict["blocking"]:
+    if verdict.get("web_floor_offer"):
+        from gtm_core.refusal_copy import Refusal
+
+        refusal = Refusal(
+            what="I stopped before spending",
+            why="the step you asked for needs verified contacts and no contact tool is connected",
+            next_step="Connect Vibe or RocketReach in Settings → Connectors",
+            alternative="say 'run it on web search' to get companies only",
+            cost="Nothing was spent",
+        )
+        lines += [
+            "",
+            refusal.render(),
+            "",
+            "You can still run on free web search: companies only, no verified contacts, nothing to load into a sender.",
+        ]
+    elif verdict["blocking"]:
         lines += [
             "",
             "STOP — this run cannot deliver what was asked for:",

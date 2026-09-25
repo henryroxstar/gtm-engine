@@ -119,14 +119,16 @@ def test_title_falls_back_to_the_profile_without_a_product(tmp_path):
     assert f"Email Campaign Status — {profile}" in _page(tmp_path, profile)
 
 
-def test_page_carries_the_three_reader_questions(tmp_path):
+def test_page_carries_the_five_tab_labels(tmp_path):
     profile = _seed(tmp_path)
     out = gd.render_dashboard(profile, tmp_path, stubs=False)
     page = out.read_text(encoding="utf-8")
     assert out.name == "email_campaign_status.html"
     import html as _h
 
-    for label in ("Who we're emailing", "What we're saying", "What we'll learn"):
+    expected = ("Overview", "Accounts", "Emails", "Results", "Operator notes")
+    assert tuple(label for _tid, label in gd.TABS) == expected
+    for _tid, label in gd.TABS:
         assert f">{_h.escape(label)}</button>" in page
 
 
@@ -274,11 +276,15 @@ def test_stubs_can_be_declined(tmp_path):
 def test_status_tab_is_first_and_shows_sending_and_prospecting(tmp_path):
     """ "Where things stand" is the landing question: is it sending, and is the pipeline
     that feeds it still running? Neither had a home on any page before."""
+    from tests.contracts.dashboard_page import panel
+
     profile = _seed(tmp_path)
     page = _page(tmp_path, profile)
-    assert page.index('data-t="status"') < page.index('data-t="who"')
-    assert "Email sequences" in page
-    assert "Finding new people" in page
+    assert '<button class="tab on" data-t="overview">' in page
+    assert page.index('data-t="overview"') < page.index('data-t="accounts"')
+    ops = panel(page, "ops")
+    assert "Email sequences" in ops
+    assert "Finding new people" in ops
 
 
 # ----------------------------------------------------------------- PS14: the status tiles
@@ -401,11 +407,13 @@ def test_needs_address_is_kept_out_of_the_five_tile_total(tmp_path):
     assert "not part of the 1 above" in page
 
 
-def test_status_column_appears_on_both_row_level_tables_and_marks_seat_kind_technical(
+def test_status_column_appears_on_the_account_table_and_marks_seat_kind_technical(
     tmp_path,
 ):
-    """PS14's Status column, end to end: joined by email onto the worklist AND the who-tab
-    table, with the existing machine columns moved behind the technical-detail toggle."""
+    """PS14's Status column, end to end: joined by email onto the account table,
+    with the existing machine columns moved behind the technical-detail toggle."""
+    from tests.contracts.dashboard_page import panel
+
     profile = _seed(tmp_path)
     pros = pc._prospects_dir(profile, tmp_path)
     (pros / "mine-hubspot.csv").write_text(
@@ -424,7 +432,8 @@ def test_status_column_appears_on_both_row_level_tables_and_marks_seat_kind_tech
         [{"email": "ada@analytical.example", "lane": "personalised", "reason": "personalised"}],
     )
     page = _page(tmp_path, profile)
-    assert page.count("<th>Status</th>") == 2, "one on the worklist table, one on who's"
+    assert page.count("<th>Status</th>") == 1
+    assert "<th>Status</th>" in panel(page, "accounts")
     from gtm_core.prospect_status import LABELS
 
     assert LABELS["ready_to_send"] in page
@@ -432,7 +441,7 @@ def test_status_column_appears_on_both_row_level_tables_and_marks_seat_kind_tech
         "the routed count must not render under a name that can be read as finished — the "
         "checks that decide whether a row may go have not run at this point"
     )
-    assert '<th class="tech">Seat kind</th>' in page
+    assert '<th class="tech">Tier</th>' in page
     assert '<th class="tech">Research verdict</th>' in page
 
 
@@ -485,9 +494,7 @@ def test_i9_machine_columns_hidden_or_relabeled_in_page_headers(tmp_path):
             f"Machine column {col!r} is default-visible in table headers: {default_visible_headers}"
         )
 
-    assert "Seat" in tech_headers
-    assert "Seat kind" in tech_headers
-    assert "Research verdict" in tech_headers
+    assert tech_headers == ["Tier", "How it was verified", "Research verdict"]
 
 
 def test_i10_status_tiles_scope_note_on_campaign_page_and_provenance(tmp_path):
@@ -586,8 +593,8 @@ def test_m16_unmapped_status(tmp_path):
 
 
 def test_m17_ops_view_drifted_deduplication_by_sequence_id():
-    """M17: views_learn._ops_view deduplicates messages by sequence_id."""
-    from gtm_core.email_campaign_dashboard.views_learn import _ops_view
+    """M17: views_ready._readiness_blocks deduplicates messages by sequence_id."""
+    from gtm_core.email_campaign_dashboard.views_ready import _readiness_blocks
 
     m = {
         "campaigns": {
@@ -600,8 +607,8 @@ def test_m17_ops_view_drifted_deduplication_by_sequence_id():
             {"sequence_id": "seq2", "lint": {"drift": []}},
         ],
     }
-    html = _ops_view(m)
-    assert "<strong>1 of 2 sequences</strong> were revised" in html
+    blocks = _readiness_blocks(m)
+    assert "<strong>1 of 2 sequences</strong> were revised" in blocks["re-push"]
 
 
 def test_m18_render_dashboard_syncs_tech_toggle_on_load(tmp_path):
@@ -614,7 +621,7 @@ def test_m18_render_dashboard_syncs_tech_toggle_on_load(tmp_path):
 
 def test_m19_prospect_status_card_no_state_diff_note(tmp_path):
     """M19: When available is False, the Needs-an-address card notes 'not part of the routed list'."""
-    from gtm_core.email_campaign_dashboard import views_status
+    from gtm_core.email_campaign_dashboard.views_overview import _needs_address_block
 
     m = {
         "prospect_status": {
@@ -626,7 +633,7 @@ def test_m19_prospect_status_card_no_state_diff_note(tmp_path):
         },
         "campaigns": {"campaigns": []},
     }
-    html = views_status._prospect_status_block(m)
+    html = _needs_address_block(m)
     assert "A different population — not part of the routed list." in html
     assert "not part of the 0 above" not in html
 
@@ -937,25 +944,30 @@ def test_run_state_is_not_a_banner_over_every_panel(tmp_path):
     """A page-level banner renders above the tabs, so it shows on all five. Only a warning
     about the figures themselves earns that; "nothing has been sent" is a fact about the run,
     and repeating it over Who / What / Learn is noise the reader cannot dismiss."""
+    from tests.contracts.dashboard_page import panel
+
     profile = _seed_operational(tmp_path)
     page = _page(tmp_path, profile)
-    head = page.split('id="p-status"')[0]
+    head = page.split('<section id="p-', 1)[0]
     assert "Nothing has been sent" not in head
     assert "Re-push" not in head
-    assert "Nothing has been sent" in page.split('id="p-ops"')[1]
+    assert "Nothing has been sent" in panel(page, "ops")
 
 
-def test_the_status_panel_still_states_that_nothing_has_gone_out(tmp_path):
+def test_the_overview_and_results_still_state_that_nothing_has_gone_out(tmp_path):
     """Moving the banner must not cost the reader the fact. The first tile carries it, as a
     count of PEOPLE contacted read off its marked figure (PS20 T1.4) — "emails sent" also
     appears in the benchmark notes, so a substring check here passed by accident."""
+    from tests.contracts.dashboard_page import panel
     from tests.contracts.test_dashboard_ps20_trust import _fig, _tile
 
     profile = _seed_operational(tmp_path)
     page = _page(tmp_path, profile)
-    status = page.split('id="p-status"')[1].split("</section>")[0]
-    assert _fig(status, "contacted-current") == "0"
-    assert '<div class="stat-label">people contacted</div>' in _tile(status, "contacted-current")
+    overview = panel(page, "overview")
+    results = panel(page, "results")
+    assert _fig(overview, "campaign-contacted-c1") == "0"
+    assert _fig(results, "contacted-current") == "0"
+    assert '<div class="stat-label">people contacted</div>' in _tile(results, "contacted-current")
 
 
 def test_a_figures_warning_does_stay_above_every_panel(tmp_path):
@@ -966,18 +978,20 @@ def test_a_figures_warning_does_stay_above_every_panel(tmp_path):
     stats = json.loads((pool / "sequence-stats.json").read_text(encoding="utf-8"))
     stats["sequences"].append({"id": "GHOST", "name": "Ghost", "status": "paused", "sent": 0})
     (pool / "sequence-stats.json").write_text(json.dumps(stats), encoding="utf-8")
-    head = _page(tmp_path, profile).split('id="p-status"')[0]
+    head = _page(tmp_path, profile).split('<section id="p-')[0]
     assert "These numbers may be out of date" in head
 
 
 def test_a_passing_check_never_reads_as_ready_while_the_loaded_copy_differs(tmp_path):
     """The state stays with the badge it qualifies. Moving it out with the procedure would
     leave a green PASS as the only thing next to copy that is not what would send."""
+    from tests.contracts.dashboard_page import panel
+
     profile = _seed_operational(tmp_path)
     page = _page(tmp_path, profile)
-    what = page.split('id="p-what"')[1].split("</section>")[0]
-    assert "not cleared to start" in what
-    assert "PASS" in what
+    emails = panel(page, "emails")
+    assert "not cleared to start" in emails
+    assert "PASS" in emails
 
 
 def _fingerprint_the_lint_record(tmp_path, profile="acme"):
@@ -1066,7 +1080,8 @@ def test_a_threaded_reply_is_not_counted_as_a_subject_line(tmp_path):
     profile = _seed_operational(tmp_path)
     page = _page(tmp_path, profile)
     assert "carry a subject of their own" in page
-    assert "arrive as replies inside the first email" in page
+    # One threaded email in this fixture, so the sentence is singular (PS20 2.6a).
+    assert "arrives as a reply inside the first email" in page
 
 
 # --- the 1:1 pack lane -----------------------------------------------------------------
@@ -1474,21 +1489,21 @@ def test_one_sequence_reachable_from_four_registrations_is_counted_once(tmp_path
 def test_prospecting_runs_are_scoped_out_of_a_campaign_page(tmp_path):
     """A run export carries no campaign tag, so the profile's discovery history cannot be
     rendered under one campaign's heading — six of the eight runs listed predated it."""
-    from gtm_core.email_campaign_dashboard.views_status import _status_view
+    from gtm_core.email_campaign_dashboard.views_ops import _runs_block
 
     profile = _seed_operational(tmp_path)
     m = gd.build_model(profile, tmp_path)
-    wide = _status_view(m)
+    wide = _runs_block(m)
     assert "<h2>Finding new people</h2>" in wide, "the rollup page keeps it — it is its question"
 
     m["campaign_scope"] = "c1"
-    scoped = _status_view(m)
+    scoped = _runs_block(m)
     assert scoped.count("Finding new people") == 1, "once, not twice"
     assert "Not shown on a scoped page" in scoped.split("Finding new people")[1][:200]
 
 
 def test_the_learn_panel_leads_with_the_campaigns_own_questions():
-    from gtm_core.email_campaign_dashboard.views_learn import _headline_learnings
+    from gtm_core.email_campaign_dashboard.views_results import _headline_learnings
 
     out = _headline_learnings(
         {
@@ -1613,3 +1628,45 @@ def test_seat_fit_is_empty_rather_than_zero_without_samples():
 
     assert seat_fit({}) == {}
     assert seat_fit({"samples": {"rendered": []}}) == {}
+
+
+def test_seat_fit_resolves_persona_against_the_tenant_vocabulary(tmp_path, monkeypatch):
+    """PH13: ``seat_fit`` must hand its ``profile`` through to ``persona_of`` — "Kiln Warden"
+    is a title only a tenant's own ``role-vocabulary.toml`` can place. Without the profile
+    it is booked unresolved; with it, it resolves and (with no declared persona on this
+    lane) counts as matched."""
+    from gtm_core.email_campaign_dashboard.sources import seat_fit
+    from gtm_core.role_vocabulary import clear_cache
+
+    profile = "acme"
+    profiles_root = tmp_path / "profiles"
+    (profiles_root / profile / "knowledge").mkdir(parents=True)
+    (profiles_root / profile / "knowledge" / "role-vocabulary.toml").write_text(
+        """\
+default_persona = "kiln-warden"
+segments = ["enterprise", "unspecified"]
+security_only = []
+non_buyer_cues = []
+ceo_title_cues = []
+
+[[persona]]
+name = "kiln-warden"
+cues = ["kiln warden"]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    clear_cache()
+
+    m = {
+        "samples": {"rendered": [{"to": "r0@x.com"}]},
+        "roster": {"rows": [{"email": "r0@x.com", "seat": "Kiln Warden"}]},
+        "messages": [],
+    }
+
+    f_default = seat_fit(m)
+    assert f_default["unresolved"] == 1, "control: the default vocabulary must not know this title"
+
+    f_tenant = seat_fit(m, profile)
+    assert f_tenant["matched"] == 1, f"tenant persona not resolved — {f_tenant}"
+    assert f_tenant["unresolved"] == 0

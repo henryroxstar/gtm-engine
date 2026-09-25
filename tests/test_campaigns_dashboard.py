@@ -385,9 +385,9 @@ def test_build_campaigns_totals_carry_reply_labels_current_only(tmp_path):
 
 
 def test_build_campaigns_totals_zero_an_absent_label_field(tmp_path):
-    """A row that carries none of the label fields contributes 0, never a KeyError — a
-    row with no live entry at all (``live_by_id.get(sid, {})``) is the same shape as the
-    ledger-synthesised rows ``model.py`` builds for a campaign-scoped page."""
+    """A row that carries none of the label fields contributes 0, never a KeyError — the
+    same shape as the ledger-synthesised rows ``model.py`` builds for a campaign-scoped
+    page. (A sequence with no snapshot entry at all is the next test.)"""
     profile = "acme"
     _write_manifest(tmp_path, profile, "c1", 'slug = "c1"\nsequences = ["S1"]\n')
     _write_stats(tmp_path, profile, [{"id": "S1", "sent": 5}])
@@ -403,7 +403,32 @@ def test_build_campaigns_totals_zero_an_absent_label_field(tmp_path):
         assert c["actuals"][k] == 0
     assert c["actuals"]["bounced"] == 0
     assert c["actuals"]["delivered"] == 0
-    assert c["actuals"]["bounce_unavailable"] == 1  # no live entry -> not the "emails" source
+    assert c["actuals"]["bounce_unavailable"] == 1  # flat row, no status block -> not "emails"
+
+
+def test_build_campaigns_a_manifest_sequence_absent_from_the_snapshot(tmp_path):
+    """PS20 T3.1 — a sequence the manifest names but the snapshot does not carry
+    (``live_by_id.get(sid, {})``) adds nothing to any figure and is tallied as a bounce
+    it cannot supply, while its sibling's real figures still sum."""
+    profile = "acme"
+    _write_manifest(tmp_path, profile, "c1", 'slug = "c1"\nsequences = ["S1", "S9"]\n')
+    _write_stats(
+        tmp_path,
+        profile,
+        [
+            {
+                "sequenceId": "S1",
+                "prospects": [{"total": "10", "contacted": "10"}],
+                "emails": {"status": {"delivered": "95", "bounced": "5"}},
+            }
+        ],
+    )
+    c = cd.build_campaigns(profile, content_root=tmp_path)["campaigns"][0]
+    assert {s["sequence_id"] for s in c["sequences"]} == {"S1", "S9"}
+    assert c["actuals"]["bounced"] == 5
+    assert c["actuals"]["delivered"] == 95
+    assert c["actuals"]["bounce_unavailable"] == 1  # S9 only
+    assert c["actuals"]["interested"] == 0
 
 
 def test_build_campaigns_bounces_sum_only_over_the_emails_source(tmp_path):

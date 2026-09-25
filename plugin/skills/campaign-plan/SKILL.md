@@ -308,7 +308,7 @@ State outcomes as **counts before percentages** ("about 18 replies", not "5.9%")
 what gets forecast against. Keep the statistical basis to one line in `method_footnote` so the
 numbers stay defensible without being in the way.
 
-Finally append **both** `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers
+Finally, only when running under the Telegram cockpit, append **both** `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers
 both files:
 
 ```
@@ -326,7 +326,7 @@ When the operator says "refresh the campaign plan" or the prospect ledger was up
    inputs, and any named in-market accounts.
 3. Update only the changed sections; add a `## Updated [date]` note at the top summarizing what moved.
 4. Re-author the `.html` companion from the updated `.md`. Save with the same basename (overwrite);
-   emit both `⟦FILE:…⟧` sentinels again.
+   only when running under the Telegram cockpit, emit both `⟦FILE:…⟧` sentinels again.
 5. Overwrite the `.campaign.toml` manifest's `[targets]` with the refreshed base-case numbers and
    `plan_md`/`plan_html` if the date changed. Leave `sequences` and `status` alone unless the operator
    explicitly names a change — this step is a numbers refresh, not a re-link.
@@ -380,3 +380,17 @@ the resize honest rather than invisible.
   unclaimed middle", "the wedge is being claimed", "the plumbing"). Name the actual noun — e.g. "the
   market for cross-org agent trust that no vendor owns yet" — and spell out any strategy shorthand the
   first time it appears. A reader who has never seen this space should follow the argument.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

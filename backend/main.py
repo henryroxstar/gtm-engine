@@ -362,7 +362,7 @@ def create_app() -> FastAPI:
     init_sentry()
 
     app = FastAPI(
-        title="GTM Content OS — Backend API",
+        title="GTM Engine — Backend API",
         version="1.0.0",
         docs_url="/v1/docs",
         openapi_url="/v1/openapi.json",

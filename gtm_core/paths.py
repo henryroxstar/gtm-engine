@@ -183,11 +183,17 @@ class PathConfig:
     def from_env(cls, repo_root: Path | None = None) -> PathConfig:
         """Build from environment, honouring GTM_CONTENT_ROOT / GTM_PROFILES_ROOT."""
         root = None if repo_root is None else repo_root.resolve()
+        c_root = resolve_content_root(root)
+        p_root = resolve_profiles_root(root)
+        from gtm_core.active_profile import read_active_marker
+
+        marker_profile = read_active_marker(c_root, p_root)
         return cls(
-            content_root=resolve_content_root(root),
-            profiles_root=resolve_profiles_root(root),
+            content_root=c_root,
+            profiles_root=p_root,
             default_profile=_clean_env_path("ACTIVE_PROFILE")
             or _clean_env_path("GTM_PROFILE")
+            or marker_profile
             or "template",
         )
 

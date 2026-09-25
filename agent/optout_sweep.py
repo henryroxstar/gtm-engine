@@ -37,7 +37,7 @@ from datetime import UTC, datetime, timedelta
 
 from agent.config import Config
 from agent.ledgers import Ledgers
-from agent.optout_auto_add import handle_optout
+from agent.optout_auto_add import handle_optout, record_enrolled_alias
 from agent.optout_categories import _categories_by_thread
 from gtm_core.optout_watch import (
     OptOutMatch,
@@ -345,7 +345,12 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
                     )
             continue
         found += 1
-        if await handle_optout(cfg, profile, ledgers, match, _escalate):
+        # SC9b (4): a reply from an alias also gates the ENROLLED address — never auto-added.
+        alias_signal = record_enrolled_alias(ledgers, match, payload)
+        if alias_signal:
+            signals.append(alias_signal)
+        enrolled = alias_signal["who"] if alias_signal else None
+        if await handle_optout(cfg, profile, ledgers, match, _escalate, enrolled=enrolled):
             continue
         # SC9. The per-opt-out Telegram alert STAYS — it is the same-day deadline and
         # is not aggregated away. This signal is the second half the alert never had: a
@@ -453,17 +458,18 @@ async def _dispatch_signals(cfg: Config, profile: str) -> None:
         )
 
 
-async def _escalate(cfg: Config, profile: str, match, *, auto_outcome=None) -> bool:
-    """Push the Telegram alert; never let a notification failure abort the sweep."""
+async def _escalate(cfg: Config, profile: str, match, *, auto_outcome=None, enrolled=None) -> bool:
+    """Push the Telegram alert; never let a notification failure abort the sweep.
+
+    Optional keywords are forwarded only when set, so the plain call shape is unchanged.
+    """
     from agent.gate_notify import push_optout_alert
 
+    extra = {"auto_outcome": auto_outcome} if auto_outcome is not None else {}
+    if enrolled:
+        extra["enrolled"] = enrolled
     try:
-        if auto_outcome is None:
-            await push_optout_alert(cfg, cfg.profiles_root, profile, match)
-        else:
-            await push_optout_alert(
-                cfg, cfg.profiles_root, profile, match, auto_outcome=auto_outcome
-            )
+        await push_optout_alert(cfg, cfg.profiles_root, profile, match, **extra)
         return True
     except Exception:
         logger.warning("optout_sweep: push_optout_alert failed for %s", match.email, exc_info=True)

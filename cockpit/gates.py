@@ -242,7 +242,7 @@ class GateHandlers(CockpitComponent):
             )
         if reason:
             await placeholder.reply_text(
-                f"{header}⚠️ Not staged for publish — {reason}. Ask me to redraft."
+                f"{header}Not staged for publish — {reason}. Ask me to redraft."
             )
             return
 
@@ -254,18 +254,18 @@ class GateHandlers(CockpitComponent):
         if draft.scheduled_at:
             when_line = f"<b>Send at:</b> {html.escape(draft.scheduled_at)} (UTC)\n"
             action_line = (
-                "⚠️ Review the <b>exact</b> text above. Approving <b>schedules</b> it as-is to the "
+                "Review the <b>exact</b> text above. Approving <b>schedules</b> it as-is to the "
                 "one pre-authorized account, to post at the time shown <b>with no further review</b>. "
                 "Nothing else is sent."
             )
-            title = "🗓️ <b>Ready to schedule for LinkedIn</b>"
+            title = "⏸ <b>Ready to schedule for LinkedIn</b>"
         else:
             when_line = ""
             action_line = (
-                "⚠️ Review the <b>exact</b> text above. Approving publishes it as-is to the one "
+                "Review the <b>exact</b> text above. Approving publishes it as-is to the one "
                 "pre-authorized account. Nothing else is sent."
             )
-            title = "📤 <b>Ready to publish to LinkedIn</b>"
+            title = "⏸ <b>Ready to publish to LinkedIn</b>"
         # Reaching here with identity_used set means validate_disclosure already
         # passed above — this line confirms it to the operator rather than leaving
         # the disclosure check invisible. Platform AI-content toggles (TikTok/YouTube/
@@ -290,7 +290,7 @@ class GateHandlers(CockpitComponent):
         # caps the body well under this; this is the hard backstop.)
         if len(preview) > _TELEGRAM_MSG_LIMIT:
             await placeholder.reply_text(
-                f"{header}⚠️ The post + media is too long to show in full for approval. "
+                f"{header}The post + media is too long to show in full for approval. "
                 "Shorten it so the exact content fits one message before publishing — nothing staged."
             )
             return
@@ -340,7 +340,7 @@ class GateHandlers(CockpitComponent):
 
         if draft is None:
             await placeholder.reply_text(
-                f"{header}⚠️ A reply gate was emitted but no valid reply block was found — "
+                f"{header}A reply gate was emitted but no valid reply block was found — "
                 "nothing staged. Ask me to redraft."
             )
             return
@@ -348,20 +348,20 @@ class GateHandlers(CockpitComponent):
         reason = validate_reply(draft.body, self._reply_sender.settings.max_chars)
         if reason:
             await placeholder.reply_text(
-                f"{header}⚠️ Not staged for reply — {reason}. Ask me to redraft."
+                f"{header}Not staged for reply — {reason}. Ask me to redraft."
             )
             return
 
         to_line = html.escape(draft.to) if draft.to else "<i>the reply thread</i>"
         preview = (
-            f"{header}✉️ <b>Ready to reply</b> to {to_line}:\n\n"
+            f"{header}⏸ <b>Ready to reply</b> to {to_line}:\n\n"
             f"<b>Reply (exact):</b>\n<pre>{html.escape(draft.body)}</pre>\n\n"
-            "⚠️ Review the <b>exact</b> text above. Approving logs it and (if an auto-send "
+            "Review the <b>exact</b> text above. Approving logs it and (if an auto-send "
             "transport is configured) sends it as-is. By default nothing auto-sends — you send it."
         )
         if len(preview) > _TELEGRAM_MSG_LIMIT:
             await placeholder.reply_text(
-                f"{header}⚠️ The reply is too long to show in full for approval. "
+                f"{header}The reply is too long to show in full for approval. "
                 "Shorten it so the exact content fits one message — nothing staged."
             )
             return
@@ -479,7 +479,7 @@ class GateHandlers(CockpitComponent):
                 "Publish hash mismatch for token=%s — refusing.", token
             )
             await query.message.reply_text(  # type: ignore[union-attr]
-                f"{header}⚠️ Draft integrity check failed — not published."
+                f"{header}Draft integrity check failed — not published."
             )
             return
 
@@ -521,7 +521,7 @@ class GateHandlers(CockpitComponent):
             await query.edit_message_reply_markup(reply_markup=None)
         except telegram.error.BadRequest:
             pass
-        await query.message.reply_text(f"{header}❌ Publish cancelled — nothing sent.")  # type: ignore[union-attr]
+        await query.message.reply_text(f"{header}Cancelled — nothing sent.")  # type: ignore[union-attr]
 
     async def _do_reply(self, query, chat_id: int, header: str, token: str) -> None:
         """Approve press: stage (default) or send the reply, then log a `reply` outcome.
@@ -545,7 +545,7 @@ class GateHandlers(CockpitComponent):
                 "Reply hash mismatch for token=%s — refusing.", token
             )
             await query.message.reply_text(  # type: ignore[union-attr]
-                f"{header}⚠️ Draft integrity check failed — reply not handled."
+                f"{header}Draft integrity check failed — reply not handled."
             )
             return
 
@@ -597,4 +597,4 @@ class GateHandlers(CockpitComponent):
             await query.edit_message_reply_markup(reply_markup=None)
         except telegram.error.BadRequest:
             pass
-        await query.message.reply_text(f"{header}❌ Reply cancelled — nothing sent.")  # type: ignore[union-attr]
+        await query.message.reply_text(f"{header}Cancelled — nothing sent.")  # type: ignore[union-attr]

@@ -296,7 +296,7 @@ State outcomes as **counts before percentages** ("about 18 replies", not "5.9%")
 what gets forecast against. Keep the statistical basis to one line in `method_footnote` so the
 numbers stay defensible without being in the way.
 
-Finally append **both** `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers
+Finally, only when running under the Telegram cockpit, append **both** `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers
 both files:
 
 ```
@@ -314,7 +314,7 @@ When the operator says "refresh the campaign plan" or the prospect ledger was up
    inputs, and any named in-market accounts.
 3. Update only the changed sections; add a `## Updated [date]` note at the top summarizing what moved.
 4. Re-author the `.html` companion from the updated `.md`. Save with the same basename (overwrite);
-   emit both `⟦FILE:…⟧` sentinels again.
+   only when running under the Telegram cockpit, emit both `⟦FILE:…⟧` sentinels again.
 5. Overwrite the `.campaign.toml` manifest's `[targets]` with the refreshed base-case numbers and
    `plan_md`/`plan_html` if the date changed. Leave `sequences` and `status` alone unless the operator
    explicitly names a change — this step is a numbers refresh, not a re-link.

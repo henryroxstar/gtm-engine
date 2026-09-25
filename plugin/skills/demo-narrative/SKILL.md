@@ -96,7 +96,7 @@ Save as **`demo-narrative-[company]-[YYYY-MM-DD].md`** in the account folder
 5. **Interruptions** — the wanted question, the three likely ones, the failure plan, the stop.
 6. **Setup checklist** — what must be seeded, logged in, or pre-warmed, and by when.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 Offer the hand-offs: `demo-capture` (record a beat once and reuse it), `build-deck` (the slides
 around it), `poc-plan` (when the room's real question is "does it work on *our* data", which is not
@@ -110,3 +110,17 @@ a demo question at all).
 - **Never present a roadmap capability as live**, on screen or in a sentence.
 - **Never demo with a real customer's data** — seeded or fictional only, and never another account's.
 - **Read-only.** Designs the narrative; records nothing, provisions nothing, sends nothing.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

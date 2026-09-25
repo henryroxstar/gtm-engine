@@ -64,18 +64,8 @@ Write-Host "==> interpreter probe ..."
 $contentRoot = (uv run python -m gtm_core.paths | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($contentRoot)) {
     # SINGLE-quoted here-string: a backtick is PowerShell's escape character, so the
-    # command name below would be parsed as an escape sequence inside a @" "@ block.
     Write-Error @'
-`uv run python -m gtm_core.paths` did not print a content root.
-
-If you saw "Python was not found; run without arguments to install from the Microsoft
-Store", a real interpreter is still being shadowed by the Windows App Execution Alias.
-Turn it off: Settings > Apps > Advanced app settings > App execution aliases, and toggle
-OFF both python.exe and python3.exe. Then open a NEW PowerShell window and re-run this.
-
-Do NOT continue to a pipeline run until this probe passes: the engine's budget guard,
-ledger writers and integrity gates are all Python, and they fail one at a time and
-quietly rather than stopping the run.
+The self-check could not start Python. On Windows this is usually the Store placeholder; see END-USER-ONBOARDING.md, 'If the check fails'. Do not run the engine until this ends with Ready.
 '@
     exit 1
 }
@@ -112,10 +102,9 @@ Write-Host ""
 uv run python -m gtm_core.check_env
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
-    Write-Host "==> Bootstrap finished, but TIER 0 is not set yet."
-    Write-Host "    Copy .env.example to .env and set ANTHROPIC_API_KEY, then re-run this."
+    Write-Host "==> Not ready yet. This copy runs on the self-hosted server, which needs an API key: copy .env.example to .env and set ANTHROPIC_API_KEY, or sign in with Doppler."
     exit 0   # not a hard failure - deps are installed; the user just needs a key
 }
 
 Write-Host ""
-Write-Host "==> Ready. Open the folder in Claude Code and say `"set me up`"."
+Write-Host "==> Ready. Open the folder in the Claude app and say `"set me up`"."

@@ -314,10 +314,21 @@ class PipelineRunner:
                 else:
                     batch_allowed = vps_budget_ok(self.cfg, self.profile)
                 if not batch_allowed:
+                    from gtm_core import budget_status
+
+                    sentence = budget_status.render(
+                        budget_status.status(
+                            self.profile,
+                            content_root=self.cfg.content_root,
+                            profiles_root=self.cfg.profiles_root,
+                        )
+                    )
                     entry = self._stage_entry(manifest, frontier[0])
                     entry["status"] = FAILED
                     entry["ended"] = _utc_now_iso()
-                    entry["error"] = "monthly cost cap reached — run aborted before any paid call"
+                    entry["error"] = (
+                        f"monthly cost cap reached ({sentence}) — run aborted before any paid call"
+                    )
                     self._persist(manifest)
                     await self._notify_node(frontier[0], entry)
                     return manifest

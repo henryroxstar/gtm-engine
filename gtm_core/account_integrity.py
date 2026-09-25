@@ -13,9 +13,8 @@ none of it flagged anywhere in the pipeline.
 
 Seven check families, all account- or row-level, none of which exists elsewhere:
 
-* ``no-dossier`` (ERROR) — the account has no research behind its Why Now clause.
-  Reuses :func:`gtm_core.prospects_consolidate.account_has_dossier` rather than
-  re-deriving dossier-existence logic a second time.
+* ``no-dossier`` (ERROR) — no research behind the Why Now clause in the account's one
+  folder (:func:`gtm_core.prospects_consolidate.dossier_folder`); an ambiguous one is named.
 * ``domain-mismatch`` (ERROR) — escalates ``check_row``'s advisory
   ``email-domain-mismatch`` finding into a load-time block. This module does not
   re-derive the domain logic; it re-grades the SAME finding at a different moment in
@@ -93,7 +92,7 @@ from .prospects_consolidate import (
     DOSSIER_GLOB_BRIEF,
     DOSSIER_GLOB_FULL,
     DOSSIER_GLOB_ONEPAGER,
-    account_has_dossier,
+    dossier_folder,
     org_token,
 )
 from .signal_record import audit_records
@@ -121,6 +120,7 @@ __all__ = [
     "load_competitors",
     "competitor_match",
     "filter_by_verdict",
+    "account_key",
     "audit_rows",
     "render",
     "main",
@@ -142,11 +142,10 @@ def dossier_depth(
     profile: str, company: str, company_domain: str = "", content_root: Path | None = None
 ) -> str:
     """Which dossier variant (if any) exists for this account, checked cheapest-first
-    so a ``full`` dossier is never misclassified as merely a brief. Reuses
-    :func:`gtm_core.prospects_consolidate.account_has_dossier` for the canonical-slug +
-    fuzzy-folder match; this only classifies what it found.
+    so a ``full`` dossier is never misclassified as merely a brief. The folder is the
+    one :func:`gtm_core.prospects_consolidate.dossier_folder` resolves; this classifies it.
     """
-    has, folder_name = account_has_dossier(profile, company, company_domain, content_root)
+    has, folder_name, _ = dossier_folder(profile, company, company_domain, content_root)
     return classify_dossier_folder(profile, folder_name, content_root) if has else DossierDepth.NONE
 
 
@@ -156,8 +155,8 @@ def classify_dossier_folder(
     """Classify an already-located account folder, without re-running the folder scan.
 
     Split out so a caller that has already resolved the folder (the row audit does,
-    for every account) classifies it with one filesystem walk instead of two — the
-    fuzzy match re-scans every account folder under the profile.
+    for every account) classifies it with one filesystem walk instead of two — resolving
+    the folder lists every account folder under the profile and reads the ledger.
     """
     if not folder_name:
         return DossierDepth.NONE
@@ -437,6 +436,7 @@ _ROW_LEVEL_RULES = frozenset(
         "signal-subject-missing",
         "signal-subject-mismatch",
         "signal-subject-absent-from-evidence",
+        "signal-subject-short-form",
         "agent-kind-unresolved",
         "agent-kind-unknown",
         "agent-kind-human",
@@ -587,6 +587,7 @@ GENERIC_LANE_STAYS_ERROR = frozenset(
         "signal-number-unsourced",
         "signal-subject-mismatch",
         "signal-subject-absent-from-evidence",
+        "signal-subject-short-form",
         "agent-kind-unknown",
         "agent-kind-human",
         "agent-kind-contradiction",
@@ -724,6 +725,19 @@ def _competitor_finding(
         a.warnings.append(f"competitor-flag: {company!r} — {hit.summary}")
 
 
+def account_key(r: dict) -> str:
+    """The one identity every per-account count and dedupe in this gate keys on.
+
+    ``account_id`` when the row carries one; the org token otherwise. The org token is the
+    domain when present and the name when not, so an account whose rows disagree on
+    ``company_domain`` got two tokens and every per-account finding twice.
+    """
+    account_id = (r.get("account_id") or "").strip()
+    if account_id:
+        return f"id:{account_id}"
+    return org_token(r.get("company_domain", ""), r.get("company", ""))
+
+
 def audit_rows(
     rows: list[dict],
     profile: str,
@@ -831,15 +845,17 @@ def audit_rows(
     for r in rows:
         company = r.get("company", "")
         domain = r.get("company_domain", "")
-        tok = org_token(domain, company)
+        tok = account_key(r)
         if tok and tok not in seen:
             seen.add(tok)
             a.accounts += 1
-            has, folder_name = account_has_dossier(profile, company, domain, content_root)
+            has, folder_name, why_not = dossier_folder(profile, company, domain, content_root)
             if not has:
                 a.no_dossier += 1
                 a.errors.append(
-                    f"no-dossier: {company!r} has no research behind its Why Now clause"
+                    f"no-dossier: {company!r} — {why_not}; decide which is this account's folder"
+                    if why_not
+                    else f"no-dossier: {company!r} has no research behind its Why Now clause"
                 )
             elif classify_dossier_folder(profile, folder_name, content_root) == DossierDepth.BRIEF:
                 a.leadership_unverified += 1

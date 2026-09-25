@@ -275,6 +275,27 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
 _HYP_CLS = {"can answer": "pill ok", "list too small": "pill", "not set up": "pill"}
 
 
+def _hypotheses_html(x: dict) -> str:
+    """The manifest's hypotheses, each with its status pill; "" when it declares none."""
+    if not x.get("hypotheses"):
+        return ""
+    rows = []
+    for h in x["hypotheses"]:
+        st = str(h.get("status", "") or "")
+        rows.append(
+            f'<div class="hyp">'
+            f'<div class="hyphead"><b>{html.escape(str(h.get("id", "")))}</b>'
+            f'<span class="claim">{html.escape(str(h.get("claim", "")))}</span>'
+            f'<span class="{_HYP_CLS.get(st, "pill")}">{html.escape(st or "—")}</span></div>'
+            f'<div class="hypbody">{html.escape(str(h.get("verdict", "")))}</div>'
+            f'<div class="hypneed"><b>To answer it we need:</b> '
+            f"{html.escape(str(h.get('needs', '')))}</div>"
+            f"</div>"
+        )
+    n = len(rows)
+    return f"<h3>The {n} question{'' if n == 1 else 's'} we set out to answer</h3>" + "".join(rows)
+
+
 def _experiment_block(x: dict) -> str:
     """The commercial read: what this run can and cannot tell us, the questions
     it was meant to answer, and how to avoid over-reading it. Everything here is
@@ -338,24 +359,7 @@ def _experiment_block(x: dict) -> str:
             "<tbody>" + rows + "</tbody></table>"
         )
 
-    if x.get("hypotheses"):
-        rows = []
-        for h in x["hypotheses"]:
-            st = str(h.get("status", "") or "")
-            rows.append(
-                f'<div class="hyp">'
-                f'<div class="hyphead"><b>{html.escape(str(h.get("id", "")))}</b>'
-                f'<span class="claim">{html.escape(str(h.get("claim", "")))}</span>'
-                f'<span class="{_HYP_CLS.get(st, "pill")}">{html.escape(st or "—")}</span></div>'
-                f'<div class="hypbody">{html.escape(str(h.get("verdict", "")))}</div>'
-                f'<div class="hypneed"><b>To answer it we need:</b> '
-                f"{html.escape(str(h.get('needs', '')))}</div>"
-                f"</div>"
-            )
-        n = len(rows)
-        out.append(
-            f"<h3>The {n} question{'' if n == 1 else 's'} we set out to answer</h3>" + "".join(rows)
-        )
+    out.append(_hypotheses_html(x))
 
     if x.get("confounds"):
         rows = "".join(

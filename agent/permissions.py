@@ -249,6 +249,17 @@ _EXTERNAL_EFFECT_LEAVES: frozenset[str] = frozenset(
         "delete_dnc_list",
         "update_dnc_list",
         "clear_dnc_list",
+        # ── Mail and chat send verbs: connector-agnostic leaf denial (PRD §3.A10, R-16) ────────
+        # Audited against the golden rules: the engine never sends email or Slack messages.
+        # Leaf denial is connector-agnostic on purpose: verbs like `send_message`, `reply`,
+        # and `forward` are denied on any server (Gmail, Outlook, Slack, Saleshandy, etc.)
+        # that exposes them. Draft creation and reading remain allowed; the person sends.
+        "send_message",
+        "forward",
+        "reply",
+        "slack_send_message",
+        "slack_schedule_message",
+        "reply_to_email",
     }
 )
 
@@ -1239,3 +1250,7 @@ def make_cockpit_can_use_tool(
         return PermissionResultDeny(message=message)
 
     return _cb
+
+
+if __name__ == "__main__":
+    print("\n".join(sorted(_EXTERNAL_EFFECT_LEAVES)))

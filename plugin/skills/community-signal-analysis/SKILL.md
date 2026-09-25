@@ -173,3 +173,17 @@ filter suggestions. Link the HTML and the filter report. Do **not** claim any fi
 ## Degraded mode (no paid connectors)
 
 If the Syften connector is not configured (no `SYFTEN_API_KEY` — the `mcp__syften__*` tools are absent), fall back to a **manual CSV/JSON drop**: ask the operator to export the matches from the Syften dashboard and place the file at `content/<active>/community-signals/raw/pull-<date>.<csv|json>`. Then run the same deterministic pipeline on that file — `python -m gtm_core.community_signal.score` for the metrics and `python -m gtm_core.community_signal.render` for the HTML. Signal-quality scoring still works as long as the export carries Syften's AI accept/reject verdict column; filter suggestions remain recommend-only regardless of connector state.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

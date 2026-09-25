@@ -164,17 +164,35 @@ def _lanes(m: dict) -> list[dict]:
     return lanes
 
 
-def _forecast_block(m: dict) -> str:
-    """How long the run takes once it starts, and what sets the ceiling.
+def _page_day(m: dict) -> date:
+    """The day the page was generated, from the model's own clock (`generated_at`, UTC).
 
-    Every duration here is arithmetic over a number printed beside it. A schedule quoted
-    without its divisor is exactly the figure that outlives the list it was computed from —
-    "about five weeks" was true of 1,359 emails and is still sitting in the campaign file
-    now that the checked list is smaller.
+    Every other date on the page reads that clock, so the forecast does too: a page rendered
+    at 23:00 UTC on a Friday must not date its sends from a local Saturday. `date.today()` is
+    only the fallback for a model that carries no readable clock.
+    """
+    try:
+        return date.fromisoformat(str(m.get("generated_at") or "")[:10])
+    except ValueError:
+        return date.today()
+
+
+def _wd(n: int) -> str:
+    return f"{n} working day{'' if n == 1 else 's'}"
+
+
+def _schedule(m: dict) -> dict:
+    """The forecast's arithmetic, once: the Operator-notes card and the Results sentence read it.
+
+    Returns ``{"why", "split": True}`` when the scope has no single ceiling or cadence,
+    ``{"empty": reason}`` when there is nothing to date (the reason names WHICH input is
+    missing: a scope with neither reads the ceiling one, because it is checked first), else
+    the figures. Every duration here is arithmetic over a number printed beside it. A schedule
+    quoted without its divisor is exactly the figure that outlives the list it was computed
+    from — "about five weeks" was true of 1,359 emails and is still sitting in the campaign
+    file now that the checked list is smaller.
     """
     fig = _scope_figures(m)
-    camps = m["campaigns"]["campaigns"]
-    window: dict = next((c["window"] for c in camps if c.get("window")), {})
     cap, cap_why = fig["cap"]
     boxes = fig["boxes"][0]
     touches, touches_why = fig["touches"]
@@ -187,16 +205,19 @@ def _forecast_block(m: dict) -> str:
     # with the numbers named. A cadence SPLIT is no longer a refusal: the lanes below carry
     # one cadence each and print it, which is what the split was warning could not be done.
     if cap_why:
-        return _cadence_split(m, camps, cap_why)
+        return {"why": cap_why, "split": True}
     lanes = _lanes(m)
     if not (cap and lanes):
         if touches_why:
-            return _cadence_split(m, camps, touches_why)
-        return ""
+            return {"why": touches_why, "split": True}
+        if not cap:
+            return {"empty": "no sending ceiling is declared"}
+        return {"empty": "nothing is loaded to send yet"}
 
-    start = date.today()
-    while start.weekday() > 4:
-        start += timedelta(days=1)
+    # Day 1 of sending is the first working day AFTER the page's day, whatever day that is.
+    # `_finish` skips weekends itself; moving a Saturday start to Monday first made Monday
+    # day 0 and every weekend-rendered date one working day late.
+    start = _page_day(m)
 
     def _finish(total: int) -> str:
         day, added = start, 0
@@ -217,31 +238,86 @@ def _forecast_block(m: dict) -> str:
             f"<tr><td>{_e(ln['label'])}</td><td class='num-cell'>{ln['people']:,}</td>"
             f"<td class='num-cell'>{emails:,}</td><td class='muted'>{per}</td>"
             f"<td class='num-cell'>{send_days} + {tail}</td>"
-            f"<td class='num-cell'>{total} working days</td>"
+            f"<td class='num-cell'>{_wd(total)}</td>"
             f"<td class='muted'>{_finish(total)}</td></tr>"
         )
 
     people_all = sum(ln["people"] for ln in lanes)
     emails_all = sum(ln.get("emails") or int(round(ln["people"] * ln["touches"])) for ln in lanes)
     span_all = max(ln["span"] for ln in lanes)
-    total_all = -(-emails_all // cap) + -(-span_all * 5 // 7)
+    send_days, tail = -(-emails_all // cap), -(-span_all * 5 // 7)
+    total_all = send_days + tail
     if len(lanes) > 1:
         rows += (
             "<tr><td><strong>the whole campaign</strong></td>"
             f"<td class='num-cell'><strong>{people_all:,}</strong></td>"
             f"<td class='num-cell'><strong>{emails_all:,}</strong></td>"
             "<td class='muted'>—</td>"
-            f"<td class='num-cell'>{-(-emails_all // cap)} + {-(-span_all * 5 // 7)}</td>"
-            f"<td class='num-cell'><strong>{total_all} working days</strong></td>"
+            f"<td class='num-cell'>{send_days} + {tail}</td>"
+            f"<td class='num-cell'><strong>{_wd(total_all)}</strong></td>"
             f"<td class='muted'><strong>{_finish(total_all)}</strong></td></tr>"
         )
+    return {
+        "lanes": lanes,
+        "cap": cap,
+        "boxes": boxes,
+        "touches": touches,
+        "rows": rows,
+        "emails_all": emails_all,
+        "span_all": span_all,
+        "send_days": send_days,
+        "tail": tail,
+        "total_all": total_all,
+        "finish": _finish(total_all),
+        "people_all": people_all,
+    }
+
+
+def when_done(m: dict) -> tuple[str | None, str | None]:
+    """The "when we will know" sentence, or None and the reason it cannot be dated.
+
+    Reads :func:`_schedule`, the same arithmetic as the Operator-notes table, so the date on
+    Results can never disagree with the table it summarises. It never says "Done by": that
+    phrase is the table's own header, which the aggregation-refusal test looks for.
+    """
+    s = _schedule(m)
+    if s.get("split"):
+        return None, s["why"]
+    if "empty" in s:
+        return None, s["empty"]
+    return (
+        f"If sending starts on the next working day, the last email goes out by {s['finish']}"
+        f" — {_wd(s['total_all'])}.",
+        None,
+    )
+
+
+def _forecast_block(m: dict) -> str:
+    """How long the run takes once it starts, and what sets the ceiling.
+
+    Rendered from :func:`_schedule`. Each sentence claims only what that arithmetic shows: the
+    follow-up arc sets the finish date only when sending is shorter than the arc, and the hand
+    note counts the rows that pace themselves rather than assuming one.
+    """
+    camps = m["campaigns"]["campaigns"]
+    s = _schedule(m)
+    if s.get("split"):
+        return _cadence_split(m, camps, s["why"])
+    if "empty" in s:
+        return ""
+    window: dict = next((c["window"] for c in camps if c.get("window")), {})
+    lanes, cap, boxes, touches = s["lanes"], s["cap"], s["boxes"], s["touches"]
+    emails_all, span_all, total_all = s["emails_all"], s["span_all"], s["total_all"]
+    send_days, tail = s["send_days"], s["tail"]
+    arc_binds = send_days <= tail
 
     # Rows drafted for a merge lane that the sequencer never loaded. They are written and
     # checked and they send nothing today, so they are named rather than counted: adding
     # them to a forecast would date a send that has no schedule behind it.
-    unloaded = max(0, len(drafted_to(m)) - people_all)
+    unloaded = max(0, len(drafted_to(m)) - s["people_all"])
     unloaded_note = (
-        f"<strong>{unloaded} more people have a drafted email that nothing will send.</strong> "
+        f"<strong>{unloaded} more {'person has' if unloaded == 1 else 'people have'} a drafted "
+        "email that nothing will send.</strong> "
         "They were rendered for a merge lane and never loaded into the sequence, so they are "
         "absent from every row above — a forecast can only date a send that has a schedule "
         "behind it. Loading them is a decision, not a missing step."
@@ -249,14 +325,40 @@ def _forecast_block(m: dict) -> str:
         else ""
     )
 
+    # `_lanes` puts the sequence lanes first, so "first" is true by construction.
+    autos = sum(1 for ln in lanes if ln.get("auto"))
+    hand = len(lanes) - autos
+    paces = (
+        "The first row paces itself" if autos == 1 else f"The first {autos} rows pace themselves"
+    )
     hand_note = (
-        """<p class="note"><strong>Only the first lane paces itself.</strong> The other rows
-        are hand sends: the merge-field gate refuses a row with no first name, and a 1:1 pack
-        has no sequence to put it in. Their dates are what the ladder asks for, not what any
-        tool will enforce — if nobody sends on day 7, that lane's finish date moves and
-        nothing reports it.</p>"""
-        if len(lanes) > 1
+        f"""<p class="note"><strong>{paces}.</strong> The other {hand}
+        {"row is a hand send" if hand == 1 else "rows are hand sends"}: the merge-field gate
+        refuses a row with no first name, and a 1:1 pack has no sequence to put it in. Their
+        dates are what the ladder asks for, not what any tool will enforce: if nobody sends on
+        the day, that row's finish date moves and nothing reports it.</p>"""
+        if autos and hand
         else ""
+    )
+
+    arc = (
+        f"""<strong>The follow-up arc sets the finish date, not the mailboxes.</strong>
+        All {emails_all:,} emails fit in {send_days} sending day{"" if send_days == 1 else "s"}
+        at a {cap}/day ceiling; what takes {total_all} working days is that the last person
+        enrolled still has their own {span_all}-day ladder to live through after the final send
+        starts. That is the "+ {tail}" column, and the longest row is the one that decides it."""
+        if arc_binds
+        else f"""<strong>The mailboxes set the finish date.</strong> Sending {emails_all:,}
+        emails at {cap} a day takes {_wd(send_days)}, longer than the {span_all}-day
+        follow-up arc."""
+    )
+    constraint = (
+        f"""The list is not the constraint — the mailboxes are, and on this campaign not
+        even they are: {emails_all:,} emails is {emails_all * 100 // (cap * max(total_all, 1))}%
+        of what the ceiling would absorb over the same {total_all} working days."""
+        if arc_binds
+        else f"""The list is not the constraint — the mailboxes are: at {cap} a day,
+        {emails_all:,} emails take {_wd(send_days)} to send."""
     )
 
     per_box = (cap // boxes) if boxes else 0
@@ -277,13 +379,9 @@ def _forecast_block(m: dict) -> str:
         <table><thead><tr><th>Audience</th><th>People</th><th>Emails</th>
         <th>Each person gets</th><th>Sending + tail</th><th>Total</th><th>Done by</th>
         </tr></thead>
-        <tbody>{rows}</tbody></table>
-        <p class="note"><strong>The follow-up arc sets the finish date, not the mailboxes.</strong>
-        All {emails_all:,} emails fit in {-(-emails_all // cap)} sending day at a {cap}/day ceiling;
-        what takes {total_all} working days is that the last person enrolled still has their own
-        {span_all}-day ladder to live through after the final send starts. That is the
-        "+ {-(-span_all * 5 // 7)}" column, and the longest lane is the one that decides it.
-        Dates assume it starts on the next working day, which it cannot yet.
+        <tbody>{s["rows"]}</tbody></table>
+        <p class="note">{arc}
+        Dates assume it starts on the next working day.
         {_e(caveat) and "<strong>Caveat:</strong> " + _e(caveat) + "."}</p>
         {hand_note}
         {f'<p class="note">{unloaded_note}</p>' if unloaded_note else ""}
@@ -291,9 +389,7 @@ def _forecast_block(m: dict) -> str:
 
       <div class="card">
         <h2>The ceiling, and why it is where it is</h2>
-        <p>{why}The list is not the constraint — the mailboxes are, and on this campaign not
-        even they are: {emails_all:,} emails is {emails_all * 100 // (cap * max(total_all, 1))}%
-        of what the ceiling would absorb over the same {total_all} working days.
+        <p>{why}{constraint}
         At {touches} emails a person that ceiling absorbs about <strong>{people_day} new people a working day</strong>,
         or <strong>{month:,} a month</strong>. Going faster means more mailboxes,
         not a setting: the per-mailbox rate is the number deliberately held down, because

@@ -88,6 +88,9 @@ td.gcell.empty { color:var(--line); }
 .panel { display:none; } .panel.on { display:block; }
 details { margin-top:12px; }
 summary { cursor:pointer; color:var(--muted); font-size:13px; }
+details.ops-group { margin:0 0 14px; }
+details.ops-group > summary { font-size:15px; font-weight:600; color:var(--ink);
+                              padding:10px 0; }
 /* The client-side filter. `[hidden]` is stated explicitly because a <tr> carries a
    table display role that overrides the UA's hidden rule in some engines, and the row
    filter hides table rows. */

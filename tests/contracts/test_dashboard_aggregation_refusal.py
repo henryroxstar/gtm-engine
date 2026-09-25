@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO))
 from gtm_core import email_campaign_dashboard as gd  # noqa: E402
 from gtm_core.email_campaign_dashboard.aggregate import _scope_figures  # noqa: E402
 from gtm_core.email_campaign_dashboard.format import _agree  # noqa: E402
+from tests.contracts.dashboard_page import panel, visible_text
 
 CSV = "First Name,Last Name,Email,Company Name,Company Domain Name,Email Status,GTM_Tier\n"
 
@@ -167,7 +168,7 @@ def test_a_partial_roster_refuses_rather_than_claiming_the_whole_segment(tmp_pat
     )
     assert "Not shown for" in both and "declare where their accounts live" in both
     assert "accounts researched" not in both
-    assert "Every account in" not in both, "the who-tab table asserts completeness too"
+    assert "Covers 1 of 2 campaigns" in visible_text(panel(both, "accounts"))
 
     # The SAME roster, scoped to the one campaign that declares it, is honest and renders.
     alone = gd.render_html(gd.scope_to_campaign(gd.build_model("acme", tmp_path), "mine-20260904"))

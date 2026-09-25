@@ -4,16 +4,82 @@ from pathlib import Path
 
 from ..prospects_consolidate import _prospects_dir
 
-TABS = (
-    # Worklist first on purpose: it answers "where does each account stand", which is what
-    # an operator opens this page to do. The four panels after it describe the campaign.
-    ("worklist", "The worklist"),
-    ("status", "Where things stand"),
-    ("who", "Who we're emailing"),
-    ("what", "What we're saying"),
-    ("learn", "What we'll learn"),
+#: PS20 Phase 2 — the five tabs, by question, in reading order (PRD Phase 2). Overview first:
+#: this page is read by a founder and a founding AE, so the worklist-first order is superseded.
+TABS: tuple[tuple[str, str], ...] = (
+    ("overview", "Overview"),
+    ("accounts", "Accounts"),
+    ("emails", "Emails"),
+    ("results", "Results"),
     ("ops", "Operator notes"),
 )
+#: A tab's label by id — how an in-page sentence names a tab, so a rename cannot strand it.
+TAB_LABELS: dict[str, str] = dict(TABS)
+
+
+#: Operator notes: collapsed `<details>` groups in reading order, `(id, summary, block ids)`.
+#: "Numbers that need a look" opens itself when it has something to show.
+OPS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "numbers",
+        "Numbers that need a look",
+        ("cross-check", "reconciliation", "shared-sequences", "unlinked", "list-vs-provider"),
+    ),
+    (
+        "before-sending",
+        "Before sending starts",
+        (
+            "sent",
+            "re-push",
+            "holding-up",
+            "nothing-outstanding",
+            "load-files",
+            "ceiling-tile",
+            "compliance",
+        ),
+    ),
+    ("sending-setup", "Sending setup", ("setup-tiles", "sequence-table", "forecast")),
+    (
+        "list-quality",
+        "List quality",
+        ("pool", "roster-notes", "segment-mix", "needs-address", "finding-new-people"),
+    ),
+    (
+        "email-quality",
+        "Email quality",
+        ("subjects", "opening-lines", "capability-spread", "judge-notes", "checks-detail"),
+    ),
+    (
+        "experiment-design",
+        "Experiment design",
+        ("varies", "grid", "readable-difference", "benchmarks", "experiment-notes"),
+    ),
+    ("replies", "Replies and opt-outs", ("inbound-health",)),
+    ("maintenance", "Maintenance", ("maintenance-lines",)),
+)
+
+#: Every `data-section` id a tab may render — a SUBSET rule: a declared section with nothing
+#: to show is absent. A card with no declared home is how the page sprawled one finding at a
+#: time (PRD root cause 1), so a new section is an edit here.
+#: Enforced by tests/contracts/test_dashboard_ps20_structure.py.
+SECTIONS: dict[str, frozenset[str]] = {
+    "overview": frozenset({"lede", "campaign-lines", "accounts-funnel", "contacts-by-status"}),
+    "accounts": frozenset({"filter", "account-tiles", "account-table"}),
+    "emails": frozenset({"email-table", "hand-sent", "packs-list"}),
+    "results": frozenset(
+        {
+            "results-figures",
+            "campaign-results",
+            "when-we-know",
+            "small-numbers",
+            "learnings",
+            "can-answer",
+        }
+    ),
+    "ops": frozenset(
+        {g for g, _s, _b in OPS_GROUPS} | {b for _g, _s, bs in OPS_GROUPS for b in bs}
+    ),
+}
 
 PAGE_NAME = "email_campaign_status.html"
 
@@ -72,6 +138,41 @@ SEAT_COVERAGE = {
     "ai-platform": "Chief AI Officer / Head of AI Platform",
     "product": "CPO / Head of Product",
 }
+
+
+def resolve_seat_coverage(
+    profile: str | None = None,
+    profiles_root: Path | None = None,
+    content_root: Path | None = None,
+) -> dict[str, str]:
+    """Derive seat coverage from the tenant's resolved role vocabulary.
+
+    When the tenant defines custom seats, returns those seats and their display labels
+    derived from the seat's personas. Falls back to SEAT_COVERAGE for default seats.
+    """
+    from .. import role_vocabulary
+
+    p_root = profiles_root
+    if p_root is None and content_root is not None:
+        sibling = content_root.parent / "profiles"
+        if sibling.is_dir():
+            p_root = sibling
+
+    try:
+        vocab = role_vocabulary.load(profile=profile, profiles_root=p_root)
+    except Exception:
+        return dict(SEAT_COVERAGE)
+
+    out: dict[str, str] = {}
+    for seat, personas, _ in vocab.seat_rules:
+        if seat in SEAT_COVERAGE:
+            out[seat] = SEAT_COVERAGE[seat]
+        elif personas:
+            out[seat] = " / ".join(p.replace("-", " ").title() for p in personas)
+        else:
+            out[seat] = seat.replace("-", " ").title()
+    return out or dict(SEAT_COVERAGE)
+
 
 #: Plain-English gloss for each pipeline bucket. The bucket names are internal; a reader
 #: asked "what is awaiting verification — a qualified account, research, or compliance?"

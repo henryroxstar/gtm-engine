@@ -4,6 +4,7 @@ import html
 
 from ..prospect_status import LABELS
 from . import filters
+from .config import TAB_LABELS
 
 # --- render helpers -------------------------------------------------------------
 
@@ -25,12 +26,17 @@ def _row_status(m: dict, email: str) -> str:
     ps = m.get("prospect_status") or {}
     if not ps.get("available"):
         return '<span class="muted">—</span>'
-    status = (ps.get("by_email") or {}).get((email or "").strip().lower())
+    em = (email or "").strip().lower()
+    status = (ps.get("by_email") or {}).get(em)
     if not status:
         return '<span class="muted">not yet routed</span>'
     if status == "unmapped":
         return '<span class="pill warn" data-warn="unmapped">status unmapped</span>'
-    return _e(LABELS[status])
+    base = _e(LABELS[status])
+    note = (ps.get("notes_by_email") or {}).get(em)
+    if note:
+        return f"{base} — {_e(note)}"
+    return base
 
 
 def _rate_of(targets: dict) -> float:
@@ -95,6 +101,13 @@ def figure_span(name: str, value) -> str:
     return f'<span data-figure="{_e(name)}">{shown}</span>'
 
 
+def section(sid: str, body: str) -> str:
+    """One declared block of a panel (PS20 Phase 2): `<div data-section="sid">`. A blank body
+    renders nothing, so a declared section with nothing to show is absent, not empty. `sid`
+    must be listed for its tab in `config.SECTIONS`; the structure test enforces it."""
+    return f'<div data-section="{_e(sid)}">{body}</div>' if body.strip() else ""
+
+
 def _stat(
     value,
     label: str,
@@ -104,6 +117,7 @@ def _stat(
     src=None,
     sub_html: str = "",
     figure: str = "",
+    reach: bool = False,
 ) -> str:
     """One headline tile. ``raw``/``src`` declare its components and their provenance.
 
@@ -128,10 +142,16 @@ def _stat(
 
     ``figure`` marks the value with ``data-figure`` (see :func:`figure_span`). A ``None``
     value is a refusal and renders as an em dash, never as the word "None".
+
+    ``reach`` says whether the client-side filter reaches this tile, which is true only on the
+    Accounts tab (PS20 Phase 2). A tile out of reach carries no count slot, no ``data-filter``
+    and no *not filtered* mark: nothing on it can move.
     """
-    _TILES.append({"label": label, "value": value, "raw": raw or {"value": value}, "src": src})
+    _TILES.append(
+        {"label": label, "value": value, "raw": raw or {"value": value}, "src": src, "reach": reach}
+    )
     idx = len(_TILES) - 1
-    pred = filters.predicate_of(src)
+    pred = filters.predicate_of(src) if reach else ""
     v = "—" if value is None else f"{value:,}" if isinstance(value, int) else _e(value)
     if pred:
         v = f'<span data-count-pred="{_e(pred)}">{v}</span>'
@@ -141,12 +161,13 @@ def _stat(
     sub_block = f'<div class="stat-sub">{body}</div>' if body else ""
     why = (
         ""
-        if pred
+        if pred or not reach
         else f'<div class="stat-why" hidden title="Not filtered — this figure '
         f'{_e(filters.grey_reason(src))}.">not filtered</div>'
     )
+    flt = f' data-filter="{"on" if pred else "off"}"' if reach else ""
     return (
-        f'<div class="stat" data-tile="t{idx}" data-filter="{"on" if pred else "off"}">'
+        f'<div class="stat" data-tile="t{idx}"{flt}>'
         f'<div class="stat-value">{v}</div>'
         f'<div class="stat-label">{_e(label)}</div>{sub_block}{why}</div>'
     )
@@ -221,7 +242,7 @@ def _pool_scope_note(m: dict, what: str) -> str:
         f'<p class="note"><strong>Profile-wide, not {_e(label)}.</strong> '
         f"{what} is shared across every campaign on this profile, so the figures below are "
         f"not scoped to <code>{_e(str(m['campaign_scope']))}</code>. {_e(label.capitalize())}'s "
-        "own numbers are on <em>Where things stand</em>.</p>"
+        f"own figures are on <em>{_e(TAB_LABELS['results'])}</em>.</p>"
     )
 
 

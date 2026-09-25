@@ -5,11 +5,10 @@ CRO-facing). Those were split **by audience**, which is the wrong axis: both rea
 both halves, and splitting there is what let a reply rate live on one page while the list
 quality that explains it lived on another. This page splits **by question**:
 
-* **Who we're emailing** — how many, where, which seat, and what we actually know.
-* **What we're saying** — every subject line, the signals it opens on, the emails
-  themselves, and every check the copy passed.
-* **What we'll learn** — the campaign's own questions (from its manifest), the
-  parameters, and which comparisons are readable versus confounded.
+* **Overview** — one figure for people contacted, the campaigns, and what needs address.
+* **Accounts** — the prospect roster: status, tiers, why-now signals, and what is left to do.
+* **Emails** — what each registered sequence says, its checks, and the emails themselves.
+* **Results** — what has happened so far: reply rate, pipeline, and what the run proved.
 * **Operator notes** — the mechanics: what is loaded in the sending tool right now, what
   still has to be pushed, and what is blocking the start. Split off because the reader this
   page is written for is not the person who presses the buttons, and the re-push procedure
@@ -47,6 +46,7 @@ from .config import (  # noqa: F401
     dashboard_path,
     input_globs,
     page_title,
+    resolve_seat_coverage,
 )
 from .forecast import _forecast_block, _lanes  # noqa: F401
 from .format import _barlist, _e, _i, _pct, _rate_of, _seat_label, _stat  # noqa: F401
@@ -62,17 +62,18 @@ from .model import (  # noqa: F401
 )
 from .render import _stub, check_fresh, page_path, render_dashboard, render_html  # noqa: F401
 from .scope import MODES, Scope, resolve  # noqa: F401
+from .views_accounts import _accounts_view  # noqa: F401
+from .views_emails import _emails_view  # noqa: F401
 from .views_intent import _intent_block  # noqa: F401
-from .views_learn import _learn_view, _ops_view  # noqa: F401
-from .views_samples import _samples_section  # noqa: F401
-from .views_status import _status_view  # noqa: F401
-from .views_what import _what_view  # noqa: F401
-from .views_who import _who_view  # noqa: F401
+from .views_ops import _ops_view  # noqa: F401
+from .views_overview import _overview_view  # noqa: F401
+from .views_results import _results_view  # noqa: F401
 
 __all__ = [
     "TABS",
     "PAGE_NAME",
     "SEAT_COVERAGE",
+    "resolve_seat_coverage",
     "FUNNEL_GLOSS",
     "BENCHMARKS",
     "dashboard_path",

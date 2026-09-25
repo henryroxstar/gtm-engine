@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO))
 
 from gtm_core import email_campaign_dashboard as gd  # noqa: E402
 from gtm_core.email_campaign_dashboard.scope import resolve  # noqa: E402
+from tests.contracts.dashboard_page import panel, section
 
 #: A title short or generic enough to appear in ordinary copy would convict every page. Two
 #: words is the floor at which a campaign title is a name rather than a phrase.
@@ -193,7 +194,7 @@ def test_a_scoped_page_never_shows_a_pool_figure_unlabelled(tmp_path):
     """
     _seed(tmp_path)
     with_roster = gd.render_html(gd.scope_to_campaign(_model(tmp_path), "mine-20260904"))
-    assert "Every account in this campaign" in with_roster
+    assert "Analytical Engine" in section(panel(with_roster, "accounts"), "account-table")
     assert "people we will actually email" not in with_roster, (
         "the shared pool's headline figure rendered on a page that has its own roster"
     )

@@ -81,6 +81,12 @@ def cmd_promote(args: argparse.Namespace, cfg: Config) -> None:
         draft = _load_draft(str(draft_copy))
     slug = staged.name
     live = onboard.promote(slug, args.draft_id, staged, draft, cfg)
+    from gtm_core.runtime_kind import is_desktop_session
+
+    if is_desktop_session():
+        from gtm_core.active_profile import set_active
+
+        set_active(slug, content_root=cfg.content_root)
     _emit({"status": "promoted", "slug": slug, "draft_id": args.draft_id, "live_root": str(live)})
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
+from ..account_folder import AmbiguousFolder, resolve
 from ..slugify import slug
 from .confidence import org_token
 from .io import _load_master
@@ -34,142 +34,57 @@ def _folder_has_dossier(folder: Path) -> bool:
     return any(any(folder.glob(pat)) for pat in _DOSSIER_GLOB_PATTERNS)
 
 
-# Geographic qualifiers only — a suffix naming WHERE a company operates, never WHICH
-# part of it. "vertex-chartered-singapore" is the same account as "Vertex Chartered";
-# a "…-ventures"/"…-capital" arm is a separate entity with its own buyers and its own
-# research. Adding a business-unit word here would let the ``no-dossier`` gate accept a
-# subsidiary's dossier in place of the parent's — the failure mode this list exists to
-# avoid. Keep it geographic.
-_GEO_QUALIFIERS = frozenset(
-    {
-        "apac",
-        "asia",
-        "americas",
-        "anz",
-        "australia",
-        "brazil",
-        "canada",
-        "china",
-        "emea",
-        "europe",
-        "france",
-        "germany",
-        "global",
-        "hong kong",
-        "india",
-        "indonesia",
-        "international",
-        "italy",
-        "japan",
-        "korea",
-        "malaysia",
-        "mena",
-        "mexico",
-        "middle east",
-        "netherlands",
-        "new zealand",
-        "nordics",
-        "philippines",
-        "saudi arabia",
-        "sea",
-        "singapore",
-        "south africa",
-        "south korea",
-        "spain",
-        "sweden",
-        "switzerland",
-        "taiwan",
-        "thailand",
-        "uae",
-        "uk",
-        "us",
-        "usa",
-        "united kingdom",
-        "united states",
-        "vietnam",
-    }
-)
+def dossier_folder(
+    profile: str, company: str, company_domain: str = "", content_root: Path | None = None
+) -> tuple[bool, str, str]:
+    """``(has_dossier, folder_name, reason)`` for this account, answered from the ONE
+    folder :func:`gtm_core.account_folder.resolve` says is this account's — the same
+    resolver every skill writes a dossier through. ``folder_name`` is ``""`` when no
+    dossier was found; ``reason`` is ``"folder-ambiguous: <candidate>, <candidate>"``
+    when more than one existing folder could be the account, else ``""``.
 
+    Until 2026-09-25 this ran its own fuzzy match over every folder name, so the gate
+    READ a different folder than the skills WROTE (AF1). Its worst shape: the account's
+    own folder exists and is empty, while a parent sharing its domain has a dossier —
+    and the gate passed on the parent's research. Hence, deliberately:
 
-def _drop_geo_suffix(name: str) -> str:
-    """``vertex-chartered-singapore`` -> ``vertex chartered``; a name with no known
-    geographic suffix comes back unchanged.
-
-    Splits on word boundaries *before* tokenising, deliberately: matching the suffix
-    against the collapsed org token would strip a name that merely *ends in* those
-    letters ("Nexus" -> "Nex" via ``us``, "Undersea" -> "Under" via ``sea``). Only one
-    qualifier is dropped, and never the whole name.
+    * resolved existing folder → has a dossier iff that folder holds one;
+    * no existing folder (``resolve`` would mint a new one) → no dossier. A shorter
+      legacy folder that merely begins the name is not borrowed;
+    * ambiguous → no dossier (fail closed): picking one candidate is the same guess
+      ``resolve`` refuses to make.
     """
-    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name) if p]
-    for width in (2, 1):  # two-word qualifiers first ("hong kong", "united kingdom")
-        if len(parts) > width and " ".join(parts[-width:]).lower() in _GEO_QUALIFIERS:
-            return " ".join(parts[:-width])
-    return name
+    if not slug(company):
+        # ``resolve`` raises ValueError on an empty name; checked here rather than caught
+        # there, so a ValueError from the profile-segment guard or a malformed ledger
+        # still propagates instead of reading as "no dossier".
+        return False, "", ""
+    try:
+        folder, _rung = resolve(company, profile, company_domain, content_root)
+    except AmbiguousFolder as e:
+        return False, "", f"folder-ambiguous: {', '.join(e.candidates)}"
+    if _folder_has_dossier(_accounts_dir(profile, content_root) / folder):
+        return True, folder, ""
+    return False, "", ""
 
 
 def account_has_dossier(
     profile: str, company: str, company_domain: str = "", content_root: Path | None = None
 ) -> tuple[bool, str]:
-    """True if this account already has a dossier of any kind, checked two ways: the
-    canonical slug path, and a fuzzy match against every existing account folder name
-    (via the same org-token identity used elsewhere in this pipeline for account dedup)
-    — so an account hand-dossiered under a differently-spelled legacy folder (before the
-    canonical slug existed) is never silently re-generated under a second, duplicate
-    folder. The canonical slug is not retrofitted onto old folders; this check is what
-    lets a new-vs-legacy folder name still resolve to the same account.
+    """True if this account's own folder — the one :func:`gtm_core.account_folder.resolve`
+    returns — holds a dossier of any kind. See :func:`dossier_folder`, which also says
+    why a lookup came back empty (``folder-ambiguous``).
 
-    The fuzzy pass compares a folder's token against **both** of the account's tokens —
-    the domain-derived one and the name-derived one. Comparing only the domain-derived
-    token (the shape this had until 2026-08-25) made the whole fallback inert for every
-    account whose registered domain *abbreviates* its name, a very common shape for
-    banks, airlines and industrials: ``org_token("vc.example", "Vertex Chartered")`` is
-    ``vc`` and can never equal ``vertexchartered``, so for that entire class the promise
-    in the paragraph above silently did not hold, and the sweep re-generated a second
-    folder every time. A single trailing geographic qualifier is tolerated on one side
-    (``vertex-chartered-singapore`` matches ``Vertex Chartered``) but never on both, so
-    two genuinely distinct regional accounts still read as distinct.
-
-    Exact token matches win over qualifier-tolerant ones, and folders are scanned in
-    sorted order, so ``matched_folder_name`` is deterministic when several folders
-    could match.
-
-    Public — also the dossier-existence primitive :mod:`gtm_core.account_integrity`
-    reuses for its ``no-dossier`` gate; keep this the one place that logic lives.
-    Loosening it further trades a duplicate folder for a masked missing-research
-    finding, which is the more expensive of the two errors.
+    Public — the dossier-existence primitive :mod:`gtm_core.account_integrity` reuses for
+    its ``no-dossier`` gate. The folder question has one owner, ``account_folder``;
+    widening what counts as this account's folder belongs there, never here — a second
+    matcher is how the gate came to pass on another company's research.
 
     Returns ``(has_dossier, matched_folder_name)`` — ``matched_folder_name`` is ``""``
     when no dossier was found.
     """
-    accounts_dir = _accounts_dir(profile, content_root)
-    canonical = slug(company)
-    if canonical and _folder_has_dossier(accounts_dir / canonical):
-        return True, canonical
-
-    domain_token = org_token(company_domain, "")
-    name_token = org_token("", company)
-    # The account's own name minus a geographic qualifier, for the mirror case where
-    # the *company* carries the qualifier and the folder does not.
-    company_base = org_token("", _drop_geo_suffix(company)) if name_token else ""
-    if not (domain_token or name_token) or not accounts_dir.is_dir():
-        return False, ""
-
-    candidates = [f for f in sorted(accounts_dir.iterdir()) if f.name != canonical]
-    exact = {t for t in (domain_token, name_token) if t}
-    for folder in candidates:
-        if org_token("", folder.name) in exact and _folder_has_dossier(folder):
-            return True, folder.name
-    if not name_token:
-        return False, ""
-    for folder in candidates:
-        folder_token = org_token("", folder.name)
-        folder_base = org_token("", _drop_geo_suffix(folder.name))
-        # One side qualified, the other bare. Never base-vs-base: that would collapse
-        # a "…-singapore" account into a "…-malaysia" one.
-        if folder_base == name_token or (company_base and folder_token == company_base):
-            if _folder_has_dossier(folder):
-                return True, folder.name
-    return False, ""
+    has, folder, _reason = dossier_folder(profile, company, company_domain, content_root)
+    return has, folder
 
 
 def accounts_needing_dossier(
@@ -200,7 +115,7 @@ def accounts_needing_dossier(
         if not token or token in seen_tokens:
             continue
         seen_tokens.add(token)
-        has_dossier, matched = account_has_dossier(
+        has_dossier, _ = account_has_dossier(
             profile, r["company"], r.get("company_domain", ""), content_root
         )
         if has_dossier:
@@ -210,7 +125,6 @@ def accounts_needing_dossier(
                 "company": r["company"],
                 "company_domain": r.get("company_domain", ""),
                 "canonical_slug": slug(r["company"]),
-                "existing_legacy_folder": matched or None,
                 "why_now": r.get("why_now", ""),
                 "cohort": r.get("cohort", ""),
                 "top_intent_score": r.get("top_intent_score", ""),

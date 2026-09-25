@@ -64,7 +64,10 @@ async def create_api_key(
         if agent_row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
         if agent_row["status"] not in ("active", "paused"):
-            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_archived"})
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"code": "agent_archived", "message": "Agent is archived"},
+            )
 
     raw_key = "sk-" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()

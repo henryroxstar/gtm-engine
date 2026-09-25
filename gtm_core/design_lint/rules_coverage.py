@@ -69,6 +69,19 @@ def _first_index(sections: list[Section], markers: frozenset[str]) -> int | None
     return None
 
 
+def _titled_overview(sections: list[Section]) -> bool:
+    """The first H1 names the document a customer overview (`# X × Y — Solution Overview`).
+
+    Deliberately NOT a TIER1_MARKERS entry: an appendix titled "… Solution Overview —
+    Technical Appendix" would then carry a front tier and `document_kind` would call it
+    whole. The TIER2 guard keeps that title out of this reading too.
+    """
+    title = next((s for s in sections if s.level == 1), None)
+    if title is None:
+        return False
+    return "overview" in title.slug and not any(m in title.slug for m in TIER2_MARKERS)
+
+
 def _sd1(sections: list[Section]) -> list[Finding]:
     out: list[Finding] = []
     fragment = document_kind(sections) == "fragment"
@@ -79,11 +92,18 @@ def _sd1(sections: list[Section]) -> list[Finding]:
     }
     # `solution-design` Step 6 mandates a three-FILE split, so the main cut legitimately
     # carries no Tier 2 when it links out to the appendix document instead.
-    links_out = any("-appendix" in s.body for s in sections)
+    links_out = _links_out(sections)
+    # A split main file IS the customer overview, so it carries no visible "Tier 1" heading
+    # (operator decision 2026-09-25): its H1 says so and its sibling is declared in a
+    # comment. That H1 satisfies presence only — it is the document's title, which sits
+    # above the executive summary, so it takes no part in the order check below.
+    titled_overview = links_out and _titled_overview(sections)
     for name, index in found.items():
         if fragment:
             break  # a fragment carries one tier by design; only ordering is checkable
         if index is None and links_out and name.startswith("Tier 2"):
+            continue
+        if index is None and titled_overview and name.startswith("Tier 1"):
             continue
         if index is None:
             out.append(

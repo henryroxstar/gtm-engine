@@ -192,6 +192,7 @@ def build_agent_options(
     env_overrides: dict[str, str] = {
         "GTM_CONTENT_ROOT": str(cfg.content_root),
         "GTM_PROFILES_ROOT": str(cfg.profiles_root),
+        "GTM_RUNTIME": "headless",
     }
     # A7 per-request output language: skills read GTM_RUN_LANGUAGE. Pinned in the
     # subprocess env alongside the scoping vars (never the shared os.environ), so

@@ -59,7 +59,7 @@ def test_the_dashboard_panel_uses_the_shared_renderer():
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
         }
 
-    assert "render_summary" in called_in(views_inbound, "_inbound_health_block")
+    assert "render_summary" in called_in(views_inbound, "_capability_lines")
     assert "capability_rows" in called_in(health, "capability_rows_for")
 
 

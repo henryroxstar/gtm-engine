@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from gtm_core import prospects_consolidate as pc
+from gtm_core.prospects_consolidate.dossier import dossier_folder
 
 
 def _write_csv(path, header, rows):
@@ -1338,7 +1339,7 @@ def test_tier_a_needing_dossier_excludes_account_with_canonical_dossier(tmp_path
     assert out == []
 
 
-def test_tier_a_needing_dossier_excludes_account_via_legacy_folder_fuzzy_match(tmp_path):
+def test_tier_a_needing_dossier_excludes_account_whose_folder_differs_by_punctuation(tmp_path):
     profile = "acme"
     # canonical slug of "Datacore.AI" is "datacoreai", but the real legacy folder is "datacore-ai"
     _seed_master(
@@ -1380,7 +1381,6 @@ def test_tier_a_needing_dossier_includes_account_with_no_dossier(tmp_path):
     cand = out[0]
     assert cand["company"] == "A Fernway Capital"
     assert cand["canonical_slug"] == "a-fernway-capital"
-    assert cand["existing_legacy_folder"] is None
     assert cand["why_now"] == "regulatory deadline"
     assert cand["cohort"] == "healthcare-life-sciences"
     assert cand["top_intent_score"] == "80"
@@ -1428,6 +1428,79 @@ def test_account_has_dossier_true_for_prospecting_brief(tmp_path):
     assert matched == "acme-bank"
 
 
+# --- account_has_dossier answers from account_folder.resolve (AF1) ------------ #
+# The `no-dossier` gate READ through its own fuzzy matcher while every skill WROTE
+# through `account_folder.resolve`, so the two could name different folders. The worst
+# shape: the account's own folder exists and is empty, while a different company's
+# folder (a parent sharing its domain) holds a dossier — the gate passed on another
+# company's research. The gate now classifies the one folder `resolve` returns.
+
+
+def _ledger_rows(tmp_path, profile, rows):
+    p = tmp_path / profile / "prospects" / "latest.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"kind": "prospects", "items": rows}), encoding="utf-8")
+
+
+def test_account_has_dossier_ignores_a_parent_folder_when_its_own_folder_is_empty(tmp_path):
+    """The dangerous class: a subsidiary's own folder exists but holds no dossier, and the
+    parent it shares a domain with has one. That is not research on the subsidiary."""
+    (tmp_path / "acme" / "accounts" / "northwind-ventures").mkdir(parents=True)
+    _seed_dossier(tmp_path, "acme", "northwind")
+    has, matched = pc.account_has_dossier(
+        "acme", "Northwind Ventures", "northwind.example", content_root=tmp_path
+    )
+    assert (has, matched) == (False, "")
+
+
+def test_account_has_dossier_finds_the_folder_resolve_reaches_by_the_ledger_rung(tmp_path):
+    """The folder is named by the ledger's import-time id, which no name match reaches."""
+    _ledger_rows(tmp_path, "acme", [{"id": "tarnwick-freight", "company": "Tarnwick"}])
+    _seed_dossier(tmp_path, "acme", "tarnwick-freight")
+    has, matched = pc.account_has_dossier("acme", "Tarnwick", "", content_root=tmp_path)
+    assert (has, matched) == (True, "tarnwick-freight")
+
+
+def test_account_has_dossier_finds_the_folder_resolve_reaches_by_the_suffix_rung(tmp_path):
+    _seed_dossier(tmp_path, "acme", "brindlecove-limited")
+    has, matched = pc.account_has_dossier("acme", "Brindlecove", "", content_root=tmp_path)
+    assert (has, matched) == (True, "brindlecove-limited")
+
+
+def test_account_has_dossier_fails_closed_when_the_folder_is_ambiguous(tmp_path):
+    """Two folders could be this account; picking one would be a guess, so no pass."""
+    _seed_dossier(tmp_path, "acme", "brindlecove-limited")
+    _seed_dossier(tmp_path, "acme", "brindlecove-plc")
+    has, matched = pc.account_has_dossier("acme", "Brindlecove", "", content_root=tmp_path)
+    assert (has, matched) == (False, "")
+    assert dossier_folder("acme", "Brindlecove", "", content_root=tmp_path) == (
+        False,
+        "",
+        "folder-ambiguous: brindlecove-limited, brindlecove-plc",
+    )
+
+
+def test_account_has_dossier_false_when_resolve_finds_no_existing_folder(tmp_path):
+    """The ledger knows the account and none of its slugs has a folder, so the account is
+    new. A shorter legacy folder that merely begins the name is NOT borrowed."""
+    _ledger_rows(tmp_path, "acme", [{"id": "quillon-leap-ai", "company": "Quillon Leap AI"}])
+    _seed_dossier(tmp_path, "acme", "quillon")
+    has, matched = pc.account_has_dossier(
+        "acme", "Quillon Leap AI", "quillon.example", content_root=tmp_path
+    )
+    assert (has, matched) == (False, "")
+    assert dossier_folder("acme", "Quillon Leap AI", "quillon.example", tmp_path)[2] == ""
+
+
+def test_account_has_dossier_still_guards_the_profile_segment(tmp_path):
+    with pytest.raises(ValueError):
+        pc.account_has_dossier("../escape", "Brindlecove", "", content_root=tmp_path)
+
+
+def test_account_has_dossier_false_for_an_empty_company_name(tmp_path):
+    assert pc.account_has_dossier("acme", "", "", content_root=tmp_path) == (False, "")
+
+
 # --- account_has_dossier: abbreviating-domain + geo-qualifier fallback -------
 #
 # Until 2026-08-25 the fuzzy fallback compared a DOMAIN-derived token against a
@@ -1437,6 +1510,12 @@ def test_account_has_dossier_true_for_prospecting_brief(tmp_path):
 # for this whole class it never ran. The negative controls below matter as much as the
 # positive ones — this primitive backs account_integrity's `no-dossier` ERROR gate, so
 # a match that is too loose masks genuinely missing research before a sequence load.
+#
+# Since 2026-09-25 (AF1) the gate answers from `account_folder.resolve`, which has no
+# geographic-qualifier rung: a `<brand>-<country>` folder with no ledger row to tie it
+# to the account is a `prefix` ambiguity, so the gate fails closed (`folder-ambiguous`)
+# instead of borrowing it. The duplicate-folder concern this section was written for is
+# still held — by `resolve`, which refuses to mint a new folder while it is ambiguous.
 
 
 def _seed_dossier(tmp_path, profile, folder, filename="account-dossier-x-2026-08-12.docx"):
@@ -1446,20 +1525,22 @@ def _seed_dossier(tmp_path, profile, folder, filename="account-dossier-x-2026-08
     return d
 
 
-def test_account_has_dossier_matches_legacy_folder_when_domain_abbreviates_name(tmp_path):
-    """The reported repro: org_token("nc.example", ...) is `sc`, the folder tokenises to
-    `northwindcharteredsingapore`, and the two can never compare equal."""
+def test_account_has_dossier_geo_qualified_folder_is_ambiguous_not_borrowed(tmp_path):
+    """A `-singapore` folder may be this account or a regional sibling; with no ledger row
+    to decide, the gate fails closed rather than passing on it."""
     _seed_dossier(tmp_path, "acme", "northwind-chartered-singapore")
     has, matched = pc.account_has_dossier(
         "acme", "Northwind Chartered", "nc.example", content_root=tmp_path
     )
-    assert has is True
-    assert matched == "northwind-chartered-singapore"
+    assert (has, matched) == (False, "")
+    assert dossier_folder("acme", "Northwind Chartered", "nc.example", tmp_path)[2] == (
+        "folder-ambiguous: northwind-chartered-singapore"
+    )
 
 
-def test_account_has_dossier_matches_abbreviating_domain_without_geo_suffix(tmp_path):
-    """`-plc` is stripped by the org-token normaliser, so this needs only the
-    name-derived comparison — not the geographic-qualifier one."""
+def test_account_has_dossier_suffix_rung_reaches_a_legal_form_folder(tmp_path):
+    """`resolve`'s suffix rung joins a trailing `-plc`; the abbreviated domain plays no
+    part in it."""
     _seed_dossier(tmp_path, "acme", "northwind-chartered-plc")
     has, matched = pc.account_has_dossier(
         "acme", "Northwind Chartered", "nc.example", content_root=tmp_path
@@ -1468,33 +1549,39 @@ def test_account_has_dossier_matches_abbreviating_domain_without_geo_suffix(tmp_
     assert matched == "northwind-chartered-plc"
 
 
-def test_account_has_dossier_matches_when_company_carries_the_geo_qualifier(tmp_path):
+def test_account_has_dossier_company_carrying_the_geo_qualifier_is_ambiguous(tmp_path):
     """Mirror direction: the qualifier is on the company name, not the folder."""
     _seed_dossier(tmp_path, "acme", "northwind-chartered")
-    has, matched = pc.account_has_dossier(
-        "acme", "Northwind Chartered Singapore", "nc.example", content_root=tmp_path
+    assert dossier_folder("acme", "Northwind Chartered Singapore", "nc.example", tmp_path) == (
+        False,
+        "",
+        "folder-ambiguous: northwind-chartered",
     )
-    assert has is True
-    assert matched == "northwind-chartered"
 
 
-def test_account_has_dossier_matches_two_word_geo_qualifier(tmp_path):
+def test_account_has_dossier_geo_folder_tied_by_the_ledger_is_found(tmp_path):
+    """When the ledger's id for the account IS the qualified folder, `resolve` reaches it."""
+    _ledger_rows(
+        tmp_path,
+        "acme",
+        [{"id": "northwind-chartered-hong-kong", "company": "Northwind Chartered"}],
+    )
     _seed_dossier(tmp_path, "acme", "northwind-chartered-hong-kong")
     has, matched = pc.account_has_dossier(
         "acme", "Northwind Chartered", "nc.example", content_root=tmp_path
     )
-    assert has is True
-    assert matched == "northwind-chartered-hong-kong"
+    assert (has, matched) == (True, "northwind-chartered-hong-kong")
 
 
-def test_account_has_dossier_prefers_exact_token_over_geo_qualified_folder(tmp_path):
+def test_account_has_dossier_suffix_rung_wins_over_a_geo_qualified_sibling(tmp_path):
+    """The suffix rung decides before a `-singapore` sibling can make the name ambiguous."""
     _seed_dossier(tmp_path, "acme", "northwind-chartered-singapore")
     _seed_dossier(tmp_path, "acme", "northwind-chartered-ltd")
     has, matched = pc.account_has_dossier(
         "acme", "Northwind Chartered", "nc.example", content_root=tmp_path
     )
     assert has is True
-    assert matched == "northwind-chartered-ltd"  # `ltd` is suffix-stripped -> exact token
+    assert matched == "northwind-chartered-ltd"
 
 
 # --- negative controls ------------------------------------------------------
@@ -1532,17 +1619,21 @@ def test_account_has_dossier_does_not_match_across_two_regional_accounts(tmp_pat
     assert matched == ""
 
 
-def test_account_has_dossier_does_not_strip_a_name_merely_ending_in_qualifier_letters(tmp_path):
-    """`_drop_geo_suffix` splits on word boundaries, so "Nexus" is not read as
-    "Nex" + "us" (which would match an unrelated `nex` folder)."""
+def test_account_has_dossier_does_not_join_a_folder_that_only_shares_leading_letters(tmp_path):
+    """`nex` begins "Nexus" by letters, not by whole hyphen tokens, so it is no candidate."""
     _seed_dossier(tmp_path, "acme", "nex")
     has, matched = pc.account_has_dossier("acme", "Nexus", "nexus.example", content_root=tmp_path)
     assert has is False
     assert matched == ""
 
 
-def test_account_has_dossier_geo_match_still_requires_an_actual_dossier_file(tmp_path):
-    """The looser name match must not weaken the file check the gate depends on."""
+def test_account_has_dossier_resolved_folder_still_requires_an_actual_dossier_file(tmp_path):
+    """A folder `resolve` does reach (here by the ledger) counts only if it holds a dossier."""
+    _ledger_rows(
+        tmp_path,
+        "acme",
+        [{"id": "northwind-chartered-singapore", "company": "Northwind Chartered"}],
+    )
     d = tmp_path / "acme" / "accounts" / "northwind-chartered-singapore"
     d.mkdir(parents=True)
     (d / "prospects-20260101-outreach-northwind-chartered-singapore.md").write_text("x")
@@ -1553,17 +1644,10 @@ def test_account_has_dossier_geo_match_still_requires_an_actual_dossier_file(tmp
     assert matched == ""
 
 
-def test_drop_geo_suffix_leaves_unqualified_and_bare_names_alone():
-    assert pc._drop_geo_suffix("northwind-chartered-singapore") == "northwind chartered"
-    assert pc._drop_geo_suffix("northwind-chartered-hong-kong") == "northwind chartered"
-    assert pc._drop_geo_suffix("northwind-chartered") == "northwind-chartered"
-    assert pc._drop_geo_suffix("Nexus") == "Nexus"
-    assert pc._drop_geo_suffix("Undersea") == "Undersea"
-    assert pc._drop_geo_suffix("Singapore") == "Singapore"  # never strips the whole name
-
-
-def test_accounts_needing_dossier_excludes_abbreviating_domain_account(tmp_path):
-    """End-to-end: the sweep must stop re-generating a second folder for these."""
+def test_accounts_needing_dossier_lists_an_account_whose_folder_is_ambiguous(tmp_path):
+    """End-to-end: an ambiguous folder is not research. The sweep lists the account; the
+    dossier skill's own `account_folder` call then exits 3 instead of minting a second
+    folder, so the duplicate this test once guarded against still cannot happen."""
     profile = "acme"
     _seed_master(
         tmp_path,
@@ -1578,7 +1662,8 @@ def test_accounts_needing_dossier_excludes_abbreviating_domain_account(tmp_path)
         ],
     )
     _seed_dossier(tmp_path, profile, "northwind-chartered-singapore")
-    assert pc.accounts_needing_dossier(profile, content_root=tmp_path) == []
+    out = pc.accounts_needing_dossier(profile, content_root=tmp_path)
+    assert [c["company"] for c in out] == ["Northwind Chartered"]
 
 
 # --- the ledger survives a rebuild, structurally (B3/B6) --------------------- #
@@ -2363,3 +2448,197 @@ def test_stamp_lanes_owns_the_judge_columns(tmp_path):
     assert a["judge_calibrated"] == "false"
     for email in ("b@y.example", "c@z.example"):
         assert all(by_email[email][col] == "" for col in stale), email
+
+
+# --- an explicitly CLEARED signal (2026-09-25) --------------------------------------------
+#
+# Blank on the account record means "no opinion", so a record never blanks a row — and so
+# re-research that concluded "there is no qualifying signal" had no way to reach the pool.
+# Blanking the ledger left the old clause's source/date/evidence/subject on every row, which
+# `account_integrity` then blocked; writing the negative into `why_now` put digits into a
+# sentence the gates parse as a claim. `signal_state: cleared` is the explicit, closed-value
+# negative: the whole atomic signal group is blanked on the account's rows.
+
+_SIGNAL_GROUP = (
+    "why_now",
+    "signal_source_url",
+    "signal_observed",
+    "signal_evidence",
+    "signal_subject",
+    "signal_agent_kind",
+    "category_relation",
+    "signal_column",
+)
+
+_STALE_ROW = {
+    "why_now": "Northwind raised a Series B to expand its claims desk",
+    "signal_source_url": "https://old.example/funding",
+    "signal_observed": "2026-01-02",
+    "signal_evidence": "Northwind raised a Series B.",
+    "signal_subject": "Northwind Capital (lead investor)",
+    "signal_agent_kind": "none",
+    "category_relation": "prospect",
+    "signal_column": "Funding round",
+}
+
+
+def _stale_row(tmp_path):
+    _one_row(tmp_path, extra_cols=list(_STALE_ROW), extra_vals=list(_STALE_ROW.values()))
+
+
+def test_a_cleared_signal_blanks_the_whole_signal_group_on_the_rows(tmp_path):
+    _stale_row(tmp_path)
+    _latest_with_record(
+        tmp_path,
+        signal_state="cleared",
+        # The ledger still holding a stale clause and its provenance must not matter:
+        # cleared wins over every value in the group, the marker text included.
+        why_now="no qualifying dated public signal found (re-researched 2026-09-25)",
+        signal_source_url="https://old.example/funding",
+        signal_observed="2026-01-02",
+        verdict="re-angle",
+        segment="Insurance",
+    )
+
+    res = pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert {col: row[col] for col in _SIGNAL_GROUP} == dict.fromkeys(_SIGNAL_GROUP, "")
+    # Only the signal group: the verdict and every other account column still carry down.
+    assert row["verdict"] == "re-angle"
+    assert row["segment"] == "Insurance"
+    assert res["signal_cleared_rows"] == 1
+    assert res["signal_cleared_conflicts"] == 1  # the ledger still carries a clause
+
+
+def test_a_blank_record_is_still_no_opinion(tmp_path):
+    """Negative control: without the explicit state, an empty record blanks nothing."""
+    _stale_row(tmp_path)
+    _latest_with_record(tmp_path, verdict="re-angle")
+
+    res = pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert {col: row[col] for col in _SIGNAL_GROUP} == _STALE_ROW
+    assert res["signal_cleared_rows"] == 0
+
+
+def test_only_the_closed_value_clears(tmp_path):
+    """Free text in the state field is not a negative result the build may act on."""
+    _stale_row(tmp_path)
+    _latest_with_record(tmp_path, signal_state="no signal found on 2026-09-25")
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert {col: row[col] for col in _SIGNAL_GROUP} == _STALE_ROW
+
+
+# --- a NEWER research verdict may lift a row from re-angle to send (2026-09-25) -----------
+#
+# `verdict` only ever tightened on its way from the account to the row, because nothing said
+# which side was newer. `verdict_on` is research's own date for the account's verdict, and it
+# travels with the verdict. A row's `re-angle` becomes the account's `send` only when that
+# stamp is newer than the row's and the account carries a complete signal group. `drop` is
+# never a starting point.
+
+_PROMOTING = {
+    **_FULL_RECORD,
+    "why_now": "Northwind names Contoso as its agent partner",
+    "verdict": "send",
+    "verdict_reason": "fresh partner announcement, verified",
+    "verdict_on": "2026-09-25",
+}
+
+
+def _reangle_row(tmp_path, verdict="re-angle"):
+    _one_row(
+        tmp_path,
+        extra_cols=["GTM_Verdict", "GTM_Verdict_Reason"],
+        extra_vals=[verdict, "no dated public signal this pass"],
+    )
+
+
+def test_a_newer_research_stamp_promotes_reangle_to_send(tmp_path):
+    _reangle_row(tmp_path)
+    _latest_with_record(tmp_path, **_PROMOTING)
+
+    res = pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["verdict"] == "send"
+    # The verdict moves as one unit: its reason and its date come with it.
+    assert row["verdict_reason"] == "fresh partner announcement, verified"
+    assert row["verdict_on"] == "2026-09-25"
+    assert res["verdicts_promoted"] == 1
+
+
+def test_an_unstamped_send_never_promotes(tmp_path):
+    _reangle_row(tmp_path)
+    _latest_with_record(tmp_path, **{**_PROMOTING, "verdict_on": ""})
+
+    res = pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["verdict"] == "re-angle"
+    assert row["verdict_reason"] == "no dated public signal this pass"
+    assert res["verdicts_promoted"] == 0
+
+
+def test_drop_is_never_promoted(tmp_path):
+    _reangle_row(tmp_path, verdict="drop")
+    _latest_with_record(tmp_path, **_PROMOTING)
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["verdict"] == "drop"
+    # verdict_on describes the verdict beside it, so the account's date stays off this row.
+    assert row["verdict_on"] == ""
+
+
+def test_an_incomplete_signal_group_never_promotes(tmp_path):
+    _reangle_row(tmp_path)
+    _latest_with_record(tmp_path, **{**_PROMOTING, "signal_evidence": ""})
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["verdict"] == "re-angle"
+
+
+def test_a_cleared_account_is_never_promoted(tmp_path):
+    _reangle_row(tmp_path)
+    _latest_with_record(tmp_path, **_PROMOTING, signal_state="cleared")
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["verdict"] == "re-angle"
+
+
+def test_only_a_stamp_newer_than_the_rows_promotes(tmp_path):
+    """The row's own stamp is the one its re-angle came down with; an older send loses."""
+    _one_row(tmp_path)
+    _latest_with_record(
+        tmp_path,
+        **{
+            **_PROMOTING,
+            "verdict": "re-angle",
+            "verdict_reason": "argument thin",
+            "verdict_on": "2026-09-20",
+        },
+    )
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+    assert (row["verdict"], row["verdict_on"]) == ("re-angle", "2026-09-20")
+
+    _latest_with_record(tmp_path, **{**_PROMOTING, "verdict_on": "2026-09-10"})
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+    assert (row["verdict"], row["verdict_on"]) == ("re-angle", "2026-09-20")
+
+    _latest_with_record(tmp_path, **_PROMOTING)  # stamped 2026-09-25
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+    assert (row["verdict"], row["verdict_on"]) == ("send", "2026-09-25")

@@ -9,7 +9,6 @@ and one fail policy. Fail-open on a read error: the SDK per-run ``max_budget_usd
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from gtm_core.metering import JsonlSink, check_budget
@@ -20,13 +19,12 @@ _HARD_CEILING_MULT = 2.0
 
 
 def monthly_cap_usd(cfg: Any, profile: str) -> float:
-    """Read ``monthly_budget_usd`` from the profile's settings (default $25)."""
-    path = cfg.content_root / profile / "settings.json"
-    try:
-        stored = json.loads(path.read_text(encoding="utf-8"))
-        return float(stored.get("monthly_budget_usd", _DEFAULT_MONTHLY_BUDGET_USD))
-    except Exception:  # noqa: BLE001 — missing/corrupt settings → default cap
-        return _DEFAULT_MONTHLY_BUDGET_USD
+    """Read monthly tool cap from PROFILE.md via budget_status (default $50)."""
+    from gtm_core import budget_status
+
+    p_root = getattr(cfg, "profiles_root", None)
+    c_root = getattr(cfg, "content_root", None)
+    return budget_status._get_cap(profile, profiles_root=p_root, content_root=c_root)
 
 
 def vps_budget_ok(cfg: Any, profile: str) -> bool:

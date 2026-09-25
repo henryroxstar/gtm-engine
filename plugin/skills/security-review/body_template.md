@@ -89,7 +89,7 @@ Save as **`security-review-[company]-[YYYY-MM-DD].md`** in the account folder
 3. **Refusals** — the table from Step 5.
 4. **Flags** — rows whose evidence is past its review window, and the rows from Step 2.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 **This skill never sends anything.** It drafts; a human reviews and submits. Nobody here uploads a
 response to a portal, replies to the requester, or attaches a report — the answers are a

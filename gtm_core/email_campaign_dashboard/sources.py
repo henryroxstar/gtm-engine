@@ -73,7 +73,7 @@ def seat_fit(m: dict, profile: str = "", content_root: Path | None = None) -> di
     matched, elsewhere, unresolved = [], [], []
     for a in sorted(addrs):
         title = titles.get(a.lower(), "")
-        key = persona_of(title)
+        key = persona_of(title, profile or None)
         if key is None:
             unresolved.append((a, title))
         elif not declared or key in declared:

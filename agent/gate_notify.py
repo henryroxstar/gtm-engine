@@ -37,10 +37,34 @@ _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 _TIMEOUT_S = 10
 
 
+def _enrolled_line(match: OptOutMatch, enrolled: str | None, email: str) -> str:
+    """SC9b (4): the enrolled address, when the reply came from another one — else ``""``.
+
+    That address is never added automatically (CLAUDE.md, "One deliberate gateless path"),
+    so the alert says so rather than letting the sender's outcome read as the whole story.
+    """
+    if not enrolled or enrolled.strip().lower() == match.email.strip().lower():
+        return ""
+    return (
+        f"Enrolled as <code>{html.escape(enrolled)}</code> — a different address from the one "
+        f"that replied ({email}); it is NOT added automatically, approval request follows."
+    )
+
+
 def _optout_alert_wording(
-    match: OptOutMatch, auto_outcome: DncDispatchOutcome | None, email: str
+    match: OptOutMatch,
+    auto_outcome: DncDispatchOutcome | None,
+    email: str,
+    enrolled: str | None = None,
 ) -> tuple[str, str]:
     """``(title, action)`` for an opt-out alert, in plain words. ``email`` is pre-escaped."""
+    alias = _enrolled_line(match, enrolled, email)
+    if alias:
+        title, action = _optout_alert_wording(match, auto_outcome, email)
+        if title == "Opt-out handled":
+            title = "Opt-out: replying address handled, enrolled address needs your approval"
+            action = action.replace(" Nothing for you to do.", "")
+        return title, f"{action}\n{alias}"
     if auto_outcome is not None and auto_outcome.ok and auto_outcome.status == "added":
         return "Opt-out handled", (
             f"✅ Added {email} to the Saleshandy Do Not Contact list and checked it is "
@@ -98,11 +122,13 @@ async def push_gate1(
     # or `&` in either makes Telegram reject the whole message (the send failure is
     # swallowed at the bottom of this function, so the operator would simply never
     # learn the run had paused at Gate 1).
+    cap_usd = getattr(cfg, "per_run_cap_usd", 10.0)
     text = (
         f"<b>[{html.escape(profile)}] Gate 1 — plan ready for review</b>\n"
         f"run_id: <code>{html.escape(run_id)}</code>\n\n"
         "Use the Telegram cockpit to Approve, Edit, or Reject.\n"
-        "Reply /radar to trigger a manual scan if the plan looks thin."
+        "Reply /radar to trigger a manual scan if the plan looks thin.\n"
+        f"Spend estimate: up to your per-run cap of ${cap_usd:.2f}"
     )
 
     import httpx  # lazy — keeps module + unit tests import-light (mirrors agent/publish.py)
@@ -172,11 +198,7 @@ async def push_pack_gate(
         f"<b>[{html.escape(profile)}] Pack gate — waiting for approval</b>\n"
         f"run_id: <code>{html.escape(run_id)}</code>\n"
         f"node(s): {nodes}\n\n"
-        "Resolve from the VPS shell:\n"
-        f"<code>python -m agent --profile {html.escape(profile)} --pack {html.escape(pack)} "
-        f"--variant {html.escape(variant)} --run-id {html.escape(run_id)} "
-        "--gate-decision approve</code>\n"
-        "(or <code>--gate-decision reject</code> to discard it)."
+        "Ask your server operator to approve this."
     )
 
     import httpx  # lazy — keeps module + unit tests import-light (mirrors agent/publish.py)
@@ -210,8 +232,12 @@ async def push_optout_alert(
     match: OptOutMatch,
     *,
     auto_outcome: DncDispatchOutcome | None = None,
+    enrolled: str | None = None,
 ) -> None:
     """Alert the operator that an inbound reply looks like an opt-out.
+
+    ``enrolled`` is the address the prospect was enrolled under when it differs from the
+    replying one (SC9b item 4): the alert names it and says it is NOT added automatically.
 
     Fire-and-forget, same posture as :func:`push_gate1`: this notifies, it never acts.
     The message claims the person is blocked ONLY when ``auto_outcome`` says the sweep's
@@ -247,7 +273,7 @@ async def push_optout_alert(
     # Shown as what the sender TYPED, not the raw HTML with our quoted original under it.
     email = f"<code>{html.escape(match.email)}</code>"
     said = typed_text(match.snippet) or match.snippet
-    title, action = _optout_alert_wording(match, auto_outcome, email)
+    title, action = _optout_alert_wording(match, auto_outcome, email, enrolled)
     text = (
         f"<b>[{html.escape(profile)}] {title}</b>\n"
         f"From: {email}\n"

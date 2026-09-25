@@ -120,7 +120,7 @@ Present the plan as a clean markdown document. Ask the colleague:
 
 If they say yes to Word doc, invoke the `docx` skill.
 
-Save the final plan as **`gtm-plan-Q[N]-[YYYY]-[market-slug].md`** in the working folder (e.g., `gtm-plan-Q3-2026-SG.md`). Then append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers it automatically:
+Save the final plan as **`gtm-plan-Q[N]-[YYYY]-[market-slug].md`** in the working folder (e.g., `gtm-plan-Q3-2026-SG.md`). Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers it automatically:
 
 ```
 ⟦FILE:/absolute/path/to/gtm-plan-Q[N]-[YYYY]-[market-slug].md⟧

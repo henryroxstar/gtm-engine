@@ -5,161 +5,147 @@ HOW TO USE
 - Copy this file per account; fill in every [bracketed placeholder]; delete the _italic guidance_ lines.
 - This is the same structure the `solution-design` skill produces automatically — use this only when
   drafting by hand. The skill is the faster path (it grounds the design in the profile's product refs).
-- CUSTOMER COPY = Executive summary + Tier 1. Delete Tier 2 (and ALWAYS the internal appendix) before
-  sending to a customer. Tier 2 is for the customer's own architects / your internal record.
+- THREE FILES. Part 1 below is the customer overview — the only file the customer reads. Part 2 is the
+  technical appendix (its own `-appendix.md`). Part 3 is the internal notes (`-internal.md`, never sent).
+  Split them before sending; never send one scroll.
+- Before drafting, answer two questions: who reads this (and who presents it), and what risk is the
+  reader trying to avoid? §2 leads with that risk.
+- Customer overview ≤ ~2,000 words. One visual per section. No "X, not Y" slogans, no working-note
+  phrases ("stated plainly", "this design"), every technical term defined where first used.
 - MODE: sections marked "(Mode A only)" assume an off-the-shelf product you map onto. For a bespoke
-  custom build (Mode B), delete them and follow the "Bespoke (Mode B) delta" note at the very bottom —
-  and never import a product's component vocabulary.
-- Render the diagrams + polished styling with `references/html-companion.md` (produces the .html).
+  custom build (Mode B), follow the "Bespoke (Mode B) delta" note at the very bottom — and never
+  import a product's component vocabulary.
+- Render with `references/html-companion.md`: create the .html once, then re-run
+  `gtm_core.design_render` after every edit to the .md. Component markup lives there.
 -->
 
-# [Use case] — Solution Overview
+<!-- ═══════════════ PART 1 — CUSTOMER OVERVIEW: solution-design-[account]-[YYYY-MM-DD].md ═══════════════ -->
 
-_[Company] · [the product] · [YYYY-MM-DD]_
+# [Account] × [Vendor] — Solution Overview
 
----
+_[The product] · [Pilot design / proposal] · Draft for discussion_
+
+<!-- appendix: solution-design-[account]-[YYYY-MM-DD]-appendix.md -->
 
 ## Executive summary
 
-_½ page, no jargon — five lines a busy exec reads in a minute. Open with the outcome band (below): the
-before→after payoff as a designed element. It degrades to a readable line in a plain viewer._
+_≤150 words after the headline. The headline names the problem solved; the subline says how and
+names the governing framework, if any._
 
-<div class="outcome"><span class="o-before">[before, e.g. "trust me"]</span><span class="o-arrow">→</span><span class="o-after">[after, e.g. provable]</span><span class="o-note">[one-line qualifier]</span></div>
+<div class="outcome"><span class="o-after">[The problem the design solves, in one line.]</span><span class="o-sub">[How — who does what — and the framework it follows.]</span></div>
 
-- **What it is:** [the value, in one sentence]
-- **The problem:** [one line]
-- **The solution:** [one line]
-- **The outcome:** [before → after, e.g. "10–14 days → under 30 seconds"]
-- **Who it's for:** [the buying / using stakeholders]
+- **The problem.** [The risk the reader wants to avoid, and why today's way does not remove it.]
+- **The solution.** [Who does what, in one or two sentences.]
+- **The constraint.** [The one limit that shaped the design.]
+- **Who it's for.** [The buying / approving roles.]
 
 ---
 
-# Tier 1 — Customer overview
+## 1. Requirements
 
-## 1. What we heard
+_What the design must do, grouped by driver (the regulation it meets · the framework it aligns with ·
+ease of adoption). R1…Rn in group order. Cite section + page of the primary document for every
+framework-derived requirement — read the document; never describe its legal status from memory._
 
-_The discovery recap — 3–5 lines — plus a glossary of the customer's OWN terms (a second reader knows
-neither your product's terms nor theirs)._
+<div class="req-groups">
+<section><h4><span>[Meet the regulation]</span>[What it asks]</h4><ul>
+<li><em>R1</em><b>[Requirement]</b><span>[One sentence.]</span></li></ul></section>
+<section><h4><span>[Align with the framework]</span>[What it asks]</h4><ul>
+<li><em>R2</em><b>[Requirement]</b><span>[One sentence.]</span><small class="cite">[Framework: component, p. N]</small></li></ul></section>
+<section><h4><span>[Easy to adopt]</span>[What it asks]</h4><ul>
+<li><em>R3</em><b>[Requirement]</b><span>[One sentence.]</span></li></ul></section>
+</div>
 
-[Use case agreed on the call, the pains it addresses, the why-now driver, what this covers vs defers.]
+<details class="gloss"><summary>Key terms</summary>
+<ul class="defs">
+<li><b>[Customer system / acronym]</b><span>[One line.]</span></li>
+<li><b>[Framework]</b><span>[What it is — and how the document describes its own status.]</span></li>
+<li><b>[Product term]</b><span>[One line.]</span></li>
+</ul>
+</details>
 
-**Systems & agents in scope**
+## 2. The problem
 
-- **[Customer system / agent]** — [one line: what it is / does]
-- **[Their acronym]** — [plain meaning]
+_Lead with the risk from the intake question, not with volume or effort. Check every "no X" against
+how things work today (an email trail IS a record — say what is actually missing)._
 
-## 2. The problem & why now
+[One or two short paragraphs: the obligation, and why sharing / acting on it today carries the risk.]
 
-_Quantify only where the numbers are real; keep it to what the customer already feels._
+[Current-state flow — `.cstate`, or diagram 1 + "How to read it:" line.]
 
-[The pain today, step by step, and what it costs (time / error / risk).] [The market or regulatory
-"why now" driver.]
+The design has to solve:
+
+- **[Gap]** — [one sentence]
+- **[Gap]** — [one sentence]
 
 ## 3. The solution
 
-_Plain language first, then stakeholder value, then the pieces._
+_Who does what, and who stays accountable._
 
-[What's being built, in plain terms — one short paragraph.]
+[What is being built, in plain terms — one short paragraph.]
 
-**Who it's for & what they get**
-
-- **[Stakeholder, e.g. compliance/legal]** → [concrete benefit, e.g. a provable audit chain]
-- **[Stakeholder, e.g. platform/engineering]** → [concrete benefit, e.g. drop-in, no rewrite]
-- **[The business]** → [concrete benefit, e.g. ship with governance built in]
-
-**The pieces**
-
-- **[Component / service]** — [one line]
-- **[Component / service]** — [one line]
+<div class="who">
+<section data-own="4"><h4><span>[The customer]</span>[Decides, and stays accountable]</h4><ul><li>[…]</li></ul></section>
+<section data-own="3"><h4><span>[The integrator / partner]</span>[Builds and runs …]</h4><ul><li>[…]</li></ul></section>
+<section data-own="1"><h4><span>[The vendor]</span>[Provides …]</h4><ul><li>[…]</li></ul></section>
+</div>
 
 ## 4. How [the product] works  _(Mode A only)_
 
-_The product primer + key terms. This is a first-class section — customers still need teaching on the
-product. Delete entirely for a bespoke build._
+_The product primer in plain language, then its per-request steps as the check pipeline, each tagged
+with the framework component it maps to._
 
-[What the product is, in plain language — e.g. "a secure [category] that sits in front of your AI
-agents; every request passes through it; it drops in with no agent rewrite."]
+[What the product is, in one or two sentences.]
 
-[What it does, on every request — rendered as the control strip (numbering is meaningful: each request
-passes through these in order). Degrades to a numbered list in a plain viewer.]
+[Check pipeline — `.gate-pipe`.]
 
-<ol class="controls"><li><b>[Step 1]</b><span>[what it does]</span></li><li><b>[Step 2]</b><span>[what it does]</span></li><li><b>[Step 3]</b><span>[what it does]</span></li><li><b>[Step 4]</b><span>[what it does]</span></li><li><b>[Step 5]</b><span>[what it does]</span></li></ol>
+## 5. Architecture
 
-**Key terms**
+[Suite key — `.suite-key`.]
 
-| Term | Plain meaning |
-|---|---|
-| **[Term]** | [one line] |
-| **[Term]** | [one line] |
+![[What the diagram shows]](diagrams/[target-state].svg)
 
-## 5. Architecture: current → target
+*How to read it:* [one line], then [a line per component]. [Where the record stops, if a path is not covered.]
 
-_(Mode A: open by saying how the design realises the product's identity spine — identity is the core,
-not a feature listed later.) Every diagram ships with a plain-language walkthrough._
-
-**Current state**
-
-```mermaid
-[current-state / today's-workflow diagram]
-```
-
-_How to read this:_ [one line], then [a per-node line]. What's broken today: [gap the design closes].
-
-**Target state**
-
-```mermaid
-[target-state architecture diagram]
-```
-
-_How to read this:_ [one line], then [per-node lines]. [Which capability closes which gap from current
-state.] Closest proven shape: [case-study shape it mirrors].
+**[The one "why not …?" a reader will ask]** [Two-sentence answer.]
 
 ## 6. How it works — end to end
 
-_The representative request as numbered steps (caller → [the product] → target → response)._
+_The representative request, step by step: a `.lanes` swimlane when more than two parties act,
+otherwise diagram 3 + a `.steps` walkthrough._
 
-```mermaid
-[request-sequence diagram]
-```
+[Swimlane.]
 
-_How to read this:_ [one line — what the diagram shows, and what a reader should look at first].
+**What is recorded, and what is not.** [Plainly: what the record covers, and where it stops.]
 
-1. [step — what happens]
-2. [step — what happens]
-3. [step — what happens]
+## 7. Common questions
 
-## 7. What ships first — V1 / V2 / not building
+_Grouped by reader type; at most two per type; each answer ≤ ~40 words, from the requirements or the
+design only. Anything inferred goes to the internal notes._
 
-_A first draft carries no changelog — just the current cut to align on; **a revision (v2+) carries a
-Version log at the back** (see the last section). No rigid roadmap. Render the cut as the two phase
-cards (V2 recessed); keep "not building" as ordinary bullets below._
+<div class="faq">
+<p class="faq-h">[Regulator]</p>
+<details><summary>[Question?]</summary><p>[Answer.]</p></details>
+<p class="faq-h">[IT &amp; security]</p>
+<details><summary>[Question?]</summary><p>[Answer.]</p></details>
+</div>
 
-<div class="phases"><section class="phase"><h4>V1 <span class="when">[POC · weeks]</span></h4><ul><li>[high/medium-confidence item, confirmed source]</li><li>[item]</li></ul></section><section class="phase phase-next"><h4>V2 <span class="when">Next</span></h4><ul><li>[deferred item]</li><li>[item]</li></ul></section></div>
+## 8. How each requirement is met
 
-- **Not building (V1):** [explicit list — mandatory]
+_One row per requirement; columns grouped under technology and parties; each cell names what that
+part does (2–4 words). Mark a part only if the requirement fails without it; amber only where a real
+gap lies, with the gap stated in the row._
 
-## 8. Talking points & FAQ
-
-_Keep it light — a few benefit lines + the top objections. The full pitch is the deck's job._
-
-- [one-line benefit / talking point]
-- [one-line benefit / talking point]
-
-<details><summary>[Common question?]</summary><p>[Short, honest answer.]</p></details>
-<details><summary>[Common question?]</summary><p>[Short, honest answer.]</p></details>
+[Coverage table — `table.cov`.]
 
 ## 9. Further reading
 
 - [[Product docs]]([url])
-- [[Standard / protocol the design cites]]([url])
-- [[Regulatory driver]]([url])
+- [[Primary document of each cited regulation or framework]]([url])
 
-> **Assumptions & still confirming** — [3–5 load-bearing assumptions and top open questions]. These may
-> change the target architecture above; full detail in the appendix.
+<!-- ═══════════════ PART 2 — TECHNICAL APPENDIX: solution-design-[account]-[YYYY-MM-DD]-appendix.md ═══════════════ -->
 
----
-
-# Tier 2 — Technical appendix
+# [Account] × [Vendor] — Technical appendix
 
 _Technical detail — for the customer's architects; **omit from the exec / customer copy.**_
 
@@ -174,19 +160,21 @@ _Technical detail — for the customer's architects; **omit from the exec / cust
 - **Vendor to confirm internally:** [...]
 - **Beta constraint:** [...]
 
+<div class="board"><section><h4>V1 <span class="when">[Pilot · now]</span></h4><ul><li>[item]</li></ul></section><section class="is-next"><h4>V2 <span class="when">Next</span></h4><ul><li>[deferred item]</li></ul></section><section class="is-out"><h4>Not building <span class="when">V1</span></h4><ul><li>[explicit exclusion]</li></ul></section></div>
+
 ## A3. Component inventory  _(Mode A — the bridge to the setup runbook; keep this heading + types)_
 
 | Component | Type | What it does |
 |---|---|---|
-| [name] | Surface / Proxy / Credential / Policy / Connection / Secret | [configuration] |
+| [name] | [the product's own configurable object type] | [configuration] |
 
 ## A4. Identity, policy & data flow  _(Mode A)_
 
 _Lead with the identity spine (per agent, every leg); close with the capability-coverage matrix._
 
-| Capability | Enforced / Simulated / Design-target | Notes |
+| Capability | Status | Notes |
 |---|---|---|
-| [capability the design claims] | [tag — align to the reference demo] | [note] |
+| [capability the design claims] | <span class="tag ok">Enforced</span> | [note] |
 
 ## A5. Standards alignment  _(Mode A — only the 2–3 frameworks this account uses)_
 
@@ -205,8 +193,8 @@ _Honest scoping: state the company's real certifications accurately; the product
 
 ## A7. Trade-offs & alternatives considered
 
-- **[Material choice, e.g. managed vs self-hosted]:** [pros] / [cons] → **recommendation:** [x]
-- **[Material choice, e.g. build vs buy]:** [pros] / [cons] → **recommendation:** [x]
+- **Decision:** [what we chose] · **Date:** [YYYY-MM-DD] · **Alternatives:** [what we did not choose] ·
+  **What it cost us:** [the thing we gave up]
 
 ## A8. Constraints
 
@@ -236,28 +224,25 @@ _Where each component runs, in whose tenancy, and every boundary crossed. Diagra
 |---|---|
 | … | … |
 
-## A12. Internal appendix _(omit from customer copy)_
+<!-- ═══════════════ PART 3 — INTERNAL NOTES: solution-design-[account]-[YYYY-MM-DD]-internal.md ═══════════════ -->
 
-- [persona codes, ICP score, deal context — never in the customer-facing body]
+# [Account] — Internal notes _(omit from customer copy)_
 
-## Version log  _(revisions only — omit on a first draft)_
-
-_Every substantive change since the prior version, so a detailed reviewer can trace each edit to its
-section. Below the table, add a short "precise wording (vN → vN+1)" note for the most material corrections._
-
-| v | Date | Section(s) | Change | Why |
-|---|---|---|---|---|
-| [v2] | [YYYY-MM-DD] | [§ refs] | [what changed] | [why — grounded reason / reviewer point] |
+- **What we heard:** [the discovery recap]
+- **Talking points:** [one-line benefit points for the presenters]
+- **Inferred, not yet confirmed:** [any FAQ answer or claim that came from inference]
+- **Deal context:** [persona codes, ICP score — never in the customer-facing files]
 
 ---
 
 <!--
 BESPOKE (Mode B) DELTA — for a custom build with no off-the-shelf product to map onto:
-- DELETE §4 (How [the product] works) — there is no product to teach.
-- §3 becomes "How this build works" (a one-paragraph plain-language summary of the proposed system).
+- DELETE §4 (How [the product] works) — there is no product to teach. §3 becomes "How this build works".
 - §5 / §6 use your bespoke architecture layers (Interface · Agents/Logic · Intelligence/Data sources ·
   Integration/Egress · Data/State) with a real data source/API named per layer — NEVER import a
-  product's component vocabulary (no Surfaces/Proxies/Policies, etc.).
-- Tier 2: REPLACE A3 with the feature/feasibility table (Capability | Buildable now? | Data/API source |
+  product's component vocabulary.
+- ADD "What ships first — V1 / V2 / not building" to the customer overview (before Common questions):
+  for a bespoke build the scope cut is what the customer is buying. Move the shipping board there.
+- Appendix: REPLACE A3 with the feature/feasibility table (Capability | Buildable now? | Data/API source |
   Hard parts | Confidence | V1/V2); REPLACE A4 with "Tech choices" (stack + rationale); DELETE A5 & A6.
 -->

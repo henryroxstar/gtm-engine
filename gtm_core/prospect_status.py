@@ -48,10 +48,10 @@ STATUSES: tuple[str, ...] = (
 LABELS: dict[str, str] = {
     "waiting_on_you": "Waiting on you",
     "ready_to_send": "Sorted — not yet checked",
-    "being_fixed": "Being fixed",
+    "being_fixed": "Being reworked",
     "in_sending_tool": "In the sending tool",
-    "not_emailing": "Not emailing",
-    "needs_address": "Needs an address",
+    "not_emailing": "Closed — not contacting",
+    "needs_address": "Still finding the right person",
 }
 
 #: Whose move it is next, for each status — the one fact ``lane``/``trigger`` never spell
@@ -59,10 +59,10 @@ LABELS: dict[str, str] = {
 NEXT_STEP: dict[str, str] = {
     "waiting_on_you": "yours — one decision",
     "ready_to_send": "the checks, then yours",
-    "being_fixed": "the machine's — no action",
+    "being_fixed": "the engine's — nothing for you to do",
     "in_sending_tool": "already loaded — do not load again",
     "not_emailing": "closed",
-    "needs_address": "accounts in the ledger — the machine's, then yours if it misses",
+    "needs_address": "the engine's — it looks first, then asks you if it cannot find one",
 }
 
 #: The line that renders BESIDE the routed count, so the two are never read as one number.

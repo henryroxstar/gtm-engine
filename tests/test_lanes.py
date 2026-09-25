@@ -1245,6 +1245,58 @@ def test_every_hold_trigger_maps_to_a_documented_question():
         assert lanes.QUESTION_COPY[question][1].keys() == {"suppress", "generic", "salvage"}
 
 
+def test_hold_sheet_groups_by_the_tenant_seat_when_a_profile_is_passed(tmp_path, monkeypatch):
+    """PH13: the hold sheet's own grouping resolves seat via ``gtm_core.cells.seat_of`` —
+    which must be handed the active profile so it reads the tenant's
+    ``role-vocabulary.toml`` instead of the built-in default. "Kiln Warden" is a title only
+    a tenant vocabulary can place; without ``profile`` it stays "unresolved"."""
+    from gtm_core.role_vocabulary import clear_cache
+
+    profile = "acme"
+    profiles_root = tmp_path / "profiles"
+    (profiles_root / profile / "knowledge").mkdir(parents=True)
+    (profiles_root / profile / "knowledge" / "role-vocabulary.toml").write_text(
+        """\
+default_persona = "kiln-warden"
+segments = ["enterprise", "unspecified"]
+security_only = []
+non_buyer_cues = []
+ceo_title_cues = []
+
+[[persona]]
+name = "kiln-warden"
+cues = ["kiln warden"]
+
+[[seat]]
+name = "operations"
+personas = ["kiln-warden"]
+stakes = ["throughput"]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    clear_cache()
+
+    rows = [
+        {
+            "email": "kw@x.example",
+            "title": "Kiln Warden",
+            "company": "X",
+            "trigger": "tier-a-generic",
+        }
+    ]
+
+    groups_default, _ = lanes.build_sheet_payload(rows)
+    assert groups_default[0]["seat"] == "unresolved", (
+        "control: the default vocabulary must not know this title"
+    )
+
+    groups_tenant, _ = lanes.build_sheet_payload(rows, profile=profile)
+    assert groups_tenant[0]["seat"] == "operations", (
+        f"tenant seat 'operations' not resolved — groups={groups_tenant}"
+    )
+
+
 def test_triggers_sharing_a_question_group_together_within_one_seat():
     """The whole point of PS12: two DIFFERENT triggers that ask the same question and share a
     seat land in one group, not two."""
@@ -1456,7 +1508,7 @@ def test_c1_contract_route_write_state_through_cli_and_page_model(tmp_path, monk
     assert prospect_status_cli.main(["--profile", "acme"]) == 0
     out = capsys.readouterr().out
     assert "Waiting on you" in out
-    assert "Being fixed" in out
+    assert "Being reworked" in out
 
     # Dashboard model must parse with 0 unmapped
     status_model = dash_model.prospect_status_model("acme")

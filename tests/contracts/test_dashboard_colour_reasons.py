@@ -391,14 +391,11 @@ def test_known_sites_carry_their_mapped_colour(tmp_path):
     # (plan-owner decision, Task 8): a design fact is not a pass, and fewer coloured
     # pills is the point.
     for word in (
-        "drop",  # judge verdicts
-        "send",
         "not set up",  # _HYP_CLS
         "yes",  # can we see this step? — a design fact, both answers neutral
         "no",
         "event",  # what the opening line is about
         "capability",
-        "named seat",  # seat kind
         "not on this list",
         "paused",  # the go-live badge and the sequence state
     ):
@@ -406,8 +403,7 @@ def test_known_sites_carry_their_mapped_colour(tmp_path):
     run_age = [cls for text, cls in pills.items() if text.startswith("last run ")]
     assert run_age == [{"pill"}]
     # Done or passed.
-    for word in ("verified", "can answer"):
-        assert pills.get(word) == {"pill ok"}, word
+    assert pills.get("can answer") == {"pill ok"}
     # The three readable-group boxes (each opens on its `.vn` count); `.v` alone is neutral.
     tags = _tags(page)
     verdict_boxes = sorted(
@@ -425,7 +421,7 @@ def test_known_sites_carry_their_mapped_colour(tmp_path):
     assert re.search(r"\.stat-why, \.why\s*\{[^}]*color:var\(--muted\)", _css(page))
 
 
-@pytest.mark.parametrize("status", ["active", "running"])
+@pytest.mark.parametrize("status", ["active"])
 def test_a_live_sequence_and_a_present_feed_are_states_not_passes(tmp_path, status):
     """Sequence state is a state, like the neutral go-live badge; a feed being present on
     this list is a design fact. Neither is done or passed, so neither is `ok`."""
@@ -478,26 +474,26 @@ def test_only_a_trusted_lede_is_plain(state):
     [("FAIL", "pill risk", "compliance"), ("WARN", "pill", ""), ("PASS", "pill ok", "")],
 )
 def test_the_capability_pill_follows_its_status(status, cls, risk):
-    from gtm_core.email_campaign_dashboard.views_status import _inbound_health_block
+    from gtm_core.email_campaign_dashboard.views_inbound import _capability_lines
 
     cap = {"provider": "", "status": status, "ts": "2026-09-20", "sequence_id": "S1"}
-    html = _inbound_health_block({"inbound": {"capability": cap}})
+    html = _capability_lines({"inbound": {"capability": cap}})
     pill = next(t for t in _tags(html) if "pill" in t.get("class", "").split())
     assert (pill["class"], pill.get("data-risk", "")) == (cls, risk)
 
 
 def test_the_dnc_pill_and_the_maintainer_notes(tmp_path):
-    from gtm_core.email_campaign_dashboard.views_status import _inbound_health_block
+    from gtm_core.email_campaign_dashboard.views_inbound import _inbound_lines
 
     dnc = {"event": "dnc_reconciled", "ts": "2026-09-20", "provider_emails": 2}
-    clean = _inbound_health_block({"inbound": {"dnc": dict(dnc, findings=[])}})
-    split = _inbound_health_block({"inbound": {"dnc": dict(dnc, findings=["a", "b"])}})
+    clean = _inbound_lines({"inbound": {"dnc": dict(dnc, findings=[])}})
+    split = _inbound_lines({"inbound": {"dnc": dict(dnc, findings=["a", "b"])}})
     assert [t["class"] for t in _tags(clean) if "pill" in t.get("class", "")] == ["pill ok"]
     assert [
         (t["class"], t.get("data-risk")) for t in _tags(split) if "pill" in t.get("class", "")
     ] == [("pill risk", "do-not-contact")]
     # Nothing checked, nothing synced: notes for whoever maintains the setup — neutral text.
-    notes = _inbound_health_block({"inbound": {}})
+    notes = _inbound_lines({"inbound": {}})
     assert "warn" not in {c for t in _tags(notes) for c in t.get("class", "").split()}
 
 

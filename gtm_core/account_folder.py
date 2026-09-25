@@ -51,6 +51,7 @@ from pathlib import Path
 from .paths import _safe_segment
 from .prospect_paths import accounts_dir
 from .prospects_state import load_latest
+from .refusal_copy import Refusal
 from .slugify import slug
 
 #: Trailing tokens that name a legal form, not a company. Deliberately closed and
@@ -221,6 +222,36 @@ def resolve(
     return canonical, "new"
 
 
+def ambiguous_question(candidates: list[str]) -> str:
+    count_word = "two" if len(candidates) == 2 else str(len(candidates))
+    cands_formatted = (
+        " and ".join(f"`{c}`" for c in candidates)
+        if len(candidates) == 2
+        else ", ".join(f"`{c}`" for c in candidates)
+    )
+    return (
+        f"I found {count_word} folders that could be this company: {cands_formatted}. "
+        "Which one is it? (Say the name, or say 'neither' to make a new one.)"
+    )
+
+
+def ambiguous_refusal(e: AmbiguousFolder) -> Refusal:
+    count_word = "two" if len(e.candidates) == 2 else str(len(e.candidates))
+    cands_formatted = (
+        " and ".join(f"`{c}`" for c in e.candidates)
+        if len(e.candidates) == 2
+        else ", ".join(f"`{c}`" for c in e.candidates)
+    )
+    return Refusal(
+        what=f"I found {count_word} folders that could be this company: {cands_formatted}",
+        why="multiple existing folders match this company name",
+        next_step="say the name of the folder",
+        alternative="say 'neither' to make a new one",
+        cost="Nothing was spent.",
+        technical=f"account_folder: ambiguous at {e.rung}: {', '.join(e.candidates)} — decide which folder is this account (or pass --domain); do not create a new one",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m gtm_core.account_folder",
@@ -233,11 +264,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         folder, rung = resolve(args.company, args.profile, args.domain)
     except AmbiguousFolder as e:
-        print(
-            f"account_folder: ambiguous at {e.rung}: {', '.join(e.candidates)} — "
-            "decide which folder is this account (or pass --domain); do not create a new one",
-            file=sys.stderr,
-        )
+        question = ambiguous_question(e.candidates)
+        refusal = ambiguous_refusal(e)
+        print(question, file=sys.stderr)
+        if refusal.details():
+            print(f"\n{refusal.details()}", file=sys.stderr)
         return EXIT_AMBIGUOUS
     except ValueError as e:
         print(f"account_folder: {e}", file=sys.stderr)

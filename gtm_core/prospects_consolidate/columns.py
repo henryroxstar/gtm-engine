@@ -100,6 +100,12 @@ MASTER_COLS = [
     # whether or not a sentence of research says so — and the generic lane has no event to
     # attest from. Appended, for the projection reason every block above records.
     "industry",
+    # The date research set the verdict beside it (2026-09-25). Carried from the account
+    # WITH its verdict and never on its own, so it always dates the verdict the row holds;
+    # `consolidate` lifts a row's `re-angle` to the account's `send` only when the account's
+    # stamp is newer than this one. Not in `RECORD_COLUMNS`, for the reason `signal_column`
+    # is not: that tuple decides whether a list carries the record at all.
+    "verdict_on",
 ]
 
 # Canonical field -> header variants seen across hubspot exports + the flat
@@ -208,6 +214,7 @@ _ASSIGNED_COLUMNS = {
     "judge_defect_class": "written by the judge — the normalised defect class (routing key)",
     "pool_row_id": "stamped once by consolidate; never supplied",
     ACCOUNT_ID_FIELD: "stamped by latest.json, joined here; never supplied",
+    "verdict_on": "the account's research date for its verdict, carried with it; never supplied",
 }
 
 #: One-line meaning per column, for the generated map. A column with no entry still

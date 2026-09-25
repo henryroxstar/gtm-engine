@@ -52,11 +52,7 @@ echo "==> interpreter probe ..."
 content_root="$(uv run python -m gtm_core.paths || true)"
 if [ -z "${content_root}" ]; then
   echo "" >&2
-  echo "\`uv run python -m gtm_core.paths\` did not print a content root." >&2
-  echo "" >&2
-  echo "Do NOT continue to a pipeline run until this probe passes: the engine's budget" >&2
-  echo "guard, ledger writers and integrity gates are all Python, and they fail one at a" >&2
-  echo "time and quietly rather than stopping the run." >&2
+  echo "The self-check could not start Python. On Windows this is usually the Store placeholder; see END-USER-ONBOARDING.md, 'If the check fails'. Do not run the engine until this ends with Ready." >&2
   exit 1
 fi
 echo "==> content root: ${content_root}"
@@ -92,10 +88,9 @@ fi
 
 "${CHECK_CMD[@]}" || {
   echo ""
-  echo "==> Bootstrap finished, but TIER 0 is not set yet."
-  echo "    Either ensure Doppler is logged in (\`doppler login\`) or copy .env.example to .env and set ANTHROPIC_API_KEY."
+  echo "==> Not ready yet. This copy runs on the self-hosted server, which needs an API key: copy .env.example to .env and set ANTHROPIC_API_KEY, or sign in with Doppler."
   exit 0   # not a hard failure — deps are installed; the user just needs a key
 }
 
 echo ""
-echo "==> Ready. Open the folder in Claude Code and say \"set me up\"."
+echo "==> Ready. Open the folder in the Claude app and say \"set me up\"."

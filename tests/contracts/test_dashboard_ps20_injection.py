@@ -17,6 +17,8 @@ import hashlib
 import json
 from html.parser import HTMLParser
 
+import pytest
+
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospects_consolidate as pc
 from tests.contracts.test_dashboard_ps20_trust import _ago, _stats
@@ -161,6 +163,42 @@ def test_the_gate_marker_check_catches_attribute_and_script_leaks(tmp_path):
 
     into_script = page.replace("<script>", f"<script>{GATE}", 1)
     assert _gate_placement(into_script)["script"] >= 1
+
+
+def _warn_div(page: str) -> str:
+    """The records-disagree strip alone: the campaign title may also render elsewhere."""
+    return page.split('<div class="card warn"', 1)[1].split("</div>", 1)[0]
+
+
+@pytest.mark.parametrize(
+    ("sequences", "rival", "sentence"),
+    [
+        (["S1", "S9"], None, "These numbers may be out of date"),  # S9: records only
+        (["S1"], ["S1"], "counted twice"),  # a second campaign sums S1 again
+    ],
+)
+def test_a_campaign_title_named_by_the_strip_renders_escaped(tmp_path, sequences, rival, sentence):
+    """PS20 Task 2.1c: the strip's "It affects <names>." carries campaign TITLES, which are
+    operator-typed text read from disk — escaped like every other site above."""
+    profile = _seed(tmp_path)
+    camp = pc._prospects_dir(profile, tmp_path).parent / "plans" / "campaigns"
+    (camp / "c1.campaign.toml").write_text(
+        f'slug = "c1"\ntitle = {json.dumps(SCRIPT_PAYLOAD + " One")}\n'
+        f"sequences = {json.dumps(sequences)}\n\n[targets]\nemails = 9\n",
+        encoding="utf-8",
+    )
+    if rival:
+        (camp / "c2.campaign.toml").write_text(
+            f'slug = "c2"\ntitle = "Campaign Two"\nsequences = {json.dumps(rival)}\n',
+            encoding="utf-8",
+        )
+    _stats(tmp_path, profile, {"fetched": _ago(0), "sequences": [{"id": "S1", "sent": 5}]})
+    m = gd.build_model(profile, tmp_path)
+    assert m["warnings"] == ["records-disagree"]
+    strip = _warn_div(gd.render_html(m))
+    assert sentence in strip and "It affects" in strip
+    assert ESCAPED_SCRIPT in strip
+    assert RAW_SCRIPT not in strip
 
 
 # --- Step 4: ledger bytes --------------------------------------------------------------

@@ -15,20 +15,18 @@ metadata:
 
 # Solution Design
 
-Convert requirements into an architecture the customer's engineers can react to. The skill runs in
-one of two modes — **Mode A (product-led)** or **Mode B (bespoke)** — sharing the same backbone:
-intake → feasibility → architecture → diagrams → design doc. Human-in-the-loop gates checkpoint each
-phase transition.
+Convert requirements into an architecture the people who must approve it can react to. The skill
+runs in one of two modes — **Mode A (product-led)** or **Mode B (bespoke)** — sharing the same
+backbone: intake → feasibility → architecture → diagrams → design doc. Human-in-the-loop gates
+checkpoint each phase transition.
 
-**The output is a customer-facing Solution Overview, not an internal SAD.** Structure every design in
-three tiers, in this order: a **½-page Executive summary** (outcome-led, no jargon) → a **Customer
-overview** (Tier 1 — the default read: problem → solution → how the product works → architecture →
-how-it-works → what ships first) → a clearly-marked **Technical appendix** (Tier 2 — the SA rigor:
-assumptions, component inventory, standards, shared-responsibility, trade-offs — that the
-customer/exec copy drops). Lead with the outcome and the problem; keep the depth, but move it below
-the fold. A reader gets the whole story from the Exec summary + Tier 1 and only descends into the
-appendix if they're the architect who has to build it. This keeps the customer read short and
-scannable without losing any SA rigor.
+**The output is a customer-facing Solution Overview, not an internal SAD.** Every design ships as
+three files (Step 6): the **customer overview** (an Executive summary, then nine numbered sections —
+the one file the customer reads), the **technical appendix** (the SA rigor: assumptions, open
+questions, component inventory, standards, trade-offs, service levels, maturity tags), and the
+**internal notes** (deal context, never sent). Lead with the risk the reader wants to avoid; keep the
+depth, but move it to the appendix. A reader gets the whole story from the overview and only opens
+the appendix if they're the architect who has to build it.
 
 - **Mode A — product-led.** The active profile has a product providing `solution-architecture` and
   the full Mode-A reference contract. The skill maps requirements onto **that product's** reference
@@ -43,13 +41,16 @@ scannable without losing any SA rigor.
 Mode-A reference files are present. Any missing file → fail soft to Mode B and state the reason.
 Operator can force either mode with `--mode-a` or `--bespoke`.
 
-**Write it customer-ready by default.** Assume a competent technical reader who was **not** in the
-first call. Open with the ½-page Executive summary, then a "what we heard" recap; avoid internal
-shorthand (ICP scores, persona codes) in the customer-facing body — put deal context in the marked
-internal appendix.
+**Write it for the reader who approves it.** Assume a competent reader who was **not** in the first
+call and may not be technical — often the buyer's decision-makers and their regulator. Avoid
+internal shorthand (ICP scores, persona codes) in the customer overview — deal context goes in the
+internal file.
 
-**Be a trusted, objective advisor.** Name the downside of your own recommendation and never
-overclaim. A design that names its boundaries is more persuasive than one that oversells.
+**Accurate on the page, caveats in the appendix.** The customer overview states what the design
+delivers and, plainly, where its record or coverage stops. Maturity tags, service levels not yet
+agreed, assumptions, open questions and trade-offs are real and must be written down — in the
+appendix or the internal file, never on the customer page. Never overclaim to fill the space they
+leave: a design that names its boundaries is more persuasive than one that oversells.
 
 **Lead with agent identity (Mode A).** Every design centres the product's **identity spine** — its
 verifiable-identity / scoped-credential / policy / tamper-evident-audit chain. The spine's legs and
@@ -64,8 +65,11 @@ product's reference demo (per its capability-coverage matrix).
 **Simulated**, or **Design-target**, and pull the tags from the demo's capability-coverage matrix so
 a green claim can never outrun the current build's ground truth. The reference pack's
 deck/design-claims section lists which capabilities are **Enforced** on the current build and which
-are **Design-target** — present design-targets as roadmap, never as live. The product produces
-audit-ready *evidence*; never present it as itself certified against the frameworks it evidences.
+are **Design-target** — present design-targets as roadmap, never as live. The tags live in the
+appendix's capability matrix (A4); the customer overview describes only Enforced capabilities as
+delivered, and names anything later as plainly later ("later, a bank can run its own"), untagged.
+The product produces audit-ready *evidence*; never present it as itself certified against the
+frameworks it evidences.
 
 **Read-only.** This skill designs and documents. It never provisions, sends, or contacts anyone.
 
@@ -80,6 +84,21 @@ audit-ready *evidence*; never present it as itself certified against the framewo
 > `solution-architecture` in its capabilities **and** whether all Mode-A reference files resolve. If
 > yes → **Mode A**. If no → **Mode B** (state the missing file or capability that caused the soft
 > fail). Operator can override with `--mode-a` or `--bespoke`.
+
+### Two questions before drafting (both modes)
+
+Ask both in the intake message. In a headless/unattended run, take the stated default and record
+the choice in the run header.
+
+1. **Who reads this, and who presents it?** The customer's engineers, the customer's own customers,
+   or a regulator — and is it presented by us alone or as a joint pitch with a partner (an
+   integrator who builds on our product)? **Default:** the buyer's decision-makers and their
+   regulator, jointly presented. The answer sets the vocabulary, which diagrams lead, and which
+   reader types the FAQ and the reader pass (Step 6b) cover.
+2. **What risk is the reader trying to avoid?** Regulatory, legal, data-security, reputational —
+   name it. §2 of the overview **leads with that risk**, not with operational pain (volume,
+   deadlines, effort). **Default:** the risk the discovery dossier names; if none, the risk of
+   the decision the reader signs off, and flag it as assumed.
 
 ### Mode A — product-led
 
@@ -99,8 +118,8 @@ audit-ready *evidence*; never present it as itself certified against the framewo
    pack(s) in **`profiles/<active>/knowledge/guidance/`** (`nist-`, `enisa-`, `singapore-`, `owasp-`,
    `csa-maestro-`, `airq-gateway-alignment.md`) for the frameworks this account uses.
 5. **`profiles/<active>/products/<product>/references/primer-glossary.md`** — the reusable product primer,
-   the key-terms glossary, the "what we heard" recap, and the why-now thread (with sourced market stats +
-   branded infographic paths).
+   the key-terms glossary, the "what we heard" recap (internal file only), and the why-now thread (with
+   sourced market stats + branded infographic paths).
 6. **Knowledge pack** — `profiles/<active>/knowledge/product.md` (the product's processing flow, features,
    themes, deployment options, competitive framing), `profiles/<active>/knowledge/company.md` (positioning),
    `profiles/<active>/knowledge/case-studies.md` (the solution shapes — match the closest as proof).
@@ -117,8 +136,7 @@ audit-ready *evidence*; never present it as itself certified against the framewo
 - **Deployment model** — self-hosted / managed / open-ecosystem (default: managed — the fast path).
 - **Targets & protocols** — the services agents will reach and over which protocols (REST→MCP, MCP,
   A2A, AP2).
-- **Audience for the doc** — engineers (sequence + component detail), security/risk (policy + audit +
-  trust), or execs (context + value). Drives which diagrams lead.
+- **Reader, presenter and the risk to avoid** — the two questions above.
 
 ### Mode B — bespoke
 
@@ -136,6 +154,7 @@ audit-ready *evidence*; never present it as itself certified against the framewo
    - **Stack & integrations** — what tools/platforms/APIs are in play today?
    - **Data sources** — where does the key data live? Is there a public or partner API for it?
    - **Constraints** — budget, timeline, existing infrastructure, regulatory exposure.
+   - **Reader, presenter and the risk to avoid** — the two questions above.
 4. **Load `references/bespoke-scaffold.md`** — the architecture layers, feasibility rubric, V1/V2
    discipline, and honesty rule that guide Steps 2 and 3.
 
@@ -268,14 +287,17 @@ gate the customer cares about; a self-hosted/federated deployment). Lead with wh
    and federation hops if the federation pattern applies.
 
 The product's **per-request control steps** (caller-context → identity → policy → injection → proxy)
-are **not** a Mermaid diagram — render them as the **control strip** HTML component (Step 5), which is
-more scannable than a linear flowchart and avoids duplicating the request-sequence diagram.
+are **not** a Mermaid diagram — render them as the **check pipeline** (`.gate-pipe`) HTML component
+(Step 5), which is more scannable than a linear flowchart and avoids duplicating the
+request-sequence diagram.
 
 Keep each diagram readable — one idea per diagram, not everything on one canvas. **Every diagram ships
 with a walkthrough:** a one-line "how to read this," then a per-node/per-component line in plain
-language. The big target-state diagram especially must not stand alone. In the doc, diagrams 1–2
-anchor Tier 1 §5 (Architecture: current → target), diagram 3 anchors §6 (How it works — end to
-end), and diagram 4 (policy decision) sits in §5 or §6 next to the control strip. Apply the **Mermaid gotchas**
+language. The big target-state diagram especially must not stand alone. In the customer overview,
+diagram 1 anchors §2 (The problem — for a simple channel, the `.cstate` component), diagram 2 anchors
+§5 (Architecture), and diagram 3 anchors §6 (How it works — as the `.lanes` swimlane when more than
+two parties act). Diagram 4 (policy decision) and diagram 5 (deployment) go in the appendix unless
+the reader's risk turns on them. Apply the **Mermaid gotchas**
 checklist in `profiles/<active>/products/<product>/references/diagram-library.md` before saving (no `;`
 in sequence text, quote all flowchart labels). The doc can later go to `build-deck` for polished slides.
 
@@ -291,85 +313,156 @@ Produce two Mermaid diagrams:
 Skip gateway-specific diagram types (request sequence through a multi-step processing flow, federation
 topology). Every diagram ships with a walkthrough. One idea per diagram.
 
+### Visual rules (both modes)
+
+- **One visual per section** (a short Further reading is exempt; the Exec summary's outcome headline
+  is typography, not a visual). A second visual in a section is a sign the section is two sections.
+- **Animate only to reveal what the static version cannot** — an order that matters, a state that
+  changes. Motion that only fades, dims or rises in is decoration: make it static.
+- **Multi-party flows (more than two parties) are a swimlane** (`.lanes`): one column per party, a
+  numbered dot per step, one connector through the dots in step order using only horizontal and
+  vertical segments, an arrowhead into each next dot, and light alternating lane shading instead of
+  per-lane guide lines (guide lines read as piercing the dots).
+- **Coverage/traceability tables name the role** (`table.cov`): each cell is a 2–4 word label of
+  what that part does for the requirement, never a bare dot. Mark a part only if the requirement
+  fails without it — a part that merely *logs* a requirement it does not *meet* is not marked as
+  meeting it. Group the columns under separate "technology" and "parties" headers. One amber
+  "partial" state, reserved for where a real gap lies, with a note in the row saying what it is.
+- **Images fit the column** (`max-width:100%`), and no text inside an exported image is smaller
+  than the page's body text at that width. For simple flows prefer the native HTML components,
+  sized to the page's type scale, over an exported diagram image; keep exported diagrams for true
+  architecture.
+
 ---
 
 ## Step 5 — Assemble the design doc
 
-**No metadata header.** Start with the `# Title` and go straight into §1.
+**No metadata header.** The customer overview opens with its title,
+`# <Account> × <Vendor> — Solution Overview` (this H1 is what marks the file as the customer
+overview), a one-line italic meta line, and — directly under it — the **sibling pointer**, an
+invisible comment naming its appendix:
+
+```
+<!-- appendix: solution-design-<account>-<YYYY-MM-DD>-appendix.md -->
+```
+
+The pointer is what lets `design_lint` count appendix-resident coverage (assumptions, open
+questions, component inventory, service levels, deployment) as answered. There is **no** visible
+"Tier 1" divider heading in the customer file.
+
+### Budgets
+
+- **One visual per section** (Step 4 visual rules); `references/html-companion.md` lists the
+  components — reach for one before writing a fourth paragraph.
+- **Customer overview ≤ ~2,000 words.** The appendix is a *separate file* (Step 6), never a longer
+  scroll. A first draft over budget is cut, not reflowed.
+
+### Plain language — limits, not a style note
+
+- **No slogans.** Ban the "X, not Y" construction ("one use case, not two"; "a named authoriser, not
+  just a verified agent") and slogan headings ("Clear about the boundary"). Say the fact.
+- **No working-note phrases** on the customer page: "stated plainly", "the honest answer", "this
+  design", "to be clear", "what we heard". They narrate the drafting, not the solution.
+- **Everyday words.** "The other bank", not "counterparty"; "logged", not "governed exchange";
+  "shows", not "surfaces". Outside §4 and §5, no undefined jargon; define each technical term where
+  it is first used (or in the §1 Key terms). Count a repeated abstract noun — one used more than
+  five times is doing a plain word's job.
+
+### Claims — verified against a source, or off the customer page
+
+- **A named regulation or framework is read, not remembered.** Fetch its primary document (the
+  web-fetch MCP tools) and cite section and page for every requirement mapped to it (`small.cite`
+  in `.req-groups`). Never characterise its legal status — rule, guidance, non-binding — from
+  memory: quote how the document describes itself. A framework that says it is not regulatory
+  guidance must not be called guidance.
+- **Every "no X" claim is checked against how things work today.** "No record of what was sent" is
+  false wherever an email trail exists; write what is actually missing (proof of who asked, proof
+  of approval).
+- **FAQ answers come only from stated requirements or the design.** An answer you inferred (who
+  does which IT task, who supplies which fact, whether the record covers every case) goes to the
+  internal file as an open question, not onto the customer page.
 
 ### Mode A — product-led
 
 **Define the customer's own terms, not just the active company's.** A second reader won't know the
-*account's* product names and acronyms either. In §1, briefly explain each customer system/agent/acronym
-the design references (e.g. "ARC = their cloud platform unifying X", "T1 = their conversational agent that
-does Y"). One line each. This is as important as the product glossary.
+*account's* product names and acronyms either. §1 closes with a collapsible **Key terms** glossary
+(`details.gloss`) defining each customer system/agent/acronym, the regulation or framework, and the
+product terms the overview uses — one line each.
 
-Structure the output in three tiers — **Executive summary → Customer overview (Tier 1) → Technical
-appendix (Tier 2)**. Lead with outcome and problem; the honesty items (assumptions, open questions)
-get a short summary box in Tier 1 and their full detail in the appendix, so the overview isn't
-front-loaded with caveats.
+#### The customer overview — section order
 
-**Executive summary (½ page, top of the doc).** A handful of short lines a busy exec reads in a
-minute: the value in one sentence · the problem in a line · the proposed solution in a line · the
-headline outcome (a before→after where one side is real, e.g. "days → seconds") · who it's for. No
-diagrams, no jargon. **Open the Exec summary with the outcome band** — render the headline before→after
-as the `<div class="outcome">` block (see `references/html-companion.md` Notes) so the one-line payoff
-reads as a designed element, then the short bullets follow.
+**Executive summary (top of the doc, ≤150 words after the headline).** No diagrams, no jargon:
 
-#### Tier 1 — Customer overview (the default read)
+- **Headline** — the `.outcome` band: one line (`.o-after`) that names the problem the design
+  solves, then a subline (`.o-sub`) that says how, and names the governing framework if there is one.
+- Optionally the **trust strip** (`.trust-strip`) when the design turns on a request passing a
+  short sequence of checks.
+- **3–4 bullets, one or two sentences each:** **The problem** (the risk from intake question 2) ·
+  **The solution** (who does what, in a line) · **The constraint** (the one limit that shaped the
+  design) · **Who it's for**.
 
-1. **What we heard** — the discovery recap (use case, pains, why-now), **plus a short "systems & agents
-   in scope" glossary defining the customer's own terms/products/agents** in one line each (as
-   important as the product glossary).
-2. **The problem & why now** — the pain today, quantified where the numbers are real (market context,
-   the regulatory / why-now driver from the primer's why-now thread), and what it costs. Keep it to
-   what the customer already feels — enough to answer "why now," not a stats dump.
-3. **The solution** — a plain-language description of what's being built, **who it's for & what they
-   get** (name the stakeholders in plain terms and the concrete benefit each gets — counsel → provable
-   audit chain; platform → drop-in, no rewrite; business → governance built in), and a short summary of
-   the pieces involved.
-4. **How [the product] works** — the product-education section, **surfaced from the product's
-   `primer-glossary.md`** (the "[product] in 60 seconds" primer + the key-terms glossary): what the
-   product is and what it does on every request, in plain language. A **first-class section, not a
-   footnote** — customers still need teaching on the product. (Mode A only — the product is the thing
-   being taught.) Render the product's **per-request control steps** as the `<ol class="controls">`
-   **control strip** (see `references/html-companion.md` Notes) — the one place numbered `01/02…`
-   markers belong, because every request really passes through them in order.
-5. **Architecture: current → target** — **open by stating how the design realises the identity spine**
-   (every leg, per the product's reference pack) — identity is the core of the design, not a feature
-   listed later — then current state (diagram 1 + walkthrough) and target state (diagram 2 +
-   walkthrough), and the case-study shape it mirrors. Weave in **which capability closes which gap**
-   from current state, tying benefits to the design rather than a feature list. Place the **policy-decision
-   diagram** (Step 4 #4) here or in §6 to make the allow/deny fork concrete. For a concrete design, the
-   HTML companion may include a real product screenshot as a `<figure class="shot">` — reference the PNG
-   **relatively** and **copy it into the account folder** next to the `.html` (from
-   `profiles/<active>/knowledge/brand/product-screenshots/`, see that folder's `INDEX.md`; don't
-   base64-embed); it illustrates the *proposed solution*, not the customer's systems.
-6. **How it works — end to end** — the representative request walked through as **numbered steps**
-   (diagram 3 sequence + walkthrough): caller → product → target → response, so a reader sees exactly
-   what happens per call.
-7. **What ships first — V1 / V2 / not building** — the V1/V2 cut from Step 2, rendered as the
-   **phase cards** (`<div class="phases">` — two side-by-side comparison cards, V2 recessed; see
-   `references/html-companion.md` Notes), with the explicit **"not building (V1)"** list kept as
-   ordinary bullets below the cards. Frame it as a **draft for discussion** — no
-   version-history/changelog, no rigid roadmap, just the current cut to align on.
-8. **Talking points & FAQ** — 3–6 one-line benefit points and a short FAQ answering the objections this
-   design invites. **Keep it light** — the full persuasion story is `build-deck`'s job, not the doc's.
-9. **Further reading** — a few categorized reference links (product docs, the standards/protocols the
-   design cites, the regulatory driver). Optional, but useful for a technical reader.
+Then `---` and nine numbered sections:
 
-- **Assumptions & open questions (summary box)** — a short 3–5 bullet box closing Tier 1: the
-  load-bearing assumptions and the top open questions, with a line that answers **may change the target
-  architecture**. Full lists live in the appendix, so the overview leads with the solution, not caveats.
+1. **Requirements** — what the design must do, as `.req-groups` **grouped by driver**: the
+   regulation it must meet, the framework it aligns with, ease of adoption (or whatever the drivers
+   are — no more than four). Number R1…Rn **in group order** (renumber after any regroup). Each
+   framework-derived requirement carries its citation (section + page) as `small.cite`. Close with
+   the Key terms glossary.
+2. **The problem** — lead with the risk the reader is trying to avoid (intake question 2), not with
+   volume or effort. Diagram 1 / `.cstate` shows today's channel and what it lacks; then 2–4 bullets
+   on what the design has to solve. Every "no X" claim checked (Claims, above). Quantify only where
+   the numbers are real.
+3. **The solution** — who does what, as `.who` cards: the customer, the integrator/partner (when
+   jointly presented), and us. **Say explicitly who stays accountable** for the decision the
+   regulator cares about — the design moves work, not accountability.
+4. **How [the product] works** — the product primer from the product's `primer-glossary.md`, in
+   plain language. A **first-class section, not a footnote** (Mode A only). The per-request steps
+   are the `.gate-pipe`, each step tagged with the framework component it maps to; the steps walk
+   the identity spine's legs in the order a request meets them.
+5. **Architecture** — diagram 2 (target state) + walkthrough + `.suite-key`. Answer the one "why not
+   the obvious alternative?" a reader will ask in two sentences. A real product screenshot may go
+   here as a `<figure class="shot">` (from `profiles/<active>/knowledge/brand/product-screenshots/`,
+   see that folder's `INDEX.md`, referenced relatively); it illustrates the *proposed solution*,
+   not the customer's systems.
+6. **How it works — end to end** — diagram 3: the representative request as numbered steps, a
+   `.lanes` swimlane when more than two parties act, with `.ln-notes` for the fallback path and
+   slow replies. Then state plainly **what is recorded and what is not** — this is where the
+   customer page says where the record stops.
+7. **Common questions** — FAQ accordions grouped by reader type (e.g. regulator, compliance,
+   business owner, IT & security — from intake question 1). **At most two per reader type, each
+   answer ≤ ~40 words**, answered only from stated requirements or the design.
+8. **How each requirement is met** — `table.cov`: one row per requirement, one column per part,
+   columns grouped under "technology" and "parties" headers, each cell a role label (Step 4 visual
+   rules).
+9. **Further reading** — a few categorized links: product docs, the primary documents of every
+   regulation or framework the overview cites, the regulatory driver.
 
-#### Tier 2 — Technical appendix
+**Not on the customer page** — each has a home in the appendix or internal file, and moving it there
+is the fix, not deleting it:
+
+| Belongs elsewhere | Where |
+|---|---|
+| Maturity and enforcement tags, beta status | appendix A4 / A8 |
+| Service levels or residency "not yet agreed" | appendix A9 (and the open question in A2) |
+| Assumptions & open questions — any summary box | appendix A1 / A2 |
+| The V1 / V2 / not-building cut; what the product does not do | appendix A2 (shipping board) |
+| The "what we heard" discovery recap; talking points | internal file |
+| Tier divider headings ("Tier 1 — …") | nowhere — the H1 marks the file |
+
+#### The technical appendix (its own file)
 
 Open the appendix with a one-line banner: *"Technical detail — for the customer's architects; omit
-from the exec/customer copy."* Then:
+from the exec/customer copy."* This is where every caveat the customer page leaves out is written
+down in full. Then:
+
+
 
 A1. **Assumptions** — bulleted; every place the design assumes something not yet confirmed.
 A2. **Open questions & dependencies** — bulleted, grouped (**Customer to provide / Decisions to make /
     Vendor to confirm internally / Beta constraint**). Carry forward unresolved discovery items.
+    Close with the V1/V2 cut from Step 2 as the **shipping board** (`<div class="board">` — V1, V2
+    recessed with `is-next`, "not building" dashed with `is-out`; see `references/html-companion.md`),
+    framed as a **draft for discussion**.
 A3. **Component inventory** — table of what gets configured: 『the product's own configurable object
     types — entry points, proxies, credentials, policies, connections, secrets, whatever the
     product's reference pack names them』, from the product references. **The bridge to
@@ -417,39 +510,40 @@ A11. **Glossary** — every term that means something specific here, in one line
     both sides think they share. A reader who guesses a definition disagrees with the design
     without knowing it, and that surfaces at implementation rather than at review.
 A12. **Internal appendix (omit from customer copy)** — persona mapping + codes (A5, persona #), ICP
-    score, deal context. As a bulleted list, kept entirely out of the customer-facing body.
+    score, deal context, the "what we heard" discovery recap, talking points, and any FAQ answer
+    that was inferred rather than stated. As a bulleted list, kept entirely out of the customer file.
 
 **Formatting:** use real bullet lists (blank line before the list) and short paragraphs — never run
-assumptions, open questions, or the appendix together as a dense block. The Exec summary + Tier 1
-should read comfortably on their own; Tier 2 can be denser.
+assumptions, open questions, or the appendix together as a dense block. The customer overview
+should read comfortably on its own; the appendix can be denser.
 
 ### Mode B — bespoke
 
-Structure (same three tiers; **never import gateway vocabulary** — see the guardrail):
+Same three files, the same Executive summary shape, the same plain-language limits and visual rules
+(**never import gateway vocabulary** — see the guardrail).
 
-**Executive summary (½ page).** The value in one sentence · the workflow pain in a line · the proposed
-build in a line · the headline outcome · who it's for.
+#### The customer overview (Mode B)
 
-#### Tier 1 — Customer overview
-
-1. **What we heard** — the workflow pain, the feature wishlist, the constraints.
-2. **The problem & why now** — what the manual workflow costs today (time, error, risk), quantified
-   where the numbers are real. Keep it to what the customer already feels.
-3. **How this build works** — a one-paragraph plain-language summary of the proposed system, **plus who
-   it's for & what they get** (the stakeholders and the concrete benefit each gets).
-4. **Architecture: current → target** — current state (diagram 1, the manual workflow + walkthrough)
-   and target state (diagram 2, the bespoke layers + walkthrough).
+1. **Requirements** — the jobs to be done and the constraints, stated as what the build must do
+   (`.req-groups`), with a Key terms glossary.
+2. **The problem** — the risk the reader is trying to avoid first, then what the manual workflow
+   costs today (time, error), quantified where the numbers are real. Diagram 1 (the manual workflow).
+3. **How this build works** — a one-paragraph plain-language summary of the proposed system, plus
+   who does what (`.who`) and who stays accountable.
+4. **Architecture** — diagram 2 (the bespoke layers + walkthrough).
 5. **How it works — end to end** — the layer-by-layer walkthrough in plain language; for each layer,
-   the grounding data source or API named.
+   the grounding data source or API named. A swimlane when more than two parties act.
 6. **What ships first — V1 / V2 / not building** — the V1 cut and the explicit **"not building (V1)"**
-   list (mandatory and non-optional), framed as a **draft for discussion**.
-7. **Talking points & FAQ** — a few one-line benefit points + a short FAQ. **Keep it light** — the
-   deck is `build-deck`'s job.
+   list (mandatory and non-optional), framed as a **draft for discussion**. Mode B keeps this on the
+   customer page: for a bespoke build the scope cut is what the customer is buying, not a caveat
+   about a product.
+7. **Common questions** — grouped by reader type, at most two per type, each answer ≤ ~40 words.
+8. **How each requirement is met** — `table.cov`.
 
-- **Assumptions & open questions (summary box)** — a short 3–5 bullet box closing Tier 1; full detail
-  in the appendix.
+Assumptions, open questions, flagged risks and talking points go to the appendix / internal file,
+as in Mode A.
 
-#### Tier 2 — Technical appendix
+#### The technical appendix (Mode B)
 
 Banner: *"Technical detail — omit from the customer copy."* Then:
 
@@ -483,20 +577,42 @@ Save as **`solution-design-[company]-[YYYY-MM-DD].md`** in the account folder
 `content/<active>/accounts/<account-slug>/` (see CLAUDE.md "Per-account outputs"; Mermaid embedded).
 
 **Always also emit a self-contained HTML companion** (`solution-design-[company]-[YYYY-MM-DD].html`)
-using `references/html-companion.md` — plain Markdown viewers don't render Mermaid, so the `.html`
-guarantees the diagrams draw in any browser, and its styling renders the tiers as a polished,
-readable document. The `.md` stays the source of truth.
+using `references/html-companion.md` — it guarantees the diagrams and components draw in any
+browser, as a polished, readable document. **The `.md` is the single source.** Create the `.html`
+once from the template, then after **every** `.md` edit re-render it:
 
-**Two reading tiers, one file.** The saved doc carries the Exec summary + Tier 1 overview + Tier 2
-appendix. For a **customer/exec copy**, offer to emit a trimmed version that drops the Tier 2 appendix
-(and always the internal appendix) — the Exec summary + Tier 1 stand alone as the customer read. A
-reusable, de-branded blank of this exact structure lives at `references/solution-overview-template.md`
+```bash
+uv run python -m gtm_core.design_render content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD].md
+```
+
+It re-embeds the `.md` into the companion and inlines relative `.svg`/`.png` images. Never hand-edit
+the markdown embedded in the `.html` — the next render overwrites it, and until then the two
+disagree.
+
+**Three audiences, three files — not one scroll.** One document serving an exec, an architect and
+our own deal notes serves none of them. Emit the split by default; do not offer it as an extra:
+
+| File | Audience | Contains |
+|---|---|---|
+| `solution-design-[company]-[date].md` | the customer's decision-makers (and their regulator) | Exec summary + §1–9, the sibling pointer to the appendix |
+| `solution-design-[company]-[date]-appendix.md` | the customer's architects | A1…An, and every caveat the overview leaves out |
+| `solution-design-[company]-[date]-internal.md` | **us only — never sent** | the "omit from customer copy" material (A12 in Mode A, A10 in Mode B) |
+
+Each gets its own HTML companion the same way. Two hard rules:
+
+- **A section whose own heading says "omit from customer copy" must not be in the customer file.**
+  Writing that phrase means you are writing the internal file — put it there.
+- **Never ship a version log.** Solution designs revise **silently**: no changelog, no "v2.3 —
+  what changed" section, no revision table. A customer never saw v1, so narrating the path to v2.5
+  is pure scroll cost. Version history lives in git.
+
+A reusable, de-branded blank of this structure lives at `references/solution-overview-template.md`
 for an SA who wants to draft one by hand.
 
 Tell the colleague both files are saved (note the `.html` is the one to open for diagrams) and **paste
 the target-state diagram source inline**. Then offer the relevant hand-offs:
 
-After all prose, append `⟦FILE:…⟧` sentinels so the cockpit delivers both files automatically:
+After all prose, only when running under the Telegram cockpit, append `⟦FILE:…⟧` sentinels so the cockpit delivers both files automatically:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/accounts/<account-slug>/solution-design-[company]-[YYYY-MM-DD].md⟧
@@ -517,7 +633,19 @@ A design is not done because it saved. Run both, in order, and report the result
 **1 · Lint — deterministic, runs everywhere, including headless.**
 
 ```
-uv run python -m gtm_core.design_lint <the saved design>.md
+uv run python -m gtm_core.design_lint \
+    content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD].md \
+    content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD]-appendix.md \
+    content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD]-internal.md
+```
+
+Pass all three cuts — the linter knows the split and holds each file to what that file is for
+(an appendix is not missing the executive summary it never had; the sibling pointer tells it
+where the overview's appendix-resident coverage lives). Then confirm each HTML companion matches
+its `.md`:
+
+```bash
+uv run python -m gtm_core.design_render content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD].md --check
 ```
 
 **SD1** the three-tier read is present and in order · **SD2** every coverage dimension has a
@@ -552,9 +680,20 @@ architect asks the question it never answered. `--dimensions` prints the whole t
 question each one asks.
 
 **2 · A read-through against the questions a demanding architect asks** — whose identity is on each
-action, whose system of record holds each output, what is enforced versus a design target, and
-whether any body claim contradicts a constraint you documented. Judgement, not mechanism; the
-linter cannot ask any of them.
+action, whose system of record holds each output, what is enforced (tagged in the appendix, never
+shown as live on the customer page) versus a design target, and whether any body claim contradicts
+a constraint you documented. Judgement, not mechanism; the linter cannot ask any of them.
+
+**Reader pass.** Read the customer overview once as each reader type from intake question 1 (e.g.
+regulator, business owner, compliance, IT & security) and list the questions each would ask. Answer
+each in the overview from the requirements or the design, or route it to the appendix / internal
+file — never leave it for the meeting.
+
+**Sweep after any change of design position.** A routing, ownership or scope decision appears in
+several places at once. When one changes, grep the `.md`, the diagrams' source text (Mermaid and
+SVG labels), the swimlane, the coverage table and the FAQ for every place the old claim appears,
+update all of them, then re-render. A change applied in one place is a contradiction the reader
+finds before you do.
 
 ## Guardrails
 
@@ -565,8 +704,9 @@ linter cannot ask any of them.
   must do"; **state the active company's real certs accurately (per `profiles/<active>/knowledge/company.md`)
   and never assert the company lacks a certification** (treat genuinely-unconfirmed certs as "confirm
   internally"); the honest boundary is that the product produces *evidence* for the customer's compliance,
-  not that the company is uncertified; mention beta status once where it matters; route content/model safety
-  to the company's safety product.
+  not that the company is uncertified; state beta status once, in the appendix (A8); route content/model
+  safety to the company's safety product. These rules decide what is *true*; the customer/internal
+  split (below) decides *which file* it goes in.
 - **Identity-first + honest enforcement tags (Mode A) — non-negotiable.** Centre the design on the
   product's identity spine (legs per its reference pack), and tag every claimed capability
   **Enforced / Simulated / Design-target** aligned to the reference demo's capability-coverage
@@ -581,38 +721,56 @@ linter cannot ask any of them.
   architecture synthesised from `references/bespoke-scaffold.md` and the functional inputs.
 - **Gates are on by default.** Pass `--no-gates` only on explicit operator opt-out for fast internal runs.
   Never skip a gate on a customer-facing run.
-- **Be objective about trade-offs.** Name the downside of the recommended path. A design with no stated
-  trade-offs reads as a sales pitch, not advice.
+- **Be objective about trade-offs.** Name the downside of the recommended path (appendix A7). A design
+  with no stated trade-offs reads as a sales pitch, not advice.
 - **Cite real control IDs (Mode A).** Only the 2–3 frameworks the account uses.
-- **Write for the newcomer.** Don't assume the reader was in meeting 1 or knows product terms — primer +
-  glossary up front (Mode A); plain-language summary up front (Mode B); internal shorthand only in the
-  marked appendix.
-- **Customer copy drops Tier 2.** The Exec summary + Tier 1 overview are the customer/exec read; the
-  technical appendix (and always the internal appendix) is omitted from the customer copy. Lead with
-  outcome and problem, not caveats — assumptions/open-questions get a short summary box in Tier 1, full
-  detail in the appendix.
+- **Write for the reader from intake question 1.** Don't assume they were in meeting 1 or know product
+  terms — Key terms in §1, product primer in §4 (Mode A); plain-language summary up front (Mode B);
+  internal shorthand only in the internal file.
+- **Customer / internal split.** The customer overview carries the Exec summary and §1–9 and nothing
+  else — no discovery recap, talking points, maturity tags, unagreed service levels, assumptions box or
+  tier dividers (Step 5 "Not on the customer page"). Those go, in full, to the appendix or the internal
+  file. Lead with the reader's risk, not caveats.
 - **Product education is first-class (Mode A).** Surface the product primer from `primer-glossary.md`
-  as its own "How [the product] works" section in Tier 1 — customers still need teaching. Don't bury it
+  as its own "How [the product] works" section (§4) — customers still need teaching. Don't bury it
   inside the architecture section.
-- **Keep talking points & FAQ light.** A few benefit lines + the top objections in the doc; the full
-  persuasion story is `build-deck`'s job. Don't turn the overview into a pitch.
-- **Component inventory stays (Mode A).** Tier 2 keeps a **Component inventory** section (『the
+- **FAQ from the record, not from inference.** At most two questions per reader type, each answer
+  ≤ ~40 words, drawn from the stated requirements or the design; the persuasion story is
+  `build-deck`'s job.
+- **Plain language has limits** (Step 5): ≤ ~2,000 words, no "X, not Y" slogans, no working-note
+  phrases, every technical term defined where first used.
+- **Component inventory stays (Mode A).** The appendix keeps a **Component inventory** section (『the
   product's own configurable object types, per its reference pack』) under that heading —
   `gateway-runbook` consumes it.
 - **Every diagram has a walkthrough.** No box-only diagrams.
 - **Use the visual-component layer, keep it no-slop.** Reach for the designed blocks in
-  `references/html-companion.md` where they earn their place — the **outcome band** (one, atop the Exec
-  summary), the **control strip** (the product's sequential per-request steps), the **phase cards** (the
-  V1/V2 cut), the **capability pills** (coverage matrix), and an optional **product screenshot**. They
-  are plain inline HTML in the `.md` that degrades to readable text in a plain viewer. Bans: no gradient
+  `references/html-companion.md`, one per section (Step 4 visual rules) — on the customer page the
+  **outcome headline**, **trust strip**, **requirement groups**, **current-state flow**,
+  **who-does-what cards**, **check pipeline**, **swimlane**, **coverage table** and **suite key**; in
+  the appendix the **shipping board**, **status board** and **capability pills**. They are plain
+  inline HTML in the `.md` that degrades to readable text in a plain viewer. Bans: no gradient
   text, no colour side-stripe callouts, no big-number/small-label hero-metric cliché, no numbered
-  `01/02…` markers except on the control strip (numbered scaffolding on non-sequential content is slop),
-  one locked accent in the chrome (any brand *secondary* stays out — a sparing diagram data-accent at
-  most), cards at the 12–14px radius scale.
-- **Assumptions are explicit.** If the dossier is missing or a requirement is open, say so — don't
-  silently design around a guess.
+  `01/02…` markers except where the order is real (the check pipeline, the trust strip, swimlane
+  steps), one locked accent in the chrome (owner colours only where they mean an owner), cards at
+  the 12–14px radius scale.
+- **Assumptions are explicit.** If the dossier is missing or a requirement is open, say so — in the
+  appendix or the internal file — and don't silently design around a guess.
 - **Respect beta reality (Mode A).** Closed beta, one gateway per project; managed service is the default
   fast path.
 - **One idea per diagram.** Readability over completeness; split rather than crowd.
 - **Match proof by shape, not vertical keyword (Mode A).**
 - **Read-only.** No provisioning, no sends.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

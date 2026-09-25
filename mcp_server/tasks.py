@@ -235,7 +235,10 @@ async def dispatch_task(
         else None
     )
     if not await admits(pool, ws, agent_id, agent_budget_usd):
-        raise ValueError("cost_cap_reached: monthly cost cap reached")
+        from gtm_core import budget_status
+
+        sentence = budget_status.render(budget_status.status(profile_name))
+        raise ValueError(f"cost_cap_reached: monthly cost cap reached ({sentence})")
 
     # Enforce agent daily cap
     try:

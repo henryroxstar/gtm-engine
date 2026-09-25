@@ -29,7 +29,7 @@ Before anything else, confirm the local environment is ready — the user should
 
 1. Run `bash scripts/bootstrap.sh`. It installs `uv` if missing, runs `uv sync` (which provisions the right Python and all dependencies), and prints the environment self-check. Re-running is safe.
 2. Read the self-check output (`uv run python -m gtm_core.check_env`). It reports which capability **tier** is unlocked:
-   - **TIER 0** (`ANTHROPIC_API_KEY`) is required — if it's missing, tell the user to copy `.env.example` → `.env` and set `ANTHROPIC_API_KEY`, then continue. Nothing runs without it.
+   - **TIER 0**: If the check says you're signed in through the app, say nothing about keys. Only on the self-hosted server does it ask for `ANTHROPIC_API_KEY`.
    - **TIER 1** (`DEEPSEEK_API_KEY`, `FIRECRAWL_API_KEY`) is optional — unlocks the content pipeline and richer research; safe keyless fallbacks exist if unset.
    - **TIER 2** is self-hosting only (Telegram, publishing, media) — skip it for a Claude Cowork user.
 3. State plainly what's on and what's using a fallback, then move on. Do **not** block setup on TIER 1/2 — only TIER 0 is required.
@@ -140,8 +140,8 @@ No `--draft` flag needed — `render-stage` always persists a copy of the draft 
 Explain the three-tier model in one breath: app connectors hold their own credentials; raw keys live in the OS environment; plugin files only ever record *that* a tool is connected. Then, framed as skippable:
 
 - **Vibe Prospecting (optional, recommended).** This is the cold-discovery + enrichment engine. It's an OAuth connector — the plugin already references it. Tell the user they can connect it from Claude's connector UI (search "Vibe Prospecting"); the credential stays in the app's secure store, never in the plugin. If they skip it, `prospect` still works via web-search fallback.
-- **RocketReach (optional).** Contact resolution (verified email/phone) + Intentsify company topic-intent + news/hiring/job-change signal search for `prospect` and `call-prep`. Key-based: in local/desktop environments, instruct the user to add `ROCKETREACH_API_KEY` to `.env` (reference `.env.example`); in hosted/cloud environments, set it via Doppler or environment secrets. Absent means the worker is omitted entirely and `prospect` falls back to Vibe enrichment or public web.
-- **Firecrawl (optional).** Used by the events-tracker for bulk scraping of JS-rendered event calendars (Luma, Eventbrite, Meetup). Key-based: add `FIRECRAWL_API_KEY` to `.env` or the environment secrets store. The plugin's config references `${FIRECRAWL_API_KEY}` — a placeholder, never the value. The events-tracker falls back to the browser if Firecrawl isn't connected, so this is optional.
+- **RocketReach (optional).** Contact resolution (verified email/phone) + Intentsify company topic-intent + news/hiring/job-change signal search for `prospect` and `call-prep`. Key-based: add it to the private `.env` file (the engine never shares or prints it); in hosted/cloud environments, set it via Doppler or environment secrets. Absent means the worker is omitted entirely and `prospect` falls back to Vibe enrichment or public web.
+- **Firecrawl (optional).** Used by the events-tracker for bulk scraping of JS-rendered event calendars (Luma, Eventbrite, Meetup). Key-based: add it to the private `.env` file (the engine never shares or prints it) or the environment secrets store. The plugin's config references `${FIRECRAWL_API_KEY}` — a placeholder, never the value. The events-tracker falls back to the browser if Firecrawl isn't connected, so this is optional.
 - **Higgsfield (optional).** Used by the carousel-visuals skill for AI-generated 4:5 cover art, per-slide backgrounds, and 9:16 motion teasers for LinkedIn carousels. It's an OAuth connector — connect it from Claude's connector UI (search "Higgsfield"). Budget-guarded with `get_cost` preflight before every call; text-only carousels are always the free fallback if Higgsfield isn't connected.
 
 Record which of these are connected as you go. Never ask the user to paste a key into the chat or any file. If they try, stop them and point to the env-var / connector path.
@@ -186,9 +186,7 @@ Summarize, in plain language:
 - What's connected vs. still optional (Vibe, Firecrawl, Higgsfield).
 - Which scheduled tasks were set up (if any), and when they'll first run.
 - **The market scan focuses on where you sell.** Once they've built a GTM plan, an email sequence, or an account plan, `"run my market scan"` auto-discovers those artifacts and focuses the sweep on their industries, use-case clusters, personas, and geos — no filename needed — and tags every signal On-focus / Adjacent / Off-focus. They can approve an `## ICP Focus` block in their scan config to make that focus stick week to week. With none of these yet, the scan will ask what to focus on (or run broad).
-- **Run `/profile <slug>` to activate** — this is the one command they need to switch into their new profile and start using it.
-- Other ways to onboard: see `docs/onboarding-surfaces.md`.
-- What they can say next: **"run my prospecting"**, **"draft outreach to [name] at [company]"**, **"run my market scan"**, **"run my events tracker"**, **"build a carousel about [topic]"**, **"auto-carousel"** (automated carousel from the week's scan), **"add visuals to my carousel"**, **"prep me for my call with [company]"**, **"build a deck for [company]"**, **"make a one-pager for [account]"**, **"build an account plan for [company]"**, **"plan my quarter"**.
+- Confirm in plain words: **"Your profile is live. Nothing has been spent."** Then offer exactly three next things to say, chosen from what their connectors allow: 'Run my prospecting', 'Prep me for my call with [a company they named]', 'What can you help me with?'
 
 Keep the close short and encouraging. The goal is that they've seen real output, know how to switch into their new profile, and know the two or three things to say next.
 
@@ -198,3 +196,17 @@ Keep the close short and encouraging. The goal is that they've seen real output,
 - Respect the budget caps from the moment they're set: the proof run must stay on the free path.
 - Don't overwrite an existing live PROFILE without confirming each change; don't promote over a collision without an explicit answer to the acme-vs-acme-2 question.
 - The CLI (`agent/onboard_cli.py`), draft ids, JSON field names, and schema paths are tools for you, not conversation topics — keep them out of the founder-facing dialogue unless they explicitly ask how it works under the hood.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

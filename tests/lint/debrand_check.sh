@@ -84,11 +84,6 @@ SHIPPING_DOCS=(
   "$ROOT/docs/sales-questions-by-deal-phase.md"
   "$ROOT/docs/purpose-scorecard.md"
   "$ROOT/docs/onboarding/SALES-FAQ.md"
-  # grep -I below treats a binary file as a non-match, so this entry never actually catches
-  # a leak in the PDF's own bytes — real coverage is the source it's rendered from,
-  # END-USER-ONBOARDING.md (scanned via SCAN_DIRS below). Listed anyway so the file's
-  # presence in the shipped set is documented here, not just in oss-export.sh.
-  "$ROOT/docs/onboarding/END-USER-ONBOARDING.pdf"
 )
 
 # Real hostnames/URLs that must never ship (regex, case-insensitive). The repo convention

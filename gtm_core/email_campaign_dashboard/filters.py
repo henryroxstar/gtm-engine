@@ -183,7 +183,7 @@ def row_groups(m: dict) -> dict[int, str]:
     Group membership depends on no facet, so filtering only changes the counts, never who is
     in which group.
     """
-    from .views_worklist import _group_of, _staged_candidates
+    from .views_accounts import _group_of, _staged_candidates
 
     rows = (m.get("roster") or {}).get("rows") or []
     if not rows:

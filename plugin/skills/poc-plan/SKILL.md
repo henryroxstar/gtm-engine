@@ -97,7 +97,7 @@ Save as **`poc-plan-[company]-[YYYY-MM-DD].md`** in the account folder
 6. **Risks to the POC itself** — access, data, people, environment.
 7. **Technical-win memo** — the skeleton from Step 5, unfilled.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 ## Guardrails
 
@@ -108,3 +108,17 @@ Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
   broken promise with a date on it.
 - **The fail path is agreed before the POC starts**, in the document. Not after.
 - **Read-only.** Plans a POC; provisions nothing, contacts nobody, commits no resource.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

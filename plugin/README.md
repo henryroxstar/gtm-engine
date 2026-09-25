@@ -117,7 +117,7 @@ and flowchart diagrams from requirements or Markdown specs.
 **`seo-audit`** & **`seo-keyword-research`** — Technical on-page and off-page SEO audits, keyword
 intent discovery, and competitor content gap analysis.
 
-> The full set is **78 skills** across prospecting, content, short-form video, account prep, planning, engagement,
+> The full set is **82 skills** across prospecting, content, short-form video, account prep, planning, engagement,
 > proof and partnerships, pre-sales (security questionnaires, value case, POC plan, demo narrative, battlecards), diagramming, SEO growth, pipeline governance, research synthesis, risk, and the founder-journey track. Browse `plugin/skills/` for the
 > complete list.
 

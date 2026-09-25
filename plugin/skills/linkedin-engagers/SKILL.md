@@ -198,3 +198,17 @@ Tier-A people to `linkedin-reply` (a warm DM referencing the post) or `draft-out
 ## Degraded mode (no paid connectors)
 
 Without browser automation or paid enrichment, run the manual-assisted path (the default): ask the colleague to open the post, click the reaction count to expand the reactions list, and expand comments, then paste the visible text or send a screenshot. Parse name + headline + engagement type (+ any comment) from what they share, qualify each against the ICP personas, and write the person-grained CSV + JSON sidecar with provenance. Leave Email blank when it is not verified rather than guess. This path needs no connector and no logged-in browser beyond the colleague's own screen.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

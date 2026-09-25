@@ -144,10 +144,14 @@ def test_cli_block_on_fixture_is_clean():
 
 
 def test_dashboard_status_card_strings_are_clean():
-    from gtm_core.email_campaign_dashboard.views_status import _prospect_status_block
+    from gtm_core.email_campaign_dashboard.views_overview import (
+        _contacts_block,
+        _needs_address_block,
+    )
 
     # Test with available data
     model_avail = {
+        "campaigns": {"campaigns": []},
         "prospect_status": {
             "available": True,
             "counts": {
@@ -160,14 +164,54 @@ def test_dashboard_status_card_strings_are_clean():
             "total": 105,
             "unmapped": 0,
             "needs_address": 15,
-        }
+        },
     }
-    html_avail = _prospect_status_block(model_avail)
-    hits_avail = ov.findings(text=html_avail)
-    assert hits_avail == []
+    for block in (_contacts_block(model_avail), _needs_address_block(model_avail)):
+        hits = ov.findings(text=block)
+        assert hits == []
 
     # Test when unavailable
-    model_unavail = {"prospect_status": {"available": False}}
-    html_unavail = _prospect_status_block(model_unavail)
-    hits_unavail = ov.findings(text=html_unavail)
-    assert hits_unavail == []
+    model_unavail = {
+        "campaigns": {"campaigns": []},
+        "prospect_status": {"available": False},
+    }
+    for block in (_contacts_block(model_unavail), _needs_address_block(model_unavail)):
+        hits = ov.findings(text=block)
+        assert hits == []
+
+
+def test_py_file_refusal_literals_are_scanned(tmp_path):
+    py_code = """
+from gtm_core.refusal_copy import Refusal
+
+def stop_fn():
+    r = Refusal(
+        what="I stopped",
+        why="evals/lanes-state.jsonl is missing",
+        next_step="run lanes route",
+    )
+    return r.render()
+"""
+    (tmp_path / "stop.py").write_text(py_code, encoding="utf-8")
+    hits = ov.findings(root=tmp_path, globs=["stop.py"])
+    tokens = {h[2].lower() for h in hits}
+    assert ".jsonl" in tokens
+    assert "lanes" in tokens
+
+
+def test_py_file_technical_is_exempt(tmp_path):
+    py_code = """
+from gtm_core.refusal_copy import Refusal
+
+def stop_fn():
+    r = Refusal(
+        what="I stopped before sending",
+        why="the list needs to be sorted first",
+        next_step="say 'sort my list' and I will do it",
+        technical="evals/lanes-state.jsonl is missing — run `lanes route`",
+    )
+    return r.render()
+"""
+    (tmp_path / "stop.py").write_text(py_code, encoding="utf-8")
+    hits = ov.findings(root=tmp_path, globs=["stop.py"])
+    assert hits == []

@@ -228,10 +228,14 @@ def _apply_stickiness(routed: Routed, previous: dict) -> None:
 def _second_pass(result: RoutingResult, decisions: dict, ctx: RouterContext) -> None:
     """Holds that depend on the provisional lane or on the batch as a whole."""
     seen_accounts: dict[str, str] = {}
+    #: Every row at the account already routed to a send lane — what a second contact's seat
+    #: is compared against (PH18), not only the first one ``seen_accounts`` names.
+    colleagues: dict[str, list[dict]] = {}
     for r in result.routed:
         if r.lane not in ("hold", "excluded") and r.trigger in PROTECTIVE_HOLD_TRIGGERS:
             tok = org_token(r.row.get("company_domain", ""), r.row.get("company", "")) or r.email
             seen_accounts.setdefault(tok, r.lane)
+            colleagues.setdefault(tok, []).append(r.row)
 
     for r in result.routed:
         if r.lane in ("hold", "excluded"):
@@ -244,15 +248,39 @@ def _second_pass(result: RoutingResult, decisions: dict, ctx: RouterContext) -> 
         if r.lane in ("hold", "excluded"):
             continue
         if tok in seen_accounts:
-            _hold_or_decide(
-                r,
-                "duplicate-contact",
-                f"another contact at this account is already in the {seen_accounts[tok]} lane",
-                ctx,
-                decisions,
-            )
+            detail = f"another contact at this account is already in the {seen_accounts[tok]} lane"
+            clash = _seat_clash(r.row, colleagues[tok], ctx.profile)
+            if clash:
+                detail = f"{detail} — {clash}"
+            _hold_or_decide(r, "duplicate-contact", detail, ctx, decisions)
+            # `generic` here means "email both", which is only two emails if the two people
+            # get different seat copy. The seat-free detail is kept for a differing pair so
+            # the decisions recorded against it still match; suppress/salvage are not gated.
+            if clash and r.lane == "generic":
+                r.lane, r.decided = "hold", ""
+            if r.lane not in ("hold", "excluded"):
+                colleagues.setdefault(tok, []).append(r.row)
         else:
             seen_accounts[tok] = r.lane
+            colleagues[tok] = [r.row]
+
+
+def _seat_clash(row: dict, colleagues: list[dict], profile: str) -> str:
+    """Why this contact may NOT be emailed beside its colleagues, or ``""`` when its seat and
+    every colleague's seat resolve and it differs from all of them (PH18)."""
+    # Late import, as in ``messaging.resolve``: ``hook_coverage.config`` puts ``tests/linter``
+    # on ``sys.path`` at import time, and this package must import without a ``tests/`` tree.
+    from ..hook_coverage.config import seat_of
+
+    mine = seat_of(str(row.get("title") or ""), profile) or ""
+    theirs = [seat_of(str(c.get("title") or ""), profile) or "" for c in colleagues]
+    if mine and all(theirs) and mine not in theirs:
+        return ""
+    return (
+        f"seats: this contact {mine or 'unresolved'}, colleague "
+        f"{', '.join(t or 'unresolved' for t in theirs)} — "
+        "emailing both needs two different, resolved seats"
+    )
 
 
 def _hold_or_decide(

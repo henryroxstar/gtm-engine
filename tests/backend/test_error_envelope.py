@@ -153,8 +153,9 @@ def test_structured_code_http_exception_envelope(test_app):
 
     assert "error" in data
     assert data["error"]["code"] == "pack_not_activated"
-    assert data["error"]["message"] == "Pack not activated"
+    assert data["error"]["message"] == ""
     assert data["error"]["details"] is None
+    assert data["error"]["next_step"] is None
 
     # Legacy structured detail preserved
     assert data["detail"] == {"code": "pack_not_activated"}

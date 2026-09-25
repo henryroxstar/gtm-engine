@@ -42,11 +42,11 @@ GTM_CORE = REPO / "gtm_core"
 SKILLS = REPO / "plugin" / "skills"
 
 #: Modules whose PURPOSE is removing tenant data. Short on purpose — see the module docstring.
-DESTRUCTIVE_MODULES: frozenset[str] = frozenset({"gtm_core.retention_sweep"})
+DESTRUCTIVE_MODULES: frozenset[str] = frozenset({"gtm_core.retention_sweep", "gtm_core.snapshots"})
 
 #: Destructive modules an operator invokes directly. These are roots we expect to be destructive,
 #: so they are exempt as roots — they are never exempt as a *destination* from another root.
-OPERATOR_OWNED: frozenset[str] = frozenset({"gtm_core.retention_sweep"})
+OPERATOR_OWNED: frozenset[str] = frozenset({"gtm_core.retention_sweep", "gtm_core.snapshots"})
 
 #: Modules that are NAMED like a read and must stay one. ``violations()`` already checks every
 #: skill-cited root, so this set adds one thing: it asserts the module is *still cited*, which is

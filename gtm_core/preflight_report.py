@@ -78,7 +78,7 @@ from .finding_budget import (
 from .paths import resolve_content_root, resolve_profiles_root
 from .prospect_paths import ready_to_load, suppression_ledger
 from .prospect_readiness import readiness_or_error, report_path
-from .prospects_consolidate.confidence import org_token
+from .refusal_copy import Refusal
 
 __all__ = [
     "OK",
@@ -283,15 +283,9 @@ def _run_account_integrity(i: _Inputs) -> CheckResult:
     # can sit in two lanes at once — 25 of 578 did on the first live run, mostly
     # `excluded`+`generic` — and summing each group's own distinct count reported 603.
     # That number is not just printed: it is the `denominators` base every WARN-tier rate
-    # is measured against, so the inflation quietly understated all of them. `org_token` is
+    # is measured against, so the inflation quietly understated all of them. `account_key` is
     # the identity `audit_rows` itself dedupes on, so the two cannot drift apart.
-    accounts = len(
-        {
-            tok
-            for r in i.rows
-            if (tok := org_token(r.get("company_domain", ""), r.get("company", "")))
-        }
-    )
+    accounts = len({tok for r in i.rows if (tok := account_integrity.account_key(r))})
     return CheckResult(
         name="account_integrity",
         status=FAIL if errors else OK,
@@ -675,9 +669,35 @@ def render_errors(errors: list[str], *, limit: int = ERROR_ENUMERATION_LIMIT) ->
     return "\n".join(lines)
 
 
+def preflight_refusal(report: PreflightReport) -> Refusal | None:
+    counts = report.counts()
+    is_blocked = False
+    if report.verdict and getattr(report.verdict, "budget", None) is not None:
+        try:
+            is_blocked = bool(report.verdict.blocked)
+        except (TypeError, ValueError):
+            is_blocked = False
+    if not (report.errors or counts[FAIL] > 0 or is_blocked):
+        return None
+    err_count = len(report.errors) if report.errors else counts[FAIL]
+    return Refusal(
+        what="I stopped before sending",
+        why=f"{err_count} check(s) need attention",
+        next_step="review the findings below to fix them",
+        alternative=None,
+        cost="Nothing was spent.",
+        technical=f"{counts[FAIL]} failing checks, {len(report.errors)} errors across {report.rows} staged row(s)",
+    )
+
+
 def render(report: PreflightReport) -> str:
     counts = report.counts()
+    summary: list[str] = []
+    refusal = preflight_refusal(report)
+    if refusal:
+        summary = [refusal.render(), ""]
     lines = [
+        *summary,
         f"preflight — {report.profile} — {report.ran_at}",
         f"  {counts[OK]} pass, {counts[FAIL]} fail, {counts[SKIP]} skip "
         f"over {report.rows} staged row(s)",

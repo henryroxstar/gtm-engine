@@ -19,6 +19,7 @@ from pathlib import Path
 from ..paths import clean_env_var
 from .loader import load, scorecard_path
 from .model import ScoreCardError, Scored
+from .record import derived_inputs
 from .score import score_rows
 
 #: Default **ON**. Off falls back to the caller-supplied ``fit_score`` path, preserving the
@@ -97,6 +98,9 @@ def _explain(card, args: argparse.Namespace) -> int:
         ],
         "categories": dict(card.categories),
         "exclusions": dict(card.exclusions),
+        # An input the engine derives from the row's record rather than takes as given. Without
+        # this, `required_inputs` reads as "type agent_evidence", which is the PH15 defect.
+        "derived_inputs": derived_inputs(card),
     }
     if not args.json:
         print(
@@ -104,7 +108,12 @@ def _explain(card, args: argparse.Namespace) -> int:
             f"  ceiling {card.ceiling} · tiers "
             + " ".join(f"{k}>={v}" for k, v in sorted(card.tiers.items()))
             + "\n  requires, in order: "
-            + " -> ".join(card.required_inputs),
+            + " -> ".join(card.required_inputs)
+            + "".join(
+                f"\n  {name} is derived from each row's {d['from']}; supply {name} only as "
+                + " or ".join(d["supply_only"])
+                for name, d in payload["derived_inputs"].items()
+            ),
             file=sys.stderr,
         )
     print(json.dumps(payload, indent=2))

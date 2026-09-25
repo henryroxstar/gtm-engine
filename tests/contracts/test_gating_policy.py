@@ -176,7 +176,7 @@ def test_stub_body_refuses_to_improvise():
     pack never specified."""
     skill = next(s for s in all_skills() if s.name == "video-render")
     body = gating.render_stub_body(skill, ["creator/short-form-video"])
-    assert "Stop here." in body
+    assert "Then stop." in body
     assert "do not fall back to" in body
     assert "creator/short-form-video" in body
 
@@ -456,7 +456,7 @@ def test_graph_refs_for_skill_empty_for_a_skill_no_graph_uses():
 def test_render_stub_body_names_the_interface_and_refs():
     skill = next(s for s in all_skills() if s.name == "video-render")
     body = gating.render_stub_body(skill, ["creator/short-form-video"])
-    assert "hosted product" in body
+    assert "hosted GTM Engine" in body
     assert "`video-render`" in body
     assert "`creator/short-form-video`" in body
     assert "docs/SKILLS.md" in body
@@ -481,7 +481,7 @@ def test_stub_carve_wipes_directory_and_writes_a_stub(tmp_path):
     assert not (skill_dir / "references").exists()
     content = (skill_dir / "SKILL.md").read_text()
     assert "name: video-render" in content  # frontmatter preserved
-    assert "hosted product" in content
+    assert "hosted GTM Engine" in content
     assert "original body" not in content
 
 

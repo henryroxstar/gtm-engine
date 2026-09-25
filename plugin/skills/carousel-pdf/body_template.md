@@ -152,7 +152,7 @@ After export, write to `outputs/`:
 
 See `references/script-conventions.md` for copy rules and `references/platform-playbook.md` §7 for caption mechanics.
 
-Then append `⟦FILE:…⟧` sentinels so the Telegram cockpit delivers the PDF automatically:
+Only when running under the Telegram cockpit, append `⟦FILE:…⟧` sentinels so the Telegram cockpit delivers the PDF automatically:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/carousels/<topic-slug>/outputs/carousel.pdf⟧

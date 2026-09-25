@@ -307,7 +307,7 @@ All passed safe-to-share lint. LinkedIn post ready for Gate 2 (content-publish).
   any panel, mail client, or CMS with zero sibling-file dependencies.
 ```
 
-Then append `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers the article and script automatically:
+Only when running under the Telegram cockpit, append `⟦FILE:…⟧` sentinels at the very end of your response so the cockpit delivers the article and script automatically:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/journey/assets/<item-id>.article.md⟧

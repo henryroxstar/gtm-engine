@@ -321,14 +321,21 @@ def _load_project_settings() -> dict:
     root = Path(__file__).resolve().parents[2]
     path = root / ".claude" / "settings.json"
     if not path.exists():
-        # .claude/ is a local, operator-specific tree and is intentionally never carved into
-        # the public export (scripts/oss-export.sh ALLOW_DIRS) — nothing to lint there.
-        pytest.skip(".claude/settings.json not present (not carved into the public export)")
+        pytest.skip(".claude/settings.json not present")
     return _json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_settings_has_no_blanket_uv_allow():
+    from pathlib import Path
+
     settings = _load_project_settings()
+    if (
+        "allow" not in settings.get("permissions", {})
+        and not (Path(__file__).resolve().parents[2] / "oss").is_dir()
+    ):
+        # The public export ships its own .claude/settings.json (hooks only, from oss/overlays/)
+        # with no allow list — the operator's allow list is what this lints.
+        pytest.skip("public settings.json declares no permissions.allow")
     allow = set(settings["permissions"]["allow"])
     # The blanket rule (and a bare `uv run python:*` without `-m`, which would allow `-c`) are banned.
     assert "Bash(uv:*)" not in allow

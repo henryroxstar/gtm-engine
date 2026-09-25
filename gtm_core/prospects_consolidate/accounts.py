@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
 from ..account_exclusion_keys import (
@@ -15,7 +16,7 @@ from ..prospects_state import (
     latest_path,
     load_latest,
 )
-from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
+from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN, SIGNAL_RECORD_COLUMNS
 
 
 class LedgerUnreadableError(SystemExit):
@@ -145,6 +146,7 @@ _INHERITED_RECORD_COLUMNS = (
     "tier",
     "score",
     "industry",
+    "verdict_on",
 )
 
 #: The subset the ACCOUNT record wins outright on, rather than only filling a blank.
@@ -167,7 +169,8 @@ _INHERITED_RECORD_COLUMNS = (
 #: fact a row's own export could out-rank, so fill-only would leave a corrected account
 #: re-scoring stuck behind whatever the row happened to see first.
 #:
-#: This can never blank a row: ``_account_record_index`` indexes only non-empty values.
+#: This can never blank a row: ``_account_record_index`` indexes only non-empty values. The
+#: one way a record blanks anything is the explicit ``signal_state: cleared`` below.
 _AUTHORITATIVE_RECORD_COLUMNS = frozenset(
     {
         "why_now",
@@ -229,8 +232,8 @@ def _account_record_wins(col: str, record: dict[str, str]) -> bool:
 #: the row the enrollment gate actually filters. But of the 6 rows whose verdict disagreed
 #: with their account, 4 pointed the other way (row ``re-angle`` vs account ``send``) with
 #: no way to tell which was written later — and promoting a row into the sendable pool on a
-#: possibly-stale record is the expensive direction to be wrong in. So: demote freely,
-#: promote never.
+#: possibly-stale record is the expensive direction to be wrong in. So: demote freely, and
+#: promote only on proof of which side is newer (``_verdict_promotes``, 2026-09-25).
 _VERDICT_STRICTNESS = {"send": 0, "re-angle": 1, "drop": 2}
 
 
@@ -241,6 +244,77 @@ def _verdict_at_least_as_strict(current: str, incoming: str) -> bool:
     if cur is None or inc is None:
         return False
     return inc > cur
+
+
+#: The one promotion there is, and what the account must carry to earn it. "Promote never"
+#: above held because nothing said which side was newer; ``verdict_on`` says so. It is
+#: written only where research sets a verdict (``signal_backfill --promote``, whose records
+#: have all passed ``check_record``, and ``prospects_state mutate``). The judge never writes
+#: ``verdict``. ``drop`` is never a starting point, and an account with a missing clause,
+#: source, date or evidence has nothing to send on.
+_PROMOTION = ("re-angle", "send")
+_PROMOTION_REQUIRES = ("why_now", "signal_source_url", "signal_observed", "signal_evidence")
+
+
+def _iso_date(value: str) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat((value or "").strip())
+    except ValueError:
+        return None
+
+
+def _verdict_promotes(row: dict, record: dict[str, str]) -> bool:
+    """Whether the account's newer research verdict lifts this row from re-angle to send.
+
+    The row's own ``verdict_on`` came down with its current verdict; a blank one predates
+    stamping, so any stamp is newer. A row stamp that does not parse fails closed.
+    """
+    pair = (
+        str(row.get("verdict") or "").strip().lower(),
+        record.get("verdict", "").strip().lower(),
+    )
+    if pair != _PROMOTION or not all(record.get(c) for c in _PROMOTION_REQUIRES):
+        return False
+    stamp = _iso_date(record.get("verdict_on", ""))
+    row_on = str(row.get("verdict_on") or "").strip()
+    row_stamp = _iso_date(row_on)
+    if stamp is None or (row_on and row_stamp is None):
+        return False
+    return row_stamp is None or stamp > row_stamp
+
+
+#: The atomic signal group: the clause plus every column that describes or evidences it. They
+#: move together or not at all — see ``_AUTHORITATIVE_RECORD_COLUMNS`` and
+#: ``_CLAUSE_BOUND_RECORD_COLUMNS``.
+SIGNAL_GROUP_COLUMNS = ("why_now", *SIGNAL_RECORD_COLUMNS, SIGNAL_COLUMN)
+
+#: ``signal_state`` on a ledger account: the one value that says research LOOKED and found no
+#: qualifying signal, as opposed to a blank record, which says nothing. Closed on purpose —
+#: any other value is ignored, so a negative result can never be free text (with a date in
+#: it) that a gate then parses as a claim. Set with ``prospects_state mutate --set
+#: signal_state=cleared``; remove it when research finds a signal again.
+SIGNAL_CLEARED = "cleared"
+
+
+def _is_signal_cleared(item: dict) -> bool:
+    return str(item.get("signal_state") or "").strip().lower() == SIGNAL_CLEARED
+
+
+def _signal_cleared_accounts(profile: str, content_root: Path | None) -> dict[str, bool]:
+    """``account_id`` -> whether that CLEARED account's ledger entry still carries a clause.
+
+    ``consolidate`` blanks :data:`SIGNAL_GROUP_COLUMNS` on every row of these accounts.
+    Cleared wins over a clause still sitting on the ledger — the conservative direction, a
+    row that makes no dated claim — and the ``True`` values are reported, because a clause
+    beside ``cleared`` is either a stale leftover or new research whose author forgot to
+    lift the state.
+    """
+    return {
+        account_id: bool(str(item.get("why_now") or "").strip())
+        for item in _ledger_items(profile, content_root)
+        if _is_signal_cleared(item)
+        and (account_id := str(item.get(ACCOUNT_ID_FIELD) or "").strip())
+    }
 
 
 def _account_record_index(profile: str, content_root: Path | None) -> dict[str, dict[str, str]]:
@@ -254,17 +328,19 @@ def _account_record_index(profile: str, content_root: Path | None) -> dict[str, 
     made in one file and enforced from another, with nothing carrying it across.
 
     Only non-empty values are indexed, so an account with a partial record contributes
-    exactly the fields it actually has and never blanks a column the row already filled.
+    exactly the fields it actually has and never blanks a column the row already filled. A
+    ``signal_state: cleared`` account contributes none of its signal group at all.
     """
     index: dict[str, dict[str, str]] = {}
     for item in _ledger_items(profile, content_root):
         account_id = str(item.get(ACCOUNT_ID_FIELD) or "").strip()
         if not account_id:
             continue
+        cleared = _is_signal_cleared(item)
         record = {
             col: str(item.get(col) or "").strip()
             for col in _INHERITED_RECORD_COLUMNS
-            if str(item.get(col) or "").strip()
+            if str(item.get(col) or "").strip() and not (cleared and col in SIGNAL_GROUP_COLUMNS)
         }
         if record:
             index[account_id] = record

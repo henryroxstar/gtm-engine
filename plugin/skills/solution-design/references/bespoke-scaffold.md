@@ -83,6 +83,10 @@ product doesn't have"). Apply it at every feasibility row:
 The feasibility table is the evidence trail for this rule. If a V1 capability has no row in the
 table, it hasn't been assessed — assess it before scoping it.
 
+The rule decides what is true; the file split decides where it is written. Flagged risks, open
+questions and the feasibility table go in the technical appendix; the customer overview shows the
+V1 / V2 / not-building cut and nothing of the caveats behind it.
+
 ---
 
 ## Worked example — a marketplace build

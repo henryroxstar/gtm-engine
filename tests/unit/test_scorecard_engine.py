@@ -70,8 +70,19 @@ FULL_ROW = {
     "in_region": True,
     "researched": True,
     "agent_evidence": "present",
+    # PH15: the agent-evidence word is derived from the row's own record; `ai` supports `present`.
+    "signal_agent_kind": "ai",
     "dated_why_now": True,
 }
+
+#: Removing an input from FULL_ROW. For `agent_evidence` that means removing the record it is
+#: derived from as well — a row that still carries its kind has not lost the input.
+_WITH_ITS_RECORD = {"agent_evidence": {"agent_evidence", "signal_agent_kind"}}
+
+
+def _without(name: str) -> dict:
+    gone = _WITH_ITS_RECORD.get(name, {name})
+    return {k: v for k, v in FULL_ROW.items() if k not in gone}
 
 
 @pytest.fixture
@@ -172,7 +183,7 @@ def test_every_problem_is_reported_at_once() -> None:
 
 @pytest.mark.parametrize("missing", ["tier_label", "researched", "agent_evidence"])
 def test_a_missing_required_input_categorises_rather_than_scoring_low(card, missing) -> None:
-    result = score_row(card, {k: v for k, v in FULL_ROW.items() if k != missing})
+    result = score_row(card, _without(missing))
     assert isinstance(result, Categorised)
     assert result.missing_input == missing
 
@@ -461,7 +472,7 @@ def test_a_row_with_several_gaps_names_every_one(card) -> None:
     """Which gap is REPORTED is the card's declared order — a choice, and one no row in the
     2026-09-21 corpus can evidence, because every row there records exactly one missing input.
     Carrying the full list makes that choice visible instead of load-bearing."""
-    result = score_row(card, {"agent_evidence": "present"})
+    result = score_row(card, {"agent_evidence": "present", "signal_agent_kind": "ai"})
     assert isinstance(result, Categorised)
     assert result.missing_input == "tier_label"
     assert result.missing_inputs == ("tier_label", "in_region", "researched")
@@ -479,7 +490,7 @@ def test_the_reported_gap_is_always_the_first_declared(card) -> None:
 
 def test_a_single_gap_still_reports_exactly_one(card) -> None:
     """The other half — the list must not simply always be long."""
-    result = score_row(card, {k: v for k, v in FULL_ROW.items() if k != "agent_evidence"})
+    result = score_row(card, _without("agent_evidence"))
     assert isinstance(result, Categorised)
     assert result.missing_inputs == ("agent_evidence",)
 

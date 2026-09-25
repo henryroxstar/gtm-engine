@@ -22,7 +22,8 @@ from pathlib import Path
 
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospects_consolidate as pc
-from gtm_core.email_campaign_dashboard.config import SEAT_COVERAGE
+from gtm_core.email_campaign_dashboard.config import SEAT_COVERAGE, TAB_LABELS
+from tests.contracts.dashboard_page import panel, section
 from tests.test_email_campaign_dashboard import CSV_HEADER, SPEC, _page, _seed, _with_pool
 
 REPO = Path(__file__).resolve().parents[2]
@@ -222,8 +223,13 @@ RETIRED = [
 
 
 def test_retired_prose_is_gone_from_rendered_pages(tmp_path):
-    text = _both(tmp_path, _full_fixture(tmp_path))
-    assert "The emails themselves" in text, "the samples section must render, or half is unread"
+    prof = _full_fixture(tmp_path)
+    text = _both(tmp_path, prof)
+    scoped = _scoped(tmp_path, prof)
+    em = panel(scoped, "emails")
+    assert em and "<strong>Subject:</strong>" in em, (
+        "the emails panel must render, or half is unread"
+    )
     assert "Full experiment notes" in text, "the manifest's experiment block must render"
     for frag in RETIRED:
         assert frag not in text, frag
@@ -263,6 +269,38 @@ def test_the_seat_counts_are_derived_from_seat_coverage(tmp_path):
     note = page.split('say "other"</h3>', 1)[1].split("</p>", 1)[0]
     assert _fig(note, "seats-recognised") == str(len(SEAT_COVERAGE))
     assert len(re.findall(r"<code>[^<]+</code>", note)) == len(SEAT_COVERAGE)
+
+
+def test_the_seat_counts_reflect_custom_tenant_vocabulary(tmp_path, monkeypatch):
+    """When a tenant defines a custom role-vocabulary.toml with 3 seats, the page reflects 3."""
+    from gtm_core.role_vocabulary import clear_cache
+
+    clear_cache()
+    try:
+        profile = "custom_tenant"
+        _seed(tmp_path, profile)
+        prof_dir = tmp_path / "profiles" / profile / "knowledge"
+        prof_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("GTM_PROFILES_ROOT", str(tmp_path / "profiles"))
+        (prof_dir / "role-vocabulary.toml").write_text(
+            'default_persona = "creator"\n'
+            'segments = ["enterprise", "unspecified"]\n'
+            '[[persona]]\nname = "creator"\ncues = ["creator"]\n'
+            '[[persona]]\nname = "solo-founder"\ncues = ["founder"]\n'
+            '[[persona]]\nname = "solutions-engineer"\ncues = ["engineer"]\n'
+            '[[seat]]\nname = "creator"\npersonas = ["creator"]\nstakes = ["reach"]\n'
+            '[[seat]]\nname = "founder"\npersonas = ["solo-founder"]\nstakes = ["pipeline"]\n'
+            '[[seat]]\nname = "practitioner"\npersonas = ["solutions-engineer"]\nstakes = ["fit"]\n',
+            encoding="utf-8",
+        )
+        page = _page(tmp_path, profile)
+        note = page.split('say "other"</h3>', 1)[1].split("</p>", 1)[0]
+        assert _fig(note, "seats-recognised") == "3"
+        assert "<code>creator</code>" in note
+        assert "<code>founder</code>" in note
+        assert "<code>practitioner</code>" in note
+    finally:
+        clear_cache()
 
 
 def test_the_markets_sentence_is_derived_from_the_market_data(tmp_path):
@@ -439,13 +477,16 @@ def test_the_uncalibrated_note_keeps_the_reading_rule_and_drops_the_prediction(t
 def test_the_opening_notice_points_at_the_emails_only_when_the_page_shows_them(tmp_path):
     """The scoped notice said "Every email in this campaign is shown in full" — true of no
     later touch (shown as a template) and of nothing at all on a page with no samples."""
-    said = "This campaign's emails are shown under The emails themselves."
-    with_samples = _visible(_scoped(tmp_path, _full_fixture(tmp_path, "shown")))
-    assert "Hand-written, one per account" in with_samples  # the samples section rendered
+    said = f"This campaign's emails are on the {TAB_LABELS['emails']} tab."
+    with_samples_page = _scoped(tmp_path, _full_fixture(tmp_path, "shown"))
+    with_samples = _visible(with_samples_page)
+    assert section(panel(with_samples_page, "emails"), "packs-list")  # the samples section rendered
     assert said in with_samples
     bare = _seed(tmp_path, "unshown")  # an undated slug claims no samples
     without_page = gd.render_html(gd.scope_to_campaign(gd.build_model(bare, tmp_path), "c1"))
-    assert "<h2>The emails themselves</h2>" not in without_page  # no samples section here
+    assert not section(panel(without_page, "emails"), "hand-sent") and not section(
+        panel(without_page, "emails"), "packs-list"
+    )
     without = _visible(without_page)
     assert said not in without
     assert "Every email in this campaign is shown in full" not in with_samples + without
@@ -464,19 +505,19 @@ def test_classified_judge_rows_reach_their_account_rows(tmp_path):
     m = gd.scope_to_campaign(gd.build_model(profile, tmp_path), SLUG)
     assert all(r["judge"] for r in m["roster"]["rows"]), "a judged row missed its account"
     page = gd.render_html(m)
-    who = page.split('id="p-who"', 1)[1].split("</section>", 1)[0]
+    acc = panel(page, "accounts")
     rows = {
         company: row
-        for row in re.findall(r"<tr data-row=.*?</tr>", who, re.S)
+        for row in re.findall(r"<tr data-row=.*?</tr>", acc, re.S)
         for company in re.findall(r"<td><strong>([^<]+)</strong></td>", row)
     }
-    assert "find a different seat" in rows["Tidewater"]
-    assert "rewrite the argument" in rows["Summitline"]
-    assert "Where the 2 judged rows go" in _visible(who)
+    assert "Email judge: find a different seat." in rows["Tidewater"]
+    assert "Email judge: rewrite the argument." in rows["Summitline"]
+    assert "Where the 2 judged rows go" in _visible(panel(page, "ops"))
 
 
 def test_the_later_touches_line_renders_only_when_there_are_later_touches():
-    from gtm_core.email_campaign_dashboard.views_samples import _later_touches
+    from gtm_core.email_campaign_dashboard.views_emails import _later_touches
 
     assert _later_touches({"samples": {"touches": [{"n": 1, "day": 0}]}}) == ""
     touches = [{"n": 1, "day": 0}, {"n": 2, "day": 5}, {"n": 3, "day": 9}]
@@ -493,7 +534,7 @@ RETIRED_REVIEW = [
     "a reply RATE is not",
     "least varied part of the campaign",  # the subject card: never measured
     "deliberately not personalised",
-    "the largest group",  # "Off limits" gloss: said beside any count, zero included
+    "The largest group below is",  # "Off limits" gloss: said beside any count, zero included
     "Every drafted email has been judged",  # a drafted 1:1 pack is not in the queue
     "its follow-up already happened",  # the research verdict: a routing claim
     "routed to the generic seat lane",
@@ -577,17 +618,17 @@ def test_two_queues_are_named_only_when_both_are_present(tmp_path):
 
 def test_the_denominator_gap_is_read_from_the_cited_figures(tmp_path, monkeypatch):
     """ "the gap between 0.45% and 3.4%" was typed beside the table that cites both."""
-    from gtm_core.email_campaign_dashboard import views_status
+    from gtm_core.email_campaign_dashboard import views_ops
 
     moved = []
-    for bm in views_status.BENCHMARKS:
+    for bm in views_ops.BENCHMARKS:
         bm = dict(bm)
         if bm["basis"] == "per email sent":
             bm["low"] = 0.0061
         if bm["label"] == "all industries, average":
             bm["high"] = 0.0471
         moved.append(bm)
-    monkeypatch.setattr(views_status, "BENCHMARKS", tuple(moved))
+    monkeypatch.setattr(views_ops, "BENCHMARKS", tuple(moved))
     assert "the gap between 0.61% and 4.7%" in _visible(_page(tmp_path, _seed(tmp_path)))
 
 
@@ -623,13 +664,13 @@ def test_final_round_claims_are_gone(tmp_path):
 
 
 def test_a_renamed_benchmark_refuses_instead_of_crashing_the_page(tmp_path, monkeypatch):
-    from gtm_core.email_campaign_dashboard import views_status
+    from gtm_core.email_campaign_dashboard import views_ops
 
     renamed = tuple(
         dict(bm, basis="per message") if bm["basis"] == "per email sent" else bm
-        for bm in views_status.BENCHMARKS
+        for bm in views_ops.BENCHMARKS
     )
-    monkeypatch.setattr(views_status, "BENCHMARKS", renamed)
+    monkeypatch.setattr(views_ops, "BENCHMARKS", renamed)
     text = _visible(_page(tmp_path, _seed(tmp_path)))
     assert "the gap between — and —" in text
     assert "no longer in the table below" in text

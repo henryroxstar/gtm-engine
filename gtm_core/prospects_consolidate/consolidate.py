@@ -13,13 +13,16 @@ from ..merge_hygiene import check_row as mh_check_row
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_keys
 from ..suppression import load_index as load_suppression_index
 from .accounts import (
+    SIGNAL_GROUP_COLUMNS,
     _account_id_index,
     _account_item_of,
     _account_keys_of,
     _account_record_index,
     _account_record_wins,
     _disqualified_account_keys,
+    _signal_cleared_accounts,
     _verdict_at_least_as_strict,
+    _verdict_promotes,
 )
 from .confidence import (
     _CONF_RANK,
@@ -272,7 +275,9 @@ def consolidate(
     # never reassigned — a join key that changes under a row is worse than none.
     account_index = _account_id_index(profile, content_root)
     account_records = _account_record_index(profile, content_root)
+    signal_cleared = _signal_cleared_accounts(profile, content_root)
     rows_stamped, accounts_joined, orphan_rows, records_joined = 0, 0, 0, 0
+    signal_cleared_rows, verdicts_promoted = 0, 0
     for row in all_rows:
         if not str(row.get("pool_row_id") or "").strip():
             row["pool_row_id"] = f"r-{uuid.uuid4().hex[:10]}"
@@ -308,8 +313,10 @@ def consolidate(
             # row carried a new clause about a named customer selecting them, still citing
             # the funding article the old clause came from.
             #
-            # `verdict` is excluded and keeps its own monotone-stricter rule, so a
-            # superseding record can still only tighten it, never promote a row to sendable.
+            # `verdict` is excluded and keeps its own monotone-stricter rule, with ONE
+            # exception: a newer research stamp lifts `re-angle` to `send`
+            # (`_verdict_promotes`). A promotion moves verdict, reason and `verdict_on` as a
+            # unit, blank reason included, so a send never keeps the re-angle's reason.
             # Keyed on nothing: the account record simply wins for every account-level
             # column. Conditioning this on "the clause changed" was tried first and LATCHES —
             # the condition is true only on the single pass that copies the new clause down,
@@ -318,9 +325,15 @@ def consolidate(
             # account value and the row value both non-empty and different, this touches at
             # most 11 of 1,171 rows per column.
             filled = False
+            promote = _verdict_promotes(row, record)
+            if promote:
+                verdicts_promoted += 1
+                row["verdict_reason"] = record.get("verdict_reason", "")
             for col, value in record.items():
+                if col == "verdict_on":
+                    continue  # dates the verdict beside it; set below, never on its own
                 if col in ("verdict", "verdict_reason"):
-                    authoritative = _verdict_at_least_as_strict(
+                    authoritative = promote or _verdict_at_least_as_strict(
                         row.get("verdict", ""), record.get("verdict", "")
                     )
                 else:
@@ -329,8 +342,20 @@ def consolidate(
                     if str(row.get(col) or "") != value:
                         filled = True
                     row[col] = value
+            verdict = str(row.get("verdict") or "").strip()
+            if verdict and verdict == record.get("verdict"):
+                row["verdict_on"] = record.get("verdict_on", "")
             if filled:
                 records_joined += 1
+        # Research concluded there is NO qualifying signal (`signal_state: cleared`). The
+        # record above contributed none of the group, and a blank is "no opinion", so without
+        # this the old clause's source, date, evidence and subject sat on the rows forever —
+        # and `account_integrity` blocked them. The whole group goes, never part of it.
+        if str(row.get(ACCOUNT_ID_FIELD) or "").strip() in signal_cleared:
+            if any(str(row.get(col) or "").strip() for col in SIGNAL_GROUP_COLUMNS):
+                signal_cleared_rows += 1
+            for col in SIGNAL_GROUP_COLUMNS:
+                row[col] = ""
 
     # Re-derive the suppression cache from the LEDGER on every sweep, before the master
     # is written. The two columns are in MASTER_COLS now, so they survive the projection;
@@ -484,6 +509,9 @@ def consolidate(
         "pool_row_ids_stamped": rows_stamped,
         "accounts_joined": accounts_joined,
         "records_joined": records_joined,
+        "signal_cleared_rows": signal_cleared_rows,
+        "verdicts_promoted": verdicts_promoted,
+        "signal_cleared_conflicts": sum(signal_cleared.values()),
         "orphan_rows": orphan_rows,
         "ledger_suppressions_marked": ledger_marked,
         "suppressed_excluded": suppressed_excluded,

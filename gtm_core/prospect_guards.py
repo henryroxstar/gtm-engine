@@ -13,6 +13,7 @@ from pathlib import Path
 
 from gtm_core.ledgers import sum_month_costs
 from gtm_core.paths import resolve_content_root, resolve_profiles_root
+from gtm_core.refusal_copy import Refusal
 
 
 def check_interpreter_sanity() -> tuple[bool, str]:
@@ -65,11 +66,13 @@ def check_generic_lane_cap(
 
 def get_profile_budget_limits(profile: str, profiles_root: Path | None = None) -> dict[str, float]:
     """Extract per_run_cap_usd and monthly_tool_budget_usd from PROFILE.md."""
+    from gtm_core import budget_status
+
     root = profiles_root if profiles_root is not None else resolve_profiles_root()
     profile_md = root / profile / "PROFILE.md"
     limits: dict[str, float] = {
         "per_run_cap_usd": 10.0,
-        "monthly_tool_budget_usd": 50.0,
+        "monthly_tool_budget_usd": budget_status._get_cap(profile, profiles_root=root),
     }
 
     if not profile_md.exists():
@@ -88,7 +91,7 @@ def get_profile_budget_limits(profile: str, profiles_root: Path | None = None) -
                 if " #" in val:
                     val = val[: val.index(" #")].strip()
                 val = val.strip('"').strip("'")
-                if key in ("per_run_cap_usd", "monthly_tool_budget_usd"):
+                if key == "per_run_cap_usd":
                     try:
                         limits[key] = float(val)
                     except ValueError:
@@ -97,6 +100,39 @@ def get_profile_budget_limits(profile: str, profiles_root: Path | None = None) -
         pass
 
     return limits
+
+
+def per_run_cap_refusal(estimated_spend_usd: float, per_run_cap: float) -> Refusal:
+    return Refusal(
+        what=f"I stopped this run before spending ${estimated_spend_usd:.2f}",
+        why=f"the estimated spend exceeds your per-run limit of ${per_run_cap:.2f}",
+        next_step="raise your per-run limit in PROFILE.md",
+        alternative="run with a smaller batch",
+        cost="Nothing was spent on this run.",
+        technical=f"Estimated spend ${estimated_spend_usd:.2f} exceeds per_run_cap_usd (${per_run_cap:.2f})",
+    )
+
+
+def monthly_budget_refusal(
+    estimated_spend_usd: float,
+    current_month_cost: float,
+    projected_month: float,
+    monthly_budget: float,
+    cost_sentence: str | None = None,
+) -> Refusal:
+    cost_str = (
+        cost_sentence
+        if cost_sentence
+        else f"Spent so far: ${current_month_cost:.2f}. Nothing was spent on this run."
+    )
+    return Refusal(
+        what=f"I stopped this run before spending ${estimated_spend_usd:.2f}",
+        why=f"it would push your month's spend to ${projected_month:.2f}, above your ${monthly_budget:.2f} limit",
+        next_step="raise your limit in PROFILE.md",
+        alternative="wait until the 1st of next month when your limit resets",
+        cost=cost_str,
+        technical=f"Projected month spend ${projected_month:.2f} (${current_month_cost:.2f} current + ${estimated_spend_usd:.2f} est) exceeds monthly_tool_budget_usd (${monthly_budget:.2f})",
+    )
 
 
 def check_budget_cap(
@@ -111,10 +147,8 @@ def check_budget_cap(
     monthly_budget = limits["monthly_tool_budget_usd"]
 
     if estimated_spend_usd > per_run_cap:
-        return (
-            False,
-            f"Estimated spend ${estimated_spend_usd:.2f} exceeds per_run_cap_usd (${per_run_cap:.2f})",
-        )
+        r = per_run_cap_refusal(estimated_spend_usd, per_run_cap)
+        return False, f"{r.render()}\n\n{r.details()}".rstrip()
 
     root = content_root if content_root is not None else resolve_content_root()
     costs_path = root / profile / "costs.jsonl"
@@ -124,10 +158,19 @@ def check_budget_cap(
 
     projected_month = current_month_cost + estimated_spend_usd
     if projected_month > monthly_budget:
-        return (
-            False,
-            f"Projected month spend ${projected_month:.2f} (${current_month_cost:.2f} current + ${estimated_spend_usd:.2f} est) exceeds monthly_tool_budget_usd (${monthly_budget:.2f})",
+        from gtm_core import budget_status
+
+        sentence = budget_status.render(
+            budget_status.status(profile, content_root=content_root, profiles_root=profiles_root)
         )
+        r = monthly_budget_refusal(
+            estimated_spend_usd,
+            current_month_cost,
+            projected_month,
+            monthly_budget,
+            cost_sentence=sentence,
+        )
+        return False, f"{r.render()}\n\n{r.details()}".rstrip()
 
     return (
         True,

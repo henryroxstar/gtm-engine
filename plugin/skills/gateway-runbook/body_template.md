@@ -172,7 +172,7 @@ saved and **paste the prerequisites + the step outline inline** (so they can san
 customer must supply before sending). Offer a docx export for a customer-ready document, and note that
 any actual sending to the customer is a separate, explicitly-approved step.
 
-Then append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers the runbook automatically:
+Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel at the very end of your response so the cockpit delivers the runbook automatically:
 
 ```
 ⟦FILE:/absolute/path/to/content/<active>/accounts/<account-slug>/gateway-runbook-[company]-[YYYY-MM-DD].md⟧

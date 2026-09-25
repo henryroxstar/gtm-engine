@@ -75,6 +75,10 @@ _AGENT = {
 }
 
 
+#: The record kind each recovered token needs (gtm_core.scorecard.record.COMPATIBLE).
+_KIND_FOR = {"present": "ai", "industry_only": "none", "absent": "none"}
+
+
 def _intent_prefixes(card) -> tuple[tuple[str, str], ...]:
     """(prefix, token) for the buyer-intent axis, longest prefix first.
 
@@ -164,6 +168,10 @@ def _inputs(card, rationale: str) -> tuple[dict[str, object], dict[str, float]]:
     phrase = agent.split(" (")[0]
     assert phrase in _AGENT, f"unrecognised agent segment: {agent!r}"
     row["agent_evidence"] = _AGENT[phrase]
+    # PH15: the engine derives the word from the row's record and refuses a contradiction. The
+    # v12 run recorded no kind, so the one each token requires is supplied — this proves the
+    # RUBRIC migrated, not that the run's per-row agent judgement was right (see the header).
+    row["signal_agent_kind"] = _KIND_FOR[row["agent_evidence"]]
 
     row["intent_reading"] = next(
         (token for prefix, token in _intent_prefixes(card) if intent.startswith(prefix)),
@@ -291,11 +299,16 @@ def _row_missing(name: str) -> dict[str, object]:
         "in_target_market": True,
         "research_on_file": True,
         "agent_evidence": "present",
+        "signal_agent_kind": "ai",
         "intent_reading": "high",
         "dated_why_now": True,
     }
     if name == "in_target_market":
         full[name] = False
+    elif name == "agent_evidence":
+        # The input is derived from the record, so losing it means losing the record too.
+        full.pop(name)
+        full.pop("signal_agent_kind")
     else:
         # A name no row carries ("nothing_is_missing") leaves the row complete — that is how the
         # positive controls below ask for a row with nothing wrong with it.

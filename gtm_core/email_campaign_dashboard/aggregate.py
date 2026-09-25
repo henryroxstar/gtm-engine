@@ -238,6 +238,13 @@ def goal_sub_html(fig: dict) -> str:
     )
 
 
+def sequence_word(row: dict | None, on_record: bool, readable: bool) -> str:
+    """One sequence's go-live word (PS20 P1.10, per sequence): the ONE rule over that row's own
+    snapshot status and people contacted. No snapshot row means no status and no count."""
+    row = row or {}
+    return go_live([row.get("status")], row.get("sent"), on_record, readable=readable)
+
+
 def seq_tally(rows: list[dict], readable: bool) -> str:
     """PS20 P1.10 — the "sequences set up" sub-line: each sequence's go-live word, counted
     ("2 started · 1 staged"), so the tile's value and its tally count the same thing.
@@ -248,9 +255,7 @@ def seq_tally(rows: list[dict], readable: bool) -> str:
     and a row synthesized from the ledger (status ``""``) reads ``staged``, never the
     ledger's by-construction "paused".
     """
-    words = Counter(
-        go_live([r.get("status")], r.get("sent"), True, readable=readable) for r in rows
-    )
+    words = Counter(sequence_word(r, True, readable) for r in rows)
     return " · ".join(f"{words[w]} {w}" for w in GO_LIVE_WORDS if words[w])
 
 
@@ -287,13 +292,17 @@ def sending_tiles(m: dict, fig: dict) -> dict:
 def campaign_contacted(fig: dict, c: dict) -> dict | None:
     """One campaign's own split, shaped like ``fig["contacted"]`` so ``sent_heading`` reads
     it. ``None`` when the scope's figures refuse: a campaign card must not read a zero off
-    an unreadable snapshot."""
+    an unreadable snapshot. ``replied``/``meetings`` are the campaign's own ``actuals``;
+    ``sent_heading`` ignores them."""
     if fig["contacted"][0] is None:
         return None
+    actuals = c.get("actuals") or {}
     return {
-        "current": _i((c.get("actuals") or {}).get("sent")),
+        "current": _i(actuals.get("sent")),
         "earlier": _i((c.get("archived_actuals") or {}).get("sent")),
         "not_linked": 0,
+        "replied": _i(actuals.get("replied")),
+        "meetings": _i(actuals.get("meetings")),
     }
 
 

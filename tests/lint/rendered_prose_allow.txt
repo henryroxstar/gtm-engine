@@ -10,14 +10,12 @@
 # arms instead of a typed `0` literal, so the exemption no longer describes a real finding.
 # views_learn.py:259's entry (the PRIOR campaign's "sent 24 emails" hypothesis card) was removed
 # 2026-09-25 with the card itself (PS20 P1.7 Rule B): one campaign's story, hard-coded in the engine.
+# views_who.py:259's entry ("Two different verdicts sit in this table") was removed 2026-09-25
+# (PS20 Task 2.6a): the verdicts note moves to Operator notes, where no table sits beside it.
 #
 # PS20 P1.7 Rule A widened this gate to number words ("two" to "twenty", "dozen"). The entries
 # below are DEFINITIONAL: the word names a rule, a hypothetical or the page's own structure, and
 # counts nothing on disk. Every word that counted data was derived or deleted instead.
-gtm_core/email_campaign_dashboard/views_samples.py:174  # 2026-09-25 "two renderers is how a page starts showing copy nobody sends" names a design hazard (a second renderer beside the merge-render gate), not a count of anything the page reads.
 gtm_core/email_campaign_dashboard/views_segments.py:69  # 2026-09-25 "an account two campaigns both work counts once" states the de-duplication rule with a hypothetical account; it counts nothing.
-gtm_core/email_campaign_dashboard/views_status.py:247  # 2026-09-25 "one person in two campaigns counts twice" — the PRD P1.7 example of a definitional use: the unit caveat on a per-enrolment sum, about a hypothetical person.
-gtm_core/email_campaign_dashboard/views_status.py:346  # 2026-09-25 "At three emails per person that is a ~3x difference" is a worked example of the cited benchmarks' two denominators, not a figure about this profile; the gap it explains is read from config.BENCHMARKS (Belkins' per-email low, the all-industries average), so only the example is typed.
-gtm_core/email_campaign_dashboard/views_who.py:216  # 2026-09-25 "two different queues, not two shades of the same one": the judge routes to a closed set of two destinations (roster._DESTINATION_GLOSS), re-target and re-argue — the vocabulary, not a count of rows — and the sentence renders only when both are present.
-gtm_core/email_campaign_dashboard/views_who.py:259  # 2026-09-25 "Two different verdicts sit in this table": the table's own two verdict columns (Research verdict, What happens next) — its structure, not its data.
-gtm_core/email_campaign_dashboard/views_worklist.py:376  # 2026-09-25 "the two disagree usefully": the research verdict and the email judge's read, both named in the same sentence — a reference back, not a count.
+gtm_core/email_campaign_dashboard/views_who.py:99  # 2026-09-25 "two different queues, not two shades of the same one": the judge routes to a closed set of two destinations (roster._DESTINATION_GLOSS), re-target and re-argue — the vocabulary, not a count of rows — and the sentence renders only when both are present.
+

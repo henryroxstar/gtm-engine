@@ -21,6 +21,24 @@ from telegram import Update
 logger = logging.getLogger("cockpit.bot")
 
 
+_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "start": "show status + active profile",
+    "help": "show all available commands and usage tips",
+    "profile": "show current profile, or <code>/profile &lt;name&gt;</code> to switch",
+    "reset": "drop the current session and start fresh (profile kept)",
+    "gate": "render the plan gate keyboard on demand (wiring test)",
+    "voice": "toggle voice-only ⇄ text-only (<code>/voice both|text|voice</code>)",
+    "radar": "trigger a manual market scan for this week's signals",
+    "hooks": "hook library status, fatigue, and promotion/demotion candidates",
+    "wizard": "guided interactive profile setup",
+    "wizard_cancel": "cancel the active setup wizard",
+    "onboard": "extract a profile draft from a website URL or text",
+    "onboard_confirm": "confirm and save the staged profile draft",
+    "onboard_cancel": "discard the staged profile draft",
+    "cost": "show current tool budget and monthly spend",
+}
+
+
 class CommandHandlers(CockpitComponent):
     """One-shot slash commands over the shared session store."""
 
@@ -45,17 +63,20 @@ class CommandHandlers(CockpitComponent):
         if not self._is_allowed(update):
             return
         profile = self.store.active_profile(update.effective_chat.id)  # type: ignore[union-attr]
+
+        if hasattr(self._root, "registered_commands"):
+            cmds = [c for c, _ in self._root.registered_commands()]
+        else:
+            cmds = list(_COMMAND_DESCRIPTIONS.keys())
+
+        cmd_lines = "\n".join(
+            f"• <code>/{cmd}</code> — {_COMMAND_DESCRIPTIONS.get(cmd, 'run command')}"
+            for cmd in cmds
+        )
         text = (
             "🤖 <b>GTM Engine — Command Reference</b>\n\n"
-            "<b>Session</b>\n"
-            "• <code>/start</code> — show status + active profile\n"
-            "• <code>/reset</code> — drop the current session and start fresh (profile kept)\n"
-            "• <code>/voice</code> — toggle voice-only ⇄ text-only (persists). "
-            "<code>/voice both</code> for text + voice; <code>/voice text|voice</code> to set directly.\n\n"
-            "<b>Profile (company)</b>\n"
-            "• <code>/profile</code> — show current profile\n"
-            "• <code>/profile &lt;name&gt;</code> — switch to a different company profile\n"
-            "  Available: see <code>profiles/</code> directory for configured profiles.\n\n"
+            "<b>Commands</b>\n"
+            f"{cmd_lines}\n\n"
             "<b>Brain</b>\n"
             "• Just type any message to run the brain against the active profile.\n"
             "• 🎙️ Send a voice note to talk to the brain — it transcribes and replies\n"
@@ -69,12 +90,8 @@ class CommandHandlers(CockpitComponent):
             "  buttons appear. Approve writes the plan; Edit sends notes to revise; Reject discards.\n"
             "• <b>Gate 2 (publish):</b> when content-publish stages a LinkedIn post, the <b>exact</b>\n"
             "  text is shown with <b>Approve &amp; publish / Cancel</b>. Approving posts it to the one\n"
-            "  pre-authorized account; nothing else is ever sent. Disabled unless the operator\n"
-            "  turns the kill switch on (<code>HERMES_PUBLISH_ENABLED=true</code>). A scheduled\n"
-            "  post additionally requires <code>HERMES_SCHEDULE_ENABLED=true</code> — its own,\n"
-            "  separate opt-in.\n"
-            "• <code>/gate</code> — render the plan gate keyboard on demand (wiring test)\n"
-            "• <code>/hooks</code> — hook library status, fatigue, and promotion/demotion candidates\n\n"
+            "  pre-authorized account; nothing else is ever sent.\n\n"
+            "Publishing and scheduling are switched off unless the server operator turns them on.\n\n"
             f"Active profile: <b>{html.escape(profile)}</b>"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)  # type: ignore[union-attr]
@@ -173,3 +190,15 @@ class CommandHandlers(CockpitComponent):
             "Gate-1 test — Approve / Edit / Reject the (pending) content plan.",
             reply_markup=_plan_gate_keyboard(),
         )
+
+    async def cmd_cost(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/cost`` — show tool spend and monthly cap for the active profile."""
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        profile = self.store.active_profile(chat_id)
+        from gtm_core import budget_status
+
+        status = budget_status.status(profile)
+        line = budget_status.render(status)
+        await update.message.reply_text(line)  # type: ignore[union-attr]

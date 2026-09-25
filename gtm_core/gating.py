@@ -489,14 +489,12 @@ def render_stub_body(
     referenced_docs: list[str] = (),
 ) -> str:
     lines = [
-        "This skill's implementation is part of the hosted product and is not included",
-        "in this distribution.",
+        "This capability is part of the hosted GTM Engine and is not included in this copy.",
         "",
-        "**Stop here.** Do not improvise a replacement procedure, and do not fall back to",
-        "another skill: report to the operator that this step is unavailable in this",
-        "distribution and end the run. A graph reaching this node cannot complete, and an",
-        "improvised substitute would spend budget producing something the pack does not",
-        "specify.",
+        'Tell the user in one plain sentence: "Video and visual rendering are part of the hosted',
+        "product, so I can't do this step here. I can still write the script and the storyboard if",
+        'that helps." Then stop. Do not improvise a replacement and do not fall back to another skill',
+        "(an improvised substitute would spend budget on something the pack does not specify).",
         "",
         f"Its declared interface is above (`{skill.name}`, tier `{skill.capability_tier.value}`).",
     ]
@@ -509,7 +507,7 @@ def render_stub_body(
         lines.append(f"Docs it draws on that ship in this distribution: {joined}.")
     if contract.strip():
         lines += ["", "## Interface Contract", "", contract.strip()]
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines).rstrip("\n") + "\n\n" + codegen.OPERATOR_CLOSE_BLOCK
 
 
 #: Any docs/*.md-shaped path — mirrors tests/lint/carve_surface_check.py's DOC_REF, kept

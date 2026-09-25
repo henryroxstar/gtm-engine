@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .model import Axis, Batch, Categorised, Result, ScoreCard, ScoreCardError, Scored
+from .record import AGENT_EVIDENCE_INPUT, agent_evidence_from_record
 
 #: The only value a boolean input may take to be satisfied. Not ``"true"``, not ``1``, not
 #: truthiness — ``bool("false")`` is ``True``, which is how a string became a fact before.
@@ -27,6 +28,10 @@ _GRANTS = True
 #: it is gone. :mod:`.evidence` remains the canonical, separately-tested vocabulary a tenant card
 #: should declare for an agent-evidence axis — the rule now lives in one place instead of two
 #: that could drift.
+#:
+#: The branch that DOES exist for that axis (:func:`_from_record`) is a different rule, and it is
+#: not equivalent: it replaces the axis input with the word the row's own ``signal_agent_kind``
+#: supports, and refuses a supplied word that contradicts it (PH15, :mod:`.record`).
 
 
 def score_row(card: ScoreCard, row: Mapping[str, Any]) -> Result:
@@ -37,6 +42,7 @@ def score_row(card: ScoreCard, row: Mapping[str, Any]) -> Result:
     excluded = _exclusion(card, row)
     if excluded is not None:
         return excluded
+    row = _from_record(card, row)
 
     # Collect EVERY gap, report the first. Which of two missing inputs the operator hears about
     # is the card's declared order; which ones exist is a fact, and the row should carry both.
@@ -91,6 +97,14 @@ def _exclusion(card: ScoreCard, row: Mapping[str, Any]) -> Categorised | None:
         f"unrecognised exclusion {token!r} — the card declares {sorted(card.exclusions)}. "
         "An exclusion this card cannot name must not be scored past"
     )
+
+
+def _from_record(card: ScoreCard, row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The row with its agent-evidence input taken from its signal record, when the card reads
+    one. A card with no such axis is not this module's business, so its rows pass untouched."""
+    if card.axis_reading(AGENT_EVIDENCE_INPUT) is None:
+        return row
+    return {**row, AGENT_EVIDENCE_INPUT: agent_evidence_from_record(row)}
 
 
 def _satisfied(card: ScoreCard, name: str, value: Any) -> bool:

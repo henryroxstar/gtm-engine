@@ -85,18 +85,23 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     """Transform starlette/fastapi HTTPExceptions into the unified envelope."""
     if isinstance(exc.detail, dict) and "code" in exc.detail:
         code = str(exc.detail["code"])
-        message = str(exc.detail.get("message") or code.replace("_", " ").capitalize())
-        details = {k: v for k, v in exc.detail.items() if k not in ("code", "message")} or None
+        message = str(exc.detail.get("message") or "")
+        next_step = exc.detail.get("next_step")
+        details = {
+            k: v for k, v in exc.detail.items() if k not in ("code", "message", "next_step")
+        } or None
     else:
         message = str(exc.detail)
         code = _status_to_code(exc.status_code, message)
         details = None
+        next_step = None
 
     content = {
         "error": {
             "code": code,
             "message": message,
             "details": details,
+            "next_step": next_step,
         },
         "detail": exc.detail,
     }

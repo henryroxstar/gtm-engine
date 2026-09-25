@@ -24,13 +24,14 @@ from tests.agent.test_onboard_settings import _base_draft
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run(args, profiles_root):
+def _run(args, profiles_root, extra_env=None):
     # Dotted sibling of the staged profiles: profile enumeration requires a PROFILE.md,
     # so this can never be mistaken for a profile.
     env = {
         **os.environ,
         "GTM_PROFILES_ROOT": str(profiles_root),
         "GTM_CONTENT_ROOT": str(profiles_root / ".content"),
+        **(extra_env or {}),
     }
     return subprocess.run(
         [sys.executable, "-m", "agent.onboard_cli", *args],
@@ -230,3 +231,34 @@ def test_diff_then_cancel(tmp_path):
     again = _run(["cancel", "--draft-id", draft_id], tmp_path)
     assert again.returncode != 0
     assert again.stdout == ""
+
+
+def test_promote_writes_marker_only_on_desktop(tmp_path):
+    draft_file = _write_draft(tmp_path)
+    r = _run(["render-stage", "--draft", str(draft_file)], tmp_path)
+    out = json.loads(r.stdout)
+
+    desktop_env = {"CLAUDE_CODE_ENTRYPOINT": "cli"}
+    p = _run(
+        ["promote", "--draft-id", out["draft_id"], "--draft", str(draft_file)],
+        tmp_path,
+        extra_env=desktop_env,
+    )
+    assert p.returncode == 0, p.stderr
+    content_root = tmp_path / ".content"
+    marker = content_root / ".active-profile"
+    assert marker.exists()
+    assert marker.read_text(encoding="utf-8").strip() == "acme-inc"
+
+    marker.unlink()
+    draft_file2 = _write_draft_named(tmp_path, "draft2.json", "Beta Corp")
+    r2 = _run(["render-stage", "--draft", str(draft_file2)], tmp_path)
+    out2 = json.loads(r2.stdout)
+    headless_env = {"CLAUDE_CODE_ENTRYPOINT": "sdk-py", "GTM_RUNTIME": "headless"}
+    p2 = _run(
+        ["promote", "--draft-id", out2["draft_id"], "--draft", str(draft_file2)],
+        tmp_path,
+        extra_env=headless_env,
+    )
+    assert p2.returncode == 0, p2.stderr
+    assert not marker.exists()

@@ -223,6 +223,7 @@ def load_live_rows(
     source: SourcedTouches,
     matrix: Matrix | None = None,
     suppression_index: LedgerIndex | None = None,
+    profile: str | None = None,
 ) -> list[dict]:
     """Non-suppressed rows from one sequence's CSV, enriched with a derived ``seat`` and
     their source spec/csv paths — matching :mod:`gtm_core.cells`'s own enrichment so the
@@ -253,7 +254,7 @@ def load_live_rows(
             if (row.get("verdict") or "send").strip() != "send":
                 continue
             enriched = dict(row)
-            enriched["seat"] = seat_of(row.get("title") or "") or "-"
+            enriched["seat"] = seat_of(row.get("title") or "", profile) or "-"
             enriched["cell"] = _row_cell(row, source, matrix)
             enriched["__spec"] = source.spec_path
             enriched["__csv"] = source.csv_path
@@ -304,7 +305,7 @@ def all_live_rows(
     touches_by_spec: dict[str, list] = {}
     for src in sources:
         touches_by_spec[src.spec_path] = src.touches
-        rows.extend(load_live_rows(src, matrix=matrix, suppression_index=suppression_index))
+        rows.extend(load_live_rows(src, matrix, suppression_index, profile))
     return rows, touches_by_spec
 
 

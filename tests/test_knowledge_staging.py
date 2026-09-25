@@ -287,3 +287,35 @@ def test_knowledge_refresh_pack_wiring():
     assert node.gate is False and node.external_effect is None
     assert node.model_role == "brain_plan"  # re-condensing company knowledge stays on Claude
     assert "knowledge-refresh" in {s.name for s in all_skills()}
+
+
+def test_cli_stage_stages_file_and_diff_sees_it(tmp_path):
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "01-pricing.md")
+    _write(live, "# Pricing\nOld price: $10\n")
+
+    candidate_file = tmp_path / "new_pricing.md"
+    candidate_file.write_text("# Pricing\nNew price: $20\n", encoding="utf-8")
+
+    rc = ks.main(
+        [
+            "stage",
+            "--profile",
+            "acme",
+            "--topic",
+            "01-pricing",
+            "--from",
+            str(candidate_file),
+            "--profiles-root",
+            str(profiles_root),
+            "--content-root",
+            str(content_root),
+        ]
+    )
+    assert rc == 0
+    staged = ks.list_staged(content_root, "acme")
+    assert "01-pricing" in staged
+
+    diff_out = ks.diff(profiles_root, content_root, "acme", "01-pricing")
+    assert "-Old price: $10" in diff_out
+    assert "+New price: $20" in diff_out

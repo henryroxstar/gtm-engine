@@ -66,7 +66,11 @@ async def _validate_narrowing(
     if not known:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            {"code": "unknown_profile", "profile_name": profile_name},
+            {
+                "code": "unknown_profile",
+                "message": f"Profile '{profile_name}' not found",
+                "profile_name": profile_name,
+            },
         )
 
     if packs is not None:
@@ -75,7 +79,11 @@ async def _validate_narrowing(
         if extra:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                {"code": "packs_not_narrowing", "not_activated": extra},
+                {
+                    "code": "packs_not_narrowing",
+                    "message": "Packs must narrow active workspace packs",
+                    "not_activated": extra,
+                },
             )
 
     if monthly_budget_usd is not None:
@@ -86,7 +94,11 @@ async def _validate_narrowing(
         if cap is not None and float(monthly_budget_usd) > float(cap):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                {"code": "budget_exceeds_cap", "cap_usd": float(cap)},
+                {
+                    "code": "budget_exceeds_cap",
+                    "message": f"Agent budget exceeds workspace cap of ${float(cap):.2f}",
+                    "cap_usd": float(cap),
+                },
             )
 
 
@@ -119,7 +131,10 @@ async def create_agent(
             body.name,
         )
         if taken:
-            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_name_taken"})
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"code": "agent_name_taken", "message": "Agent name is already taken"},
+            )
         row = await conn.fetchrow(
             f"""INSERT INTO agents(workspace_id, name, profile_name, packs, language,
                                    monthly_budget_usd, read_scope, daily_dispatch_cap)
@@ -189,7 +204,10 @@ async def update_agent(
         if current is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown agent")
         if current["status"] == "archived":
-            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_archived"})
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"code": "agent_archived", "message": "Agent is archived"},
+            )
 
         # Absent key and present-but-None both skip their check (None = "all
         # activated" / "no budget" — always legal by construction).
@@ -210,7 +228,10 @@ async def update_agent(
                 agent_id,
             )
             if taken:
-                raise HTTPException(status.HTTP_409_CONFLICT, {"code": "agent_name_taken"})
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    {"code": "agent_name_taken", "message": "Agent name is already taken"},
+                )
 
         sets, args = [], []
         for col in (

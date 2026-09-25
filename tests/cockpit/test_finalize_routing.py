@@ -120,13 +120,12 @@ def test_empty_brain_output_renders_diagnostic(monkeypatch, tmp_path):
     cockpit = _make_cockpit(tmp_path)
     msg = _run_text(cockpit, monkeypatch)  # zero chunks
 
-    assert any("completed without producing text" in e for e in msg.edits)
+    assert any("The run stopped before finishing" in e for e in msg.edits)
 
 
 def test_empty_brain_output_names_the_recent_denial(monkeypatch, tmp_path):
     # When a tool-denial loop is the likely cause (the documented failure mode),
-    # naming the blocked tool inline beats sending the operator to "the server
-    # logs" — which aren't reachable from Telegram anyway.
+    # tell the operator a needed tool was not allowed and what to say next.
     from gtm_core.ledgers import Ledgers
 
     cockpit = _make_cockpit(tmp_path)
@@ -141,8 +140,8 @@ def test_empty_brain_output_names_the_recent_denial(monkeypatch, tmp_path):
     msg = _run_text(cockpit, monkeypatch)  # zero chunks
 
     final = msg.edits[-1]
-    assert "mcp__higgsfield_video__generate_video" in final
-    assert "denials.jsonl" in final
+    assert "I couldn't finish: a tool I needed is not allowed here." in final
+    assert "Say 'show me what was blocked' for the detail." in final
 
 
 def test_empty_brain_output_ignores_a_stale_denial(monkeypatch, tmp_path):
@@ -162,8 +161,8 @@ def test_empty_brain_output_ignores_a_stale_denial(monkeypatch, tmp_path):
     msg = _run_text(cockpit, monkeypatch)  # zero chunks
 
     final = msg.edits[-1]
-    assert "completed without producing text" in final
-    assert "Bash" not in final
+    assert "The run stopped before finishing" in final
+    assert "show me what was blocked" not in final
 
 
 def test_voice_only_mode_collapses_reply_to_marker(monkeypatch, tmp_path):
@@ -195,8 +194,10 @@ def test_stream_error_renders_sanitized_error(monkeypatch, tmp_path):
     asyncio.run(cockpit.on_text(update, context))
 
     final = msg.edits[-1]
-    assert "The run failed: RuntimeError" in final
-    assert "SECRET" not in final  # only the exception TYPE is surfaced
+    assert "The run stopped before finishing. Nothing was sent." in final
+    assert "Say 'try again', or 'show me the error' for the technical detail." in final
+    assert "SECRET" not in final
+    assert "RuntimeError" not in final  # exception is kept in log only
     assert msg.edit_kwargs[-1].get("reply_markup") is None
 
 

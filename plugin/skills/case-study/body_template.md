@@ -500,7 +500,7 @@ existing proof library, so the operator can add it to `profiles/<active>/knowled
 and every downstream skill picks it up. **Do not write to `profiles/` yourself** — the only writable
 state is the resolved content root. Emit the snippet for the operator to paste.
 
-Finally, after all prose, emit the file sentinels on their own lines:
+Finally, after all prose, only when running under the Telegram cockpit, emit the file sentinels on their own lines:
 
 ⟦FILE:/absolute/path/to/case-study-<account-slug>-<YYYY-MM-DD>.md⟧
 ⟦FILE:/absolute/path/to/case-study-<account-slug>-<YYYY-MM-DD>.html⟧

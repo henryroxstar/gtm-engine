@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import csv as _csv
 import re
+from collections import Counter
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 from ..paths import _safe_segment
 from ..prospect_lede import go_live
 from ..prospects_consolidate import _prospects_dir
+from .aggregate import _scope_figures
 from .config import FIGURES_MAX_AGE_DAYS
 
 #: A lane review sheet, as ``gtm_core.lanes`` names one: ``hold-<YYYY-MM-DD>.csv`` and the
@@ -102,6 +104,52 @@ def page_warnings(status: dict, reconciliation: dict, sum_ok: bool, now: datetim
     return reasons
 
 
+def _listed(c: dict) -> list[str]:
+    return [s["sequence_id"] for k in ("sequences", "archived") for s in c.get(k, [])]
+
+
+def shared_sequences(m: dict) -> dict[str, list[str]]:
+    """Sequence id -> the titles of the in-scope campaigns listing it, for every id listed by
+    more than one. Each of them sums the id's people into its own figures."""
+    owners: dict[str, list[str]] = {}
+    for c in m["campaigns"]["campaigns"]:
+        for sid in _listed(c):
+            owners.setdefault(sid, []).append(c.get("title") or c.get("slug", "?"))
+    return {sid: names for sid, names in owners.items() if len(names) > 1}
+
+
+def repeated_rows(m: dict) -> list[str]:
+    """Ids the sending figures list more than once: their people are summed once per row."""
+    seen = Counter(r.get("id") for r in m["status"].get("sequences", []) if r.get("id"))
+    return sorted(sid for sid, n in seen.items() if n > 1)
+
+
+def disagree_names(m: dict) -> list[str]:
+    """The in-scope campaigns a `records-disagree` strip is about, in page order. A shared or
+    repeated id is named only when the figures fail to add up — otherwise it is not what the
+    strip is about."""
+    ids = set((m.get("reconciliation") or {}).get("in_ledger_only") or [])
+    if not _scope_figures(m)["sum_ok"]:
+        ids |= set(shared_sequences(m)) | set(repeated_rows(m))
+    return [
+        c.get("title") or c.get("slug", "?")
+        for c in m["campaigns"]["campaigns"]
+        if ids & set(_listed(c))
+    ]
+
+
+def scoped_trust(m: dict, ids: set[str]) -> dict:
+    """PS20 Task 2.0 — `warnings` and `reconciliation` for a campaign-scoped page. The sum check
+    re-runs over the scoped figures; a records gap counts only when it names one of this page's
+    sequences (a snapshot-only id belongs to no campaign); `figures-old` and `unreadable` stay,
+    because every campaign reads the one snapshot."""
+    own = sorted(set((m.get("reconciliation") or {}).get("in_ledger_only") or []) & ids)
+    rec = {"ok": not own, "in_ledger_only": own, "in_snapshot_only": []}
+    kept = [w for w in m.get("warnings") or [] if w != "records-disagree"]
+    lead = ["records-disagree"] if own or not _scope_figures(m)["sum_ok"] else []
+    return {"warnings": lead + kept, "reconciliation": rec}
+
+
 def page_go_live(campaigns: dict, status: dict, contacted: dict | None) -> str:
     """Page-wide go-live: statuses and contacts from the SAME non-archived rows."""
     archived = {s["sequence_id"] for c in campaigns["campaigns"] for s in c.get("archived", [])}
@@ -125,8 +173,9 @@ def page_extras(
     """The model keys ``build_model`` merges in with ONE call (``model.py`` sits at its §R10
     ceiling): ``warnings`` (:func:`page_warnings`), and the two operator worksheets the page
     links — ``eval_labeler`` and ``review_sheet`` — read here, so ``render_html`` opens nothing
-    (PS20 P1.6). All three are profile-wide, like ``inbound``: ``scope_to_campaign`` leaves
-    them as built."""
+    (PS20 P1.6). ``eval_labeler`` and ``review_sheet`` are profile-wide, like ``inbound``:
+    ``scope_to_campaign`` leaves them as built. ``warnings`` is not — a scoped page recomputes
+    it with :func:`scoped_trust`."""
     return {
         "warnings": page_warnings(status, reconciliation, sum_ok, now),
         "eval_labeler": eval_labeler(profile, content_root),

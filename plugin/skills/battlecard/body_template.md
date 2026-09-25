@@ -72,7 +72,7 @@ One page, in this order: **what they are (as they describe themselves)** · **wh
 win** · **where we win, with the mechanism** · **overlap** · **complement** · **trap questions and
 answers** · **questions worth asking** · **must not claim** · **last verified, with sources**.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 ## Guardrails
 

@@ -25,6 +25,7 @@ from agent import gate_notify  # noqa: E402
 @dataclasses.dataclass
 class _Cfg:
     telegram_bot_token: str = "test-token"
+    per_run_cap_usd: float = 10.0
 
 
 class _Resp:
@@ -87,6 +88,7 @@ def test_ordinary_values_are_unchanged(monkeypatch):
     text = captured["data"]["text"]
     assert "<b>[acme] Gate 1 — plan ready for review</b>" in text
     assert "<code>2026-08-13-radar-01</code>" in text
+    assert "Spend estimate: up to your per-run cap of $10.00" in text
 
 
 def test_no_send_without_a_token(monkeypatch):
@@ -219,15 +221,14 @@ def _run_pack_gate(monkeypatch, profile: str, run_id: str, node_ids: list[str]) 
     return captured
 
 
-def test_pack_gate_names_the_node_and_the_resolve_command(monkeypatch):
+def test_pack_gate_names_the_node_and_asks_operator(monkeypatch):
     captured = _run_pack_gate(monkeypatch, "acme", "r-1", ["sequence"])
     text = captured["data"]["text"]
     assert captured["data"]["parse_mode"] == "HTML"
     assert "sequence" in text
-    assert "--gate-decision approve" in text
-    assert "--pack prospecting" in text
-    assert "--variant prospect-outreach" in text
-    assert "--run-id r-1" in text
+    assert "Ask your server operator to approve this." in text
+    assert "--gate-decision" not in text
+    assert "python -m agent" not in text
 
 
 def test_pack_gate_lists_multiple_nodes(monkeypatch):
@@ -294,3 +295,57 @@ def test_optout_alert_no_send_without_a_configured_chat_id(monkeypatch):
         gate_notify.push_optout_alert(_Cfg(), Path("/nonexistent"), "example", _optout_match())
     )
     assert captured == {}
+
+
+# SC9b (4): a reply from an alias — the ENROLLED address is named, and never claimed blocked.
+
+
+def _alias_text(monkeypatch, outcome, *, enrolled, **match_kw):
+    from pathlib import Path
+
+    captured: dict = {}
+    _patch_httpx(monkeypatch, captured)
+    monkeypatch.setattr("agent.profiles.load_gate1_chat_id", lambda *a, **kw: 12345, raising=False)
+    kwargs = {"auto_outcome": outcome} if outcome is not None else {}
+    if enrolled is not None:
+        kwargs["enrolled"] = enrolled
+    asyncio.run(
+        gate_notify.push_optout_alert(
+            _Cfg(), Path("/nonexistent"), "example", _optout_match(**match_kw), **kwargs
+        )
+    )
+    return captured["data"]["text"]
+
+
+_ENROLLED_LINE = (
+    "Enrolled as <code>jordan.b@brackenhealth.example</code> — a different address from the "
+    "one that replied (<code>jordan@brackenhealth.example</code>); it is NOT added "
+    "automatically, approval request follows."
+)
+
+
+def test_optout_alert_names_a_different_enrolled_address_in_every_case(monkeypatch):
+    from agent.dnc_dispatch import DncDispatchOutcome
+
+    enrolled = "jordan.b@brackenhealth.example"
+    added = DncDispatchOutcome(ok=True, status="added", added=("jordan@brackenhealth.example",))
+    failed = DncDispatchOutcome(ok=False, status="dnc_add_failed", detail="HTTP 500")
+    for outcome, kw in ((added, {}), (failed, {}), (None, {"clear": True}), (None, {})):
+        text = _alias_text(monkeypatch, outcome, enrolled=enrolled, **kw)
+        assert _ENROLLED_LINE in text
+        # The sender being handled must not read as "all done" while the enrolled one waits.
+        assert "Nothing for you to do" not in text
+
+
+def test_optout_alert_enrolled_address_is_html_escaped(monkeypatch):
+    text = _alias_text(monkeypatch, None, enrolled="x<b>@y.example")
+    assert "x&lt;b&gt;@y.example" in text and "x<b>@" not in text
+
+
+def test_optout_alert_wording_is_unchanged_when_enrolled_is_the_sender(monkeypatch):
+    from agent.dnc_dispatch import DncDispatchOutcome
+
+    added = DncDispatchOutcome(ok=True, status="added", added=("jordan@brackenhealth.example",))
+    for enrolled in (None, "Jordan@BrackenHealth.example"):
+        text = _alias_text(monkeypatch, added, enrolled=enrolled)
+        assert "Enrolled as" not in text and "Nothing for you to do" in text

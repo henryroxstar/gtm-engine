@@ -613,6 +613,10 @@ def _cli(argv: list[str] | None = None) -> int:
             updates[k.strip()] = v.strip()
         if args.reason and "verdict" in updates:
             updates["verdict_reason"] = args.reason
+        if "verdict" in updates:
+            # Research setting a verdict by hand dates it; `prospects_consolidate` lifts a
+            # pool row's re-angle to send only on a stamp newer than the row's.
+            updates.setdefault("verdict_on", datetime.now().date().isoformat())
         summary = mutate_account(args.profile, args.account, updates)
         print(json.dumps(summary, indent=2))
         return 0

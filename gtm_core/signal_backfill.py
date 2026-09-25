@@ -276,6 +276,7 @@ def promote_records(
     profile: str,
     *,
     content_root: Path | None = None,
+    today: str | None = None,
 ) -> tuple[list[dict], list[tuple[str, str]]]:
     """Build ``latest.json`` items carrying each record, plus the records that have no account.
 
@@ -292,7 +293,12 @@ def promote_records(
 
     A record whose row has no ``account_id`` cannot be promoted and is RETURNED, never
     dropped: the caller has to see that it has nowhere durable to go.
+
+    A record that carries a ``verdict`` stamps ``verdict_on`` with ``today``: research set
+    that verdict now, from a record ``check_record`` passed. ``prospects_consolidate`` lifts
+    a pool row's ``re-angle`` to the account's ``send`` only on a stamp newer than the row's.
     """
+    stamp = today or datetime.date.today().isoformat()
     from .prospects_state import load_latest
 
     by_email = {(r.get("email") or "").strip().lower(): r for r in rows}
@@ -325,6 +331,8 @@ def promote_records(
         clause = str(rec.get("signal_clause") or "").strip()
         if clause:
             item["why_now"] = clause
+        if str(rec.get("verdict") or "").strip():
+            item["verdict_on"] = stamp
         items.append(item)
     return items, orphans
 

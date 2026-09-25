@@ -83,7 +83,7 @@ One page, in this order: **what they are (as they describe themselves)** · **wh
 win** · **where we win, with the mechanism** · **overlap** · **complement** · **trap questions and
 answers** · **questions worth asking** · **must not claim** · **last verified, with sources**.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 ## Guardrails
 
@@ -96,3 +96,17 @@ Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
 - **Every competitive fact carries a date and a source.** An undated one is unverified: a feature
   gap closed six months ago and quoted on a call is the fastest way to lose the room.
 - **Read-only.** Writes a card; contacts nobody.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

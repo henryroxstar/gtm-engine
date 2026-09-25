@@ -74,3 +74,16 @@ gtm_core.content_quality.resolve_content_root
 gtm_core.content_quality.video_probe
 gtm_core.content_quality.evaluate
 gtm_core.content_quality._person_hook_matrix_path
+
+# 2026-09-25 — PS20 Phase 2: the campaign page re-cut into five tabs (views_status,
+# views_worklist and views_samples deleted; the tabs are views_overview/accounts/emails/
+# results/ops). Re-point a patch at the module that now USES the name.
+gtm_core.email_campaign_dashboard.views_status._scope_figures
+gtm_core.email_campaign_dashboard.views_status.BENCHMARKS
+gtm_core.email_campaign_dashboard.views_worklist._staged_candidates
+gtm_core.email_campaign_dashboard.views_learn._ops_view
+gtm_core.email_campaign_dashboard.views_learn._sent_card
+gtm_core.email_campaign_dashboard.views_learn._maintenance_card
+gtm_core.email_campaign_dashboard.views_learn._goal_card
+gtm_core.email_campaign_dashboard.views_learn._headline_learnings
+gtm_core.email_campaign_dashboard.views_samples._later_touches

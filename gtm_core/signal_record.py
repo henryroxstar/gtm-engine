@@ -246,6 +246,113 @@ def normalise_company(name: str) -> str:
     return _NON_ALNUM_RE.sub("", clean_company(name or "").lower())
 
 
+#: Trailing words that describe WHAT a company is rather than WHICH company it is. A source
+#: names a company the way people say it — "Halden's efforts", "Halden ClaimsDesk" — while the
+#: row carries the filing-style "Halden Systems". Used only on the subject checks below; never
+#: applied to the rendered name (``clean_company`` owns that, and stays legal-suffix-only).
+#: Kept small and explicit: every word added here widens what counts as "the same company".
+_DESCRIPTOR_WORDS = frozenset(
+    """
+    ai card center centre clinical communications companies financial group health
+    healthcare holdings insurance system systems technologies technology
+    """.split()
+)
+#: Legal forms. After the FULL name they are that name's own filing form ("Halden Inc." —
+#: ``normalise_company`` already equates the two); after a shortened core they are a
+#: namesake's ("Acme plc" is not "Acme Financial").
+_LEGAL_FORMS = frozenset(
+    """
+    ag bv co company corp corporation gmbh inc incorporated limited llc llp lp ltd nv plc
+    pte pty sa
+    """.split()
+)
+#: A word that, written straight after a name, makes it a DIFFERENT entity's name unless the
+#: subject carries it too: "Acme Insurance" is not "Acme Health", "Acme Capital" not "Acme".
+_QUALIFIER_WORDS = (
+    _DESCRIPTOR_WORDS | _LEGAL_FORMS | frozenset("bancorp bank capital partners".split())
+)
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+
+
+def _name_forms(name: str) -> list[list[str]]:
+    """The full name, then its core: a leading "The" and trailing descriptors dropped.
+
+    Never empty for a non-empty name — the last word always survives. A core under three
+    characters is not offered: too short to identify anything."""
+    words = _WORD_RE.findall(clean_company(name or "").lower())
+    if len(words) > 1 and words[0] == "the":
+        words = words[1:]
+    core = list(words)
+    while len(core) > 1 and core[-1] in _DESCRIPTOR_WORDS:
+        core = core[:-1]
+    forms = [words] if words else []
+    if core != words and len("".join(core)) >= 3:
+        forms.append(core)
+    return forms
+
+
+def _company_core(name: str) -> str:
+    forms = _name_forms(name)
+    return "".join(forms[-1]) if forms else ""
+
+
+def _named_in(name: str, evidence: str) -> bool:
+    """Does the evidence name THIS company — full name or core — and not a namesake?
+
+    Conservative by design: a gate that passes a wrong-company row is worse than one that
+    warns on a right one. Every occurrence must be word-bounded and start capitalised, and
+    the word after it decides:
+
+    * a possessive (``'s``/``’s``) — accepted;
+    * a dot straight after the name, with no space ("acme.ai", "acme.io", "Acme.com") —
+      rejected: a domain-style name is a namesake ("acme.ai" is not "Acme Card");
+    * a qualifier written straight after it (a space or "&" between) that the subject does
+      not itself carry — rejected ("Acme Insurance announced" is another company when the
+      subject is "Acme Health"; so is "Acme plc" for "Acme Financial"). A legal form after
+      the FULL name is its own ("Acme Inc."). Across punctuation the next word belongs to
+      something else: "Bank of Acme, Harbor Capital" names Bank of Acme;
+    * a one-word CORE (a name shortened to its first word) additionally needs a capitalised
+      non-qualifier after it ("Halden ClaimsDesk"). A bare shortened word is how a
+      sentence-initial dictionary word ("Cascade of alerts", "First, the bank") or a
+      same-named stranger ("Acme announced") would read as the company. The full name, even
+      one word long, is the name the row itself carries, so it does not need this.
+
+    Accepted residual (2026-09-25): a ONE-word company name that is also a dictionary word
+    passes on a sentence-initial use ("Level of adoption…" for a company named "Level"),
+    because removing the full-name exemption added ~52 budgeted warnings per batch on rows
+    that DO name the company. Pinned by a test so tightening it later is a decision.
+    """
+    carried = set(_WORD_RE.findall((name or "").lower()))
+    toks = list(_WORD_RE.finditer(evidence or ""))
+    low = [t.group().lower() for t in toks]
+    forms = _name_forms(name)
+    for k, form in enumerate(forms):
+        n = len(form)
+        is_full = k == 0
+        one_word_core = not is_full and n == 1
+        for i in range(len(toks) - n + 1):
+            first = toks[i].group()[0]
+            if low[i : i + n] != form or not (first.isupper() or first.isdigit()):
+                continue
+            nxt = toks[i + n] if i + n < len(toks) else None
+            gap = evidence[toks[i + n - 1].end() : nxt.start()] if nxt else ""
+            if nxt and gap in ("'", "’") and low[i + n] == "s":
+                return True
+            if nxt and gap == ".":
+                continue
+            joined = nxt is not None and gap.strip() in ("", "&")
+            word = low[i + n] if joined else ""
+            own_legal_form = is_full and word in _LEGAL_FORMS
+            if word in _QUALIFIER_WORDS and word not in carried and not own_legal_form:
+                continue
+            if not one_word_core:
+                return True
+            capitalised_next = joined and gap.strip() == "" and nxt.group()[0].isupper()
+            if capitalised_next and word not in _QUALIFIER_WORDS:
+                return True
+    return False
+
+
 # --- evidence support ----------------------------------------------------
 
 _STOPWORDS = frozenset(
@@ -531,7 +638,20 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
     else:
-        if company and normalise_company(subject) != normalise_company(company):
+        s_key, c_key = normalise_company(subject), normalise_company(company)
+        if company and s_key != c_key and s_key == _company_core(company):
+            # "Tidewater" for "Tidewater Financial" is usually the same company and sometimes
+            # a namesake; the record cannot tell which, so a person confirms it. Never silent.
+            out.append(
+                Finding(
+                    "warn",
+                    "signal_subject",
+                    "signal-subject-short-form",
+                    f"the recorded subject {subject!r} is a shorter form of {company!r} — "
+                    f"confirm it is the same company",
+                )
+            )
+        elif company and s_key != c_key:
             out.append(
                 Finding(
                     "block",
@@ -540,7 +660,7 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
                     f"fact is about {subject!r}, the email goes to {company!r}",
                 )
             )
-        if evidence and normalise_company(subject) not in _NON_ALNUM_RE.sub("", evidence.lower()):
+        if evidence and not _named_in(subject, evidence):
             out.append(
                 Finding(
                     "warn",

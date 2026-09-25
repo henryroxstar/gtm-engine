@@ -87,7 +87,7 @@ Save as **`value-case-[company]-[YYYY-MM-DD].md`** in the account folder
 7. **Evidence** — case studies cited by shape first, then industry, each with what actually
    transfers and what does not.
 
-Then append the `⟦FILE:…⟧` sentinel with the real absolute path.
+Only when running under the Telegram cockpit, append the `⟦FILE:…⟧` sentinel with the real absolute path.
 
 Offer the hand-offs: `commercial-proposal` (this priced), `build-deck` (the value chapter),
 `poc-plan` (prove the load-bearing assumption before anyone signs).

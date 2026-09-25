@@ -16,6 +16,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-25
+
+### Added
+- **Four plain-language skills for the person driving the desktop app.** `status` answers
+  "where do I stand?" for the current prospecting list (whose move it is, what is held and why,
+  what is already in the sending tool); `budget` reports this month's tool spend against the cap
+  in one sentence; `capabilities` explains what the engine can do and which tools are connected;
+  `learn` reads new company material, shows the exact diff, and updates knowledge only after
+  approval.
+- **Send guards on the desktop.** The brain now refuses mail and chat send verbs (`send_message`,
+  `forward`, `reply`, `reply_to_email`, `slack_send_message`, `slack_schedule_message`) on any
+  connector; reading and creating a draft stay allowed, so the person sends. The shipped
+  `.claude/` also wires a hook that blocks outbound-effect tools by leaf name on any connector
+  (sending, publishing and scheduling posts, enrolling leads, editing Do Not Contact lists) and a
+  second that stops an API key, token or password pasted into a prompt.
+- **An active-profile marker for the desktop.** `setup` and confirming a profile with `/profile`
+  record the choice in `content/.active-profile`, so later commands resolve the same company.
+  The server, cockpit and backend API never read it.
+- **Knowledge snapshots.** A snapshot of a knowledge topic is taken before a staged update is
+  promoted over it and can be restored; pruning to the newest 20 per topic is an explicit
+  operator command, never a build step.
+- `python -m gtm_core.design_render` re-renders a solution design's HTML companion from its
+  markdown, so the `.md` stays the source; `--check` reports drift instead of writing.
+
+### Changed
+- **The campaign page is reorganised** into overview, accounts, emails, results and operator-notes
+  tabs, with a ready view for what still has to happen before sending starts. They replace the
+  earlier status, samples and worklist views, and every lane-derived figure now reads from the
+  one lane-state file.
+- Backend API errors carry a readable `message` and, where the caller can do something about it,
+  a `next_step`.
+- The cockpit's `/help` lists the commands that are actually registered, `/cost` shows tool spend
+  against the monthly cap, and a gate notification names who to ask rather than a shell command.
+  The plan gate states the spend ceiling for the run.
+- The monthly tool budget is resolved by one module, used by the `budget` skill and the run
+  budget guard, so the two cannot report different caps.
+- An opt-out reply from a different address than the one enrolled now goes to the
+  `optout-suppress` gate, and the alert names both addresses; the enrolled address is never added
+  automatically.
+- A duplicate-contact "generic" decision is admitted only when both seats resolve and differ;
+  otherwise the row is held with both seats named. Seats are resolved with the tenant's own
+  vocabulary on the hold sheet, cells, eval sheet and dashboard, and `vice president`, `svp`,
+  `evp` and `avp` fold to `vp`.
+- The prospect audit keys accounts on `account_id`, falling back to the org token, the same key
+  the preflight report uses. The scorecard derives `agent_evidence` from `signal_agent_kind` and
+  refuses a value that contradicts it.
+- `.env.example` documents `GTM_PROFILES_ROOT` and `GTM_CONTENT_ROOT`, and says
+  `ANTHROPIC_API_KEY` is for a self-hosted server only.
+
+### Fixed
+- A shorter, possessive or brand form of the company name in signal evidence now counts as the
+  company, a namesake with a different descriptor still warns, and a short-form subject raises
+  the new `signal-subject-short-form` warning instead of passing silently or erroring.
+- The has-a-dossier check answers from the account folder the resolver returns and reports an
+  ambiguous match as `folder-ambiguous`; the fuzzy fallback, which could pass on another
+  company's research, is gone.
+- The published tree's own test suite passes again. Two tests assumed the private tree (one
+  linted an operator allow list the public `.claude/settings.json` does not carry, the other
+  read `oss/overlays`), one pinned the old wording of the monthly-cap message, which now names
+  the month and its reset date, and one fixture used a live domain in place of a reserved one.
+
+### Removed
+- `docs/onboarding/END-USER-ONBOARDING.pdf` is no longer published. It had fallen behind the
+  Markdown guide, which is the maintained copy.
+
 ## [0.22.0] - 2026-09-25
 
 ### Added

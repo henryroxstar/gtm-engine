@@ -36,6 +36,7 @@ ROW = {
     "in_target_market": True,
     "research_on_file": True,
     "agent_evidence": "present",
+    "signal_agent_kind": "ai",
     "intent_reading": "probed_no_surge",
     "dated_why_now": True,
 }

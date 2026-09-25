@@ -561,3 +561,38 @@ def test_promote_reports_a_record_with_no_account_instead_of_dropping_it(tmp_pat
 
     assert items == []
     assert len(orphans) == 1 and "no account" in orphans[0][1]
+
+
+def test_promote_stamps_the_research_date_on_a_record_that_carries_a_verdict(tmp_path):
+    """`verdict_on` is what lets a newer research verdict lift a pool row's re-angle; only
+    a record that carries a verdict gets one, and it is the promotion's own date."""
+    import json as _json
+
+    from gtm_core import signal_backfill as sb
+
+    pdir = tmp_path / "acme" / "prospects"
+    pdir.mkdir(parents=True)
+    (pdir / "latest.json").write_text(
+        _json.dumps(
+            {
+                "kind": "prospects",
+                "profile": "acme",
+                "items": [
+                    {"company": "Northwind", "account_id": "a-1", "verdict": "re-angle"},
+                    {"company": "Fabrikam", "account_id": "a-2"},
+                ],
+            }
+        )
+    )
+    rows = [
+        {"email": "jo@northwind.example", "account_id": "a-1"},
+        {"email": "al@fabrikam.example", "account_id": "a-2"},
+    ]
+    records = {
+        "jo@northwind.example": {"verdict": "send", "signal_observed": "2026-06-01"},
+        "al@fabrikam.example": {"signal_observed": "2026-06-01"},
+    }
+    items, _ = sb.promote_records(records, rows, "acme", content_root=tmp_path, today="2026-09-25")
+    by_id = {i["account_id"]: i for i in items}
+    assert by_id["a-1"]["verdict_on"] == "2026-09-25"
+    assert "verdict_on" not in by_id["a-2"]

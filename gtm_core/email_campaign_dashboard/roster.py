@@ -314,6 +314,9 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
                     ),
                     "email_status": column_value(r, "email_status"),
                     "named": bool(column_value(r, "first")),
+                    "contact": " ".join(
+                        v for v in (column_value(r, "first"), column_value(r, "last")) if v
+                    ),
                     "tier": column_value(r, "tier"),
                     "verdict": column_value(r, "verdict"),
                     "score": column_value(r, "score"),

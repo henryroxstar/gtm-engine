@@ -200,11 +200,11 @@ def test_every_number_on_the_page_is_the_number_the_terminal_prints(
         "All accounts": 7,
         "Waiting on you": 2,
         "Sorted — not yet checked": 1,
-        "Being fixed": 0,
+        "Being reworked": 0,
         "In the sending tool": 0,
-        "Not emailing": 1,
+        "Closed — not contacting": 1,
         "Unrecognised": 1,
-        "Needs an address": 1,
+        "Still finding the right person": 1,
     }
     assert {k: cli.get(k) for k in expected} == expected, "fixture drifted from the terminal"
     assert {k: page.get(k) for k in expected} == expected
@@ -227,15 +227,19 @@ def test_the_account_steps_use_the_terminal_words_and_add_up(tmp_path, monkeypat
 
 
 def test_the_banner_is_the_waiting_contact_count_in_contact_words(tmp_path, monkeypatch) -> None:
+    from tests.contracts.dashboard_page import panel
+
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     _tenant(tmp_path, MIXED_ACCOUNTS, MIXED_STATE)
-    text = "\n".join(visible_lines(_render(tmp_path)))
+    text = "\n".join(visible_lines(panel(_render(tmp_path), "overview")))
     assert "Yours (2): decide on 2 contacts" in text
     assert "waiting on a routing decision" not in text
 
     one = [r for r in MIXED_STATE if r["email"] != "jo.lind@litwarepay.example"]
     _tenant(tmp_path, MIXED_ACCOUNTS, one)
-    assert "Yours (1): decide on 1 contact" in "\n".join(visible_lines(_render(tmp_path)))
+    assert "Yours (1): decide on 1 contact" in "\n".join(
+        visible_lines(panel(_render(tmp_path), "overview"))
+    )
 
 
 def test_no_banner_when_nobody_is_waiting_even_if_the_ledger_says_held(
@@ -432,23 +436,33 @@ def _roster_page(root: Path) -> str:
 def test_the_long_disclaimer_is_invisible_unfiltered_and_appears_once_when_filtering(
     tmp_path, monkeypatch
 ) -> None:
+    from tests.contracts.dashboard_page import panel
+
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     html = _roster_page(tmp_path)
     assert 'id="filterbar"' in html, "fixture must render a filter, or this test guards nothing"
 
-    unfiltered = "\n".join(visible_lines(html))
+    acc = panel(html, "accounts")
+    unfiltered = "\n".join(visible_lines(acc))
     assert not LONG_DISCLAIMER.search(unfiltered)
     assert "not filtered" not in unfiltered.lower()
 
     # What the filter script unhides once a facet is selected.
     shown = frozenset({"stat-why", "why", "filter-note"})
-    filtering = visible_lines(html, reveal=shown)
+    filtering = visible_lines(acc, reveal=shown)
     assert len([ln for ln in filtering if LONG_DISCLAIMER.search(ln)]) <= 1
-    assert sum(ln == "not filtered" for ln in filtering) >= 3, "each frozen figure is still marked"
+    frozen_count = acc.count('data-filter="off"')
+    assert frozen_count >= 1
+    assert sum(ln == "not filtered" for ln in filtering) == frozen_count
+
+    # Outside accounts the count is 0
+    outside = "".join(panel(html, p) for p in ("overview", "emails", "results", "ops"))
+    assert sum(ln == "not filtered" for ln in visible_lines(outside, reveal=shown)) == 0
+
     # The exact reason survives, as a tooltip on the mark.
     assert re.search(r'class="stat-why" hidden title="Not filtered — this figure [^"]+"', html)
-    # ...and the one explanation sits with the filter control, before the first panel.
-    assert html.index('id="filter-note"') < html.index('<section id="p-')
+    # ...and the one explanation sits with the filter control, before the stat tiles.
+    assert acc.index('id="filter-note"') < acc.index('class="stat"')
 
 
 # ------------------------------------------------------------------ UX-06 + the e2e sandbox
@@ -548,12 +562,14 @@ def test_sandbox_page_and_terminal_agree_and_scope_open_falls_back(sandbox) -> N
     assert str(page_file) in rendered.stdout
     html = page_file.read_text(encoding="utf-8")
     cli, page = cli_numbers(status.stdout), page_numbers(html)
-    labels = [*ACCOUNT_LABELS, *CONTACT_LABELS, "Needs an address"]
+    labels = [*ACCOUNT_LABELS, *CONTACT_LABELS, prospect_status.LABELS["needs_address"]]
     assert {k: page.get(k) for k in labels} == {k: cli[k] for k in labels}
     assert cli["Held"] == 3 and cli["Waiting on you"] == 3, "fixture must exercise the join"
 
-    text = "\n".join(visible_lines(html))
-    assert "Yours (3): decide on 3 contacts" in text
+    from tests.contracts.dashboard_page import panel
+
+    overview_text = "\n".join(visible_lines(panel(html, "overview")))
+    assert "Yours (3): decide on 3 contacts" in overview_text
     # PS15: the page renders the terminal's lede, not a paraphrase of it. Every lede line
     # the terminal printed is on the page, except the two that legitimately differ: the
     # clock ("As of …", rendered a moment later) and the sending-tool line, which the page
@@ -563,10 +579,11 @@ def test_sandbox_page_and_terminal_agree_and_scope_open_falls_back(sandbox) -> N
     for line in lede:
         if line.startswith(("As of ", "In the sending tool:")):
             continue
-        assert line.strip() in text, f"terminal lede line missing from the page: {line!r}"
-    assert "do NOT load this file: it still contains 3 contacts waiting on a decision" in text
+        assert line.strip() in overview_text, f"terminal lede line missing from the page: {line!r}"
+    page_text = "\n".join(visible_lines(html))
+    assert "do NOT load this file: it still contains 3 contacts waiting on a decision" in page_text
     assert _badge(html) == GO_LIVE_WORDS["none"]
-    assert not LONG_DISCLAIMER.search(text)
+    assert not LONG_DISCLAIMER.search(page_text)
 
     fresh = run(
         "gtm_core.email_campaign_dashboard", "--profile", PROFILE, "--scope", "open", "--check-fresh"

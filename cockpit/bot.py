@@ -47,6 +47,7 @@ import html
 import logging
 import secrets
 from pathlib import Path
+from typing import Any
 
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -416,6 +417,10 @@ class Cockpit:
         """``/gate`` — delegate to :class:`cockpit.commands.CommandHandlers`."""
         await self._commands.cmd_gate_demo(update, context)
 
+    async def cmd_cost(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/cost`` — delegate to :class:`cockpit.commands.CommandHandlers`."""
+        await self._commands.cmd_cost(update, context)
+
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Inline-keyboard dispatch — permission asks resolve here (security kernel on
         the root); hook-library actions go to :class:`cockpit.hooks.HookUxHandlers`;
@@ -438,23 +443,31 @@ class Cockpit:
     # Wiring
     # ------------------------------------------------------------------ #
 
+    def registered_commands(self) -> list[tuple[str, Any]]:
+        """Return the (command_name, handler_callback) pairs registered on the bot."""
+        return [
+            ("start", self.cmd_start),
+            ("help", self.cmd_help),
+            ("profile", self.cmd_profile),
+            ("reset", self.cmd_reset),
+            ("gate", self.cmd_gate_demo),
+            ("voice", self.cmd_voice),
+            ("radar", self.cmd_radar),
+            ("hooks", self.cmd_hooks),
+            ("wizard", self.cmd_wizard),
+            ("wizard_cancel", self.cmd_wizard_cancel),
+            ("onboard", self.cmd_onboard),
+            ("onboard_confirm", self.cmd_onboard_confirm),
+            ("onboard_cancel", self.cmd_onboard_cancel),
+            ("cost", self.cmd_cost),
+        ]
+
     def register(self, application: Application) -> None:
         """Register all handlers onto the PTB application."""
         # Keep a handle so the permission-policy notifier can message operators.
         self._app = application
-        application.add_handler(CommandHandler("start", self.cmd_start))
-        application.add_handler(CommandHandler("help", self.cmd_help))
-        application.add_handler(CommandHandler("profile", self.cmd_profile))
-        application.add_handler(CommandHandler("reset", self.cmd_reset))
-        application.add_handler(CommandHandler("gate", self.cmd_gate_demo))
-        application.add_handler(CommandHandler("voice", self.cmd_voice))
-        application.add_handler(CommandHandler("radar", self.cmd_radar))
-        application.add_handler(CommandHandler("hooks", self.cmd_hooks))
-        application.add_handler(CommandHandler("wizard", self.cmd_wizard))
-        application.add_handler(CommandHandler("wizard_cancel", self.cmd_wizard_cancel))
-        application.add_handler(CommandHandler("onboard", self.cmd_onboard))
-        application.add_handler(CommandHandler("onboard_confirm", self.cmd_onboard_confirm))
-        application.add_handler(CommandHandler("onboard_cancel", self.cmd_onboard_cancel))
+        for cmd, handler in self.registered_commands():
+            application.add_handler(CommandHandler(cmd, handler))
         application.add_handler(CallbackQueryHandler(self.on_callback))
         # Inbound images (photos + image documents) → download to disk, let the
         # brain Read them. Registered before the text catch-all so a captioned

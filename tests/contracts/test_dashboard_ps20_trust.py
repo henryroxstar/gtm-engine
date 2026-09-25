@@ -432,7 +432,7 @@ def test_no_press_send_unless_nobody_is_contacted_and_a_campaign_waits(tmp_path,
 def test_the_press_send_note_needs_a_readable_snapshot_hand_built():
     """T1.3 on a hand-built model: a paused campaign and zero rows, but the snapshot could
     not be read, so there is no zero to act on and no note. Readable, the same model gets it."""
-    from gtm_core.email_campaign_dashboard.views_learn import _ops_view
+    from gtm_core.email_campaign_dashboard.views_ready import _readiness_blocks
 
     camp = {"state": "paused", "targets": {"emails": 10}, "sequences": [{"sequence_id": "S1"}]}
     m = {
@@ -440,11 +440,11 @@ def test_the_press_send_note_needs_a_readable_snapshot_hand_built():
         "status": {"sequences": [], "snapshot": {"unreadable": True}},
         "messages": [],
     }
-    card = _ops_card(_ops_view(m))
+    card = _ops_card(_readiness_blocks(m)["sent"])
     assert _fig(card, "ops-heading") == "Sending figures unavailable"
     assert "press send" not in card
     m["status"]["snapshot"]["unreadable"] = False  # positive control
-    assert "a person still has to press send" in _ops_card(_ops_view(m))
+    assert "a person still has to press send" in _ops_card(_readiness_blocks(m)["sent"])
 
 
 def test_unreadable_figures_render_as_dashes_never_none_or_zero(tmp_path):
@@ -492,9 +492,9 @@ def test_the_replies_tile_is_the_current_campaigns_replied(tmp_path):
 
 def _maintenance(page):
     """The Maintenance card on the Operator notes panel, cut at its own close; "" if none."""
-    ops = page.split('id="p-ops"', 1)[1].split("</section>", 1)[0]
-    at = ops.find("<h2>Maintenance</h2>")
-    return "" if at == -1 else ops[at : ops.index("</div>", at)]
+    from tests.contracts.dashboard_page import panel, section
+
+    return section(panel(page, "ops"), "maintenance-lines")
 
 
 def _eval_round(tmp_path, profile, sheet="`send_it:` ___\n`send_it:` Y\n"):
@@ -536,7 +536,7 @@ def test_skipped_snapshot_rows_are_a_maintenance_line(tmp_path):
     m = gd.build_model(profile, tmp_path)
     assert m["status"]["snapshot"]["skipped"] == 2
     card = _maintenance(gd.render_html(m))
-    assert "2 row(s) in the sending tool's figures file could not be read" in card
+    assert "2 rows in the sending tool's figures file could not be read" in card
 
     _stats(tmp_path, profile, {"fetched": _ago(0), "sequences": rows[:1]})
     assert _maintenance(_page(tmp_path, profile)) == ""
@@ -605,6 +605,8 @@ def test_a_campaign_page_stages_nobody_from_another_campaigns_list(tmp_path):
     assert row_groups(m)[riley(m)] == "staged"
     scoped = gd.scope_to_campaign(m, "c1")
     assert row_groups(scoped)[riley(scoped)] != "staged"
-    worklist = gd.render_html(scoped).split('id="p-worklist"', 1)[1].split("</section>", 1)[0]
-    assert "quinn@summitline.example" in worklist  # the row renders, just not as staged
-    assert "S2" not in worklist
+    from tests.contracts.dashboard_page import panel
+
+    accounts = panel(gd.render_html(scoped), "accounts")
+    assert "quinn@summitline.example" in accounts  # the row renders, just not as staged
+    assert "S2" not in accounts

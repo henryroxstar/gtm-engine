@@ -11,7 +11,6 @@ was started.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import re
 from datetime import UTC, datetime
@@ -144,11 +143,11 @@ class DeliveryPipeline(CockpitComponent):
                 if show_text and now - last_edit >= _STREAM_EDIT_INTERVAL_S:
                     await _flush()
                     last_edit = now
-        except Exception as exc:  # noqa: BLE001 — surface ANY brain error to the operator
+        except Exception:  # noqa: BLE001 — surface ANY brain error to the operator
             logger.exception("Brain run failed for chat_id=%s", chat_id)
             err_text = (
-                f"{header}⚠️ The run failed: "
-                f"{html.escape(type(exc).__name__)}. Check the server logs."
+                f"{header}The run stopped before finishing. Nothing was sent. "
+                "Say 'try again', or 'show me the error' for the technical detail."
             )
             try:
                 await placeholder.edit_text(err_text[:_TELEGRAM_MSG_LIMIT])
@@ -203,8 +202,8 @@ class DeliveryPipeline(CockpitComponent):
                 logger.exception("FILE sentinel: failed to send %s", p.name)
 
     _EMPTY_OUTPUT_FALLBACK = (
-        "⚠️ The brain completed without producing text — a tool call may have "
-        "been blocked. Check the server logs or rephrase your request."
+        "The run stopped before finishing. Nothing was sent. "
+        "Say 'try again', or 'show me the error' for the technical detail."
     )
 
     def _empty_output_diagnostic(self, chat_id: int) -> str:
@@ -234,14 +233,9 @@ class DeliveryPipeline(CockpitComponent):
             ts = datetime.fromisoformat(str(last.get("ts", "")).replace("Z", "+00:00"))
             if (datetime.now(UTC) - ts).total_seconds() > 120:
                 return self._EMPTY_OUTPUT_FALLBACK  # too old — don't misattribute a stale denial
-            tool = last.get("tool") or "a tool"
-            detail = last.get("detail") or ""
-            detail_part = f" ({detail})" if detail else ""
             return (
-                f"⚠️ The brain completed without producing text. Its last blocked call was "
-                f"`{tool}`{detail_part}, denied by the least-privilege policy — it likely kept "
-                "retrying instead of reporting back. Rephrase to avoid that tool, or ask an "
-                "operator to check `denials.jsonl` for the full trail."
+                "I couldn't finish: a tool I needed is not allowed here. "
+                "Say 'show me what was blocked' for the detail."
             )
         except Exception:  # noqa: BLE001 — a diagnostic must never itself break the reply
             return self._EMPTY_OUTPUT_FALLBACK
@@ -283,6 +277,7 @@ class DeliveryPipeline(CockpitComponent):
 
         gated = _GATE_PLAN_SENTINEL in raw
         body = raw.replace(_GATE_PLAN_SENTINEL, "").strip()
+        is_diagnostic = False
         if not body:
             # When gated, the plan-gate keyboard is the deliverable — keep "…" as the
             # body so the keyboard attaches cleanly (different reply_markup = edit succeeds).
@@ -291,10 +286,11 @@ class DeliveryPipeline(CockpitComponent):
             # diagnostic message instead — this happens when a tool-denial loop burned the
             # run budget without producing any assistant text.
             body = "…" if gated else self._empty_output_diagnostic(placeholder.chat_id)
+            is_diagnostic = not gated
         # Voice-only: a normal reply is delivered as audio, so collapse the text
-        # bubble to a marker. Gates (gated) and the diagnostic "⚠️" fallback keep
+        # bubble to a marker. Gates (gated) and the diagnostic fallback keep
         # their full text — they are not voiced as the sole channel.
-        if voice_only and not gated and not body.startswith("⚠️"):
+        if voice_only and not gated and not is_diagnostic:
             body = "🎙️"
         keyboard = _plan_gate_keyboard() if gated else None
         if gated:

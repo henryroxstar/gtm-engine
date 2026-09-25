@@ -100,10 +100,10 @@ the env: `HERMES_PUBLISH_ENABLED=true` + `HERMES_PUBLISH_URL` set → VPS mode; 
 **VPS mode (cockpit present):** proceed to Step 2 normally. The cockpit shows the gate block to the
 operator in Telegram and publishes only on "Approve & publish".
 
-**Local mode (no cockpit):** emit the gate block inline in the chat (same format below). Then
+**Local mode (no cockpit):** show the content as a quoted block headed "This is exactly what would go out." (do not emit the `⟦…⟧` markers). Then
 **stop** and tell the operator: "This is your post — copy it above and paste it into LinkedIn
 yourself. When you've posted, reply `posted <url>` so I can record it." Do not emit anything after
-the gate block. The invariant holds: the model never posts, never calls HTTP.
+the quoted block. The invariant holds: the model never posts, never calls HTTP.
 
 ## Step 2 — Emit the publish gate (this is your ONLY action)
 
@@ -177,3 +177,17 @@ You do **not** call the ledger for the publish event — the cockpit writes the 
 - Everything you stage traces to a linted asset and its research pack — never invent claims here.
 - Only read/write under `content/<active>/`; `profiles/<active>/`, `plugin/`, and `tests/` are
   read-only.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

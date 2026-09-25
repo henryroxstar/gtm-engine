@@ -309,7 +309,7 @@ Then the structure:
 `solution-discovery-[company]-[YYYY-MM-DD].html` next to the `.md`, using the **same** generator the
 design skill uses (`plugin/skills/solution-design/references/html-companion.md` — it states the same
 generator works for any SA deliverable). The `.md` stays the source of truth; the `.html` is an
-internal artifact. Append `⟦FILE:…⟧` sentinels for **both** files (real resolved absolute paths),
+internal artifact. Only when running under the Telegram cockpit, append `⟦FILE:…⟧` sentinels for **both** files (real resolved absolute paths),
 mirroring `solution-design`'s Output step — e.g.:
 
     ⟦FILE:content/<active>/accounts/<account-slug>/solution-discovery-[company]-[YYYY-MM-DD].md⟧

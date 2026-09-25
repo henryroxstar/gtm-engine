@@ -44,13 +44,17 @@ _SECRET_REF_RE = re.compile(r"^PUBLISH_[A-Z0-9_]+$")
 def _validate_url(url: str) -> None:
     """https-only, plus an optional host allowlist (`PUBLISH_URL_ALLOWLIST`, comma-sep)."""
     if not url.startswith("https://"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "url_must_be_https"})
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"code": "url_must_be_https", "message": "Publish URL must use HTTPS"},
+        )
     allow = (os.getenv("PUBLISH_URL_ALLOWLIST") or "").strip()
     if allow:
         hosts = {h.strip() for h in allow.split(",") if h.strip()}
         if urlparse(url).hostname not in hosts:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, {"code": "url_not_allowlisted"}
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"code": "url_not_allowlisted", "message": "Publish URL host is not allowlisted"},
             )
 
 
@@ -74,13 +78,19 @@ async def sync_publish_settings(
         if not body.url or not body.secret_ref:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                {"code": "url_and_secret_ref_required_when_enabled"},
+                {
+                    "code": "url_and_secret_ref_required_when_enabled",
+                    "message": "URL and secret reference are required when publishing is enabled",
+                },
             )
         _validate_url(body.url)
         if not _SECRET_REF_RE.match(body.secret_ref):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                {"code": "secret_ref_must_be_PUBLISH_namespaced"},
+                {
+                    "code": "secret_ref_must_be_PUBLISH_namespaced",
+                    "message": "Secret reference must be namespaced with PUBLISH_",
+                },
             )
 
     pool: Any = request.app.state.pool

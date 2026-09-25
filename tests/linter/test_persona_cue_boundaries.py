@@ -182,7 +182,9 @@ _COMPOUND_TITLES = (
     ("Senior Managing Director, Chief Information Officer", "cio"),
     # The ordering rules the file already documents, unchanged by the fix.
     ("Senior Vice President, Chief Technology Officer", "cto"),
-    ("Executive Vice President, Engineering", None),
+    # Not an exec (the anti-cue); since PH12 no longer unrecognised either — an EVP of
+    # Engineering is the engineering seat, exactly as "VP of Engineering" is.
+    ("Executive Vice President, Engineering", "cto"),
     ("Data / Compliance Leader", "data-compliance"),
     ("CRO / Compliance", "compliance"),
     ("Director of Information Security", "ciso"),
@@ -218,3 +220,75 @@ def test_only_the_exec_TITLE_cues_are_promoted_not_rank_or_ownership():
     # lists have drifted and a title can resolve to `ceo` that `_PERSONA_RULES` disowns.
     ceo_cues = next(cues for persona, cues in _PERSONA_RULES if persona == "ceo")
     assert set(_CEO_TITLE_CUES) <= set(ceo_cues)
+
+
+# ------------------------------------------------------------------ vice-president spellings
+#
+# PH12. The cue lists carry the ABBREVIATION, so "VP of Engineering" resolved to ``cto`` while
+# "Senior Vice President of Engineering" resolved to nothing — the same seat, spelled out. One
+# tenant patched it by adding spelled-out cues to its own vocabulary, which fixes it for that
+# tenant and nobody else. The spelling is the resolver's problem, not the vocabulary's.
+
+#: Every row names the same seat as "VP of Engineering". Invented titles (docs/RULES.md R9).
+_VP_SPELLINGS = (
+    "VP of Engineering",
+    "VP, Engineering",
+    "VP - Engineering",
+    "Vice President of Engineering",
+    "Vice-President of Engineering",
+    "Vice President, Engineering",
+    "Senior Vice President, Engineering",
+    "Senior Vice President of Engineering",
+    "SVP Engineering",
+    "SVP, Engineering",
+    "AVP, Engineering",
+    "Executive Vice President, Engineering",
+)
+
+
+@pytest.mark.parametrize("title", _VP_SPELLINGS)
+def test_a_spelled_out_vice_president_resolves_like_vp(title):
+    assert persona_of(title) == persona_of("VP of Engineering") == "cto"
+    assert seat_of(title) == seat_of("VP of Engineering")
+
+
+@pytest.mark.parametrize(
+    "title,persona",
+    (
+        ("Vice President of Product", "cpo"),
+        ("SVP, Product", "cpo"),
+        ("Vice President, Security", "ciso"),
+        ("AVP AI", "ai-platform"),
+    ),
+)
+def test_the_spelling_fix_is_not_one_persona_wide(title, persona):
+    assert persona_of(title) == persona
+
+
+#: (title, persona) pinned BEFORE the change. Canonicalising "evp" to "vp" for matching must not
+#: let an EVP reach the exec seat: the ``ceo`` anti-cues still see the raw title.
+_VP_EXEC_PINS = (
+    ("EVP & Chief Executive Officer", None),
+    ("EVP, Chief Executive Officer", None),
+    ("EVP and Chief Operating Officer", None),
+    ("Executive Vice President & President", None),
+    ("President & EVP", None),
+    ("Vice President", None),
+    ("SVP", None),
+    ("President", "ceo"),
+    ("SVP-CTO", "cto"),
+    ("Vice President, Chief Technology Officer", "cto"),
+)
+
+
+@pytest.mark.parametrize("title,persona", _VP_EXEC_PINS)
+def test_a_vice_president_is_still_never_seated_as_the_exec(title, persona):
+    assert persona_of(title) == persona
+
+
+def test_vp_canonicalisation_does_not_touch_ordinary_words():
+    """Word-bounded: the mapping must not fire inside a longer token."""
+    # "ser-VICE president": ``vice`` inside a longer word is not a vice-president, so this
+    # stays exactly what it was before PH12 (the bare ``president`` cue, not vetoed).
+    assert persona_of("Service President") == "ceo"
+    assert persona_of("Head of Engineering, Vpn Platform") == "cto"

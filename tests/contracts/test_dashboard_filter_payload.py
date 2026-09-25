@@ -406,11 +406,11 @@ def test_a_tile_that_cannot_be_recomputed_says_so(page):
     """Every non-reactive tile carries its reason, server-rendered and hidden."""
     _m, html, _payload = page
     for t in fmt._tiles_recorded():
-        if not filters.reactive(t["src"]):
+        if t["reach"] and not filters.reactive(t["src"]):
             assert filters.grey_reason(t["src"]), t["label"]
-    assert html.count('class="stat-why" hidden') == sum(
-        not filters.reactive(t["src"]) for t in fmt._tiles_recorded()
-    )
+    expected = sum(t["reach"] and not filters.reactive(t["src"]) for t in fmt._tiles_recorded())
+    assert expected >= 1
+    assert html.count('class="stat-why" hidden') == expected
 
 
 def test_a_tile_rendering_an_em_dash_is_never_reactive(page):
@@ -425,59 +425,19 @@ def test_a_tile_rendering_an_em_dash_is_never_reactive(page):
             )
 
 
-VIEWS = sorted((REPO / "gtm_core" / "email_campaign_dashboard").glob("views_*.py"))
+def test_the_filter_never_touches_a_panel_but_accounts(page):
+    """The filter lives on Accounts (PS20 Phase 2), so a pool-wide card is out of its reach
+    by construction: no element outside `p-accounts` carries a hook the filter rewrites.
 
-
-def _no_filter_blocks() -> list[tuple[str, str]]:
-    """``(module, source)`` for every ``data-no-filter`` card, read out of the VIEW SOURCE.
-
-    Checked in the source rather than in a rendered page on purpose. The one card carrying
-    this marker today is the pool-wide countries chart, and it needs a populated prospect
-    pool to render at all — so a fixture-based check passes by rendering nothing, which is
-    §R18's "a check that cannot discriminate" wearing a green tick. The source is always
-    there.
-
-    A block runs from the opening ``<div`` to the ``</div>`` at the same indentation.
+    This fixture renders one pool-wide card at most. The DISCRIMINATING check is
+    `test_dashboard_ps20_structure.py::test_the_filter_and_the_technical_detail_live_on_accounts_only[all]`,
+    whose every-site fixture renders both pool-wide cards (the pool's "Where they are" and the segment mix)
+    — the two that carried `data-no-filter`.
     """
-    out = []
-    for path in VIEWS:
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for i, line in enumerate(lines):
-            if "data-no-filter" not in line:
-                continue
-            indent = len(line) - len(line.lstrip())
-            close = f"{' ' * indent}</div>"
-            end = next(
-                (j for j in range(i + 1, len(lines)) if lines[j].rstrip() == close), len(lines)
-            )
-            assert end < len(lines), f"{path.name}:{i + 1} data-no-filter card never closes"
-            out.append((path.name, "\n".join(lines[i : end + 1])))
-    return out
+    from tests.contracts.test_dashboard_ps20_structure import filter_leaks
 
-
-def test_the_filter_never_touches_a_pool_wide_card():
-    """``data-no-filter`` marks a block whose denominator is the shared prospect pool.
-
-    Rescaling it to a roster selection would answer a question nobody asked, with the
-    filtered roster's numerator over the pool's denominator.
-    """
-    blocks = _no_filter_blocks()
-    assert blocks, (
-        "no data-no-filter card exists in any view module. Either the marker was removed "
-        "from the pool-wide countries chart — in which case the filter will happily rescale "
-        "it — or it was renamed and this check now guards nothing."
-    )
-    for module, block in blocks:
-        for hook in ("data-count-pred", "data-row", "data-group-count"):
-            assert hook not in block, (
-                f"{module}: a data-no-filter card contains {hook}, so the filter would "
-                "rescale a pool-wide figure to a roster selection — a numerator and a "
-                "denominator counted over two different sets."
-            )
-        assert 'class="why" hidden' in block, (
-            f"{module}: a data-no-filter card must carry its own hidden reason, or it greys "
-            "out under a filter saying nothing about why."
-        )
+    _m, html, _payload = page
+    assert filter_leaks(html) == []
 
 
 def test_the_judge_tally_is_independent_of_the_roster_sources(tmp_path):

@@ -223,9 +223,20 @@ async def create_run(
         else None
     )
     if not await admits(pool, ws, agent_id, agent_budget_usd):
+        from gtm_core import budget_status
+
+        try:
+            s = budget_status.status(profile_name)
+            msg = budget_status.render(s)
+        except Exception:
+            msg = "Monthly cost cap reached."
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
-            {"code": "cost_cap_reached", "message": "monthly cost cap reached"},
+            {
+                "code": "cost_cap_reached",
+                "message": msg,
+                "next_step": "Raise the cap or wait for the reset.",
+            },
         )
 
     # Fleet Phase A, Task 4: a per-agent daily dispatch ceiling — narrowing only, applies

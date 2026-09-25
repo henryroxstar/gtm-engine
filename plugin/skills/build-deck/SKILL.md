@@ -648,7 +648,7 @@ Tell the colleague:
 - **Mode A:** "Deck saved as `deck-[company]-[type]-[date].pptx` in the account folder `content/<active>/accounts/<account-slug>/`." Offer to export as PDF or adjust any slide.
 - **Mode B (default):** "Deck saved as `deck-[company]-[type]-[date].pptx` (flattened, fast-loading) at the path the deck tool returned, in the account folder `content/<active>/accounts/<account-slug>/`. Editable `slides.md` lives beside it — edit it and re-run `mcp__deck__export_deck` after changes." Offer to adjust any slide content.
 
-Then append a `⟦FILE:…⟧` sentinel for the .pptx so the Telegram cockpit delivers it automatically:
+Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel for the .pptx so the Telegram cockpit delivers it automatically:
 
 ```
 ⟦FILE:/absolute/path/to/deck-[company]-[type]-[date].pptx⟧
@@ -707,3 +707,17 @@ it, each on a real deck:
 - **Never bake precise text into a generated image.** Short uppercase labels are fine and make an
   image explanatory; regulator names, standard numbers, quotes and statistics stay in the DOM
   where they are crisp and correctable. Every label-bearing image passes a vision check first.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

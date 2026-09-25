@@ -459,17 +459,73 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("classify", nargs="?", default="classify", help=argparse.SUPPRESS)
     p.add_argument("--profile", required=True)
-    p.add_argument("--file", type=Path, required=True, help="markdown (docling convert first)")
+    p.add_argument(
+        "--file",
+        type=Path,
+        required=True,
+        help="markdown, pdf, or docx (converts via docling when present)",
+    )
     p.add_argument("--product", default=None)
     p.add_argument("--overlay", default=None)
     p.add_argument("--stage", action="store_true", help="write the report under content/")
     args = p.parse_args(argv)
 
+    file_to_classify = args.file
+    temp_dir_obj = None
+    if file_to_classify.suffix.lower() in (".pdf", ".docx"):
+        import shutil
+        import subprocess  # nosec B404
+        import tempfile
+
+        docling_bin = shutil.which("docling")
+        if not docling_bin:
+            print(
+                f"material intake refused — {file_to_classify.name}: convert it first — `docling convert {file_to_classify.name} --to md`. docling is not installed on PATH.",
+                file=sys.stderr,
+            )
+            return 2
+        temp_dir_obj = tempfile.TemporaryDirectory()
+        cmd = [
+            docling_bin,
+            "convert",
+            str(file_to_classify),
+            "--to",
+            "md",
+            "--output",
+            temp_dir_obj.name,
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603
+        if res.returncode != 0:
+            print(
+                f"material intake refused — docling conversion failed for {file_to_classify.name}: {res.stderr.strip() or res.stdout.strip()}",
+                file=sys.stderr,
+            )
+            temp_dir_obj.cleanup()
+            return 2
+        md_files = list(Path(temp_dir_obj.name).glob("*.md"))
+        if not md_files:
+            print(
+                f"material intake refused — docling conversion produced no markdown file for {file_to_classify.name}",
+                file=sys.stderr,
+            )
+            temp_dir_obj.cleanup()
+            return 2
+        file_to_classify = md_files[0]
+
     try:
-        intake = classify_path(args.profile, args.file, product=args.product, overlay=args.overlay)
+        intake = classify_path(
+            args.profile,
+            file_to_classify,
+            product=args.product,
+            overlay=args.overlay,
+            slug=_slug(args.file.stem),
+        )
     except MaterialUnreadable as exc:
         print(f"material intake refused — {exc}", file=sys.stderr)
         return 2
+    finally:
+        if temp_dir_obj:
+            temp_dir_obj.cleanup()
 
     print(render(intake))
     if args.stage:

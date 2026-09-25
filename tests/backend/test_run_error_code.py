@@ -164,7 +164,12 @@ def test_a_batch_the_budget_guard_stops_mid_run_is_the_cost_cap_not_a_node_failu
     assert recorded == []
     assert db.nodes["radar"]["state"] == "failed"
     assert seen.codes == ("cost_cap_reached",) * 4
-    assert seen.errors == ("monthly cost cap reached — run aborted before any paid call",) * 4
+    assert len(seen.errors) == 4
+    for error in seen.errors:
+        # The bracketed cap sentence names the month and its reset date, so it moves with the
+        # calendar; the prefix and the ending are the contract.
+        assert error.startswith("monthly cost cap reached")
+        assert error.endswith("— run aborted before any paid call")
 
 
 def test_a_node_that_fails_is_a_node_failure(ws_env):

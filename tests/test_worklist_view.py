@@ -25,13 +25,15 @@ import itertools
 import pytest
 
 from gtm_core.email_campaign_dashboard.health import list_rows
-from gtm_core.email_campaign_dashboard.views_worklist import (
+from gtm_core.email_campaign_dashboard.views_accounts import (
     GROUPS,
+    _account_table,
     _group_of,
+    _list_vs_provider,
     _provider_enrolled,
     _reconcile,
+    _row_html,
     _staged_candidates,
-    _worklist_view,
 )
 from gtm_core.prospect_status import LABELS
 
@@ -210,27 +212,27 @@ def test_the_panel_reports_a_list_provider_gap_rather_than_resolving_it():
         "campaigns": {"campaigns": [{"sequences": [{"sequence_id": "seqA", "enrolled": 4}]}]},
     }
     # No candidate file, so nothing is staged and no gap can be claimed.
-    assert "enrolled at the provider" not in _worklist_view(m)
+    assert "enrolled at the provider" not in _list_vs_provider(m)
 
     # With all five on the list, the gap must be stated and must not be silently resolved.
     m["_candidates_override"] = None
-    import gtm_core.email_campaign_dashboard.views_worklist as v
+    import gtm_core.email_campaign_dashboard.views_accounts as va
 
-    orig = v._staged_candidates
-    v._staged_candidates = lambda _m: {
+    orig = va._staged_candidates
+    va._staged_candidates = lambda _m: {
         r["email"].lower(): {"sequences": ("seqA",), "admissible": True} for r in rows
     }
     try:
-        html = v._worklist_view(m)
+        html = va._list_vs_provider(m)
     finally:
-        v._staged_candidates = orig
+        va._staged_candidates = orig
 
     assert "5 admissible on the list but 4 enrolled at the provider" in html
     assert "not knowable from disk" in html
 
 
 def test_a_scope_with_no_roster_says_so_instead_of_listing_the_pool():
-    out = _worklist_view({"profile": "acme", "roster": {}, "packs": {}, "messages": []})
+    out = _account_table({"profile": "acme", "roster": {}, "packs": {}, "messages": []})
     assert "no campaign roster" in out
     assert "<table" not in out, "a rosterless scope must not render an empty table"
 
@@ -258,8 +260,6 @@ def test_enrolment_outranks_a_pack_file_on_disk():
 
 
 def test_row_html_shows_the_status_word_joined_by_email():
-    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
-
     row = _row("Northgate", email="a@northgate.example", verdict="send")
     m = {
         "prospect_status": {
@@ -273,8 +273,6 @@ def test_row_html_shows_the_status_word_joined_by_email():
 def test_row_html_reads_not_yet_routed_for_an_address_the_router_never_saw():
     """A roster row and a router row are different populations — a miss is ordinary, not
     an error, and must read as a plain sentence rather than a blank cell."""
-    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
-
     row = _row("Northgate", email="a@northgate.example")
     m = {"prospect_status": {"available": True, "by_email": {}}}
     assert "not yet routed" in _row_html(m, row, "held", {})
@@ -283,12 +281,15 @@ def test_row_html_reads_not_yet_routed_for_an_address_the_router_never_saw():
 def test_row_html_reads_a_dash_when_the_router_has_never_run():
     """No `lanes-state.jsonl` at all — a different, stronger refusal than a miss on one
     address: nothing has been routed on this profile, not just this row."""
-    from gtm_core.email_campaign_dashboard.views_worklist import _row_html
+    import re
+
+    def _status_cell(row_html):
+        return re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.S)[4]
 
     row = _row("Northgate", email="a@northgate.example")
-    assert "muted" in _row_html({}, row, "held", {})
-    assert "muted" in _row_html(
-        {"prospect_status": {"available": False, "by_email": {}}}, row, "held", {}
+    assert "muted" in _status_cell(_row_html({}, row, "held", {}))
+    assert "muted" in _status_cell(
+        _row_html({"prospect_status": {"available": False, "by_email": {}}}, row, "held", {})
     )
 
 
@@ -306,14 +307,11 @@ def test_the_worklist_table_carries_a_status_column_and_marks_research_verdict_t
             "by_email": {"a@northgate.example": "ready_to_send"},
         },
     }
-    html = _worklist_view(m)
+    html = _account_table(m)
     assert "<th>Status</th>" in html
     assert '<th class="tech">Research verdict</th>' in html
     assert LABELS["ready_to_send"] in html
-    # One column added (Account/Status/Contact/Email/Verified/Research verdict/Where it
-    # stands = 7) — the group-header row's colspan must grow with the table or it will not
-    # span every column.
-    assert 'colspan="7"' in html
+    assert 'colspan="9"' in html
 
 
 # --------------------------------------------- one address, several lists (ordering)

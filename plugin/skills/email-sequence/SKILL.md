@@ -911,6 +911,8 @@ reads, not a tuning knob for how much a run emits.
     threshold: a number the source does not contain is fabricated, however plausible its sentence.
   - `signal-subject-mismatch` (ERROR) — the fact is about the investor, the parent, or a same-named
     stranger, and the email is going to the account.
+  - `signal-subject-short-form` (WARN, needs an ack) — the subject is the company's shorter form
+    ("Quillon" for "Quillon Financial"); confirm it is the same company, not a namesake.
   - `agent-kind-human` / `-contradiction` / `-unresolved` (ERROR) — the account's "agents" are people
     (insurance agents, recruiters), or research never said which.
   - `relation-competitor` (ERROR), `relation-regulator` (ERROR), `relation-partner` / `-adjacent`
@@ -1651,17 +1653,13 @@ Then **report the current status, same shape every other step in this pipeline r
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (if the command exits 1 because no list has been routed yet, paste its message verbatim — do not compose your own table):
+and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path (`content/<active>/email_campaign_status.html`) go in Details (if the command exits 1 because no list has been routed yet, paste its message verbatim — do not compose your own table):
 
 <!-- operator -->
-[paste the command's output here, unedited]
+[paste the lede (the lines above 'For the record') here]
 <!-- /operator -->
 
-Then point the operator at the page itself — one line, e.g. *"here's the full picture:
-`content/<active>/email_campaign_status.html`"* — so they always land on the one page that shows
-the whole funnel (account backlog → email funnel → ready/verifying/blocked) **and live sequencer
-performance** (loaded / sent / opened / replied / meetings / bounce-health per sequence), instead
-of hunting through CSVs or the Saleshandy UI.
+This lands the operator on the one page that shows the whole funnel (account backlog → email funnel → ready/verifying/blocked) **and live sequencer performance** (loaded / people contacted / replied / reply labels / tagged meetings / bounces per sequence), instead of hunting through CSVs or the Saleshandy UI.
 
 **Refresh the live sequencer stats first** (this is what powers the performance card): for every
 sequence you touched — and in any read-back / "check stats / how's it doing" mode, for every active
@@ -1739,3 +1737,17 @@ even in modes that don't sweep.
 ## Degraded mode (no paid connectors)
 
 Without a connected sequencer (no `email_tool` set in PROFILE, or the provider's MCP is not connected), run the manual path: compose the full touch-by-touch plan — subjects, bodies, send-day offsets, and any A/B variants — grounded in the active profile's voice and docs/email-optimization.md, write it to the sequence spec on disk, and hand the operator a paste-ready plan to load into their tool by hand. This path needs no connector and is never a send path.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

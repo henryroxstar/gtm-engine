@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
+  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2082%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -51,7 +51,7 @@ knowledge. And it runs as an AI agent that _structurally cannot_ publish, send, 
 It doesn't ask for your trust; it's built so it can't overreach.
 
 Three things never change: nothing sends or publishes without your exact sign-off, each company's
-data stays isolated in its own profile, and the agent has no raw HTTP or shell access. Most agent
+data stays isolated in its own profile, and on the self-hosted server and the API, sending and publishing tools are denied in code and shell egress is blocked. In the desktop app, every outside action asks you first, the engine is instructed never to send, and the shipped settings file denies the send tools and shell downloads outright. Most agent
 frameworks ask you to trust broad permissions; this one is built so there's nothing broad to trust.
 (The [how and why](#why-its-built-this-way) is spelled out further down.)
 
@@ -62,7 +62,7 @@ frameworks ask you to trust broad permissions; this one is built so there's noth
 | **Cost** | \$500–\$3,000 / mo | \$20 / mo (heavy manual copy-paste) | Token spend + hosting fees | **\$0 base** (runs on your existing workspace — Claude, Antigravity, Cursor, or Codex) |
 | **Outbound Safety** | Auto-sends cold emails (reputation risk) | Manual review | Broad tool permissions | **Non-bypassable human gates** (cannot auto-send) |
 | **Company Context** | Rigid scraping | Re-pasting context every prompt | Custom vector DB plumbing | **Profile Second Brain** (onboard once, inherits everywhere) |
-| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **78 skills & 11 packs** (video, decks, posts, SDR) |
+| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **82 skills & 11 packs** (video, decks, posts, SDR) |
 | **Data Privacy** | Third-party cloud vendor lock-in | Shared training data | Varies | **100% Local / Gitignored** (data stays on your machine) |
 
 **You onboard once.** Say `"set me up"` and point it at your website; it reads your site and drafts
@@ -111,13 +111,14 @@ every run gets.
 
 ## Start here
 
-**Three ways in. Pick the one that sounds like you:**
+**Four ways in. Pick the one that sounds like you:**
 
 | You are… | Go to | Roughly |
 |---|---|---|
-| **Not technical** — you sell, you don't ship | [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) — install to first output with **no terminal and no commands**, plus a [Sales FAQ](docs/onboarding/SALES-FAQ.md) | 30 min |
-| **Comfortable in a repo** — you'll drive it yourself | [Getting started](#getting-started-chat-mode), just below | 10 min |
-| **Evaluating it** — architecture, control flow, security posture | [How it works](#how-it-works) → [For a technical evaluator](#for-a-technical-evaluator) | 10 min |
+| **Founder / seller** — you sell, you don't ship | [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) — install to first output with **no terminal and no commands**, plus a [Sales FAQ](docs/onboarding/SALES-FAQ.md) | 30 min |
+| **Technical, driving it yourself** — comfortable in a repo | [Getting started](#getting-started-chat-mode), just below | 10 min |
+| **Building on the API** — integrating into a product or client app | `backend/` (OpenAPI at `/v1/docs`) | 15 min |
+| **Running it for a team (server)** — self-hosting, staging, or multi-user | [`docs/DEPLOY.md`](docs/DEPLOY.md) | 20 min |
 
 **The questions everyone asks first:**
 
@@ -125,7 +126,7 @@ every run gets.
 |---|---|
 | **What do I need?** | An active AI workspace (Claude Desktop, Google Antigravity, Cursor, or Codex). That is the whole requirement — every external tool is optional and falls back to keyless web search |
 | **What will it cost me?** | Nothing beyond your existing workspace plan until *you* connect a metered data provider. You set a monthly and per-run cap during setup, and every paid call is checked against it **before** it runs |
-| **Can it email or post without me?** | No — and not as a setting you could flip. Sending and publishing are not in the agent's tool surface at all; a human approves the exact bytes. [Why it's built this way](#why-its-built-this-way) |
+| **Can it email or post without me?** | No — and not as a setting you could flip. On the server, send tools are denied in code. In the desktop app, every outside action asks you first and send tools are denied in settings; a human approves the exact bytes. [Why it's built this way](#why-its-built-this-way) |
 | **Do I need Docker or background servers?** | No. If you're using Claude, Antigravity, Cursor, or Codex (Chat mode), you need zero infrastructure — no Docker, no databases, no servers. Local services are only for developers building client apps against the REST API |
 | **Do I re-explain my company every time?** | No. You onboard once (`"set me up"`, pointed at your website) and every skill reads that profile from then on |
 | **What can it actually do?** | [What it does out of the box](#what-it-does-out-of-the-box) for the workflows, [`docs/SKILLS.md`](docs/SKILLS.md) for the generated, always-current list of every skill |
@@ -134,7 +135,7 @@ every run gets.
 **Contents** — [See it work](#see-it-work) · [Four ways to run & integrate](#four-ways-to-run-and-integrate) ·
 [Getting started](#getting-started-chat-mode) · [Workspace support](#workspace--harness-support) · [Tools & keys](#tools--keys) ·
 [What it does out of the box](#what-it-does-out-of-the-box) ·
-[GTM skill suite](#gtm-skill-suite-78-skills--all-profile-driven) ·
+[GTM skill suite](#gtm-skill-suite-82-skills--all-profile-driven) ·
 [Content craft](#content-craft--what-makes-the-output-land) ·
 [Profiles](#profiles-multi-company) ·
 [How it works](#how-it-works) · [Repo layout](#repo-layout) ·
@@ -157,7 +158,7 @@ One shared core engine (`gtm_core`), four integration surfaces. **Pick one — d
 
 | Workspace / Harness | Support Level | How skills load | Notes |
 |---|---|---|---|
-| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 78 skills, MCPs, and interactive gates |
+| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 82 skills, MCPs, and interactive gates |
 | **Google Antigravity** | Native | Auto-discovered via `.agents/` | Multi-agent workflows, native `run_command` and file tools |
 | **Cursor / Codex** | Supported | `.agents/AGENTS.md` + `.cursor/` rules | Interactive chat mode; skills invoke via prompt conventions |
 | **Headless VPS (Agent SDK)** | Dedicated Runtime | Containerized agent loop | 24/7 autonomous graph execution behind Telegram human gates |
@@ -236,13 +237,9 @@ uv run python -m gtm_core.check_env
 `"build an account plan for [company]"` · `"run the content radar"` ·
 `"draft my LinkedIn post about [topic]"`.
 
-> **Running outbound?** The step-by-step procedure lives in the skill itself —
-> [`plugin/skills/prospect/SKILL.md`](plugin/skills/prospect/SKILL.md) — with the discovery
-> filters, credit model, and budget maths in
-> [`references/discovery-and-budget.md`](plugin/skills/prospect/references/discovery-and-budget.md).
-> The narrative operator's guide that ships with the private build is **not** part of this
-> distribution: it cites internal backlog and retrospective docs that are deliberately excluded,
-> so shipping it would mean shipping a guide whose links all dead-end.
+> **Running outbound?** [`PROSPECTING.md`](PROSPECTING.md) is the operator's guide to that motion —
+> what the words mean, which decisions are yours, and the plain-English phrase for every command.
+> It also lists the profile files prospecting reads, three of which ship deliberately inert.
 
 > **What works with just your workspace plan:** every skill runs on your existing workspace subscription alone (Chat /
 > workspace auth — no external API keys needed). Every external tool is *optional with a keyless fallback*,
@@ -371,11 +368,13 @@ pause that guards something.
 | **Under the hood** | Profiles the account's stack, produces brand-token architecture diagrams and a design doc that is lint-gated before it is delivered, and hands off to the deck, the runbook, or the Word skills. Alongside the chain: a commercial proposal (the AE's step, priced only after scope is confirmed), a security questionnaire answered only from the evidence pack, a quantified value case, a time-boxed POC plan, and a competitor battlecard |
 | **Output & gates** | Documents only. No external gate; nothing is published |
 
+> **Running pre-sales?** [`PRESALES.md`](PRESALES.md) is the operator's guide to that motion — what the words mean, which decisions are yours, and what each refusal tells you.
+
 
 </details>
 ---
 
-## GTM skill suite (78 skills — all profile-driven)
+## GTM skill suite (82 skills — all profile-driven)
 
 Every skill is **company and product agnostic** — brand, voice, ICP, markets, and product all load
 from the active profile bundle. Zero hardcoded company strings (CI-gated by `debrand_check.sh`).
@@ -404,7 +403,7 @@ Start with your immediate task rather than memorizing the catalog:
 
 | Category | Skills |
 |---|---|
-| **Prospecting** | `prospect`, `market-scan`, `events-tracker`, `draft-outreach`, `email-sequence`, `email-quality`, `inbound-triage` |
+| **Prospecting** ([operator guide](PROSPECTING.md)) | `prospect`, `market-scan`, `events-tracker`, `draft-outreach`, `email-sequence`, `email-quality`, `inbound-triage` |
 | **Account & call prep** | `call-prep`, `account-plan`, `account-dossier`, `deck-research`, `build-deck` |
 | **Proof & partners** | `case-study`, `consulting-partner-brief`, `product-partner-brief`, `commercial-proposal` |
 | **Content pipeline** | `content-radar`, `content-plan`, `content-research`, `content-studio`, `content-publish`, `format-router` |

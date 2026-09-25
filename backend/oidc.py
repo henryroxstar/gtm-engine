@@ -350,7 +350,11 @@ async def require_federated_identity(
     issuers = get_issuers()
     if not issuers:
         raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, {"code": "federation_not_configured"}
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {
+                "code": "federation_not_configured",
+                "message": "Federated authentication is not configured",
+            },
         )
     if not token:
         raise HTTPException(

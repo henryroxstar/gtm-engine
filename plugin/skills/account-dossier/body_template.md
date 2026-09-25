@@ -179,7 +179,7 @@ pdftoppm -jpeg -r 150 <doc>.pdf page   # one page-NN.jpg per page → eyeball + 
    3 (ambiguous) choose among the candidates it prints — see CLAUDE.md "Per-account outputs"), named
    `account-dossier-[account]-[YYYY-MM-DD].docx`. Never save it to the repo root or the bare working
    folder.
-4. **Present** a one-line summary of what's inside and append a `⟦FILE:…⟧` sentinel for each
+4. **Present** a one-line summary of what's inside. Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel for each
    deliverable so the Telegram cockpit sends the files to the operator automatically:
 
 ```

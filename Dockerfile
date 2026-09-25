@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# gtm-engine — GTM Content OS runtime image
+# gtm-engine — runtime image
 #
 # The "brain" is headless Claude Code driven through the Python claude-agent-sdk.
 # The SDK works by spawning the Claude Code CLI as a child process, so this image

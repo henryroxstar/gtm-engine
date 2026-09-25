@@ -67,7 +67,10 @@ build/
 # brainstorm screens + one-off scaffold scripts
 .superpowers/
 # local session hooks (pre/post-tool scripts)
-.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/secret-paste-guard.sh
+!.claude/hooks/send-guard.sh
+!.claude/hooks/send-leaves.txt
 # playwright browser state and artifacts
 .playwright-mcp/
 # Strix pentest run output (SARIF/CSV/JSON/logs) — local security-scan artifacts

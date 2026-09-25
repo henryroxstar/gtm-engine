@@ -104,7 +104,13 @@ async def patch_account(
         if row is not None and not row["password_hash"]:
             # Federated account: no password credential exists to change, and setting
             # a first one on a bearer token alone would plant a persistent login.
-            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "no_password_credential"})
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {
+                    "code": "no_password_credential",
+                    "message": "No password set for this federated account",
+                },
+            )
         if body.current_password is None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,

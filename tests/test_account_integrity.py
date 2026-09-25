@@ -336,6 +336,55 @@ def test_audit_dedupes_account_level_findings_across_contacts(tmp_path):
     assert len([e for e in a.errors if "no-dossier" in e]) == 1
 
 
+def test_audit_names_an_ambiguous_account_folder_instead_of_missing_research(tmp_path):
+    """AF1: when two existing folders could be the account, the dossier skill cannot place
+    a new dossier either (`account_folder` exits 3), so "has no research" would send the
+    operator to generate one it cannot write. The finding names the folders instead. It
+    stays the `no-dossier` rule, so its lane classification and acks are unchanged."""
+    _write_dossier(tmp_path, "vertex-systems-limited", "account-dossier-v-2026-08-01.docx")
+    _write_dossier(tmp_path, "vertex-systems-plc", "account-dossier-v-2026-08-01.docx")
+    a = audit_rows([_row()], PROFILE, content_root=tmp_path, profiles_root=tmp_path / "profiles")
+    assert a.no_dossier == 1
+    [finding] = [e for e in a.errors if e.startswith("no-dossier:")]
+    assert "folder-ambiguous" in finding
+    assert "vertex-systems-limited" in finding and "vertex-systems-plc" in finding
+    assert "has no research behind" not in finding
+
+
+def test_audit_keys_accounts_on_account_id_when_one_row_lacks_a_domain(tmp_path):
+    """PH10: one account, two contacts, one row missing ``company_domain``. The org token
+    is the domain on one row and the name on the other, so keying on it alone counted the
+    account twice and emitted its per-account findings twice. ``account_id`` is the
+    account's identity; it wins when present."""
+    content_root = tmp_path / "content"
+    rows = [
+        _row(email="jordan.vance@vertex.example", account_id="acct-0001"),
+        _row(
+            email="sam.reyes@vertex.example",
+            first="Sam",
+            last="Reyes",
+            company_domain="",
+            account_id="acct-0001",
+        ),
+    ]
+    a = audit_rows(rows, PROFILE, content_root=content_root, profiles_root=tmp_path / "profiles")
+    assert a.accounts == 1
+    assert a.no_dossier == 1
+    assert len([e for e in a.errors if "no-dossier" in e]) == 1
+
+
+def test_audit_without_account_id_still_keys_on_the_org_token(tmp_path):
+    """No ``account_id`` on file: the org token is all there is, so a domain-less row is
+    still a different key from its domain-carrying sibling (the fallback is unchanged)."""
+    content_root = tmp_path / "content"
+    rows = [
+        _row(email="jordan.vance@vertex.example"),
+        _row(email="sam.reyes@vertex.example", first="Sam", last="Reyes", company_domain=""),
+    ]
+    a = audit_rows(rows, PROFILE, content_root=content_root, profiles_root=tmp_path / "profiles")
+    assert a.accounts == 2
+
+
 def test_audit_hard_blocks_on_academic_domain_and_stale_artifact(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "account-dossier-vertex-systems-2026-08-12.md")
@@ -429,7 +478,7 @@ def test_record_findings_reach_the_audit(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "account-dossier-vertex-systems-2026-08-12.md")
     a = audit_rows(
-        [_row(signal_subject="Northgate Capital")],
+        [_row(signal_subject="Cascade Financial")],
         PROFILE,
         content_root=content_root,
         profiles_root=tmp_path / "profiles",
@@ -612,16 +661,17 @@ def test_classify_dossier_folder_guards_the_profile_segment():
 
 
 def test_row_audit_locates_each_account_folder_once(tmp_path, monkeypatch):
-    """The fuzzy match re-scans every account folder; doing it twice per row is pure cost."""
+    """Resolving a folder lists every account folder and reads the ledger; doing it twice
+    per account is pure cost."""
     _write_dossier(tmp_path, "northwind", "account-dossier-northwind-2026-08-01.md")
     calls = []
-    real = ai.account_has_dossier
+    real = ai.dossier_folder
 
     def _counting(*args, **kwargs):
         calls.append(args[:2])
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(ai, "account_has_dossier", _counting)
+    monkeypatch.setattr(ai, "dossier_folder", _counting)
     ai.audit_rows(
         [_row(company="Northwind", company_domain="northwind.example")],
         profile="acme",

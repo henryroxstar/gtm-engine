@@ -140,6 +140,8 @@ def test_system_prompt_for_injects_active_profile_and_boundaries():
     assert "requires_capability" in prompt
     # Runtime state is written under the per-profile content tree.
     assert f"content/{name}/" in prompt
+    # Surface declaration for marker emission
+    assert "Surface: cockpit — emit ⟦…⟧ markers exactly as the skill specifies." in prompt
 
 
 def test_system_prompt_for_is_profile_specific():

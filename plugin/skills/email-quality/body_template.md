@@ -382,7 +382,10 @@ rejections go to repair; whatever the argument cannot carry falls to the generic
 instead of being stranded. Records older than 14 days are refused (`--allow-stale-records` to
 override knowingly). Decide the hold sheet by group, download, then
 `lanes hold-apply --profile <active> --decisions <file>` (plan) and `--apply` (write the
-ledgers); the next route honours every recorded decision. `lanes suggest-rules` proposes a
+ledgers); the next route honours every recorded decision. A decision is honoured only when its
+recorded `detail` matches the row's, so re-applying the same decision with a corrected detail is
+recorded as a superseding entry (the plan shows it as `detail updated N`), and only an identical
+re-apply is skipped as `already recorded`. `lanes suggest-rules` proposes a
 `lane-policy.toml` line once a reason has ten unanimous generic/salvage decisions — it never
 proposes suppress and never writes the file.
 

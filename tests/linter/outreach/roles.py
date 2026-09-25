@@ -5,6 +5,9 @@ A second resolver would drift silently: the page would report cells the gate nev
 
 from __future__ import annotations
 
+import re
+from functools import cache
+
 # --------------------------------------------------------------------------- persona lead pain
 #
 # voice.md's persona-axis table says what each seat leads on. The recurring failure is firing the
@@ -44,6 +47,37 @@ from gtm_core.role_vocabulary import (  # noqa: E402
 
 from .text import _cue_re, _matches
 
+# --------------------------------------------------------------------------- vp spellings
+#
+# PH12 (2026-09-25). The cue lists carry the ABBREVIATION, so "VP of Engineering" resolved to
+# ``cto`` while "Senior Vice President of Engineering", "SVP Engineering" and "VP, Engineering"
+# resolved to nothing — the same seat, spelled differently. A tenant can paper over it one cue
+# at a time in its vocabulary, which is how the gap kept recurring for every other seat.
+#
+# The fix canonicalises BOTH sides of the positive match the same way: the title, and every
+# cue. Canonicalising only the title is wrong — a cue a tenant already spelled out
+# ("vice president of engineering") would stop matching the title it was written for.
+#
+# The ANTI-cues are deliberately NOT canonicalised and see the RAW title: ``evp`` / ``svp`` /
+# ``vice president`` are what veto the bare ``president`` exec cue, and an EVP must never be
+# re-seated as the exec because its rank was rewritten to ``vp`` before the veto looked.
+_VP_RANK_RE = re.compile(r"\b(?:vice[\s-]+president|[sea]vp)\b")
+#: "vp, engineering" / "vp - engineering" / "vp of engineering" -> "vp engineering".
+_VP_JOIN_RE = re.compile(r"\bvp(?:[\s,:;\-–—]+of)?[\s,:;\-–—]+")
+
+
+@cache
+def _canon(text: str) -> str:
+    """Lowercase, fold every vice-president spelling to ``vp``, and drop what joins it to
+    the function it heads. Applied to titles and positive cues alike, never to anti-cues."""
+    return _VP_JOIN_RE.sub("vp ", _VP_RANK_RE.sub("vp", text.lower()))
+
+
+@cache
+def _canon_cues(cues: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(_canon(c) for c in cues)
+
+
 _ANTI_CUES = _DEFAULT_VOCABULARY.anti_cues
 _CEO_TITLE_CUES = _DEFAULT_VOCABULARY.ceo_title_cues
 _PERSONA_RULES = _DEFAULT_VOCABULARY.persona_rules
@@ -72,6 +106,7 @@ def persona_of(header: str, profile: str | None = None) -> str | None:
     spec happened to declare, which is how a body written for a CISO reached an SME owner.
     """
     low = (header or "").lower()
+    canon = _canon(low)
     vocab = _load_vocabulary(profile)
     # An explicit exec TITLE outranks a lower functional cue elsewhere in the same compound
     # title; see ``ceo_title_cues`` for why rank and ownership cues are excluded. The
@@ -79,7 +114,8 @@ def persona_of(header: str, profile: str | None = None) -> str | None:
     if _matches(vocab.ceo_title_cues, low) and not _matches(vocab.anti_cues.get("ceo", ()), low):
         return "ceo"
     for persona, cues in vocab.persona_rules:
-        if not _matches(cues, low):
+        # Positive match on the canonical form; the anti-cue veto below on the RAW title.
+        if not _matches(_canon_cues(tuple(cues)), canon):
             continue
         if _matches(vocab.anti_cues.get(persona, ()), low):
             continue

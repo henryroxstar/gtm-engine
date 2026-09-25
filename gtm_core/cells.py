@@ -164,7 +164,7 @@ def cells_by_sequence(profile: str, content_root: Path | None = None) -> dict[st
     out: dict[str, list[str]] = {}
     for src in load_cell_map(profile, content_root):
         ids = out.setdefault(src["sequence_id"], [])
-        for cid in _enrolled_cells(src, base):
+        for cid in _enrolled_cells(src, base, profile):
             if cid not in ids:
                 ids.append(cid)
     return out
@@ -212,7 +212,7 @@ def list_overlaps(profile: str, content_root: Path | None = None) -> list[dict]:
     return [{"first": a, "also_in": b, "emails": n} for (a, b), n in sorted(pairs.items())]
 
 
-def _enrolled_cells(src: dict, base: Path) -> dict[str, dict]:
+def _enrolled_cells(src: dict, base: Path, profile: str | None = None) -> dict[str, dict]:
     """Cell rows for one sequence, counted from its enrolment CSV."""
     csv_path = base / _safe_segment(src["csv"], "csv")
     variant = variant_of(src["spec"])
@@ -222,7 +222,7 @@ def _enrolled_cells(src: dict, base: Path) -> dict[str, dict]:
     with csv_path.open(newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             segment = (row.get("segment") or UNKNOWN).strip().lower() or UNKNOWN
-            seat = seat_of(row.get("title") or "")
+            seat = seat_of(row.get("title") or "", profile)
             overlay = src.get("overlay") or BASE_OVERLAY
             cid = cell_id(segment, seat, variant, overlay)
             cell = cells.setdefault(
@@ -270,7 +270,7 @@ def email_index(profile: str, content_root: Path | None = None) -> dict[str, str
                 segment = (row.get("segment") or UNKNOWN).strip().lower() or UNKNOWN
                 index[email] = cell_id(
                     segment,
-                    seat_of(row.get("title") or ""),
+                    seat_of(row.get("title") or "", profile),
                     variant,
                     src.get("overlay") or BASE_OVERLAY,
                 )
@@ -301,7 +301,7 @@ def build_cells(
 
     cells: dict[str, dict] = {}
     for src in sources:
-        for cid, cell in _enrolled_cells(src, base).items():
+        for cid, cell in _enrolled_cells(src, base, profile).items():
             if cid in cells:
                 cells[cid]["enrolled"] += cell["enrolled"]
                 cells[cid]["suppressed"] += cell["suppressed"]
@@ -552,7 +552,7 @@ def supply_profile(profile: str, content_root: Path | None = None) -> dict:
                 country = (row.get("country") or "unknown").strip() or "unknown"
                 countries[country] = countries.get(country, 0) + 1
                 title = (row.get("title") or "").strip()
-                seat = seat_of(title)
+                seat = seat_of(title, profile)
                 seats[seat or UNKNOWN] = seats.get(seat or UNKNOWN, 0) + 1
                 if not seat and title:
                     unplaced[title] = unplaced.get(title, 0) + 1

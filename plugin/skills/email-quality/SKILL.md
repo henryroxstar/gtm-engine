@@ -394,7 +394,10 @@ rejections go to repair; whatever the argument cannot carry falls to the generic
 instead of being stranded. Records older than 14 days are refused (`--allow-stale-records` to
 override knowingly). Decide the hold sheet by group, download, then
 `lanes hold-apply --profile <active> --decisions <file>` (plan) and `--apply` (write the
-ledgers); the next route honours every recorded decision. `lanes suggest-rules` proposes a
+ledgers); the next route honours every recorded decision. A decision is honoured only when its
+recorded `detail` matches the row's, so re-applying the same decision with a corrected detail is
+recorded as a superseding entry (the plan shows it as `detail updated N`), and only an identical
+re-apply is skipped as `already recorded`. `lanes suggest-rules` proposes a
 `lane-policy.toml` line once a reason has ten unanimous generic/salvage decisions — it never
 proposes suppress and never writes the file.
 
@@ -647,3 +650,17 @@ system improves, and the standard it improves against stays human.
 ## Degraded mode (no paid connectors)
 
 The judge picks its transport automatically and needs no configuration: with ANTHROPIC_API_KEY set it scores one row per request against the Anthropic API; without one it falls back to the Agent SDK on the host's own auth (an OAuth subscription in a local Claude Code session), batching a few rows per prompt to amortise subprocess cost. Both record `backend` and `judge_batch` on every row, so a holdout scored across the two is a visible confound rather than a silent one. If BOTH are unavailable — no key and an expired or revoked OAuth token — the judge returns an error payload and the reading pass reverts to what it was before this skill existed: sample the list with `gtm_core.adjudication sample`, read the rendered emails yourself, and record one adjudication JSONL line per email by hand. Every other mode — `sheet`, `apply`, `report` — is pure deterministic Python and works unchanged, because the human labels, not the judge, are the ground truth the whole program is built on.
+
+## How to close this run (every surface)
+
+Report, in this order and in the operator register (the `gtm-operator` output style): Lead with the outcome; what matters about it in their terms; the next decision as a choice they can answer; and what it cost, exactly as the ledger reported it, if anything metered ran.
+File paths, commands, module names and raw output go in a final
+<details><summary>Details</summary> … </details> block; the main reply must make sense
+without it.
+
+Markers: emit a ⟦…⟧ marker (⟦GATE:…⟧, ⟦POST⟧, ⟦FILE:…⟧) only when your system prompt carries
+a `Surface:` line that says so. Otherwise show the same content as a quoted block headed
+"This is exactly what would go out."
+
+Active profile: the one in your system instructions, or, in the desktop app, the answer to
+`uv run python -m gtm_core.active_profile show`.

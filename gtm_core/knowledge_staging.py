@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import shutil
+import sys
 import tomllib
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from . import knowledge_meta as km
-from .paths import PathConfig, resolve_content_root, resolve_profiles_root
+from .paths import PathConfig, _safe_segment, resolve_content_root, resolve_profiles_root
 
 _STAGING_DIRNAME = "knowledge-staging"
 
@@ -163,6 +165,74 @@ def _stamp_toml_provenance(text: str, *, today: date, source: str | None) -> str
     return f"{header}\n{body}"
 
 
+def snapshot_dir(content_root: Path, profile: str) -> Path:
+    return content_root / _safe_segment(profile, "profile") / ".snapshots" / "knowledge"
+
+
+def _utc_stamp(now: datetime | None = None) -> str:
+    # microsecond resolution so back-to-back snapshots never collide on filename
+    return (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S-%fZ")
+
+
+def snapshot_topic(
+    profiles_root: Path,
+    content_root: Path,
+    profile: str,
+    topic: str,
+    *,
+    now: datetime | None = None,
+) -> Path | None:
+    """Snapshot the current live file before overwriting. Returns destination or None if absent."""
+    target = live_path(profiles_root, profile, topic)
+    if not target.exists():
+        return None
+    snap_dir = snapshot_dir(content_root, profile)
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    dest = snap_dir / Path(topic).parent / f"{Path(topic).name}.{_utc_stamp(now)}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(target, dest)
+    return dest
+
+
+def restore(
+    profiles_root: Path,
+    content_root: Path,
+    profile: str,
+    topic: str,
+    *,
+    snapshot_file: str | Path | None = None,
+    now: datetime | None = None,
+) -> Path:
+    """Restore a live topic file from a snapshot (newest by default).
+
+    Snapshots the current live file first, so restore is itself reversible.
+    """
+    snap_dir = snapshot_dir(content_root, profile)
+    if snapshot_file:
+        src = Path(snapshot_file)
+        if not src.is_absolute():
+            src = snap_dir / snapshot_file
+        if not src.is_file():
+            raise FileNotFoundError(f"snapshot file {src} not found")
+    else:
+        topic_name = Path(topic).name
+        topic_parent = Path(topic).parent
+        search_dir = snap_dir / topic_parent
+        snaps = sorted(p for p in search_dir.glob(f"{topic_name}.*") if p.is_file())
+        if not snaps and not topic_name.endswith(".md"):
+            snaps = sorted(p for p in search_dir.glob(f"{topic_name}.md.*") if p.is_file())
+        if not snaps:
+            raise FileNotFoundError(f"no snapshots for {topic} in {snap_dir}")
+        src = snaps[-1]
+
+    target = live_path(profiles_root, profile, topic)
+    # Snapshot current file first so restore is reversible
+    snapshot_topic(profiles_root, content_root, profile, topic, now=now)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, target)
+    return src
+
+
 def promote(
     profiles_root: Path,
     content_root: Path,
@@ -172,6 +242,7 @@ def promote(
     today: date,
     source: str | None = None,
     remove_staged: bool = True,
+    now: datetime | None = None,
 ) -> Path:
     """Promote a staged candidate into the live corpus — the operator gate.
 
@@ -203,6 +274,8 @@ def promote(
         stamped = km.upsert_frontmatter(text, updates)
 
     target = live_path(profiles_root, profile, topic)
+    # Snapshot the live file before overwriting (R-14)
+    snapshot_topic(profiles_root, content_root, profile, topic, now=now)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(stamped, encoding="utf-8")
     if remove_staged:
@@ -219,13 +292,21 @@ def main(argv: list[str] | None = None) -> int:
         description="Review + promote staged knowledge refreshes (the operator gate).",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "path", "diff", "promote"):
+    for name in ("list", "path", "diff", "promote", "restore", "stage"):
         sp = sub.add_parser(name)
         sp.add_argument("--profile", required=True)
-        if name in ("path", "diff", "promote"):
+        if name in ("path", "diff", "promote", "restore", "stage"):
             sp.add_argument("--topic", required=True)
         if name == "promote":
             sp.add_argument("--source", default=None, help="override the source: provenance field")
+        if name == "restore":
+            sp.add_argument(
+                "--snapshot", default=None, help="optional snapshot filename to restore"
+            )
+        if name == "stage":
+            sp.add_argument(
+                "--from", dest="from_file", required=True, help="candidate file to stage"
+            )
         sp.add_argument("--profiles-root", default=None)
         sp.add_argument("--content-root", default=None)
     args = parser.parse_args(argv)
@@ -257,6 +338,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "diff":
         out = diff(profiles_root, content_root, args.profile, args.topic)
         print(out if out else "(no change vs live)")
+        return 0
+
+    if args.cmd == "stage":
+        from_p = Path(args.from_file).expanduser().resolve()
+        if not from_p.is_file():
+            print(f"Error: file not found: {from_p}", file=sys.stderr)
+            return 1
+        staged_p = stage(content_root, args.profile, args.topic, from_p.read_text(encoding="utf-8"))
+        print(staged_p)
+        return 0
+
+    if args.cmd == "restore":
+        src = restore(
+            profiles_root,
+            content_root,
+            args.profile,
+            args.topic,
+            snapshot_file=args.snapshot,
+        )
+        print(f"restored {args.profile}/{args.topic} from {src.name}")
         return 0
 
     # promote

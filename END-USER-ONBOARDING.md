@@ -30,9 +30,9 @@
 
 1. Download it from **[claude.ai/download](https://claude.ai/download)** (Mac or Windows).
 2. Install it and sign in.
-3. You'll need a **Claude Pro or Max** subscription — this is the "brain." No separate technical key required.
+3. You'll need a **Claude Pro or Max** subscription. That is the 'brain'. Do not add an API key anywhere; the app signs you in, and a key would make some steps bill you twice.
 
-> **Which tab to use:** the engine runs in the Claude desktop app's **Code** tab: a folder open in the app, and you typing prompts. That's the default and it's what this guide sets up. If you see "Cowork mode" in another doc, it means this Code tab. The desktop app also has a separate **Cowork** tab. That's a different product: it can't open this folder or run the engine, so always work in **Code**. The only alternative to the Code tab is a self-hosted server, which is an admin's job, not yours.
+> **Which tab to use:** the engine runs in the Claude desktop app's **Code** tab: a folder open in the app, and you typing prompts. That's the default and it's what this guide sets up. If you see "Cowork mode" in another doc, it means this Code tab. The desktop app also has a separate **Cowork** tab. That's a different product: it can't open this folder or run the engine, so always work in **Code**. The only alternative to the Code tab is a self-hosted server, see the technical path in README.
 
 > **Why Claude for this guide?** For someone who wants zero terminal commands, the Claude desktop app is the easiest turn-key chat experience. For technical users and developers, GTM Engine also runs natively in **Google Antigravity**, **Cursor**, and **Codex** via the in-repo `.agents/` configuration and tool translation layer.
 
@@ -68,7 +68,7 @@ Once the code is down, paste this:
 
 > **Run the bootstrap script for my operating system, then tell me what the interpreter probe printed.**
 
-That installs the engine's toolchain and runs a one-second self-check — on Windows, `scripts\bootstrap.ps1`; on Mac or Linux, `scripts/bootstrap.sh`. Both end with the same probe. **Wait for it to report a real answer** — it should print a line reading `==> content root: ` followed by a folder path ending in `content`. If it can't, stop here and fix it before doing anything else (Step 5 onward will *look* like it's working while quietly producing nothing).
+That installs the engine's toolchain and runs a one-second self-check. It should end with `Ready`. If it doesn't, see 'If the check fails' at the end of this guide before going on.
 
 ### Last setup step: switch on plain-language replies
 
@@ -78,21 +78,15 @@ Paste this:
 
 After that, Claude's replies start with what happened, what it cost, and what you need to decide. The technical detail is folded into a "Details" section you can open or ignore. The style only changes how Claude *talks*. It changes nothing about what Claude *does*, and anything waiting for your approval is still shown to you word for word. Start a new session in the Code tab for it to take effect. To go back, ask Claude to set it to "default".
 
-> **⚠️ Windows: the "install Python" trap.** Windows ships a fake `python` — a zero-byte stub that opens the Microsoft Store instead of running anything. It's on your PATH by default and it **hides a real Python installed afterwards**, so "just install Python" does not fix it. If you ever see *"Python was not found; run without arguments to install from the Microsoft Store"*, that's this.
->
-> The bootstrap script handles it for you (it installs its own private Python), so there's nothing to do in advance — but if the probe still fails, turn the stub off: **Settings → Apps → Advanced app settings → App execution aliases**, and switch **off** both `python.exe` and `python3.exe`. Then open a new window and ask Claude to run the bootstrap again.
->
-> **Why this matters more than it sounds.** The engine's safety rails — the spending cap, the record of what it did, the checks that stop a bad prospect list from being used — are all small programs that need a real Python. Without one they fail **one at a time and silently**, and the assistant will happily hand you a polished-looking result with nothing behind it. This has already cost one real user ~209 paid contact lookups on a list that no check ever validated.
-
 ---
 
 ## Step 4 — Already have a company profile? Drop it in *(optional)*
 
 **First time setting this up?** Skip straight to Step 5.
 
-If a colleague already ran setup for your company, or your admin handed you a folder, you don't need to start from scratch:
+If a colleague already ran setup for your company, or you have an existing company folder, you don't need to start from scratch:
 
-1. Find the folder your admin/colleague gave you — it's named after your company (e.g. `acme`) and contains a file called `PROFILE.md` plus a few other folders (`knowledge`, `products`, `output`).
+1. Find the folder your colleague or prior setup gave you — it's named after your company (e.g. `acme`) and contains a file called `PROFILE.md` plus a few other folders (`knowledge`, `products`, `output`).
 2. Open the `gtm-engine` folder from Step 3, then open the `profiles` folder inside it.
 3. Drag your company's folder in there, so you end up with `gtm-engine/profiles/acme/` — sitting next to a folder called `_template`.
 4. In the chat, say: **"I already have a profile for [your company name] — activate it."**
@@ -103,7 +97,7 @@ Claude will confirm it found your profile and switch into it. You can skip Step 
 
 When you or your team update GTM Engine by pulling new releases from GitHub, **your company data is never deleted or replaced**:
 - **Automatic Protection:** The engine automatically ignores customer profile folders (`profiles/<your-company>/`) and generated deliverables (`content/`). Updates download around your data, leaving your materials and history intact.
-- **Pro-Tip (Out-of-Tree Storage):** For complete peace of mind, you can store your company data entirely outside the engine folder. In your `.env` file, specify:
+- **Pro-Tip (Out-of-Tree Storage):** For complete peace of mind, you can store your company data entirely outside the engine folder. In your `.env` file (documented in `.env.example`), specify:
   ```bash
   GTM_PROFILES_ROOT=~/.gtm/profiles
   GTM_CONTENT_ROOT=~/.gtm/content
@@ -140,7 +134,7 @@ The more real material you give it, the more it sounds like you and sticks to yo
 - A few of **your own emails or posts** so it learns your writing voice
 
 **Easiest ways to hand it over** (use whichever is simplest — no formatting needed):
-- **Drag a file** into the chat, or **paste** the text, and say *"add this to my knowledge."*
+- **Drag a file** into the chat, or **paste** the text, and say *"learn from my new material."*
 - Or say *"read the files in this folder"* and point it at where your materials live.
 
 *(Behind the scenes, your raw files are kept in a "source inbox" folder inside your profile as a record; the engine condenses them into its working knowledge. You don't need to manage that folder — the assistant handles it.)*
@@ -171,14 +165,14 @@ The engine works right away using free web search. Connecting real data tools up
 | **Higgsfield** | AI-generated visuals for carousels, infographics, and short-form video | [higgsfield.ai](https://higgsfield.ai) | Claude **Settings → Connectors** → search "Higgsfield" |
 | **HeyGen** | An AI presenter that speaks your script on camera, for videos where someone has to be on screen | [heygen.com](https://heygen.com) | Claude **Settings → Connectors** → search "HeyGen" |
 | **Apollo** | Backup for finding a person's email, plus company buying-signals, when RocketReach doesn't have them | [apollo.io](https://apollo.io) | Claude **Settings → Connectors** → search "Apollo" |
-| **RocketReach** | Finds the *person* — verified email + direct phone, plus hiring/news signals | [rocketreach.co](https://rocketreach.co) | Needs an account key and a bit more setup — **ask your admin** |
+| **RocketReach** | Finds the *person* — verified email + direct phone, plus hiring/news signals | [rocketreach.co](https://rocketreach.co) | Needs a key from RocketReach; ask the assistant: "connect RocketReach with this key" and it stores it privately |
 
 > **Vibe Prospecting's exact connector address** (it won't show up in a name search — use "Add custom connector" instead):
 > ```
 > https://vibeprospecting.explorium.ai/mcp
 > ```
 
-**Advanced (your admin sets these up — not a self-serve connect):**
+**Advanced (set up on the self-hosted server, see the technical path in README):**
 
 | Tool | What it gives you | Website |
 |---|---|---|
@@ -199,6 +193,7 @@ Just say these in plain English:
 
 **Find & research buyers**
 - *"Run my prospecting"* — find, score, and enrich accounts that fit your ICP
+- *"Where do I stand?"* — see your prospect list, whose move it is next, and what's waiting on you
 - *"Prep me for my call with [company]"* — the buyer, their persona, matched proof stories
 - *"Make a dossier for [account]"* — a ~4-page meeting-prep brief
 - *"Build an account plan for [company]"*
@@ -210,19 +205,16 @@ Just say these in plain English:
 
 **Create content & diagrams**
 - *"Draft my LinkedIn post about [topic]"*
-- *"Build a carousel about [topic]"* · *"add visuals to my carousel"*
+- *"Build a carousel about [topic]"* · *"make a how-to carousel"*
 - *"Draw an architecture diagram for [product]"*
 - *"Audit our SEO for [domain]"* · *"find keyword clusters for [topic]"*
 - *"Make a one-pager for [account]"*
 
-**Make a short video**
-- *"Make a short video about [topic]"* — the engine asks which kind, then writes the script and a shot-by-shot storyboard
+**Make a short video (scripting & storyboards)**
+- *"Write a video script about [topic]"* — the engine asks which kind, then writes the script, beats, and a shot-by-shot storyboard. (Video and visual rendering are part of the hosted GTM Engine; this copy produces the scripts, shot lists, and storyboards)
 - Before it writes anything it settles nine questions about **how to make it** — the cover, the structure, what stays the same across every shot, whether a carousel would do the job cheaper. It answers what it can from your profile and labels those answers as defaults, so on a routine piece it asks you at most one thing. You can read all nine back as nine lines
-- *"Turn my last post into a video"* · *"cut clips out of this recording"* (drop the file in)
-- *"Record a demo of [product] and cut it into clips"*
-- Before you approve, it builds an **animatic** — the still frames held for exactly as long as each shot will run, with the voice-over over the top — and sends it to you as a video. It costs nothing: the pictures already exist and nothing is generated. Watching thirty seconds of it answers the question a row of thumbnails cannot, which is whether the thing has the right *pace*: does the opening line land before someone scrolls past, does the read fit the cuts, is the third beat twice as long as it looked on paper. Until this existed, the first chance to notice any of that was after you had paid to render it
-- You approve the **storyboard** before anything renders — rendering is the part that costs money, so it never happens on a guess. The **cover** comes with it: where there is more than one candidate you get them side by side on a single sheet and pick by looking, because the cover is a different picture from the first frame and has a different job. One gets tapped, the other starts the film. If the video uses an AI presenter or a cloned voice, it must carry your disclosure line before it can be staged; that's a legal requirement, not a preference
-- *"I'll film this one myself"* — the engine writes it as a **shoot list** instead of a render list, and hands you a page you can read on your phone on the day: how to set up each shot, whether the camera has to stay still, which part of the frame to leave empty for captions, how many takes to get, and what to keep the same between shots so the edit works. It is the difference between one filming session and two. This lane has no storyboard and no animatic, because nothing is being generated to preview. It waits for you instead, and when you come back it asks you to approve the exact file before it uploads anything
+- *"Turn my last post into a video script"*
+- *"I'll film this one myself"* — the engine writes it as a **shoot list** instead of a render list, and hands you a page you can read on your phone on the day: how to set up each shot, whether the camera has to stay still, which part of the frame to leave empty for captions, how many takes to get, and what to keep the same between shots so the edit works. It is the difference between one filming session and two
 
 **Win a technical deal**
 - *"Prep me for the technical deep-dive with [company]"* — the questions to ask, each tagged with the decision it unlocks
@@ -234,21 +226,23 @@ Just say these in plain English:
 
 **Plan & stay current**
 - *"Run my market scan"* — this week's signals in your space
+- *"What's my budget?"* — see your current month tool spend and monthly budget cap in one sentence
+- *"Learn from my new material"* — update your company profile and knowledge when documents, products, or ICP change
 - *"Check CRM hygiene"* · *"review team pipeline"*
 - *"Build a deck for [company]"*
 - *"Plan my quarter"*
 - *"Schedule my weekly market scan and prospecting"* — runs automatically each Monday
 
-**Not sure what to ask?** Type *"what can you help me with?"* — the engine knows its own abilities.
+**Not sure what to ask?** Type *"what can you help me with?"* — the engine knows its own abilities and what tools are connected.
 
 ---
 
 ## The golden rules (read these once)
 
-- **You're always the last step.** The engine drafts; nothing is emailed, posted, or published until *you* press the button in the real tool. There is no auto-send — by design.
-- **Your logins stay yours.** No password, key, or token is ever written into the engine's files. If you try to paste one into chat, it stops you.
-- **You talk; it does the technical work.** If a step ever seems to want *you* to type commands in a terminal, that's the advanced path — ask your admin.
-- **Start free, add tools when you feel the gap.** Every data tool is optional and falls back to web search.
+- **You're always the last step.** In the desktop app, every outside action asks you first. The engine drafts; nothing is emailed, posted, or published until *you* press the button in the real tool. There is no auto-send — by design. The one thing it does without asking is honour an unsubscribe: when someone replies 'stop', they go on your do-not-contact list.
+- **Your logins stay yours.** Keys and passwords live in the app's own connector store or in a private settings file the engine never shares. If you paste one into chat, the engine tells you where it belongs and does not keep it.
+- **You talk; it does the technical work.** If a step ever seems to want *you* to type commands in a terminal, that's the technical path; in the app you always ask the assistant instead.
+- **Start free, add tools when you feel the gap.** Every data tool is optional. Without one, prospecting finds companies from free web search; verified contacts and sequencing need a connected tool, and the engine tells you when it reaches that point.
 - **Feed it and it sharpens.** The more real material you give it, the more it sounds like you.
 
 ---
@@ -277,11 +271,17 @@ ledger every time.
 | Word | Whose move |
 |---|---|
 | **Waiting on you** | yours — one decision |
-| **Ready to send** | nobody's — it is done |
-| **Being fixed** | the machine's — no action |
+| **Sorted — not yet checked** | the checks, then yours |
+| **Being reworked** | the engine's — nothing for you to do |
 | **In the sending tool** | already loaded — do not load again |
-| **Not emailing** | closed |
-| **Needs an address** | accounts in the ledger — the machine's, then yours if it misses |
+| **Closed — not contacting** | closed |
+| **Still finding the right person** | the engine's — it looks first, then asks you if it cannot find one |
+
+---
+
+## If the check fails
+
+Windows ships a placeholder `python` that opens the Microsoft Store. The bootstrap installs its own Python, so usually there is nothing to do. If the check still doesn't end with `Ready`, switch the placeholder off: Settings → Apps → Advanced app settings → App execution aliases, turn off `python.exe` and `python3.exe`, open a new window, and ask Claude to run the bootstrap again. The engine's safety checks are small Python programs; this is why a real Python matters.
 
 ---
 

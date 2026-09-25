@@ -1376,3 +1376,29 @@ def test_a_scorer_drop_is_lifted_when_the_row_later_scores_into_a_published_tier
 
     still_low = merge_onto(dropped, {"company": "Northwind Robotics", "tier": "drop", "score": 2})
     assert still_low["verdict"] == "drop"
+
+
+def test_mutate_cli_stamps_the_date_a_verdict_is_set(tmp_path, monkeypatch, capsys):
+    """Setting `verdict` by hand is research setting it, so it carries `verdict_on` — the
+    stamp `prospects_consolidate` compares before lifting a row's re-angle. An explicit
+    `verdict_on` wins, and a mutate that does not touch the verdict stamps nothing."""
+    import datetime
+
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {"account_id": "a-1", "company": "Northwind", "domain": "northwind.example"},
+            {"account_id": "a-2", "company": "Fabrikam", "domain": "fabrikam.example"},
+            {"account_id": "a-3", "company": "Litware", "domain": "litware.example"},
+        ],
+    )
+    base = ["mutate", "--profile", "acme", "--account"]
+    assert ps._cli([*base, "a-1", "--set", "verdict=send", "--reason", "fresh signal"]) == 0
+    assert ps._cli([*base, "a-2", "--set", "verdict=send", "--set", "verdict_on=2026-09-20"]) == 0
+    assert ps._cli([*base, "a-3", "--set", "notes=x"]) == 0
+    items = {i["account_id"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert items["a-1"]["verdict_on"] == datetime.date.today().isoformat()
+    assert items["a-2"]["verdict_on"] == "2026-09-20"
+    assert "verdict_on" not in items["a-3"]

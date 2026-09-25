@@ -264,7 +264,9 @@ def test_contacts_waiting_on_address_verification_get_their_own_line(
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
     assert re.search(r"^Checking the address\s+2\b", out, re.M)
-    assert re.search(r"^Needs an address\s+1\b", out, re.M)  # no address at all is the OTHER line
+    assert re.search(
+        r"^Still finding the right person\s+1\b", out, re.M
+    )  # no address at all is the OTHER line
 
 
 def test_an_unjoinable_contact_is_reported_not_dropped(tmp_path, monkeypatch, capsys) -> None:

@@ -48,6 +48,7 @@ HOLD_COLUMNS = (
     "tier",
     "trigger",
     "lane_reason",
+    "detail",
     "judge_defect_class",
     "evidence",
     "prior_decision",
@@ -260,6 +261,9 @@ def write_hold_csv(holds: list[Routed], path: Path, decisions: dict[tuple[str, s
                     **{c: (r.row.get(c) or "") for c in HOLD_COLUMNS[:8]},
                     "trigger": r.trigger,
                     "lane_reason": r.reason,
+                    # The raw detail the router compares a decision against. `lane_reason` is
+                    # the composed display string (flags included), which never equals it.
+                    "detail": r.detail,
                     "judge_defect_class": r.judge_defect_class,
                     "evidence": r.judge_note or r.detail,
                     "prior_decision": f"{prior['decision']} ({prior.get('stamp', '')})"
@@ -295,6 +299,10 @@ class ApplyPlan:
     salvage: list[DecisionEntry] = field(default_factory=list)
     held: list[DecisionEntry] = field(default_factory=list)
     already: list[DecisionEntry] = field(default_factory=list)
+    #: Same decision as the ledger's, recorded against a different ``detail``. The router
+    #: honours a decision only when its detail matches, so these are re-recorded (a
+    #: superseding append), never skipped as "already".
+    detail_updated: list[DecisionEntry] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     refused: list[str] = field(default_factory=list)
 
@@ -304,6 +312,7 @@ class ApplyPlan:
             f"{sum(1 for e in self.suppress if retires_account(e))} account(s) "
             "(reversible, eval-disqualified) · "
             f"generic {len(self.generic)} · salvage {len(self.salvage)} · still held {len(self.held)}"
+            + (f" · detail updated {len(self.detail_updated)}" if self.detail_updated else "")
             + (f" · already recorded {len(self.already)}" if self.already else "")
         ]
         lines += [f"CONFLICT: {c}" for c in self.conflicts]
@@ -314,13 +323,17 @@ class ApplyPlan:
 def _raw_detail(row: dict) -> str:
     """The router's raw ``detail`` string — what ``_apply_decision`` compares against.
 
-    A filled hold CSV has no ``detail`` column: it has ``lane_reason``, which
+    A hold CSV written since 2026-09-25 carries the raw ``detail`` column, which wins. An older
+    one has only ``lane_reason``, which
     ``Routed.reason`` composes as ``f"{lane}:{trigger} — {detail}"`` for display. Reading
     that composed string back as if it WERE the raw detail (fixed 2026-09-03) means it can
     never equal the live ``detail`` a later route computes, so every ``generic``/``salvage``
     decision silently failed to re-apply — only ``suppress`` worked, because its branch in
-    ``_apply_decision`` skips the detail check entirely. An exported decisions JSONL, which
-    DOES carry a genuine ``detail`` key, still wins.
+    ``_apply_decision`` skips the detail check entirely. An exported decisions JSONL carries a
+    ``detail`` key as well, which wins. Until 2026-09-25 the hold sheet filled that key with
+    the composed ``lane_reason``, so decisions exported from it were recorded against a
+    detail no route computes; ``plan_apply`` reports re-applying one with the raw detail as
+    "detail updated".
     """
     explicit = (row.get("detail") or "").strip()
     if explicit:
@@ -328,6 +341,8 @@ def _raw_detail(row: dict) -> str:
     reason = (row.get("lane_reason") or "").strip()
     trigger = (row.get("trigger") or "").strip().lower()
     prefix = f"hold:{trigger} — "
+    if trigger and reason == prefix.removesuffix(" — "):
+        return ""  # a row with no detail composes to the bare head
     if trigger and reason.startswith(prefix):
         return reason[len(prefix) :].strip()
     return reason
@@ -392,7 +407,12 @@ def plan_apply(entries: list[DecisionEntry], prior: dict[tuple[str, str], dict])
             continue
         old = prior.get((e.trigger, e.account_key))
         if old and old.get("decision") == e.decision:
-            plan.already.append(e)
+            # Same test as `router._apply_decision`: a record with no `detail` key answers
+            # every detail, so re-recording it would change nothing.
+            if "detail" in old and old["detail"] != e.detail:
+                plan.detail_updated.append(e)
+            else:
+                plan.already.append(e)
             continue
         if old and old.get("decision") != e.decision:
             plan.conflicts.append(
@@ -485,7 +505,8 @@ def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None =
             )
             unmatched = list(summary["unmatched"])
     recorded = []
-    for kind in ("suppress", "generic", "salvage"):
+    # `detail_updated` is recorded only: its suppression (if any) is already on the ledger.
+    for kind in ("suppress", "generic", "salvage", "detail_updated"):
         for e in getattr(plan, kind):
             recorded.append(
                 {

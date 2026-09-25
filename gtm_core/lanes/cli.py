@@ -130,7 +130,9 @@ def _route_locked(args, as_of: datetime.date) -> int:
         for r in result.routed
         if r.decided
     ]
-    sheet = write_sheet(hold, dec.sheet_path(args.profile, stamp), stamp=stamp, auto=auto)
+    sheet = write_sheet(
+        hold, dec.sheet_path(args.profile, stamp), stamp=stamp, auto=auto, profile=args.profile
+    )
     carried = (
         []
         if args.replace_all
@@ -270,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             args.out or args.hold.with_suffix(".html"),
             stamp=stamp.group(1) if stamp else dec.today_stamp(),
             bodies=bodies,
+            profile=args.profile,
         )
         print(f"hold sheet -> {out}")
         return 0

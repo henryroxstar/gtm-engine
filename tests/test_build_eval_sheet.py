@@ -214,6 +214,53 @@ def test_all_live_rows_derives_seat_not_from_csv_column(profile_fixture):
     assert "seat" not in CSV_HEADER  # confirms it really was derived, not read
 
 
+def test_all_live_rows_derives_seat_against_the_tenant_vocabulary(tmp_path, monkeypatch):
+    """PH13: ``load_live_rows``'s derived ``seat`` must resolve against the ACTIVE
+    PROFILE's ``role-vocabulary.toml``, not the built-in default. "Kiln Warden" is a title
+    only this tenant's file knows."""
+    from gtm_core.role_vocabulary import clear_cache
+
+    content_root = tmp_path / "content"
+    seq_dir = content_root / "demo" / "prospects" / "sequences"
+    seq_dir.mkdir(parents=True)
+    (seq_dir / "spec-demo-2026-08-20.md").write_text(SPEC_TEXT, encoding="utf-8")
+    (seq_dir / "clean-demo.csv").write_text(
+        CSV_HEADER + _csv_row(0, title="Kiln Warden"), encoding="utf-8"
+    )
+    (seq_dir / "cells.toml").write_text(
+        '[[sequence]]\nid = "seq1"\ncsv = "clean-demo.csv"\n'
+        'spec = "spec-demo-2026-08-20.md"\ncampaign = "demo-campaign"\n',
+        encoding="utf-8",
+    )
+
+    profiles_root = tmp_path / "profiles"
+    (profiles_root / "demo" / "knowledge").mkdir(parents=True)
+    (profiles_root / "demo" / "knowledge" / "role-vocabulary.toml").write_text(
+        """\
+default_persona = "kiln-warden"
+segments = ["enterprise", "unspecified"]
+security_only = []
+non_buyer_cues = []
+ceo_title_cues = []
+
+[[persona]]
+name = "kiln-warden"
+cues = ["kiln warden"]
+
+[[seat]]
+name = "operations"
+personas = ["kiln-warden"]
+stakes = ["throughput"]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    clear_cache()
+
+    rows, _ = all_live_rows("demo", content_root, profiles_root=profiles_root)
+    assert rows[0]["seat"] == "operations", f"tenant seat not resolved — rows={rows}"
+
+
 # --------------------------------------------------------------------------- row-level cell
 #
 # `enriched["cell"]` used to be constant per spec (the spec's own declared cell). These pin

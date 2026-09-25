@@ -335,7 +335,8 @@ def system_prompt_for(name: str, cfg: Config) -> str:
         f"NEVER tell the operator you cannot send binary files, or that the chat only supports text "
         f"and images — the sentinel IS the delivery mechanism and it sends real .docx/.pdf/.pptx "
         f"bytes. Only if you genuinely cannot find the file under content/{name}/ may you say so, and "
-        f"then state the exact path you expected."
+        f"then state the exact path you expected.\n\n"
+        f"Surface: cockpit — emit ⟦…⟧ markers exactly as the skill specifies."
     )
 
 

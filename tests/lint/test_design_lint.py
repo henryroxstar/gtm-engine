@@ -316,6 +316,69 @@ def test_a_split_main_file_is_not_missing_the_appendix_it_links_to() -> None:
     assert not [r for r in found if "COV-05" in r or "COV-11" in r]
 
 
+# The customer overview carries no visible "Tier 1" heading and no visible appendix link
+# (operator decision 2026-09-25): its H1 names it an overview and an HTML comment declares
+# the sibling. Headings below are the overview's own, minus every Tier 1 / Tier 2 marker.
+_OVERVIEW_HEADINGS = [
+    "# Northwind Analytics × Brightpath Labs — Solution Overview",
+    "## Executive summary",
+    "## The problem, today",
+    "## What we propose",
+    "## Architecture: context and current state",
+    "## How it works, end to end",
+    "## Deployment topology",
+]
+_POINTER = "<!-- appendix: solution-design-northwind-2026-01-01-appendix.md -->"
+
+
+def _overview(*, pointer: bool) -> str:
+    title, *rest = _OVERVIEW_HEADINGS
+    head = f"{title}\n\n_Draft for discussion_\n\n" + (f"{_POINTER}\n\n" if pointer else "")
+    return head + design(headings=rest)
+
+
+def test_a_titled_overview_that_declares_its_appendix_in_a_comment_has_every_tier() -> None:
+    found = rules(_overview(pointer=True))
+    assert not [r for r in found if r.startswith("SD1")], found
+    errors = [f for f in lint(_overview(pointer=True)) if f.tier == "SD2" and f.severity == "error"]
+    assert not [f for f in errors if "COV-05" in f.rule or "COV-11" in f.rule], errors
+
+
+def test_the_comment_pointer_survives_parsing_into_a_section_body() -> None:
+    """The relaxation rests on the comment reaching `Section.body`; pin that directly."""
+    from gtm_core.design_lint.rules_coverage import _links_out
+
+    assert _links_out(parse_sections(_overview(pointer=True)))
+    assert not _links_out(parse_sections(_overview(pointer=False)))
+
+
+def test_a_titled_overview_without_the_pointer_still_misses_tier_1() -> None:
+    """The H1 reading is conditional on the sibling declaration — never a free pass."""
+    found = rules(_overview(pointer=False))
+    assert found.count("SD1 tier missing") == 2  # Tier 1 and Tier 2 both
+    assert [r for r in found if "COV-05" in r or "COV-11" in r]
+
+
+def test_a_pointer_does_not_make_any_h1_a_customer_overview() -> None:
+    """Only a title that names an overview stands in for Tier 1."""
+    text = _overview(pointer=True).replace("Solution Overview", "Solution design", 1)
+    assert "SD1 tier missing" in rules(text)
+
+
+def test_an_appendix_titled_solution_overview_is_still_a_fragment() -> None:
+    from gtm_core.design_lint.rules_coverage import _titled_overview, document_kind
+
+    text = (
+        "# Northwind Analytics × Brightpath Labs — Solution Overview — Technical Appendix\n\n"
+        "Back to the overview: solution-design-northwind-2026-01-01.md\n\n"
+        + "\n\n".join(f"## A{n}. Section {n}\n\nbody text here." for n in range(1, 6))
+    )
+    sections = parse_sections(text)
+    assert document_kind(sections) == "fragment"
+    assert not _titled_overview(sections)
+    assert "SD1" not in tiers(text)
+
+
 # ── SD11 — contradictory guardrail (`--skill` mode) ───────────────────────────────────
 
 _CONTRADICTION = """

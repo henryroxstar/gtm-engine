@@ -359,7 +359,7 @@ def test_a_seeded_provenance_lie_is_convicted(tmp_path, monkeypatch):
     the recorder.
     """
     from gtm_core.email_campaign_dashboard import aggregate as ag
-    from gtm_core.email_campaign_dashboard import views_status as vs
+    from gtm_core.email_campaign_dashboard import views_results as vr
 
     _seed(tmp_path)
     honest = ag._scope_figures
@@ -369,11 +369,11 @@ def test_a_seeded_provenance_lie_is_convicted(tmp_path, monkeypatch):
         first = int((m["campaigns"]["campaigns"][0].get("targets") or {}).get("emails") or 0)
         return {**fig, "planned": (first, None)}
 
-    # Patch the BOUND name in the consuming module, not the definition. `views_status`
+    # Patch the BOUND name in the consuming module, not the definition. `views_results`
     # does `from .aggregate import _scope_figures`, so patching `aggregate` alone leaves
     # the renderer calling the honest original — and the guard below would catch a
     # seeded violation that never happened, which is worse than no seeded test at all.
-    monkeypatch.setattr(vs, "_scope_figures", first_wins)
+    monkeypatch.setattr(vr, "_scope_figures", first_wins)
     m, _html, tiles = _render(tmp_path, "mine-20260904,other-20260718")
     planned = next(t for t in tiles if t["label"] == "people contacted")["raw"]["planned"]
     truth = resolve_src(m, "sum-complete:campaigns.targets.emails")

@@ -636,7 +636,7 @@ Tell the colleague:
 - **Mode A:** "Deck saved as `deck-[company]-[type]-[date].pptx` in the account folder `content/<active>/accounts/<account-slug>/`." Offer to export as PDF or adjust any slide.
 - **Mode B (default):** "Deck saved as `deck-[company]-[type]-[date].pptx` (flattened, fast-loading) at the path the deck tool returned, in the account folder `content/<active>/accounts/<account-slug>/`. Editable `slides.md` lives beside it — edit it and re-run `mcp__deck__export_deck` after changes." Offer to adjust any slide content.
 
-Then append a `⟦FILE:…⟧` sentinel for the .pptx so the Telegram cockpit delivers it automatically:
+Only when running under the Telegram cockpit, append a `⟦FILE:…⟧` sentinel for the .pptx so the Telegram cockpit delivers it automatically:
 
 ```
 ⟦FILE:/absolute/path/to/deck-[company]-[type]-[date].pptx⟧

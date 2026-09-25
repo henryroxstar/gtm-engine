@@ -311,6 +311,9 @@ def resolve_artifact_response(row: Any, ws: str, repo_root: Path, artifact_id: s
                 "artifact %s resolution escaped the workspace root — refused", aid
             )
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
-        raise HTTPException(status.HTTP_410_GONE, {"code": "artifact_gone"})
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            {"code": "artifact_gone", "message": "Artifact is no longer available"},
+        )
 
     return FileResponse(path, media_type=row["media_type"], headers=attachment_headers(row["name"]))

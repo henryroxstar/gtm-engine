@@ -6,18 +6,26 @@ from pathlib import Path
 
 from ..page_inputs import Report, verify_inventory, write_inventory
 from ..prospects_consolidate import _pool_dir, _prospects_dir
-from .config import PAGE_NAME, PROFILE_FILES, TABS, dashboard_path, input_globs, page_title
-from .filters import bar_html, script_block
+from .config import (
+    PAGE_NAME,
+    PROFILE_FILES,
+    TAB_LABELS,
+    TABS,
+    dashboard_path,
+    input_globs,
+    page_title,
+)
+from .filters import script_block
 from .format import _e, _tiles_reset
-from .health import figures_date, reconciliation_detail
+from .health import disagree_names, figures_date
 from .model import build_model, scope_to_campaign
 from .scope import Scope, resolve
 from .styles import STYLESHEET
-from .views_learn import _learn_view, _ops_view
-from .views_status import _status_view
-from .views_what import _what_view
-from .views_who import _who_view
-from .views_worklist import _worklist_view
+from .views_accounts import _accounts_view
+from .views_emails import _emails_view
+from .views_ops import _ops_view
+from .views_overview import _overview_view
+from .views_results import _results_view
 
 
 def _warnings_strip(m: dict) -> str:
@@ -31,6 +39,7 @@ def _warnings_strip(m: dict) -> str:
     if not warnings:
         return ""
     rec = m["reconciliation"]
+    names = disagree_names(m)
     sentences = []
     for reason in warnings:
         if reason == "unreadable":
@@ -46,16 +55,18 @@ def _warnings_strip(m: dict) -> str:
                 else "Sending figures carry no date, so treat them as old."
             )
         elif reason == "records-disagree" and not rec["ok"]:
+            who = _e(", ".join(names) or "sequences no campaign lists")
             sentences.append(
                 "These numbers may be out of date — the live figures and our own records "
-                "disagree about which email sequences exist — "
-                + _e(reconciliation_detail(rec))
-                + ". Refresh before trusting anything below."
+                "disagree about which email sequences exist. It affects "
+                f"{who}. The detail is under {_e(TAB_LABELS['ops'])}. "
+                "Refresh before trusting anything below."
             )
+
         elif reason == "records-disagree":
             sentences.append(
                 "The sending figures and the campaign lists don't add up — a sequence may "
-                "be counted twice."
+                "be counted twice." + (f" It affects {_e(', '.join(names))}." if names else "")
             )
     body = "".join(f"<p>{s}</p>" for s in sentences)
     return f'<div class="card warn" data-warn="{_e(" ".join(warnings))}">{body}</div>'
@@ -71,11 +82,10 @@ def render_html(m: dict) -> str:
     banners = _warnings_strip(m)
 
     panels = {
-        "worklist": _worklist_view(m),
-        "status": _status_view(m),
-        "who": _who_view(m),
-        "what": _what_view(m),
-        "learn": _learn_view(m),
+        "overview": _overview_view(m),
+        "accounts": _accounts_view(m),
+        "emails": _emails_view(m),
+        "results": _results_view(m),
         "ops": _ops_view(m),
     }
     nav = "".join(
@@ -95,10 +105,8 @@ def render_html(m: dict) -> str:
 <body><div class="wrap">
   <h1>{title}</h1>
   <p class="muted" style="margin:0">refreshed {_e(m["generated_at"])}</p>
-  <div class="tabs">{nav}</div>
-  <label class="techtoggle"><input type="checkbox" id="tech-toggle">Show the technical detail</label>
-  {bar_html(m)}
   {banners}
+  <div class="tabs">{nav}</div>
   {bodies}
 </div>
 <script>

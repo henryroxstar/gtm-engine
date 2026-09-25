@@ -41,9 +41,11 @@ def test_dashboard_flags_human_gates(tmp_path: Path, monkeypatch) -> None:
 
     model = gd.build_model(profile, content_root=tmp_path)
     html = gd.render_html(model)
+    from tests.contracts.dashboard_page import panel, visible_text
 
+    overview = visible_text(panel(html, "overview"))
     # PS15: a decision is the operator's move, not a warning banner.
-    assert "Yours (5): decide on 5 contacts" in html
+    assert "Yours (5): decide on 5 contacts" in overview
     assert "ACTION REQUIRED" not in html
     assert "waiting on a routing decision" not in html, "it counts contacts, not accounts"
 
@@ -286,9 +288,12 @@ def test_no_sheet_on_disk_means_no_link_and_the_command_that_builds_one(
     _held_profile(tmp_path)
 
     html = gd.render_html(gd.build_model("test-tenant", content_root=tmp_path))
-    assert "Yours (5): decide on 5 contacts" in html
+    from tests.contracts.dashboard_page import panel, visible_text
+
+    overview = visible_text(panel(html, "overview"))
+    assert "Yours (5): decide on 5 contacts" in overview
     assert not _hrefs(html), "nothing on disk to link, so the page must offer no href"
-    assert "the review sheet is built when the list is sorted" in html, "say when it appears"
+    assert "the review sheet is built when the list is sorted" in overview, "say when it appears"
 
 
 # ------------------------------------------------------- keeping every page up to date
