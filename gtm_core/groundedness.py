@@ -275,7 +275,10 @@ def premise_cascade(
     for r in rows:
         email = (r.get("email") or "?").strip()
         evidence = " ".join(str(r.get(f) or "") for f in evidence_fields).strip()
-        hits = premise.attested_by(evidence)
+        # `hits_for` is the one matcher every premise reader shares (2026-09-24): it strips
+        # the account's own name and reads `industry_terms` off the row's industry field,
+        # so this cascade settles the same rows the resolver and the render gate settle.
+        hits = premise.hits_for(r, evidence_fields)
         if len(hits) >= premise.min_distinct:
             settled.append(
                 PremiseCheck(email, premise.key, "deterministic", True, f"attests {sorted(hits)}")

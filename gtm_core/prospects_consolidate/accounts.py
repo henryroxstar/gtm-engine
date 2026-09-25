@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..account_exclusion_keys import (
-    account_is_dropped,
+    account_hold_reason,
     ledger_account_keys,
     row_account_keys,
 )
@@ -134,7 +134,18 @@ def _account_id_index(profile: str, content_root: Path | None) -> dict[str, str]
 #: correctly overwrote the account's record in `latest.json`, but an already-present row
 #: only gets its `conf_tier` reclassified, so the stale segment/tier/score sat in
 #: `ready-to-load.csv` indefinitely with no documented path to fix it.
-_INHERITED_RECORD_COLUMNS = (*RECORD_COLUMNS, SIGNAL_COLUMN, "why_now", "segment", "tier", "score")
+#: ``industry`` joined 2026-09-24 for the same reason: it is the ledger's classification of
+#: the ACCOUNT, and `premise-vocab.toml` may attest a premise from it (`industry_terms`), so
+#: the pool has to carry it to where the resolver and the render gate read rows.
+_INHERITED_RECORD_COLUMNS = (
+    *RECORD_COLUMNS,
+    SIGNAL_COLUMN,
+    "why_now",
+    "segment",
+    "tier",
+    "score",
+    "industry",
+)
 
 #: The subset the ACCOUNT record wins outright on, rather than only filling a blank.
 #:
@@ -166,6 +177,7 @@ _AUTHORITATIVE_RECORD_COLUMNS = frozenset(
         "segment",
         "tier",
         "score",
+        "industry",
     }
 )
 #: The three provenance columns travel WITH ``why_now`` and are not separable from it. A
@@ -182,6 +194,30 @@ _AUTHORITATIVE_RECORD_COLUMNS = frozenset(
 #: with a test on it. Conditioning the takeover on "the clause changed" was also tried and is
 #: WRONG: it latches, firing only on the single pass that copies the new clause down, so on
 #: every later pass the row matches and stale provenance beside a fresh clause is permanent.
+#:
+#: Those three describe the CLAUSE, though, so they are fill-only only while the row keeps
+#: its own clause. When the account supplies ``why_now`` it has already replaced the row's,
+#: and the row's reading describes a sentence the row no longer holds — see
+#: ``_CLAUSE_BOUND_RECORD_COLUMNS``. Keyed on the account carrying a clause, never on the
+#: clause having changed, so it does not latch.
+
+#: The judgements that describe the clause, authoritative whenever the account record
+#: carries the ``why_now`` they describe (``_account_record_index`` indexes only non-empty
+#: values, so "carries" means a real clause). Seen 2026-09-25: re-research promoted corrected
+#: records onto their accounts, and the pool took each new clause while keeping the old
+#: subject beside it — the gate blocked those rows on `signal-subject-mismatch`, and an
+#: adjacent vendor's row still read `prospect`, the direction that passes silently.
+_CLAUSE_BOUND_RECORD_COLUMNS = frozenset(
+    {"signal_subject", "signal_agent_kind", "category_relation"}
+)
+
+
+def _account_record_wins(col: str, record: dict[str, str]) -> bool:
+    """Whether the account's value for ``col`` overwrites a value the row already carries."""
+    if col in _AUTHORITATIVE_RECORD_COLUMNS:
+        return True
+    return col in _CLAUSE_BOUND_RECORD_COLUMNS and "why_now" in record
+
 
 #: ``verdict`` restrictiveness. The account record may make a row's verdict STRICTER and
 #: never looser — the monotone-stricter rule this repo already applies to tenant pack
@@ -236,8 +272,10 @@ def _account_record_index(profile: str, content_root: Path | None) -> dict[str, 
 
 
 def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[str]:
-    """Account keys the ledger has closed to sending: a retiring lifecycle ``status``, or a
-    ``verdict: drop`` (:func:`~gtm_core.account_exclusion_keys.account_is_dropped`).
+    """Account keys the ledger has closed to sending: a retiring lifecycle ``status``, or any
+    :func:`~gtm_core.account_exclusion_keys.account_hold_reason` — a ``verdict: drop``, an
+    account outside the target markets, or one not yet researched enough to score (PS15: the
+    last two used to reach the list, and the gate, as if they were fits).
 
     ``latest.json`` is the ledger of record for account lifecycle; the pooled CSVs are
     derived views of it. Reading it here is what makes an operator's (or an eval
@@ -254,6 +292,6 @@ def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[s
     keys: set[str] = set()
     for item in _ledger_items(profile, content_root):
         retired = str(item.get("status") or "").strip().lower() in RETIRED_STATUSES
-        if retired or account_is_dropped(item):
+        if retired or account_hold_reason(item):
             keys.update(ledger_account_keys(item))
     return keys

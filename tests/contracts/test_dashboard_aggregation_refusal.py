@@ -21,6 +21,7 @@ sub-line beyond the phrase each assertion pins.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -107,7 +108,13 @@ def test_a_partial_email_target_refuses_rather_than_reporting_a_total(tmp_path):
     _seed(tmp_path, second='slug = "other-20260718"\ntitle = "No targets"\nstatus = "active"\n')
     planned, why = _figures(tmp_path)["planned"]
     assert planned is None and "1 of the 2 campaigns" in why
-    assert "of —" in _page(tmp_path), "a refused target must not render as a number"
+    page = _page(tmp_path)
+    # Read off the marked goal figure (PS20): an em dash where the sum would be, and the
+    # reason beside it. "N of M" is gone — the tile counts people and the goal counts emails.
+    assert re.findall(r'data-figure="planned-emails"[^>]*>(.*?)<', page) == ["—"], (
+        "a refused target must not render as a number"
+    )
+    assert "a partial sum reads as a total" in page
 
 
 def test_a_complete_email_target_sums_and_shows_its_composition(tmp_path):
@@ -146,7 +153,9 @@ def test_one_shared_target_keeps_its_comparator_verdict(tmp_path):
 
 def test_a_partial_roster_refuses_rather_than_claiming_the_whole_segment(tmp_path):
     """Only one campaign declares where its accounts live, so the union covers part of the
-    scope while the tiles say "the whole segment, not a slice".
+    scope while the tiles say it is the scope's accounts. (The tile's sub-line also said "the
+    whole segment, not a slice" until PS20 P1.7 — a claim `roster_gap` cannot prove — so the
+    tiles are now told apart by their label, "accounts researched".)
 
     Reachable only on a SCOPED page — ``build_model`` sets no roster, so the profile-wide
     rollup never renders the block at all. That is why the guard lives at the tile and not
@@ -157,12 +166,12 @@ def test_a_partial_roster_refuses_rather_than_claiming_the_whole_segment(tmp_pat
         gd.scope_to_campaign(gd.build_model("acme", tmp_path), "mine-20260904,other-20260718")
     )
     assert "Not shown for" in both and "declare where their accounts live" in both
-    assert "the whole segment, not a slice" not in both
+    assert "accounts researched" not in both
     assert "Every account in" not in both, "the who-tab table asserts completeness too"
 
     # The SAME roster, scoped to the one campaign that declares it, is honest and renders.
     alone = gd.render_html(gd.scope_to_campaign(gd.build_model("acme", tmp_path), "mine-20260904"))
-    assert "the whole segment, not a slice" in alone
+    assert "accounts researched" in alone
 
 
 def test_agree_never_reads_a_silent_campaign_as_a_zero(tmp_path):

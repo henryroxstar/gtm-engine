@@ -1,187 +1,74 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 from ..page_inputs import Report, verify_inventory, write_inventory
 from ..prospects_consolidate import _pool_dir, _prospects_dir
-from .config import PAGE_NAME, TABS, dashboard_path, input_globs, page_title
+from .config import PAGE_NAME, PROFILE_FILES, TABS, dashboard_path, input_globs, page_title
 from .filters import bar_html, script_block
 from .format import _e, _tiles_reset
+from .health import figures_date, reconciliation_detail
 from .model import build_model, scope_to_campaign
 from .scope import Scope, resolve
+from .styles import STYLESHEET
 from .views_learn import _learn_view, _ops_view
 from .views_status import _status_view
 from .views_what import _what_view
 from .views_who import _who_view
 from .views_worklist import _worklist_view
 
-#: A lane review sheet, as ``gtm_core.lanes`` names one: ``hold-<YYYY-MM-DD>.csv`` and the
-#: ``.html`` rendered beside it. Anchored at both ends so the sibling artifacts in the same
-#: directory — ``hold-decisions.jsonl``, ``hold-decisions-<date>-filled.csv`` — cannot match:
-#: those are the operator's ANSWERS, and linking one as the sheet to fill in would send a
-#: reader to a file whose decisions are already made.
-_SHEET_RE = re.compile(r"^hold-(\d{4}-\d{2}-\d{2})\.(html|csv)$")
-_LABELER_RE = re.compile(r"^labeler-(\d{4}-\d{2}-\d{2})-[a-z0-9]+\.html$")
 
-
-def _review_sheet(m: dict) -> dict | None:
-    """The newest lane review sheet on disk — its href, its date, and its own row count.
-
-    Derived rather than written. The banner used to carry a hardcoded
-    ``evals/lanes-hold-sheet.csv``, which was wrong twice over: no file has ever been
-    written under that name (``gtm_core.lanes`` writes ``hold-<stamp>.csv``), and the page
-    sits at ``content/<profile>/`` while the evals directory is one level further down at
-    ``prospects/evals/`` — so even the correct filename would not have resolved. A dead link
-    in an ``[ACTION REQUIRED]`` banner is worse than no link: it reads as "the work is
-    somewhere over there" and costs the operator the search to find out it is not.
-
-    Prefers the rendered ``.html`` over the ``.csv`` of the same date — that is the sheet a
-    person reviews; the CSV is the data behind it. The row count comes from the CSV either
-    way, because counting ``<tr>`` in a rendered page counts its header and group rows too.
-
-    Every scope's page is written to ``_prospects_dir(...).parent`` (see :func:`page_path`),
-    so one relative prefix is correct for the rollup and the per-campaign pages alike.
+def _warnings_strip(m: dict) -> str:
+    """PS20: one page-wide strip for every reason ``m["warnings"]`` found, in that order —
+    replaces the reconciliation-only banner. ``records-disagree`` keeps that banner's old
+    wording when the reconciliation itself disagrees
+    (tests/test_email_campaign_dashboard.py:972-982); a sum-only mismatch (Task 6) gets its
+    own, different sentence.
     """
-    evals = _prospects_dir(m["profile"], m.get("_content_root")) / "evals"
-    if not evals.is_dir():
-        return None
-    dated: dict[str, dict[str, Path]] = {}
-    for p in evals.iterdir():
-        hit = _SHEET_RE.match(p.name)
-        if hit:
-            dated.setdefault(hit.group(1), {})[hit.group(2)] = p
-    if not dated:
-        return None
-    stamp = max(dated)
-    pick = dated[stamp].get("html") or dated[stamp]["csv"]
-    csv = dated[stamp].get("csv")
-    rows = None
-    if csv:
-        # Header excluded. A blank trailing line would otherwise count as a row and report
-        # a sheet one bigger than it is.
-        rows = max(
-            len([ln for ln in csv.read_text(encoding="utf-8").splitlines() if ln.strip()]) - 1, 0
-        )
-    return {"href": f"prospects/evals/{pick.name}", "stamp": stamp, "rows": rows}
-
-
-def _eval_labeler(m: dict) -> dict | None:
-    """The newest email-eval labeling page on disk, and how much of it is still unanswered.
-
-    The sibling of :func:`_review_sheet`, added 2026-09-22 for the reason that one exists:
-    the lane hold sheet has carried an ``[ACTION REQUIRED]`` banner for months, and the eval
-    round — the round that decides whether a rule is KEPT or RETIRED — had none. It was
-    invoked from memory, so it ran roughly never, and four rules sat reading
-    ``delete-candidate`` for want of a single afternoon nobody was ever prompted to spend.
-
-    Counts come from the markdown sheet rather than the rendered page, because a pre-filled
-    answer is a literal ``Y``/``N`` on the ``send_it:`` line there and an unanswered one is
-    ``___`` — cheap to read and impossible to confuse with page markup. The two numbers are
-    reported separately on purpose: the blind rows are the only ones that can tell you
-    whether the pre-filled ones were any good.
-    """
-    evals = _prospects_dir(m["profile"], m.get("_content_root")) / "evals"
-    if not evals.is_dir():
-        return None
-    pages: dict[str, Path] = {}
-    for p in evals.iterdir():
-        hit = _LABELER_RE.match(p.name)
-        if hit:
-            pages.setdefault(hit.group(1), p)
-    if not pages:
-        return None
-    stamp = max(pages)
-    prefilled = blind = 0
-    sheet = evals / f"sheet-{stamp}.md"
-    if sheet.is_file():
-        for line in sheet.read_text(encoding="utf-8").splitlines():
-            if line.startswith("`send_it:`"):
-                if "___" in line:
-                    blind += 1
-                else:
-                    prefilled += 1
-    return {
-        "href": f"prospects/evals/{pages[stamp].name}",
-        "stamp": stamp,
-        "prefilled": prefilled,
-        "blind": blind,
-    }
+    warnings = m.get("warnings") or []
+    if not warnings:
+        return ""
+    rec = m["reconciliation"]
+    sentences = []
+    for reason in warnings:
+        if reason == "unreadable":
+            sentences.append(
+                "The sending tool's figures couldn't be read, so sending numbers show as "
+                "unknown, not zero."
+            )
+        elif reason == "figures-old":
+            fetched_date = figures_date((m["status"].get("snapshot") or {}).get("fetched"))
+            sentences.append(
+                f"Sending figures are from {fetched_date}; replies since then aren't counted."
+                if fetched_date
+                else "Sending figures carry no date, so treat them as old."
+            )
+        elif reason == "records-disagree" and not rec["ok"]:
+            sentences.append(
+                "These numbers may be out of date — the live figures and our own records "
+                "disagree about which email sequences exist — "
+                + _e(reconciliation_detail(rec))
+                + ". Refresh before trusting anything below."
+            )
+        elif reason == "records-disagree":
+            sentences.append(
+                "The sending figures and the campaign lists don't add up — a sequence may "
+                "be counted twice."
+            )
+    body = "".join(f"<p>{s}</p>" for s in sentences)
+    return f'<div class="card warn" data-warn="{_e(" ".join(warnings))}">{body}</div>'
 
 
 def render_html(m: dict) -> str:
     _tiles_reset()  # the recorder holds exactly one page: this one
     title = _e(page_title(m))
-    rec = m["reconciliation"]
-    banners = ""
-    if not rec["ok"]:
-        parts = []
-        if rec["in_ledger_only"]:
-            parts.append("missing from the live figures: " + ", ".join(rec["in_ledger_only"]))
-        if rec["in_snapshot_only"]:
-            parts.append(
-                "in the figures but not our records: " + ", ".join(rec["in_snapshot_only"])
-            )
-        banners += (
-            '<div class="card banner"><h2>These numbers may be out of date</h2><p>'
-            "The live figures and our own records disagree about which email sequences exist — "
-            + _e("; ".join(parts))
-            + ". Refresh before trusting anything below.</p></div>"
-        )
-
-    labeler = _eval_labeler(m)
-    if labeler and labeler["blind"] + labeler["prefilled"]:
-        total = labeler["prefilled"] + labeler["blind"]
-        detail = (
-            f"{labeler['prefilled']:,} row(s) arrive pre-filled for you to correct and "
-            f"{labeler['blind']:,} are blank"
-            if labeler["prefilled"]
-            else f"{total:,} row(s), none pre-filled"
-        )
-        banners += (
-            '<div class="card banner action-required"><h2>[ACTION REQUIRED]</h2><p>'
-            f'An email-eval round is waiting: <a href="{_e(labeler["href"])}" '
-            f'class="review-sheet-link">labeler-{_e(labeler["stamp"])}</a> &mdash; '
-            f"{_e(detail)}. Until it is labeled, every rule it plants a defect for reports "
-            "<code>delete-candidate</code> &mdash; no evidence, not no value.</p></div>"
-        )
-
-    # The banner count IS the "Waiting on you" contact count — the same figure the tile below
-    # and the terminal's ACTION REQUIRED line print, never a second derivation. It used to
-    # fall back to the account receipt's "held" when nobody was waiting, which announced work
-    # (in accounts) that the contact table beside it (in contacts) said did not exist.
-    waiting = ((m.get("prospect_status") or {}).get("counts") or {}).get("waiting_on_you", 0)
-    if waiting > 0:
-        people = "contact is" if waiting == 1 else "contacts are"
-        sheet = _review_sheet(m)
-        if not sheet:
-            # No link rather than a dead one, and the command that makes the missing file.
-            where = (
-                "<strong>No review sheet has been built yet.</strong> Write one with "
-                f"<code>python -m gtm_core.lanes hold-sheet --profile {_e(m['profile'])} "
-                "--hold &lt;hold-&lt;date&gt;.csv&gt;</code>."
-            )
-        else:
-            size = f" &mdash; {sheet['rows']:,} rows" if sheet["rows"] is not None else ""
-            # The two counts come from different places and NEED NOT AGREE, so the banner
-            # says so rather than letting the reader infer that one describes the other.
-            # `waiting_on_you` is the pool's status right now; the sheet is a dated export
-            # of the rows held when it was written. On a live tenant rollup they read 102
-            # and 103 — close enough to look like the same number and not be one.
-            where = (
-                f'The newest review sheet is <a href="{_e(sheet["href"])}" '
-                f'class="review-sheet-link">hold-{_e(sheet["stamp"])}</a>{size}, exported '
-                f"{_e(sheet['stamp'])}. That count is the sheet's own size when it was "
-                "built, not a second reading of the figure above."
-            )
-        banners += (
-            '<div class="card banner action-required"><h2>[ACTION REQUIRED]</h2><p>'
-            f"<strong>{waiting:,}</strong> {people} waiting on your decision. {where}</p></div>"
-        )
-
-    # A page-level banner shows on every tab.
+    # A page-level banner shows on every tab. Only the warnings strip earns that: the eval
+    # round waiting to be labelled is a Maintenance line on Operator notes (PS20 P1.6), and
+    # the review sheet is linked from the lede's "Yours" line (PS15) — both read by the
+    # model (`health.page_extras`), because this function opens no file.
+    banners = _warnings_strip(m)
 
     panels = {
         "worklist": _worklist_view(m),
@@ -204,101 +91,7 @@ def render_html(m: dict) -> str:
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
-<style>
-:root {{ --bg:#0f1115; --panel:#171a21; --line:#252a34; --ink:#e8ecf3; --muted:#98a2b3;
-        --accent:#7c5cff; --ok:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; }}
-* {{ box-sizing:border-box; }}
-body {{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,
-       BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:28px 20px 70px; }}
-.wrap {{ max-width:1080px; margin:0 auto; }}
-h1 {{ font-size:23px; margin:0 0 4px; }}
-h2 {{ font-size:16px; margin:0 0 14px; letter-spacing:.01em; }}
-h3 {{ font-size:14px; margin:24px 0 8px; color:var(--muted); text-transform:uppercase;
-     letter-spacing:.06em; }}
-.card {{ background:var(--panel); border:1px solid var(--line); border-radius:14px;
-        padding:20px 22px; margin-bottom:16px; }}
-.card.banner {{ border-color:rgba(241,196,15,.5); background:rgba(241,196,15,.06); }}
-.card.banner h2 {{ color:var(--warn); }}
-.stats {{ display:flex; flex-wrap:wrap; gap:14px; margin-bottom:16px; }}
-.stat {{ background:var(--panel); border:1px solid var(--line); border-radius:12px;
-        padding:14px 18px; flex:1 1 190px; }}
-.stat-value {{ font-size:27px; font-weight:650; }}
-.stat-label {{ font-size:13px; }}
-.stat-sub {{ font-size:12px; color:var(--muted); margin-top:3px; }}
-table {{ width:100%; border-collapse:collapse; margin:10px 0; font-size:13.5px;
-        display:block; overflow-x:auto; }}
-th,td {{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);
-        vertical-align:top; }}
-th {{ color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase;
-     letter-spacing:.05em; white-space:nowrap; }}
-td.num-cell {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }}
-.muted {{ color:var(--muted); }}
-.note {{ font-size:13px; color:var(--muted); margin:12px 0 0; padding-left:12px;
-        border-left:3px solid var(--accent); }}
-.note strong {{ color:var(--ink); }}
-.pill {{ font-size:11px; padding:2px 8px; border-radius:999px; white-space:nowrap;
-        background:rgba(124,92,255,.15); color:var(--accent); }}
-.pill.good {{ background:rgba(46,204,113,.15); color:var(--ok); }}
-.pill.warn {{ background:rgba(241,196,15,.15); color:var(--warn); }}
-.pill.bad {{ background:rgba(231,76,60,.15); color:var(--bad); }}
-code {{ background:rgba(255,255,255,.05); padding:1px 5px; border-radius:4px; font-size:12.5px; }}
-.steps {{ margin:8px 0 0; padding-left:20px; }} .steps li {{ margin:7px 0; }}
-.bars {{ margin:12px 0 4px; }}
-.brow {{ display:flex; align-items:center; gap:12px; margin:7px 0; }}
-.blabel {{ flex:0 0 210px; font-size:13px; }}
-.btrack {{ flex:1; height:12px; background:rgba(255,255,255,.05); border-radius:999px; }}
-.bfill {{ height:100%; border-radius:999px; background:var(--accent); }}
-.bfill.tb {{ background:#3aa3ff; }}
-.bfill.tc {{ background:#4b5364; }}
-.bval {{ flex:0 0 96px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums; }}
-.gridwrap {{ overflow-x:auto; }}
-table.grid {{ display:table; width:auto; }}
-table.grid th {{ text-transform:none; letter-spacing:0; font-size:12px; }}
-td.gcell {{ text-align:center; min-width:104px; border:1px solid var(--line); }}
-td.gcell.empty {{ color:var(--line); }}
-.verdicts {{ display:flex; flex-wrap:wrap; gap:12px; margin:8px 0 4px; }}
-.v {{ flex:1 1 210px; border:1px solid var(--line); border-radius:12px; padding:14px 16px; }}
-.v.ok {{ border-color:rgba(46,204,113,.4); }}
-.v.bad {{ border-color:rgba(231,76,60,.4); }}
-.vn {{ font-size:26px; font-weight:650; }}
-.vl {{ font-size:13px; }} .vd {{ font-size:12px; margin-top:5px; }}
-.tabs {{ display:flex; gap:8px; margin:18px 0; flex-wrap:wrap; }}
-.tab {{ background:var(--panel); color:var(--muted); border:1px solid var(--line);
-       border-radius:999px; padding:9px 20px; font-size:13.5px; cursor:pointer; }}
-.tab.on {{ color:var(--ink); border-color:var(--accent); }}
-.panel {{ display:none; }} .panel.on {{ display:block; }}
-details {{ margin-top:12px; }}
-summary {{ cursor:pointer; color:var(--muted); font-size:13px; }}
-/* The client-side filter. `[hidden]` is stated explicitly because a <tr> carries a
-   table display role that overrides the UA's hidden rule in some engines, and the row
-   filter hides table rows. */
-[hidden] {{ display:none !important; }}
-.filterbar {{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 16px;
-             padding:12px 14px; background:var(--panel); border:1px solid var(--line);
-             border-radius:12px; }}
-.flabel {{ font-size:12px; text-transform:uppercase; letter-spacing:.06em;
-          color:var(--muted); }}
-.ffield {{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }}
-.ffield select {{ background:var(--bg); color:var(--ink); border:1px solid var(--line);
-                 border-radius:8px; padding:6px 10px; font-size:13px; }}
-/* A facet with one value states it rather than offering a choice: no border, no caret,
-   so it does not read as a control that is merely broken. */
-.ffield.fixed {{ color:var(--muted); }}
-.ffield.fixed strong {{ color:var(--ink); font-weight:600; }}
-#filter-clear {{ background:none; color:var(--accent); border:1px solid var(--line);
-                border-radius:999px; padding:6px 14px; font-size:12.5px; cursor:pointer; }}
-.stale {{ opacity:.45; }}
-.stat-why, .why {{ font-size:12px; color:var(--warn); margin-top:6px; line-height:1.45; }}
-/* PS14 — the technical-detail toggle. `.tech` marks a column that names the pipeline's
-   own machine vocabulary (a lane, a verdict word, a hold trigger) rather than the plain
-   sentence a reader acts on. Hidden by default; the checkbox below flips one body class,
-   never a per-column one, so no view module has to know the toggle exists. */
-.tech {{ display:none; }}
-body.technical-detail-on .tech {{ display:table-cell; }}
-.techtoggle {{ display:flex; align-items:center; gap:7px; font-size:12.5px;
-              color:var(--muted); margin:0 0 14px; cursor:pointer; }}
-.techtoggle input {{ cursor:pointer; }}
-</style></head>
+<style>{STYLESHEET}</style></head>
 <body><div class="wrap">
   <h1>{title}</h1>
   <p class="muted" style="margin:0">refreshed {_e(m["generated_at"])}</p>
@@ -383,6 +176,9 @@ def render_dashboard(
     model = build_model(profile, content_root)
     campaigns = model["campaigns"]["campaigns"]
     sc = resolve(_mode(scope, campaign, campaigns), campaign, campaigns)
+    # Read once, reused by both `write_inventory` calls below (PS20 T1.9) — nothing between
+    # here and either call site changes what `input_globs` would re-glob from disk.
+    spec = input_globs(profile, content_root)
     if sc.is_scoped:
         model = scope_to_campaign(model, sc.csv)
         if model.get("campaign_scope") != sc.csv:
@@ -395,7 +191,9 @@ def render_dashboard(
         out = page_path(profile, content_root, sc)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(render_html(model), encoding="utf-8")
-        write_inventory(out, input_globs(profile, content_root), scope=sc.mode, slugs=sc.slugs)
+        write_inventory(
+            out, spec, scope=sc.mode, slugs=sc.slugs, profile=profile, profile_files=PROFILE_FILES
+        )
         return out  # the redirect stubs belong to the profile-wide page, not to a scoped one
     out = dashboard_path(profile, content_root)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -413,7 +211,7 @@ def render_dashboard(
         (base / "prospects" / "status.html").write_text(
             _stub(f"../{PAGE_NAME}", "Prospecting pipeline"), encoding="utf-8"
         )
-    write_inventory(out, input_globs(profile, content_root), scope="all", slugs=())
+    write_inventory(out, spec, scope="all", slugs=(), profile=profile, profile_files=PROFILE_FILES)
     return out
 
 
@@ -435,7 +233,7 @@ def check_fresh(
     manifests = _load_manifests(profile, content_root)
     sc = resolve(_mode(scope, campaign, manifests), campaign, manifests)
     root, _ = input_globs(profile, content_root)
-    return verify_inventory(page_path(profile, content_root, sc), root)
+    return verify_inventory(page_path(profile, content_root, sc), root, profile=profile)
 
 
 def refresh_all(

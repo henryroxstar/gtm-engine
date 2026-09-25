@@ -167,9 +167,16 @@ def resolve_src(m: dict, token: str):  # noqa: C901, PLR0911 — one return per 
         if not ps.get("available"):
             return "—"
         return (ps.get("counts") or {}).get(arg, 0)
+    if op == "readiness":
+        # Re-derived from the check report on disk, not from the model's copy of it (PS15).
+        from gtm_core.prospect_readiness import load_readiness
+
+        value = getattr(load_readiness(m["profile"], m.get("_content_root")), arg)
+        return "—" if value is None else value
     raise AssertionError(
         f"unknown provenance op {token!r}. Add it to resolve_src, or use one of "
-        "sum / sum-complete / count / agree / roster / pooled / rows / status — never leave a tile "
+        "sum / sum-complete / count / agree / roster / pooled / rows / status / readiness — "
+        "never leave a tile "
         "declaring an op nothing checks."
     )
 
@@ -368,7 +375,7 @@ def test_a_seeded_provenance_lie_is_convicted(tmp_path, monkeypatch):
     # seeded violation that never happened, which is worse than no seeded test at all.
     monkeypatch.setattr(vs, "_scope_figures", first_wins)
     m, _html, tiles = _render(tmp_path, "mine-20260904,other-20260718")
-    planned = next(t for t in tiles if t["label"] == "emails sent")["raw"]["planned"]
+    planned = next(t for t in tiles if t["label"] == "people contacted")["raw"]["planned"]
     truth = resolve_src(m, "sum-complete:campaigns.targets.emails")
     assert planned != truth, (
         "the seeded first-wins bug produced the same number as the honest sum, so this "

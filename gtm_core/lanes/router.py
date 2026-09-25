@@ -102,6 +102,7 @@ def _attach_judge(
     routed.judge_defect_class = normalize_defect_class(rec.defect_class)
     routed.judge_scope = defect_scope(rec.defect_class)
     routed.judge_note = rec.note or rec.evidence
+    routed.judge_calibrated = "" if rec.calibrated is None else str(bool(rec.calibrated)).lower()
     routed.grounding = rec.grounding or ""
     routed.body_hash = rec.body_hash or ""
     routed.source = source

@@ -130,20 +130,57 @@ def test_optout_alert_quotes_the_reply_and_never_claims_suppression(monkeypatch)
     assert captured["data"]["parse_mode"] == "HTML"
     assert "jordan@brackenhealth.example" in text
     assert "Unsubscribe" in text
-    # Must never claim the person IS suppressed — DNC has no removal API, so a false
-    # positive here would be reported as done when it is not.
-    assert "not yet suppressed" in text.lower()
-    assert "Add" in text and "DNC" in text
+    # Must never claim the person IS blocked without an automatic add that was read back —
+    # a false positive here would be reported as done when it is not.
+    assert "not yet blocked" in text.lower()
+    assert "Do Not Contact" in text
 
 
 def test_optout_alert_reply_snippet_is_html_escaped(monkeypatch):
     """The reply body is untrusted content — a crafted reply must not break the
     Telegram message or inject markup."""
-    match = _optout_match(snippet="<script>unsubscribe</script>&stop")
+    match = _optout_match(snippet="unsubscribe <b>now</b> &stop <i")
     captured = _run_optout(monkeypatch, "example", match)
     text = captured["data"]["text"]
-    assert "<script>" not in text
-    assert "&lt;script&gt;" in text
+    assert "<i" not in text.replace("<i>", "")
+    assert "&amp;stop" in text
+
+
+def test_optout_alert_shows_what_was_typed_not_the_quoted_html(monkeypatch):
+    """Live 2026-09-24: the alert quoted Gmail's raw HTML, our own quoted email and all."""
+    gmail = (
+        '<div dir="ltr">Stop</div><br><div class="gmail_quote"><blockquote>'
+        "reply stop to opt out</blockquote></div>"
+    )
+    text = _run_optout(monkeypatch, "example", _optout_match(snippet=gmail))["data"]["text"]
+    assert 'They wrote: "Stop"' in text
+    assert "gmail_quote" not in text
+
+
+def test_optout_alert_says_done_only_after_a_read_back_add(monkeypatch):
+    from pathlib import Path
+
+    from agent.dnc_dispatch import DncDispatchOutcome
+
+    def _text(outcome, **match_kw):
+        match = _optout_match(**match_kw)
+        captured: dict = {}
+        _patch_httpx(monkeypatch, captured)
+        monkeypatch.setattr(
+            "agent.profiles.load_gate1_chat_id", lambda *a, **kw: 12345, raising=False
+        )
+        asyncio.run(
+            gate_notify.push_optout_alert(
+                _Cfg(), Path("/nonexistent"), "example", match, auto_outcome=outcome
+            )
+        )
+        return captured["data"]["text"]
+
+    added = DncDispatchOutcome(ok=True, status="added", added=("jordan@brackenhealth.example",))
+    assert "Nothing for you to do" in _text(added)
+    failed = DncDispatchOutcome(ok=False, status="dnc_add_failed", detail="HTTP 500")
+    assert "did not work" in _text(failed) and "Nothing for you to do" not in _text(failed)
+    assert "switched off" in _text(None, clear=True)
 
 
 def test_optout_alert_no_send_without_a_token(monkeypatch):

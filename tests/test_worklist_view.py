@@ -24,6 +24,7 @@ import itertools
 
 import pytest
 
+from gtm_core.email_campaign_dashboard.health import list_rows
 from gtm_core.email_campaign_dashboard.views_worklist import (
     GROUPS,
     _group_of,
@@ -160,7 +161,7 @@ def test_every_account_lands_in_exactly_one_known_group():
 # ----------------------------------------------------------------- reading the list
 
 
-def test_the_candidate_reader_marks_admissibility_from_the_verdict(tmp_path, monkeypatch):
+def test_the_candidate_reader_marks_admissibility_from_the_verdict(tmp_path):
     seq = tmp_path / "acme" / "prospects" / "sequences"
     seq.mkdir(parents=True)
     path = seq / "list.csv"
@@ -171,10 +172,12 @@ def test_the_candidate_reader_marks_admissibility_from_the_verdict(tmp_path, mon
         w.writerow({"email": "no@stonebridge.example", "verdict": "drop"})
         w.writerow({"email": "blank@quaymark.example", "verdict": ""})
 
+    # The model parses the list onto the message (PS20 P1.6); the view reads only that — no
+    # profile, no content root, so a view that still went to disk could not find the file.
     m = {
-        "profile": "acme",
-        "_content_root": tmp_path,
-        "messages": [{"sequence_id": "seqA", "csv": "list.csv"}],
+        "messages": [
+            {"sequence_id": "seqA", "csv": "list.csv", "list_rows": list_rows(seq, "list.csv")}
+        ]
     }
     out = _staged_candidates(m)
     assert out["ok@northgate.example"]["admissible"] is True, "email must be lowercased to join"
@@ -317,7 +320,8 @@ def test_the_worklist_table_carries_a_status_column_and_marks_research_verdict_t
 
 
 def _two_list_model(tmp_path):
-    """One address on two sequences' lists, plus one address unique to each."""
+    """One address on two sequences' lists, plus one address unique to each — parsed the way
+    the model parses them (`health.list_rows`) and carried on each message (PS20 P1.6)."""
     seq = tmp_path / "acme" / "prospects" / "sequences"
     seq.mkdir(parents=True, exist_ok=True)
     for name, rows in (
@@ -330,11 +334,9 @@ def _two_list_model(tmp_path):
             for email, verdict in rows:
                 w.writerow({"email": email, "verdict": verdict})
     return {
-        "profile": "acme",
-        "_content_root": tmp_path,
         "messages": [
-            {"sequence_id": "seqA", "csv": "a.csv"},
-            {"sequence_id": "seqB", "csv": "b.csv"},
+            {"sequence_id": "seqA", "csv": "a.csv", "list_rows": list_rows(seq, "a.csv")},
+            {"sequence_id": "seqB", "csv": "b.csv", "list_rows": list_rows(seq, "b.csv")},
         ],
     }
 

@@ -30,6 +30,9 @@
 #   segments    = ["enterprise"]             # optional; lowercase, and every entry must be
 #                                            # declared in role-vocabulary.toml `segments`
 #   notes       = "..."                      # optional, for the next editor
+#   # angle-added YYYY-MM-DD <why>          # optional line INSIDE the block: marks an angle
+#                                            # added after the matrix mining, so a tenant
+#                                            # contract test can count mined and added apart
 #
 # All four references are checked at load: a dangling one does not raise downstream, it renders
 # an empty slot, which is a generic email with a confident shape.

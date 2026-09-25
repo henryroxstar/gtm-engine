@@ -10,8 +10,8 @@ from gtm_core import email_campaign_dashboard as gd
 
 
 def test_dashboard_flags_human_gates(tmp_path: Path, monkeypatch) -> None:
-    """Five CONTACTS waiting on a decision: the [ACTION REQUIRED] banner names that count, in
-    contacts — the same figure, in the same words, the terminal block prints."""
+    """Five CONTACTS waiting on a decision: the lede's "Yours" line names that count, in
+    contacts — the same line, from the same function, the terminal block prints (PS15)."""
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     profile = "test-tenant"
     p_dir = tmp_path / profile / "prospects"
@@ -42,10 +42,10 @@ def test_dashboard_flags_human_gates(tmp_path: Path, monkeypatch) -> None:
     model = gd.build_model(profile, content_root=tmp_path)
     html = gd.render_html(model)
 
-    # Assert [ACTION REQUIRED] CSS alert banner is present
-    assert "ACTION REQUIRED" in html
-    assert "<strong>5</strong> contacts are waiting on your decision" in html
-    assert "waiting on a routing decision" not in html, "the banner counts contacts, not accounts"
+    # PS15: a decision is the operator's move, not a warning banner.
+    assert "Yours (5): decide on 5 contacts" in html
+    assert "ACTION REQUIRED" not in html
+    assert "waiting on a routing decision" not in html, "it counts contacts, not accounts"
 
 
 def test_dashboard_safe_download_deliverables(tmp_path: Path, monkeypatch) -> None:
@@ -286,9 +286,9 @@ def test_no_sheet_on_disk_means_no_link_and_the_command_that_builds_one(
     _held_profile(tmp_path)
 
     html = gd.render_html(gd.build_model("test-tenant", content_root=tmp_path))
-    assert "ACTION REQUIRED" in html
-    assert not _hrefs(html), "nothing on disk to link, so the banner must offer no href"
-    assert "gtm_core.lanes hold-sheet" in html, "say how to build the missing sheet"
+    assert "Yours (5): decide on 5 contacts" in html
+    assert not _hrefs(html), "nothing on disk to link, so the page must offer no href"
+    assert "the review sheet is built when the list is sorted" in html, "say when it appears"
 
 
 # ------------------------------------------------------- keeping every page up to date

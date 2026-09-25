@@ -72,6 +72,7 @@ from __future__ import annotations
 
 from .accounts import (  # noqa: F401
     _AUTHORITATIVE_RECORD_COLUMNS,
+    _CLAUSE_BOUND_RECORD_COLUMNS,
     _INHERITED_RECORD_COLUMNS,
     _VERDICT_STRICTNESS,
     _account_id_index,
@@ -79,6 +80,7 @@ from .accounts import (  # noqa: F401
     _account_key_of,
     _account_keys_of,
     _account_record_index,
+    _account_record_wins,
     _disqualified_account_keys,
     _verdict_at_least_as_strict,
 )

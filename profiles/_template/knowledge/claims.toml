@@ -24,6 +24,11 @@
 #   do_not_say  phrases that overclaim THIS claim. The outreach linter refuses a body carrying
 #               one, whatever the surrounding sentence says. List the words a reader would take
 #               as a stronger promise than the statement makes.
+#   boundary    optional, true | false (default false). `true` means the claim is about the far
+#               side of an ORGANISATIONAL boundary — a stranger's agent admitted, a call across
+#               orgs presented, a merchant paid. Such a claim may only sit on a premise whose
+#               evidence shows that boundary: an angle joining it to a premise that declares
+#               `attests_boundary = false` (premise-vocab.toml) is refused at load.
 #   notes       optional, for the next editor. Never read by a body.
 #
 # ── Why every example below is `design-target`, and none is `verified` ─────────────────────

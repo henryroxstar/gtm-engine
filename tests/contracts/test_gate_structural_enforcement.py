@@ -169,6 +169,9 @@ def test_the_prospecting_sequence_node_is_the_run_id_stage():
 
     for variant, expected in (
         ("prospecting/graphs/prospect-outreach.toml", {"sequence"}),
+        # SC9: the DNC draft is run-named too. Missing until 2026-09-24, so the review
+        # node never learned its run id and every approval refused with "found none".
+        ("inbound/graphs/optout-suppress.toml", {"review"}),
         ("marketing/graphs/linkedin-post.toml", set()),
     ):
         executor = make_executor_from_pack(cfg, PROFILE, load_pack_graph(REPO / "packs" / variant))

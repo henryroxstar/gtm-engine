@@ -3,6 +3,9 @@
 Reads ``lanes-state.jsonl`` (the last ``lanes route`` run, per email) and ``latest.json``
 (the cumulative account ledger) for one profile, and prints:
 
+* the **lede** (PS15) — how many can go out today and if none why, what is yours, what is the
+  machine's — from :func:`gtm_core.prospect_lede.compose_lede`, the same function the
+  dashboard's status tab prints; then, under "For the record":
 * the **accounts** block (companies) — :mod:`gtm_core.prospect_status_receipt`;
 * the **contacts** table (people) — the six-way status from :mod:`gtm_core.prospect_status`;
 * the **passed the checks** line, beside the routed count and never inside its total — the
@@ -12,9 +15,9 @@ Reads ``lanes-state.jsonl`` (the last ``lanes route`` run, per email) and ``late
   being checked.
 
 The prospect skill pastes this block verbatim into every run, so every number is a claim made
-to a person. Three rules follow. **One source per claim:** the ACTION REQUIRED banner IS the
+to a person. Three rules follow. **One source per claim:** the lede's "Yours" line IS the
 "Waiting on you" count — the same routed state, never a second derivation — and the accounts
-block's held/ready are that same routed state joined to the ledger. **Units are labelled:**
+block's held/sorted are that same routed state joined to the ledger. **Units are labelled:**
 accounts and contacts are different things and the headings say which. **Never a traceback:**
 both input files are data (§R5). A state record this build cannot map is counted on a visible
 "Unrecognised" line (with a warning on stderr); an unreadable ledger, or a routed-state file
@@ -24,34 +27,33 @@ Reads ``lanes-state.jsonl`` directly rather than ``ready-to-load.csv``: the CSV 
 copy kept in sync by ``restamp_ready_to_load``, the JSONL is the source of truth. Writes
 nothing.
 
-**One deliberate exception** (PH2, 2026-09-24): the "Passed the checks" count is measured on
-``ready-to-load.csv``, because that is the file the enrollment gate itself reads. Measuring
-it on the JSONL would be a second implementation of the gate's population, which is the P6
-defect ("a wrapper around a gate becomes part of the gate while inheriting none of its
-tests") that the laned preflight already had to fix one door over.
+**Passed the checks is read, not measured here** (PS15, 2026-09-24). PH2 measured it in this
+module, per lane, on ``ready-to-load.csv`` — and kept only the number, so a batch the gate
+refused and a list nobody had checked both read "0", and the audit's reasons were discarded.
+The check report (``preflight_report``) now computes every row's fate with the gate's own
+functions and stores it; this module reads it via ``prospect_readiness.load_readiness``,
+which says *stale* when a file the gate reads has changed since. Nothing here re-runs the gate.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
 
-from .account_integrity import audit_rows, filter_by_verdict
 from .lanes.decisions import StateError, newest_sheet, read_state_records
 from .lanes.model import HOLD_QUESTION, QUESTION_COPY
 from .paths import resolve_content_root
-
-# `_lane_groups` is private by name but is deliberately the shared partitioner: PH2 requires
-# this count and the preflight report to split the file the same way, and a second copy is
-# how they would drift apart.
-from .preflight_report import _lane_groups as lane_groups
-from .prospect_paths import evals_dir, suppression_ledger
+from .prospect_lede import LEDE_TAIL, compose_lede
+from .prospect_paths import evals_dir
+from .prospect_readiness import load_readiness
 from .prospect_status import (
     CHECKED_LABEL,
     CHECKED_NEXT_STEP,
     CHECKED_NOT_RUN,
+    CHECKED_NOTES,
     CHECKING_ADDRESS_LABEL,
     CHECKING_ADDRESS_NEXT_STEP,
     LABELS,
@@ -69,9 +71,7 @@ from .prospect_status_receipt import (
     cross_check,
     format_attrition_receipt,
 )
-from .prospects_consolidate import ready_to_load_path
 from .prospects_state import load_latest
-from .suppression import load_index as load_suppression_index
 
 #: The five statuses `status_of` derives from a routed row's (lane, reason). `needs_address`
 #: is the sixth STATUSES id but comes from `latest.json`, not from a routed row — it gets
@@ -82,7 +82,6 @@ _NO_ROUTE_MESSAGE = "Nothing to show yet — run your prospecting first."
 _PAUSED_FOOTER = "Nothing sends until you start a sequence in the sending tool."
 _TOTAL_CAPTION = "every person in the current list"
 _CONTACTS_HEADING = "Contacts — by status (people, not companies):"
-_BUILD_SHEET_HINT = "run `python -m gtm_core.lanes route …` to build it"
 
 
 def _row_reason(record: dict) -> str:
@@ -103,20 +102,19 @@ def _load_ledger_items(profile: str) -> list[dict]:
     return [it for it in load_latest(profile).get("items", []) if isinstance(it, dict)]
 
 
-def _banner(waiting: int, profile: str) -> str:
-    """The ACTION REQUIRED line. ``waiting`` IS the "Waiting on you" count — it is passed in,
-    never re-derived — and the sheet named is one that exists on disk."""
-    people = "contact is" if waiting == 1 else "contacts are"
-    sheet = newest_sheet(profile)
+def _sheet_name(profile: str, content_root: Path | None = None) -> str | None:
+    """The newest review sheet, shown relative to the content root, or ``None``.
+
+    Only a sheet that exists on disk is named (the rule the retired ACTION REQUIRED banner
+    kept): a path to nothing reads as "the work is over there" and costs a search.
+    """
+    sheet = newest_sheet(profile, content_root)
     if sheet is None:
-        where = f"No review sheet exists yet — {_BUILD_SHEET_HINT}."
-    else:
-        try:
-            shown = sheet.relative_to(resolve_content_root())
-        except ValueError:
-            shown = sheet
-        where = f"Review sheet: {shown}"
-    return f"> [!WARNING] ACTION REQUIRED: {waiting} {people} waiting on your decision. {where}\n"
+        return None
+    try:
+        return str(sheet.relative_to(content_root or resolve_content_root()))
+    except ValueError:
+        return str(sheet)
 
 
 def _held_back_contacts(profile: str) -> int:
@@ -142,6 +140,7 @@ def _format_report(
     checking_address_count: int = 0,
     held_back_count: int = 0,
     checked_count: int | None = None,
+    checked_note: str = CHECKED_NOT_RUN,
 ) -> str:
     """The contacts table, then the ledger-only lines (which are NOT part of its total).
 
@@ -166,8 +165,9 @@ def _format_report(
     permanently, which is the one thing worse than a wrong number: a caption that is always
     true and therefore says nothing.
 
-    :func:`_checked_count` now supplies it. ``None`` still means genuinely unknown — no list
-    on disk, or a list that could not be read.
+    Since PS15 the caller passes the check report's answer (``prospect_readiness``), and
+    ``checked_note`` says why there is no number when there is none — not run, out of date, or
+    unreadable. ``None`` is never rendered as ``0``.
     """
     ledger_lines = [
         (LABELS["needs_address"], needs_address_count, NEXT_STEP["needs_address"]),
@@ -201,7 +201,7 @@ def _format_report(
     # Beside the routed count, never inside the contacts total: these are the same people
     # measured by a different step, so adding them would double-count every one of them.
     if checked_count is None:
-        lines.append(f"{CHECKED_LABEL:<{label_width}}  {'—':>{count_width}}   {CHECKED_NOT_RUN}")
+        lines.append(f"{CHECKED_LABEL:<{label_width}}  {'—':>{count_width}}   {checked_note}")
     else:
         lines.append(line(CHECKED_LABEL, checked_count, CHECKED_NEXT_STEP))
     lines += [line(*row) for row in ledger_lines]
@@ -243,67 +243,28 @@ def _routed_contacts(records: list[dict]) -> list[dict]:
     ]
 
 
-def _checked_count(profile: str) -> int | None:
-    """How many routed contacts would actually be admitted, or ``None`` if not knowable.
-
-    Measured **per lane**, because the gate's rules are per lane: ``audit_rows`` demotes the
-    research-record findings to advisory in the generic lane, so auditing a mixed file
-    unlaned fails generic rows on ``signal-*`` errors the gate would have waved through.
-    Partitioning is delegated to :func:`preflight_report._lane_groups` rather than repeated
-    here — that helper *is* the lane-awareness fix, and a second copy of it is how the two
-    would drift.
-
-    **A lane whose audit fails contributes zero, not its candidate count.** The label on this
-    number reads "yours — these are the ones that may go", and nothing in a blocked batch may
-    go. ``AccountAudit.failed`` is a whole-batch boolean (there is no per-row pass result), so
-    the honest per-lane answer is all-or-nothing.
-
-    ``None`` when the list does not exist or cannot be read — the checks genuinely have not
-    seen it, and that renders as "not run yet" rather than as a confident ``0``.
-    """
-    content_root = resolve_content_root()
-    path = ready_to_load_path(profile, content_root)
-    if not path.is_file():
-        return None
-    try:
-        with path.open(newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            fieldnames = list(reader.fieldnames or [])
-            rows = list(reader)
-    except OSError:
-        # Refuse rather than report a smaller number: an unreadable list is not an empty one.
-        return None
-
-    index = load_suppression_index(suppression_ledger(profile, content_root))
-    rows = [r for r in rows if not (r.get("suppression") or "").strip() and not index.match(r)]
-
-    total = 0
-    for lane, group in lane_groups(rows):
-        if lane in ("hold", "excluded"):
-            # Parked rows have no send verdict (`filter_by_verdict` refuses the lane) and are
-            # not sendable, so they add nothing to a "passed the checks" count.
-            continue
-        kept, vstats = filter_by_verdict(group, "send", lane=lane)
-        audit = audit_rows(
-            kept,
-            profile,
-            content_root,
-            fieldnames=fieldnames,
-            lane=lane,
-        )
-        if not audit.failed:
-            total += vstats.kept
-    return total
-
-
 def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -> None:
     contacts = _routed_contacts(records)
     counts = Counter(c["status"] for c in contacts)
     receipt = compute_attrition_receipt(ledger_items, contacts)
 
-    waiting = counts.get("waiting_on_you", 0)
-    if waiting:
-        print(_banner(waiting, profile))
+    # PS15: the lede answers first — how many can go out and why not, what is yours, what is
+    # the machine's — then the record beneath it, unchanged. Every lede value is one this
+    # function already has; `compose_lede` opens nothing, and the dashboard calls the same
+    # function, so the two surfaces cannot word the same fact two ways.
+    readiness = load_readiness(profile)
+    problems = cross_check(receipt, dict(counts), len(records))
+    for ln in compose_lede(
+        readiness,
+        counts=dict(counts),
+        buckets=receipt.to_dict(),
+        sheet=_sheet_name(profile),
+        now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+    ):
+        print(ln)
+    print("")
+    print(f"{LEDE_TAIL} — the detail behind the lines above:")
+    print("")
     print(format_attrition_receipt(receipt))
     print("")
     print(
@@ -312,10 +273,13 @@ def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -
             sum(1 for it in ledger_items if needs_address(it)),
             sum(1 for it in ledger_items if awaiting_verification(it)),
             _held_back_contacts(profile),
-            _checked_count(profile),
+            readiness.admitted,
+            CHECKED_NOTES.get(readiness.state, CHECKED_NOT_RUN),
         )
     )
-    for problem in cross_check(receipt, dict(counts), len(records)):
+    # Counting discrepancies are for whoever maintains the setup, so they sit in the record,
+    # never in the lede (operator direction 2026-09-24: internal workings must not crowd it).
+    for problem in problems:
         print(problem)
     if counts.get(UNRECOGNISED):
         print(

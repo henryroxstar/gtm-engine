@@ -1650,3 +1650,18 @@ def test_i2_unblocked_account_passes_under_require_verdict(tmp_path, capsys, mon
     err = capsys.readouterr().err
     assert "REFUSED" not in err
     assert rc == 0
+
+
+def test_generic_lane_advisory_classes_do_not_count_toward_the_budget(tmp_path):
+    """The research-absence classes were acked by rote on every generic run (ten of them,
+    every time). Since 2026-09-24 they print and do not spend the budget — the same
+    arithmetic as an acked class, without the operator having to say so."""
+    rows = [_row(email=f"p{i}@vertex.example", verdict="", category_relation="") for i in range(3)]
+    generic = audit_rows(rows, PROFILE, content_root=tmp_path, lane="generic")
+    assert {"no-dossier", "verdict-missing", "relation-unresolved"} <= set(generic.advisory)
+    assert set(generic.advisory) <= ai.GENERIC_LANE_ADVISORY
+    unacked = {c.rule for c in generic.warn_verdict.unacked_classes}
+    assert not (set(generic.advisory) & unacked)
+    # Negative control: the same demoted lines, not marked advisory, DO count.
+    generic.advisory = ()
+    assert "no-dossier" in {c.rule for c in generic.warn_verdict.unacked_classes}

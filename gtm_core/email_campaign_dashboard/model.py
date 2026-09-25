@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,7 +11,9 @@ from ..campaigns_dashboard import build_campaigns
 from ..cells import build_cells, intent_profile, supply_profile
 from ..outcomes import read_outcomes
 from ..paths import resolve_content_root
+from ..prospect_lede import compose_lede
 from ..prospect_paths import evals_dir
+from ..prospect_readiness import load_readiness
 from ..prospect_status import (
     STATUSES,
     UnmappedStatus,
@@ -18,10 +21,13 @@ from ..prospect_status import (
     needs_address,
     status_of,
 )
+from ..prospect_status_receipt import cross_check
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
 from ..prospects_state import load_latest
+from .aggregate import _scope_figures
 from .format import _rate_of
+from .health import capability_rows_for, list_rows, page_extras, page_go_live
 from .lane_state import LaneStateUnreadable as LaneStateUnreadable
 from .lane_state import _read_lane_state
 from .loadfiles import load_files
@@ -202,7 +208,7 @@ def inbound_health(profile: str, content_root: Path | None = None) -> dict:
                 {"email": ev.get("email", ""), "ts": (ev.get("ts") or "")[:10]}
             )
     latest["unreadable_recent"] = latest["unreadable_recent"][-5:]
-    return latest
+    return dict(latest, capability_rows=capability_rows_for(latest["capability"]))
 
 
 def _lint_records(profile: str, content_root: Path | None) -> dict[str, dict]:
@@ -324,7 +330,9 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
             {
                 "id": sid,
                 "name": Path(led.get("spec") or "").stem or sid,
-                "status": led.get("status", ""),
+                # Unknown here, not the ledger's: the live snapshot never named this row, and
+                # the ledger's own status is "paused" by construction (PS20).
+                "status": "",
                 "loaded": int(led.get("enrolled") or 0),
                 "sent": 0,
                 "pending": int(led.get("enrolled") or 0),
@@ -431,6 +439,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
             "copy": _spec_copy(seq_dir / src["spec"]),
             "lint": lint.get(src["sequence_id"], {}),
             "audience": [c for c in cellmodel["cells"] if c["sequence_id"] == src["sequence_id"]],
+            "list_rows": list_rows(seq_dir, src["csv"]),
         }
         for src in cellmodel["sources"]
     ]
@@ -442,36 +451,39 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
     # wording and the page read "Held 0" under a terminal block reading "Held 3".
     # `routed=None` only when `lanes-state.jsonl` does not exist at all (never sorted): the
     # receipt then falls back to the ledger's wording, and the card says that it did.
-    from ..prospect_status_cli import _routed_contacts  # deferred: it imports the lanes package
+    from ..prospect_status_cli import (  # deferred: it imports the lanes package
+        _routed_contacts,
+        _sheet_name,
+    )
 
     lane_records = _read_lane_state(profile, content_root)
     sorted_once = (evals_dir(profile, content_root) / "lanes-state.jsonl").is_file()
     ledger_items = [
         it for it in load_latest(profile, content_root).get("items", []) if isinstance(it, dict)
     ]
-    attrition_receipt = compute_attrition_receipt(
-        ledger_items, _routed_contacts(lane_records) if sorted_once else None
-    ).to_dict()
+    routed = _routed_contacts(lane_records) if sorted_once else None
+    receipt = compute_attrition_receipt(ledger_items, routed)
+    attrition_receipt = receipt.to_dict()
+    # PS15: the discrepancy lines, with the same call and arguments `prospects status` makes.
+    # The receipt object carries what `cross_check` needs; the dict above does not.
+    contact_counts = Counter(c["status"] for c in routed or [])
+    problems = cross_check(receipt, dict(contact_counts), len(lane_records)) if routed else []
+    readiness = load_readiness(profile, content_root)
     prospect_status = prospect_status_model(profile, content_root)
 
-    # GO-LIVE IS EVIDENCE, NEVER A DEFAULT (UX-05). "staged" used to be the fall-through, so
-    # a tenant that had never staged anything read "Go-Live Status: STAGED". It now needs a
-    # sequence on record: the live snapshot's own status first, else a `sequence_staged`
-    # event in the ledger (linked to a campaign or not). No record at all is "none".
-    live = {str(s.get("status", "")).lower() for s in status.get("sequences", [])}
-    on_record = campaigns.get("unlinked_sequences") or any(
-        c.get("sequences") for c in campaigns["campaigns"]
-    )
-    if live & {"active", "running"}:
-        go_live_status = "active"
-    elif "paused" in live:
-        go_live_status = "paused"
-    else:
-        go_live_status = "staged" if on_record else "none"
-
+    # GO-LIVE IS EVIDENCE, NEVER A DEFAULT (UX-05) — `health.page_go_live` (PS20 T1.10).
+    figures = _scope_figures({"campaigns": campaigns, "status": status})
+    go_live_status = page_go_live(campaigns, status, figures["contacted"][0])
+    now = datetime.now(UTC)
+    generated_at = now.strftime("%Y-%m-%d %H:%M UTC")
+    # Computed once for `reconciliation`/`warnings` below — skipped when unreadable, so an
+    # empty snapshot reads as unreadable rather than "every sequence vanished".
+    reconciliation = {"ok": True, "in_ledger_only": [], "in_snapshot_only": []}
+    if not status["snapshot"]["unreadable"]:
+        reconciliation = reconcile_snapshot(campaigns, status)
     return {
         "profile": profile,
-        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        "generated_at": generated_at,
         "status": status,
         "campaigns": campaigns,
         # The rollup gets a roster too, built from every campaign that declares one. Before
@@ -494,7 +506,8 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         "runs": prospecting_runs(profile, content_root),
         # Profile-wide, like `runs`: the inbound lane is not scoped to one campaign.
         "inbound": inbound_health(profile, content_root),
-        "reconciliation": reconcile_snapshot(campaigns, status),
+        "reconciliation": reconciliation,
+        **page_extras(profile, content_root, status, reconciliation, figures["sum_ok"], now),
         # Profile-wide, like `market`/`supply`/`intent` above — the router's last route
         # is not scoped to one campaign, so `scope_to_campaign` leaves this key untouched.
         "prospect_status": prospect_status,
@@ -504,4 +517,16 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
             profile, content_root, lane_records, waiting=prospect_status["counts"]["waiting_on_you"]
         ),
         "go_live_status": go_live_status,
+        # PS15. `lede` is `compose_lede`'s output — the SAME function the terminal prints —
+        # with the one input only this page can observe: the sequencer's go-live state.
+        "readiness": readiness,
+        "cross_check": problems,
+        "lede": compose_lede(
+            readiness,
+            counts=dict(contact_counts),
+            buckets=attrition_receipt,
+            sheet=_sheet_name(profile, content_root),
+            now=generated_at,
+            go_live=go_live_status,
+        ),
     }

@@ -255,3 +255,39 @@ def test_a_ledger_path_that_is_not_a_file_aborts(tmp_path: Path) -> None:
 
     with pytest.raises(LedgerUnreadableError):
         pc.consolidate(PROFILE, content_root=tmp_path)
+
+
+# --------------------------------------------------------------------------- PS15
+# Operator decision 2026-09-24: tier C gets the general email; an account the scorecard could
+# not place in a target market, or could not score for missing research, is kept off the send
+# list AUTOMATICALLY — by the same rule the enrollment gate reads (`account_hold_reason`).
+
+
+def test_an_out_of_market_account_is_kept_off_the_list(tmp_path: Path) -> None:
+    _export(tmp_path, [ROWAN])
+    _ledger(tmp_path, [{"company": "Contoso Freight", "domain": "contosofreight.example",
+                        "tier": "unscored", "score_missing_inputs": ["in_target_market"]}])  # fmt: skip
+    assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 1
+    assert _ready(tmp_path) == []
+
+
+def test_an_account_not_yet_researched_is_kept_off_until_it_is(tmp_path: Path) -> None:
+    _export(tmp_path, [ROWAN])
+    _ledger(tmp_path, [{"company": "Contoso Freight", "domain": "contosofreight.example",
+                        "tier": "unscored", "score_missing_input": "research_on_file"}])  # fmt: skip
+    assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 1
+
+    # Researched and rescored: it rejoins by itself, with nobody deciding anything.
+    _ledger(tmp_path, [{"company": "Contoso Freight", "domain": "contosofreight.example",
+                        "tier": "C", "score": 58}])  # fmt: skip
+    assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 0
+    assert _ready(tmp_path) == ["rowan.pike@contosofreight.example"]
+
+
+def test_a_tier_c_account_stays_on_the_list(tmp_path: Path) -> None:
+    """Negative control: tier C is a fit and must not be excluded by the new rule."""
+    _export(tmp_path, [ROWAN])
+    _ledger(tmp_path, [{"company": "Contoso Freight", "domain": "contosofreight.example",
+                        "tier": "C", "score": 51}])  # fmt: skip
+    assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 0
+    assert _ready(tmp_path) == ["rowan.pike@contosofreight.example"]

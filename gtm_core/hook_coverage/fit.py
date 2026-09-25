@@ -205,6 +205,24 @@ def signal_terms(matrix: Matrix) -> dict[str, frozenset[str]]:
     return out
 
 
+def _declared_in_matrix(declared: DeclaredCell, matrix: Matrix):
+    """The matrix cell a declaration names, in the grid it carries when it carries one.
+
+    A ``DeclaredCell`` resolved from an angle records that angle's grid (``segment``); a
+    hand-declared ``hook_cell:`` records none and keeps the segment-insensitive
+    ``Matrix.find``. Until 2026-09-24 both took the first grid the matrix held the pair
+    under, so an enterprise angle whose seat also has a builder cell was measured against
+    the builder grid — MISAIMED at 0% on a list the resolver had already confined to the
+    angle's own segment.
+    """
+    if declared.segment:
+        want = (declared.persona.lower(), declared.signal.lower(), _norm_segment(declared.segment))
+        for cell in matrix.cells.values():
+            if (cell.persona.lower(), cell.signal.lower(), _norm_segment(cell.segment)) == want:
+                return cell
+    return matrix.find(declared.persona, declared.signal)
+
+
 def segment_fit(
     spec: str,
     declared: DeclaredCell | None,
@@ -220,7 +238,7 @@ def segment_fit(
     """
     if declared is None or matrix is None or not matrix.ok:
         return None
-    cell = matrix.find(declared.persona, declared.signal)
+    cell = _declared_in_matrix(declared, matrix)
     if cell is None or not cell.segment:
         return None
     # Accumulate, never rebuild as a dict comprehension: normalisation MERGES keys
@@ -297,7 +315,7 @@ def signal_fit(
     """
     if declared is None or matrix is None or not matrix.ok:
         return None
-    cell = matrix.find(declared.persona, declared.signal)
+    cell = _declared_in_matrix(declared, matrix)
     if cell is None:
         return None
     recorded_signals = list(recorded_signals or [])

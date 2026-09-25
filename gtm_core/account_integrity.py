@@ -468,6 +468,13 @@ class AccountAudit:
     #: pass — see :mod:`gtm_core.finding_budget`.
     acked: tuple[str, ...] = ()
     budget: int = WARN_BUDGET
+    #: WARN classes the LANE itself made advisory — the generic lane's research-absence
+    #: aggregates from :func:`_demote_generic_lane_findings`. Printed, never budgeted: the
+    #: body they describe references no research, so the operator was acknowledging them on
+    #: every generic run by rote (ten classes, every time), and an acknowledgment nobody
+    #: reads buys headroom for the classes they should have read. Since 2026-09-24 they
+    #: count the way an acked class counts; ``acked`` itself stays the operator's own list.
+    advisory: tuple[str, ...] = ()
 
     @property
     def warn_verdict(self):
@@ -482,7 +489,7 @@ class AccountAudit:
             self.warnings,
             self.accounts,
             denominators=dict.fromkeys(_ROW_LEVEL_RULES, self.rows),
-            acked=self.acked,
+            acked=(*self.acked, *self.advisory),
             budget=self.budget,
         )
 
@@ -678,6 +685,12 @@ def _demote_generic_lane_findings(a: AccountAudit, lane: str) -> None:
         return
     a.errors, demoted = demote_generic_advisory(a.errors)
     a.warnings.extend(demoted)
+    # Every advisory-class line now in the WARN tier, whichever tier it was born in: the
+    # demoted aggregates above, and a class `check_row` emits as a WARN natively
+    # (`agent-kind-unused` — 34 of 449 rows on the 2026-09-24 generic batch, the one class
+    # the first cut of this missed).
+    rules = {line.split(":", 1)[0].strip() for line in a.warnings}
+    a.advisory = tuple(sorted(rule for rule in rules if _is_generic_advisory(rule)))
 
 
 def _competitor_finding(
@@ -894,6 +907,11 @@ def render(a: AccountAudit, *, pass_text: str = "PASS") -> str:
     v = a.warn_verdict
     if a.warnings:
         lines.append(render_budget(v, unit="account", units=dict.fromkeys(_ROW_LEVEL_RULES, "row")))
+        if a.advisory:
+            lines.append(
+                "  advisory in the GENERIC lane, not budgeted (no --ack needed): "
+                + ", ".join(a.advisory)
+            )
         if v.enumerable:
             lines.extend(f"    - {w}" for w in a.warnings)
         lines.append("")
@@ -999,7 +1017,8 @@ def main(argv: list[str] | None = None) -> int:
             "a row whose verdict the lane does not admit is a `verdict-inadmissible` ERROR. "
             "For `generic`, an ABSENT research record (no-dossier, verdict-missing, "
             "relation-unresolved, signal-*-missing, agent-kind-unresolved) is one advisory "
-            "line per class; a WRONG one (signal-stale, signal-observed-future, "
+            "line per class that does not count toward --budget; a WRONG one (signal-stale, "
+            "signal-observed-future, "
             "signal-source-is-search, ...) stays an ERROR in every lane. A CSV whose own "
             "`lane` column disagrees is refused: a list routed into one lane must not be "
             "enrolled into another."

@@ -229,6 +229,18 @@ HOLD_QUESTION: dict[str, str] = {
 #: Plain-English title + per-choice meaning per QUESTION id (not per trigger) — adapted from
 #: :data:`HOLD_COPY`, merging the triggers :data:`HOLD_QUESTION` groups together into one
 #: shared meaning so the sheet asks the question once per group instead of once per trigger.
+#: The questions whose "suppress" retires the whole ACCOUNT, as the sheet's own copy for them
+#: says ("keep it out of automated outreach", "honour it", "agree with the recommendation").
+#: Every other question's suppress drops only the one PERSON the row names — the copy for a
+#: second contact reads "one person per account — drop this one", and for an ungrounded number
+#: "do not lose the account". Until 2026-09-24 every suppress retired the account, so dropping
+#: a duplicate contact silently removed the colleague who was staying on the list.
+#: A closed set: a question not named here drops only the person, which still protects them
+#: and retires nobody else.
+ACCOUNT_SCOPED_SUPPRESS: frozenset[str] = frozenset(
+    {"account-off-limits", "already-in-conversation", "verdict-said-no"}
+)
+
 QUESTION_COPY: dict[str, tuple[str, dict[str, str]]] = {
     "account-off-limits": (
         "This account is on an off-limits list (competitor, partner, regulator, or strategic)",
@@ -311,6 +323,7 @@ class Routed:
     judge_defect_class: str = ""
     judge_scope: str = ""
     judge_note: str = ""
+    judge_calibrated: str = ""  # "true" / "false" / "" when the record predates the flag
     grounding: str = ""
     body_hash: str = ""
     source: str = ""  # which records file the judge verdict came from

@@ -27,8 +27,12 @@ verbs are denied to the brain in every context. DNC is global and permanent, so 
 false-positive add is a human's to undo in the provider UI — and an automated removal
 would un-suppress someone who asked to be left alone, which nothing here may do.
 
-Detection and escalation being reliable and same-day was the actual fix; the confirm step
-was never the broken part, and it is still a human's.
+**Clear opt-outs skip the gate (2026-09-24, operator decision).** A reply that passes
+:func:`is_clear_optout` — a short typed "stop" / "unsubscribe" / "remove me", nothing
+negated or questioned, the quoted original ignored — is added by the sweep itself through
+the same dispatcher, kill switch and read-back. Everything else :func:`is_optout` catches
+still reaches a human, because that matcher is biased toward recall and only a person
+reviewing each hit makes its false positives harmless.
 
 **Known coverage gap.** Every phrase below is English. A reply in another SCRIPT is caught
 by :func:`is_unreadable` and escalated as ambiguous (SC6); a non-English opt-out in LATIN
@@ -40,6 +44,7 @@ so importing has no side effects); the sweep script stamps timestamps at call ti
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import unicodedata
@@ -49,6 +54,8 @@ from pathlib import Path
 __all__ = [
     "OptOutMatch",
     "is_optout",
+    "is_clear_optout",
+    "typed_text",
     "find_optouts_in_thread",
     "load_watermark",
     "save_watermark",
@@ -191,6 +198,51 @@ def is_optout(text: str) -> bool:
     return False
 
 
+#: A clear opt-out is short enough that nothing else can be going on in it. Past this many
+#: typed words a reply is a conversation that happens to contain an opt-out phrase.
+_CLEAR_MAX_WORDS = 10
+
+#: Anything that could reverse or question the request ("don't unsubscribe me", "can I
+#: opt out of just the webinar?") sends the reply to a human instead.
+_CLEAR_DISQUALIFIER_RE = re.compile(r"\b(?:not|never)\b|n['’]t\b|\?", re.IGNORECASE)
+
+#: Where a mail client's HTML stops being what the sender typed: the quoted original.
+#: Live 2026-09-24: Gmail sends `<div dir="ltr">Stop</div><br><div class="gmail_quote …">`
+#: as ONE line, so the line-based `_reply_head` never cuts it and the quoted original —
+#: which can itself say "opt out" — is matched as if the sender had written it.
+_HTML_QUOTE_START_RE = re.compile(
+    r"<blockquote\b|<div[^>]*\bgmail_quote|<div[^>]*\bid=\"?(?:appendonsend|divRplyFwdMsg)|<hr\b",
+    re.IGNORECASE,
+)
+_HTML_BREAK_RE = re.compile(r"<\s*(?:br|/div|/p|/li|/tr)\b[^>]*>", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]*>?")
+
+
+def typed_text(body: str) -> str:
+    """What the sender typed: HTML reduced to text, cut above any quote or signature."""
+    text = body or ""
+    quote = _HTML_QUOTE_START_RE.search(text)
+    if quote:
+        text = text[: quote.start()]
+    text = html.unescape(_HTML_TAG_RE.sub("", _HTML_BREAK_RE.sub("\n", text)))
+    return " ".join(strip_invisibles(_reply_head(text)).split())
+
+
+def is_clear_optout(body: str) -> bool:
+    """True only for a short, typed, unqualified opt-out — safe to act on without a human.
+
+    Deliberately far narrower than :func:`is_optout`, which is biased toward recall because
+    a human reviews every hit. This one gates an automatic write, so it is biased toward
+    precision: it reads only what the sender typed (never the quoted original), and anything
+    longer, negated, or phrased as a question falls back to the human path — a miss here
+    costs one approval tap, not a missed opt-out.
+    """
+    typed = typed_text(body)
+    if not typed or len(typed.split()) > _CLEAR_MAX_WORDS or _CLEAR_DISQUALIFIER_RE.search(typed):
+        return False
+    return bool(_BARE_STOP_RE.match(typed)) or any(p.search(typed) for p in _PHRASE_PATTERNS)
+
+
 @dataclass(frozen=True)
 class OptOutMatch:
     thread_id: str
@@ -199,6 +251,8 @@ class OptOutMatch:
     message_ts: str
     snippet: str
     direction_known: bool
+    #: :func:`is_clear_optout` held for the matched message — eligible for the automatic add.
+    clear: bool = False
 
 
 def _snippet(text: str, limit: int = 300) -> str:
@@ -284,6 +338,7 @@ def find_optouts_in_thread(thread: dict) -> OptOutMatch | None:
                 message_ts=message_ts(msg),
                 snippet=_snippet(body),
                 direction_known=direction_known,
+                clear=is_clear_optout(body),
             )
     return None
 
@@ -495,13 +550,15 @@ def record_unreadable_event(ledgers, match: OptOutMatch, *, escalated: bool) -> 
     )
 
 
-def record_optout_event(ledgers, match: OptOutMatch, *, escalated: bool) -> None:
+def record_optout_event(ledgers, match: OptOutMatch, *, escalated: bool | None) -> None:
     """Append an ``optout_detected`` audit record to ``history.jsonl``.
 
     Written unconditionally on every match, independent of whether the Telegram push
     in ``agent.gate_notify.push_optout_alert`` succeeds — this is the durable trail:
     even if the notification is swallowed (fire-and-forget by design), the finding is
     not lost, and a stale unconfirmed entry is what a later reconciliation pass reads.
+    ``escalated`` is ``None`` on the automatic path, which alerts AFTER this row (the add
+    needs it) and records the alert on its own ``optout_auto_add`` row.
     """
     ledgers.append_history(
         {
@@ -513,9 +570,14 @@ def record_optout_event(ledgers, match: OptOutMatch, *, escalated: bool) -> None
             "message_ts": match.message_ts,
             "snippet": match.snippet,
             "direction_known": match.direction_known,
+            "clear": match.clear,
             "escalated": escalated,
-            "action_required": "operator confirms and adds to Global DNC — no auto-write "
-            "(DNC has no removal API; see gtm_core.suppression.PROVIDER_DNC_REASONS)",
+            "action_required": (
+                "clear opt-out — added to Global DNC by the sweep; see the optout_auto_add row"
+                if escalated is None
+                else "operator confirms and adds to Global DNC (DNC has no removal API; see "
+                "gtm_core.suppression.PROVIDER_DNC_REASONS)"
+            ),
         }
     )
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from gtm_core.prospect_status_receipt import _fails_fit
+from gtm_core.prospect_status_receipt import _fails_fit, _fails_intent
 from gtm_core.score_prospects import (
     UNSCORED_TIER,
     score_and_rank_prospects,
@@ -113,11 +113,16 @@ def test_a_categorised_row_is_not_in_the_ranked_finalist_queue() -> None:
 # --------------------------------------------------------------------------------------------
 
 
-def test_an_unscored_row_does_not_pass_the_fit_gate() -> None:
-    """Before 2026-09-22 this gate tested ``("C", "DROP")`` only, so an UNSCORED row passed it
-    and nothing further downstream stopped it reaching a recipient."""
-    assert _fails_fit({"tier": "unscored"}) is True
-    assert _fails_fit({"tier": "UNSCORED"}) is True
+def test_an_unscored_row_is_held_by_the_fit_or_intent_gate() -> None:
+    """Before 2026-09-22 an UNSCORED row passed every gate and nothing downstream stopped it
+    reaching a recipient. Since the 2026-09-24 operator decision it is held one of two ways:
+    outside the target markets it fails fit; unscored for any other missing input it is work
+    in progress and fails intent ("being researched") — never neither."""
+    outside = {"tier": "UNSCORED", "score_missing_inputs": ["in_target_market"]}
+    assert _fails_fit(outside) is True
+    for row in ({"tier": "unscored"}, {"tier": "UNSCORED", "score_missing_input": "industry"}):
+        assert _fails_fit(row) is False
+        assert _fails_intent(row) is True
 
 
 def test_the_fit_gate_still_passes_a_real_finalist() -> None:

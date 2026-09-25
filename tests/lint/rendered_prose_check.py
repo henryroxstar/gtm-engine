@@ -8,7 +8,12 @@ campaign staged two touches. "17 re-angle, 7 drop" disagreed with the file it cl
 and with itself three paragraphs later. "7 of the 18 recipients hold a seat the matrix has no
 row for" was 15. Every one passed review, because a stale number reads exactly like a fresh one.
 
-**The rule: a digit in rendered prose must be derived at render time, not typed.**
+**The rule: a count in rendered prose must be derived at render time, not typed** — a digit,
+or a number word from "two" to "twenty", or "dozen" (PS20 P1.7 Rule A: "Five things change" sat
+over a six-row table, and "seven buyer seats … recognises three" over a list of six). "One" and
+"half" are deliberately NOT matched: they are determiners far more often than claims ("one
+figure", "half the list"), and a lint that fires on every one of them stops being read. A
+hyphenated compound ("a two-step sequence") names a kind of thing rather than counting one.
 
 What is NOT caught here, deliberately, because it is not the failure mode:
 
@@ -34,10 +39,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-#: Packages whose string literals reach a rendered page.
-SCANNED = ("gtm_core/email_campaign_dashboard",)
+#: Packages — and single modules — whose string literals reach a rendered page.
+#: ``campaigns_dashboard.py`` is a model module, but its ``_experiment_block`` renders the
+#: manifest's experiment notes inside the page, so its strings are rendered prose too.
+SCANNED = ("gtm_core/email_campaign_dashboard", "gtm_core/campaigns_dashboard.py")
 #: Facts about an external source, versioned with it — never derived from tenant data.
-EXEMPT_FILES = {"config.py", "render.py"}
+EXEMPT_FILES = {"config.py", "render.py", "styles.py"}
 ALLOWLIST = Path(__file__).with_name("rendered_prose_allow.txt")
 
 #: A digit that is COUNTING something. Excludes anything glued to a word, a colon, a dot, a
@@ -56,6 +63,18 @@ _LABELS = re.compile(
     r"|\b(?:19|20)\d{2}\b|\bd\{\d+\}|\b\d+:\d+\b",
     re.IGNORECASE,
 )
+#: A count written as a word (Rule A above). Longest first, so "seventeen" is never read as
+#: "seven"; a hyphen on either side ("two-step", "step-two") or a letter ("often", "twos")
+#: means it is part of another word.
+_NUMBER_WORDS = sorted(
+    (
+        "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+        "sixteen seventeen eighteen nineteen twenty dozen"
+    ).split(),
+    key=len,
+    reverse=True,
+)
+_WORD_COUNT = re.compile(r"(?<![\w-])(" + "|".join(_NUMBER_WORDS) + r")(?![\w-])", re.IGNORECASE)
 
 
 def _docstring_ids(tree: ast.AST) -> set[int]:
@@ -86,29 +105,46 @@ def load_allowlist() -> dict[str, str]:
     return out
 
 
+def _scanned_files(root: Path) -> list[Path]:
+    """Every ``*.py`` under a :data:`SCANNED` package, plus each :data:`SCANNED` module.
+
+    A missing entry RAISES: a renamed package or module would otherwise be scanned as
+    nothing, and a gate that reads nothing reports clean forever.
+    """
+    out: list[Path] = []
+    for entry in SCANNED:
+        path = root / entry
+        if path.is_file():
+            out.append(path)
+        elif path.is_dir():
+            out += sorted(path.rglob("*.py"))
+        else:
+            raise FileNotFoundError(f"SCANNED entry {entry} does not exist under {root}")
+    return out
+
+
 def findings(root: Path | None = None) -> list[tuple[str, int, str, str]]:
-    """``(relpath, lineno, the digit, the sentence around it)`` for each typed count."""
+    """``(relpath, lineno, the count, the sentence around it)`` for each typed count."""
     root = root or ROOT
     out = []
-    for pkg in SCANNED:
-        for f in sorted((root / pkg).rglob("*.py")):
-            if f.name in EXEMPT_FILES:
+    for f in _scanned_files(root):
+        if f.name in EXEMPT_FILES:
+            continue
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        docs = _docstring_ids(tree)
+        for n in ast.walk(tree):
+            if not isinstance(n, ast.Constant) or not isinstance(n.value, str):
                 continue
-            tree = ast.parse(f.read_text(encoding="utf-8"))
-            docs = _docstring_ids(tree)
-            for n in ast.walk(tree):
-                if not isinstance(n, ast.Constant) or not isinstance(n.value, str):
-                    continue
-                if id(n) in docs:
-                    continue
-                s = _LABELS.sub("", _INLINE_CSS.sub(" ", n.value))
-                # Prose, not an argument: `"0"` passed to `str.rstrip` is a literal, not a
-                # claim. Require something sentence-shaped around the digit.
-                if " " not in s or len(re.findall(r"[A-Za-z]", s)) < 3:
-                    continue
-                for hit in _COUNT.finditer(s):
-                    ctx = " ".join(s[max(0, hit.start() - 60) : hit.start() + 60].split())
-                    out.append((str(f.relative_to(root)), n.lineno, hit.group(1), ctx))
+            if id(n) in docs:
+                continue
+            s = _LABELS.sub("", _INLINE_CSS.sub(" ", n.value))
+            # Prose, not an argument: `"0"` passed to `str.rstrip` is a literal, not a
+            # claim. Require something sentence-shaped around the count.
+            if " " not in s or len(re.findall(r"[A-Za-z]", s)) < 3:
+                continue
+            for hit in [*_COUNT.finditer(s), *_WORD_COUNT.finditer(s)]:
+                ctx = " ".join(s[max(0, hit.start() - 60) : hit.start() + 60].split())
+                out.append((str(f.relative_to(root)), n.lineno, hit.group(1), ctx))
     return out
 
 

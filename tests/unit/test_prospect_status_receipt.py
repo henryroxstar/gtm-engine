@@ -147,7 +147,8 @@ def test_cross_check_fires_for_a_routed_contact_whose_account_is_not_in_the_ledg
     r = compute_attrition_receipt([NORTHWIND], routed)
     problems = cross_check(r, {"ready_to_send": 1, "waiting_on_you": 1}, 2)
     assert problems == [
-        "Check: 1 routed contact matches no ledger account — the account lines above leave it out."
+        "Check: 1 routed contact matches no ledger account — the account lines above leave it "
+        "out. It can still be sent; only the account count misses it."
     ]
 
 
@@ -218,15 +219,19 @@ def test_the_banner_number_is_the_waiting_on_you_number(
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
     waiting = int(re.search(r"^Waiting on you\s+(\d+)", out, re.M).group(1))
-    banner = re.search(r"ACTION REQUIRED: (\d+) contacts? (?:is|are) waiting", out)
+    # PS15: the lede's "Yours" line IS the Waiting-on-you count (the retired banner's rule).
+    yours = re.search(r"^Yours \((\d+)\): decide on", out, re.M)
     assert waiting == held
-    assert (int(banner.group(1)) if banner else 0) == held
+    assert (int(yours.group(1)) if yours else 0) == held
+    if not held:
+        assert "Yours: nothing is waiting on you." in out
+    assert "ACTION REQUIRED" not in out
     assert int(re.search(r"^  Held\s+(\d+)", out, re.M).group(1)) == held
-    assert int(re.search(r"^  Ready\s+(\d+)", out, re.M).group(1)) == 4 - held
+    assert int(re.search(r"^  Sorted\s+(\d+)", out, re.M).group(1)) == 4 - held
     assert "Check:" not in out
 
 
-def test_the_banner_names_a_review_sheet_that_exists_or_says_how_to_build_one(
+def test_the_yours_line_names_a_review_sheet_that_exists_or_says_when_it_appears(
     tmp_path, monkeypatch, capsys
 ) -> None:
     evals = _seed(
@@ -234,16 +239,14 @@ def test_the_banner_names_a_review_sheet_that_exists_or_says_how_to_build_one(
     )
     assert cli.main(["--profile", PROFILE]) == 0
     first = capsys.readouterr().out
-    assert (
-        "No review sheet exists yet — run `python -m gtm_core.lanes route …` to build it." in first
-    )
+    assert "the review sheet is built when the list is sorted" in first
 
     (evals / "hold-2026-09-20.html").write_text("<html></html>", encoding="utf-8")
     (evals / "hold-2026-09-21.html").write_text("<html></html>", encoding="utf-8")
     (evals / "hold-2026-09-22.csv").write_text("email\n", encoding="utf-8")  # not a sheet
     assert cli.main(["--profile", PROFILE]) == 0
     second = capsys.readouterr().out
-    assert f"Review sheet: {PROFILE}/prospects/evals/hold-2026-09-21.html" in second
+    assert f"review sheet: {PROFILE}/prospects/evals/hold-2026-09-21.html" in second
     assert str(tmp_path) not in second  # relative to the content root, not an absolute path
 
 
@@ -273,8 +276,8 @@ def test_an_unjoinable_contact_is_reported_not_dropped(tmp_path, monkeypatch, ca
     _seed(tmp_path, monkeypatch, records, [NORTHWIND])
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^Routed — not yet checked\s+2\b", out, re.M)
-    assert re.search(r"^  Ready\s+1\b", out, re.M)
+    assert re.search(r"^Sorted — not yet checked\s+2\b", out, re.M)
+    assert re.search(r"^  Sorted\s+1\b", out, re.M)
     assert "Check: 1 routed contact matches no ledger account" in out
 
 
@@ -293,9 +296,9 @@ def test_an_unreadable_ledger_is_one_clear_line_not_a_traceback(
 def test_operator_labels_say_what_they_mean() -> None:
     labels = receipt_mod.BUCKET_LABELS
     assert labels["failed_fit"] == "Not a fit / excluded"
-    assert labels["failed_intent"] == "Needs a new angle (queued)"
-    assert labels["failed_enrichment"] == "No usable contact yet"
-    assert labels["not_routed"] == "Not yet routed"
+    assert labels["failed_intent"] == "Being researched"
+    assert labels["failed_enrichment"] == "Finding a contact"
+    assert labels["not_routed"] == "Not yet sorted"
     block = receipt_mod.format_attrition_receipt(compute_attrition_receipt([NORTHWIND], []))
     for old in ("Failed Fit", "Failed Intent", "Enrichment Miss", "Attrition"):
         assert old not in block
@@ -306,7 +309,8 @@ def test_everything_below_the_banner_is_in_the_operators_own_words(
 ) -> None:
     """The block is pasted to a person. The repo's vocabulary lint scans `_format_report`; this
     runs the same scanner over the WHOLE block — accounts lines, an Unrecognised row and a
-    cross-check line included. Only the banner is exempt: it names a file path or a command."""
+    cross-check line included. Since PS15 nothing is exempt: the ACTION REQUIRED banner that
+    named a command is retired, and the lede above the tables is scanned with the rest."""
     import sys
 
     lint_dir = Path(__file__).resolve().parents[1] / "lint"
@@ -323,6 +327,44 @@ def test_everything_below_the_banner_is_in_the_operators_own_words(
     _seed(tmp_path, monkeypatch, records, [NORTHWIND, CONTOSO, LITWARE])
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
-    assert "Unrecognised" in out and "Check:" in out and "ACTION REQUIRED" in out
-    body = "\n".join(ln for ln in out.splitlines() if "ACTION REQUIRED" not in ln)
-    assert [h for h in ov.findings(text=body) if h[0] == "<text>"] == []
+    assert "Unrecognised" in out and "Check:" in out and "Yours (" in out
+    assert "ACTION REQUIRED" not in out
+    assert [h for h in ov.findings(text=out) if h[0] == "<text>"] == []
+
+
+def _pre_ps15_bucket(statuses: set[str]) -> tuple[str, str]:
+    """The three set tests `_routed_bucket` used before PS15, kept verbatim as the oracle."""
+    if statuses & receipt_mod.READY_CONTACT:
+        return "ready", "ready"
+    if statuses & receipt_mod.HELD_CONTACT:
+        return "held", "held"
+    if statuses <= receipt_mod.CLOSED_CONTACT:
+        return "failed_fit", "closed"
+    return "not_routed", "unrecognised"
+
+
+def test_the_furthest_stage_rule_matches_the_set_tests_it_replaced_on_every_combination():
+    """Exhaustive, not sampled: every subset of every status a routed contact can carry,
+    plus an unrecognised one and the ledger-only one — 2**7 cases."""
+    from itertools import chain, combinations
+
+    universe = [
+        "not_emailing",
+        "being_fixed",
+        "waiting_on_you",
+        "ready_to_send",
+        "in_sending_tool",
+        "unrecognised",
+        "needs_address",
+    ]
+    subsets = chain.from_iterable(combinations(universe, k) for k in range(len(universe) + 1))
+    for combo in subsets:
+        got = receipt_mod._routed_bucket(set(combo))
+        assert got == _pre_ps15_bucket(set(combo)), combo
+
+
+def test_the_account_words_say_what_is_happening_not_what_failed():
+    labels = receipt_mod.BUCKET_LABELS
+    assert labels["ready"] == "Sorted"
+    assert "checks decide" in receipt_mod.BUCKET_NOTES["ready"]
+    assert "ready to send" not in receipt_mod.BUCKET_NOTES["ready"]

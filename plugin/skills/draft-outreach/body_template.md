@@ -99,13 +99,15 @@ load-bearing choice is genuinely ambiguous.
    ```
 
    It returns **one angle id per row, or one typed refusal** — `no-verified-claim`,
-   `no-anchor-for-market`, `premise-unsupported`, `seat-unresolved` — plus a count for *every*
-   refusal kind, including the ones that did not fire, so a personalised lane that has quietly
+   `no-anchor-for-market`, `premise-unsupported`, `seat-unresolved`, `segment-unresolved` — plus
+   a count for *every* refusal kind, including the ones that did not fire, so a personalised lane that has quietly
    shrunk is a number you read rather than an absence you have to notice. `--dry-run` is accepted
-   and always true: this verb writes nothing.
+   and always true: this verb writes nothing. Each resolution also says how the premise was attested — `record`, `industry` or `seat`; a `seat` attestation is the generic lane's fallback and means the row's record attests nothing.
 
    **A refusal is an answer, not an obstacle.** `premise-unsupported` means the research is
-   missing, so go back to the row; `no-verified-claim` means every angle that fits this seat rests
+   missing, so go back to the row; `segment-unresolved` means no angle for this seat is written for
+   the grid the row's `segment` names — tag the row or write the angle, never borrow a neighbouring
+   grid's argument; `no-verified-claim` means every angle that fits this seat rests
    on a claim we cannot stand behind, so there is nothing honest to write; `no-anchor-for-market`
    means the reader's market has no anchor on file and the offer must carry the argument instead.
    Never route around one by picking a neighbouring angle by hand.

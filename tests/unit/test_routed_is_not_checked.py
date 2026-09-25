@@ -17,7 +17,7 @@ from gtm_core.prospect_status import CHECKED_LABEL, LABELS, NEXT_STEP
 
 
 def test_the_routed_label_no_longer_claims_completion():
-    assert LABELS["ready_to_send"] == "Routed — not yet checked"
+    assert LABELS["ready_to_send"] == "Sorted — not yet checked"
     assert NEXT_STEP["ready_to_send"] == "the checks, then yours"
 
 
@@ -80,114 +80,11 @@ def test_the_block_still_carries_no_pipeline_vocabulary():
     assert ov._scan("report", report) == []
 
 
-# --- the count is now DERIVED, per lane (PH2, 2026-09-24) ----------------------
+# --- the count is DERIVED by the check report (PS15, 2026-09-24) ---------------
 #
-# `checked_count` was a parameter nothing in production ever passed, so this line read
-# "not run yet" permanently. A caption that is always true says nothing — and it said
-# nothing on the exact run (415 routed / 91 checked) that motivated the split above.
-#
-# The derivation must be LANED. The deleted dashboard copy (PH1) filtered `lane="signal"`
-# and then audited UNLANED, so a routed generic row failed on `signal-*` errors the gate
-# itself waves through. `test_a_generic_lane_row_is_not_judged_by_signal_rules` below is
-# the guard against that returning here.
-
-import csv as _csv
-
-import pytest
-
-from tests.test_preflight_report import _HEADER, _dossier, _row
-
-
-@pytest.fixture
-def content_root(tmp_path, monkeypatch):
-    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
-    return tmp_path
-
-
-def _stage(root, profile: str, rows: list[dict]):
-    """Like `test_preflight_report._staged`, but carrying `lane` and `suppression`.
-
-    Written out rather than reused deliberately: the shared `_HEADER` has NEITHER column,
-    and `_staged` writes only the columns in it — so every "lane" assertion below would
-    have been made against a blank lane, passing while testing nothing. (It did, on the
-    first run of this file.) The header a fixture writes is part of what it proves.
-    """
-    seq = root / profile / "prospects" / "sequences"
-    seq.mkdir(parents=True, exist_ok=True)
-    header = [*_HEADER, "lane", "suppression"]
-    out = seq / "ready-to-load.csv"
-    with out.open("w", newline="", encoding="utf-8") as fh:
-        w = _csv.DictWriter(fh, fieldnames=header)
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k, "") for k in header})
-    return out
-
-
-def test_no_list_on_disk_is_unknown_not_zero(content_root):
-    """`None`, not 0. The checks genuinely have not seen a list that does not exist, and
-    a confident 0 would read as 'everything was rejected'."""
-    assert cli._checked_count("acme") is None
-
-
-def test_a_clean_send_row_is_counted(content_root):
-    _stage(content_root, "acme", [_row(lane="signal")])
-    _dossier(content_root, "acme")
-    assert cli._checked_count("acme") == 1
-
-
-def test_a_row_the_gate_would_refuse_is_not_counted(content_root):
-    """`verdict=hold` never reaches enrollment, so it must not reach this count either."""
-    _stage(content_root, "acme", [_row(lane="signal", verdict="hold")])
-    _dossier(content_root, "acme")
-    assert cli._checked_count("acme") == 0
-
-
-def test_a_generic_lane_row_is_not_judged_by_signal_rules(content_root):
-    """THE lane-awareness guard, and the reason PH1's copy was deleted rather than moved.
-
-    The finding must be one that `GENERIC_LANE_ADVISORY` actually demotes, or the test
-    passes whether or not the audit is laned. `no-dossier` is such a finding: an ERROR in
-    the signal lane (so the batch fails and contributes 0) and advisory in the generic lane
-    (so the row counts). An UNLANED audit reports the stricter answer for both — which is
-    precisely the F-B defect PH1's dead copy carried.
-
-    An earlier version of this test used a blank `signal_clause` and passed against an
-    unlaned audit, proving nothing (§R18). Paired with the signal-lane case below so the
-    two lanes are asserted to DISAGREE, which no unlaned implementation can satisfy.
-    """
-    _stage(content_root, "acme", [_row(lane="generic")])  # deliberately no dossier
-    assert cli._checked_count("acme") == 1
-
-
-def test_the_same_row_in_the_signal_lane_is_refused(content_root):
-    """The other half of the pair above. Same row, same missing dossier, different lane,
-    opposite answer — that disagreement IS lane-awareness."""
-    _stage(content_root, "acme", [_row(lane="signal")])  # deliberately no dossier
-    assert cli._checked_count("acme") == 0
-
-
-def test_a_blocked_lane_contributes_zero_not_its_candidates(content_root):
-    """All-or-nothing per lane. The label says "these are the ones that may go"; nothing
-    in a batch whose audit failed may go, so reporting its candidate count would be a
-    send-authorisation claim the gate does not make."""
-    _stage(content_root, "acme", [_row(lane="signal")])  # no dossier written
-    assert cli._checked_count("acme") == 0
-
-
-def test_a_suppressed_row_is_excluded(content_root):
-    _stage(content_root, "acme", [_row(lane="signal", suppression="opted-out")])
-    _dossier(content_root, "acme")
-    assert cli._checked_count("acme") == 0
-
-
-def test_an_unreadable_list_refuses_rather_than_undercounts(content_root, monkeypatch):
-    """A smaller number and a correct one look identical. Refuse."""
-    _stage(content_root, "acme", [_row(lane="signal")])
-    _dossier(content_root, "acme")
-
-    def _boom(*a, **k):
-        raise OSError("disk")
-
-    monkeypatch.setattr("pathlib.Path.open", _boom)
-    assert cli._checked_count("acme") is None
+# PH2 derived this count inside the status command (`_checked_count`), per lane, and kept
+# only the number: a batch that failed its audit read 0, and so did a list nobody checked.
+# PS15 moved the derivation into the check report, where it carries its reasons and every
+# row's fate. The eight PH2 tests that lived here guarded real gate properties (laned audit,
+# all-or-nothing per batch, suppressed rows excluded, absent is not zero, unreadable is
+# refused); they are ported, not deleted, to `tests/unit/test_prospect_readiness.py`.

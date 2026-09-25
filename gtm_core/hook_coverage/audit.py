@@ -337,7 +337,12 @@ def audit_campaign(
     # what the spec SAYS it argues. They catch different failures: the 2026-08-23 pilot
     # scored as distinguishable prose while making one argument seven times, because
     # different nouns for one claim are still one claim.
-    cov.findings.extend(capability_monotone(cov.capabilities))
+    cov.findings.extend(
+        capability_monotone(
+            cov.capabilities,
+            seats={s: (d.persona if d else "") for s, d in cov.declared.items()},
+        )
+    )
     undeclared = sorted(s for s, c in cov.capabilities.items() if not c)
     if undeclared and cap_vocab:
         shown = ", ".join(undeclared[:EXEMPLARS])

@@ -82,8 +82,8 @@ _MAX_POLLS = resilience.MAX_POLLS
 _POLL_INTERVAL_S = resilience.POLL_INTERVAL_S
 _BULK_MAX = resilience.BULK_MAX
 
-# Search page cap. Searches are credit-free, but the brain reads the results —
-# keep pages compact and let it paginate with ``start`` when it truly needs more.
+# Search page cap AND default: credit-free but rate-limited per hour, so one full page beats
+# ten small ones; still capped because the brain reads every row. Paginate with ``start``.
 _SEARCH_MAX_PAGE_SIZE = 25
 
 # Per-lookup USD rate for the cost ledger. RocketReach is a flat monthly subscription,
@@ -317,11 +317,11 @@ async def _bulk(people: list[dict]) -> str:
 
     if not resilience.available():
         return resilience.unavailable_message()
-    results: list[dict] = []
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
-        for i, q in enumerate(people):
-            await resilience.pace(i)  # a batch is not a burst; see resilience.py
-            results.append(await _lookup_one(client, key, q if isinstance(q, dict) else {}))
+        # Bounded concurrency, paced starts, input order kept — see resilience.gather_paced.
+        results: list[dict] = await resilience.gather_paced(
+            people, lambda q: _lookup_one(client, key, q if isinstance(q, dict) else {})
+        )
     # Meter only the records that actually returned contact info (a resolved lookup).
     resolved = sum(
         1 for r in results if not r.get("error") and (r.get("emails") or r.get("phones"))
@@ -419,7 +419,7 @@ async def _search(
     payload = {
         "query": q,
         "start": max(1, int(start or 1)),
-        "page_size": max(1, min(int(page_size or 10), _SEARCH_MAX_PAGE_SIZE)),
+        "page_size": max(1, min(int(page_size or _SEARCH_MAX_PAGE_SIZE), _SEARCH_MAX_PAGE_SIZE)),
     }
     # Only Universal documents order_by; omitted entirely in classic mode (or when
     # unset) so the classic-mode payload shape is byte-identical to before this flag
@@ -517,7 +517,7 @@ async def rocketreach_bulk_lookup(people: list[dict]) -> str:
 
 @mcp.tool()
 async def rocketreach_person_search(
-    query: dict, start: int = 1, page_size: int = 10, order_by: str | None = None
+    query: dict, start: int = 1, page_size: int = 25, order_by: str | None = None
 ) -> str:
     """Search people by facets — credit-free (never spends a lookup/export).
 
@@ -550,7 +550,7 @@ async def rocketreach_person_search(
 
 @mcp.tool()
 async def rocketreach_company_search(
-    query: dict, start: int = 1, page_size: int = 10, order_by: str | None = None
+    query: dict, start: int = 1, page_size: int = 25, order_by: str | None = None
 ) -> str:
     """Search companies by facets — credit-free (never spends a lookup/export).
 

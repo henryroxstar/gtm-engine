@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import textwrap
 
+import pytest
 import rendered_prose_check as rp
 
 
@@ -26,10 +27,20 @@ def test_every_allowlist_entry_carries_a_dated_reason():
         assert reason[:10].count("-") == 2, f"{key}: reason must start with a YYYY-MM-DD date"
 
 
+def _tree(tmp_path):
+    """Every SCANNED entry, empty — a missing one is a failure, not a pass (see below)."""
+    for entry in rp.SCANNED:
+        path = tmp_path / entry
+        if path.suffix == ".py":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+    return tmp_path / "gtm_core" / "email_campaign_dashboard"
+
+
 def _scan(src: str, tmp_path, monkeypatch):
-    pkg = tmp_path / "gtm_core" / "email_campaign_dashboard"
-    pkg.mkdir(parents=True)
-    (pkg / "views_x.py").write_text(textwrap.dedent(src), encoding="utf-8")
+    (_tree(tmp_path) / "views_x.py").write_text(textwrap.dedent(src), encoding="utf-8")
     return rp.findings(tmp_path)
 
 
@@ -79,3 +90,68 @@ def test_it_stays_quiet_on_inline_css_and_bare_arguments(tmp_path, monkeypatch):
         tmp_path,
         monkeypatch,
     )
+
+
+def test_it_fires_on_a_count_written_as_a_word(tmp_path, monkeypatch):
+    """PS20 P1.7 Rule A: "Five things change" sat over a six-row table. A word is a count too."""
+    hits = _scan(
+        """
+        def v(m):
+            return "<p>Five things change from person to person across a dozen groups</p>"
+    """,
+        tmp_path,
+        monkeypatch,
+    )
+    assert {h[2] for h in hits} == {"Five", "dozen"}
+
+
+def test_it_stays_quiet_on_hyphenated_forms_and_determiners(tmp_path, monkeypatch):
+    """ "one" and "half" are deliberately not counts (PRD P1.7): they are determiners far more
+    often than claims. A hyphenated compound names a kind of thing rather than counting one."""
+    assert not _scan(
+        """
+        def v(m):
+            return "<p>a two-step sequence reaches one person, and half the list waits</p>"
+    """,
+        tmp_path,
+        monkeypatch,
+    )
+
+
+def test_it_scans_the_experiment_block_in_campaigns_dashboard(tmp_path, monkeypatch):
+    """The manifest's experiment notes render from `campaigns_dashboard._experiment_block`,
+    outside the package — a typed count there reached the page with no gate watching it."""
+    _tree(tmp_path)
+    mod = tmp_path / "gtm_core" / "campaigns_dashboard.py"
+    mod.write_text(
+        textwrap.dedent(
+            """
+            def _experiment_block(x):
+                return "<h3>The five questions we set out to answer</h3>"
+            """
+        ),
+        encoding="utf-8",
+    )
+    assert [(h[0], h[2]) for h in rp.findings(tmp_path)] == [
+        ("gtm_core/campaigns_dashboard.py", "five")
+    ]
+
+
+def test_a_number_word_inside_another_word_is_not_a_count(tmp_path, monkeypatch):
+    """ "often" holds "ten", "twofold" holds "two" — neither counts anything."""
+    assert not _scan(
+        """
+        def v(m):
+            return "<p>We often see a twofold spread in the weighted results</p>"
+    """,
+        tmp_path,
+        monkeypatch,
+    )
+
+
+def test_a_missing_scanned_entry_fails_loudly(tmp_path):
+    """A rename must not pass with nothing scanned: the gate would read as clean forever."""
+    _tree(tmp_path)
+    (tmp_path / "gtm_core" / "campaigns_dashboard.py").unlink()
+    with pytest.raises(FileNotFoundError, match="campaigns_dashboard.py"):
+        rp.findings(tmp_path)

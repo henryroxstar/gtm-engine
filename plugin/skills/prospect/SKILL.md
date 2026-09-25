@@ -161,10 +161,11 @@ enumerating CSVs. Confirm the mode (§Modes above) — **bulk mode** if the oper
 hand.** Run:
 
 ```bash
+uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
-and paste its output, unedited, between the markers below (if the command exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
+The first command refreshes the checks' answer (free and network-free by contract; `--warn-only` so a failing list never stops the run) — the status block READS that answer, and says *unknown* rather than a number when the list changed after the checks last ran. Paste only the second command's output, unedited, between the markers below (if it exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
 Step 13 paste again at the end of the run, so the operator reads progress as movement between two
 identical snapshots rather than as three reports in three vocabularies:
 
@@ -195,8 +196,14 @@ Probe (all free, no credits): RocketReach `ping` then `account` (returns plan + 
 ```bash
 uv run python -m gtm_core.preflight --profile <active> \
   --observed '{"vibe":"ok","rocketreach":"absent","apollo":"api_inaccessible","saleshandy":"ok"}' \
-  --need discovery,intent,contacts
+  --need discovery,intent,contacts \
+  --limits '{"rocketreach": <the account response>}'
 ```
+
+**Always pass `--limits` when RocketReach answered `account`.** Credits and liveness can both look
+healthy while an action's *rate limit* is at 0 remaining — searches are credit-free but capped per
+minute/hour/day/month, and an hourly search cap can be spent by an earlier run. `--limits` makes the
+preflight report that capability unavailable instead of "safe to spend".
 
 It maps connectors → capabilities (`discovery`, `intent`, `double_intent`, `contacts`, `sequencing`), **exits 2** when a requested capability is gone or down to the free web floor, and warns when one is merely on a **fallback** provider (e.g. contacts via Vibe because RocketReach is absent — materially worse: no phone, lower match rate). Put the rendered table in the run header, state the connectivity summary plainly in the operator's words:
 
@@ -570,7 +577,7 @@ into, and a pipeline that is 100% generic has stopped doing research without any
 Reply rate **by lane** is already reported (`gtm_core.cells`, with a Wilson interval), so this is
 measurable — but only if generic never silently becomes the default.
 
-**Step 9 — Persona enrichment.** For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **How many seats to resolve is a property of the SEGMENT** — Enterprise up to 3 (champion, economic buyer, technical evaluator), Startup/Builder 1 (the founder is all three at once). **Resolve the champion FIRST, not the most senior person**: for Enterprise that is the Head of AI Platform / VP AI Eng / Dir Applied AI, with the CISO as co-signer, never the reverse — see `discovery-and-budget.md` § "Persona enrichment" for the depth table and the market evidence. **Contact resolution → RocketReach first** (when connected): resolve each seat's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the official connector) — or the bulk variant (`rocketreach_bulk_lookup` / `BulkLookup`, capped at 25 finalists per call) when resolving several finalists at once. See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping between surfaces. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, `enrich-prospects-contacts` on the resulting table. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete when its segment's seats are resolved: **Enterprise — the champion plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 the floor); **Startup/Builder — ≥1 champion/primary-buyer contact.** Resolving one exec per enterprise account and stopping is single-threading a committee deal, not completing it. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
+**Step 9 — Persona enrichment.** For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **How many seats to resolve is a property of the SEGMENT** — Enterprise up to 3 (champion, economic buyer, technical evaluator), Startup/Builder 1 (the founder is all three at once). **Resolve the champion FIRST, not the most senior person**: for Enterprise that is the Head of AI Platform / VP AI Eng / Dir Applied AI, with the CISO as co-signer, never the reverse — see `discovery-and-budget.md` § "Persona enrichment" for the depth table and the market evidence. **Contact resolution → RocketReach first** (when connected): resolve each seat's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the hosted connector). **Bulk exists only on the in-repo worker** (`rocketreach_bulk_lookup`, ≤25 finalists per call); the hosted connector has no bulk tool, so there call `person_lookup` once per finalist. Pass `linkedin_url` whenever you have it — RocketReach documents it as the most reliable identifier — else `name` + `current_employer` (+ `title` to disambiguate). **A hosted `person_lookup` can return `status: pending` with `retry_after_seconds`: wait that long and poll `check_person_status` before counting it as a miss** — pending is not a miss, and treating it as one pays a second source for a contact RocketReach was still resolving (the in-repo worker polls for you). See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping and the rate limits. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, call `enrich-prospects` with `enrichments: ["enrich-prospects-contacts"]` on the resulting table, then use the **new** `table_name` it returns for any export (the original fetch table carries no contact columns). **Batch the misses:** collect every RocketReach miss in the sweep, resolve their companies with `match-business`, and run **one** `fetch-entities` (`business_id` = all of them, persona `job_title`s, `max_per_company` = the segment's seat count) and **one** `enrich-prospects` — Vibe enriches a whole table per call, so that is one cost estimate and one approval instead of one pair per finalist. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete when its segment's seats are resolved: **Enterprise — the champion plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 the floor); **Startup/Builder — ≥1 champion/primary-buyer contact.** Resolving one exec per enterprise account and stopping is single-threading a committee deal, not completing it. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
 
 **Step 10 — Generate outputs.** Run-level files under `content/<active>/prospects/`; per-account
 packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 1. **The bullets
@@ -799,6 +806,7 @@ put it beside the same status block Step 1 opened with — never a bare number a
 whose-move-is-it and drifted out of sync with Step 13's own report. Run:
 
 ```bash
+uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
@@ -809,16 +817,23 @@ opened the run with and the block Step 13 closes it with:
 [paste the command's output here, unedited]
 <!-- /operator -->
 
-**Reading the block.** Two sections that never sum to each other: *Accounts — where each stands
-(companies, not people)* — `Not a fit / excluded`, `Needs a new angle (queued)`, `No usable contact
-yet`, `Not yet routed`, `Held`, `Ready`, `All accounts` — and *Contacts — by status (people, not
-companies)* — `Waiting on you`, `Ready to send`, `Being fixed`, `In the sending tool`, `Not
-emailing` — then `Needs an address` and `Checking the address`. `Unrecognised` and `Check:` lines
-appear only when something is wrong: report them, never trim them. The banner `ACTION REQUIRED: N
-contacts are waiting on your decision. Review sheet: <path>` always equals `Waiting on you`. Only
-`Not a fit / excluded` and `Not emailing` are closed; every other line is work queued, not work
-rejected — say so, or the next reader re-derives "we have no prospects" from a number that never
-meant that.
+**Reading the block.** It opens with a short lede — *As of …*, *Today: …* (how many can go out
+and, if none, why and what unblocks it), *Yours* (and, only for a real risk, a second *Yours* line naming
+people already loaded in the sending tool at a company now closed to sending), *The machine's*,
+*In the sending tool* — then *For the record* and the detail, which ends with any `Check:` lines
+for whoever maintains the setup. Never lift a `Check:` line into the run header: it is internal
+counting, not something the operator decides. Quote the lede's *Today* line as the answer to "how many can I
+send"; it is the checks' answer, never a routed count. *Today: unknown* means the checks have not
+seen this list — run them; never substitute a number. The detail has two sections that never sum
+to each other: *Accounts — where each stands (companies, not people)* — `Not a fit / excluded`,
+`Being researched`, `Finding a contact`, `Not yet sorted`, `Held`, `Sorted`, `All accounts` — and
+*Contacts — by status (people, not companies)* — `Waiting on you`, `Sorted — not yet checked`,
+`Being fixed`, `In the sending tool`, `Not emailing` — then `Passed the checks`, `Needs an
+address` and `Checking the address`. `Unrecognised` and `Check:` lines appear only when something
+is wrong: report them, never trim them. The lede's `Yours (N)` always equals `Waiting on you`.
+Only `Not a fit / excluded` and `Not emailing` are closed; every other line is work queued, not
+work rejected — say so, or the next reader re-derives "we have no prospects" from a number that
+never meant that.
 
 **Step 13 — Always last: render the status page AT THIS RUN'S SCOPE, then prove it is fresh.** **Every run of this skill — any mode, including re-score/refresh-heat and enrichment-only passes that skip consolidation — ends with this. Never skip it.** It is cheap and read-only. Two commands, not one:
 ```bash
@@ -837,6 +852,7 @@ uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope op
 Then **close the run with the current status, same shape as Step 1 opened with.** Run:
 
 ```bash
+uv run python -m gtm_core.preflight_report --profile <active> --warn-only
 uv run python -m gtm_core.prospects status --profile <active>
 ```
 
@@ -884,6 +900,6 @@ A grouping key is a claim about identity — prove it before you group on it.
 - **Identity is stamped, not re-derived.** `latest.json` is the ledger of record and assigns each account an immutable `account_id`; consolidate stamps `pool_row_id` per person-row and joins the two. Quote those ids when referring to a row or an account across files, rather than re-deriving a key from a company name that six other places normalise differently. The pooled CSVs are **derived views** — never hand-edit one and expect the edit to survive a rebuild; change the ledger, or the suppression ledger, instead.
 - **The last wave has to have been read before the next one is staged.** `email-sequence` refuses to stage without a `positive_reply_rate` reading on file (`gtm_core.prospects wave-gate check`). This skill does not send, but it is what fills the next wave — a list built while the previous one is unmeasured is a list nobody can learn from.
 - **Drafts only:** outreach is never sent from this skill.
-- **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced via the CLI / dashboard `ACTION REQUIRED` alerts.
+- **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced as the *Yours* line at the top of the status block and the status page.
 - **Portable & private:** no live CRM; outputs are local files; no secret is read from or written to any file.
 - **Market-aware:** everything keys off PROFILE `target_markets` — never hardcode geographies.

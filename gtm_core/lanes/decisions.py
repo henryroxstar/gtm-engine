@@ -34,7 +34,7 @@ from ..eval_calibration import evals_dir
 from ..prospect_paths import suppression_ledger
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_key, load_latest, set_status
 from ..suppression import EVAL_DISQUALIFIED, Suppression, append
-from .model import DECISIONS, SALVAGE_KINDS, Routed
+from .model import ACCOUNT_SCOPED_SUPPRESS, DECISIONS, HOLD_QUESTION, SALVAGE_KINDS, Routed
 from .router import RoutingResult, account_key
 
 HOLD_COLUMNS = (
@@ -226,6 +226,9 @@ def write_state(
             "trigger": r.trigger,
             "reason": r.stable_reason,
             "judge_verdict": r.judge_verdict,
+            "judge_defect_class": r.judge_defect_class,
+            "judge_note": r.judge_note,
+            "judge_calibrated": r.judge_calibrated,
             "body_hash": r.body_hash,
             "stamp": stamp,
             "company": (r.row.get("company") or "").strip(),
@@ -297,7 +300,9 @@ class ApplyPlan:
 
     def render(self) -> str:
         lines = [
-            f"suppress {len(self.suppress)} account(s) (reversible, eval-disqualified) · "
+            f"suppress {len(self.suppress)} contact(s), retiring "
+            f"{sum(1 for e in self.suppress if retires_account(e))} account(s) "
+            "(reversible, eval-disqualified) · "
             f"generic {len(self.generic)} · salvage {len(self.salvage)} · still held {len(self.held)}"
             + (f" · already recorded {len(self.already)}" if self.already else "")
         ]
@@ -326,6 +331,13 @@ def _raw_detail(row: dict) -> str:
     if trigger and reason.startswith(prefix):
         return reason[len(prefix) :].strip()
     return reason
+
+
+def retires_account(entry: DecisionEntry) -> bool:
+    """Whether this suppress retires the whole account, or only drops the person (see
+    :data:`~gtm_core.lanes.model.ACCOUNT_SCOPED_SUPPRESS`). Keyed on the row's QUESTION, the
+    thing the operator was shown, never on a guess about intent."""
+    return HOLD_QUESTION.get(entry.trigger, "") in ACCOUNT_SCOPED_SUPPRESS
 
 
 def _entry_from(row: dict) -> DecisionEntry:
@@ -456,18 +468,22 @@ def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None =
             for e in plan.suppress
         ]
         added, skipped = append(ledger, entries)
-        updates = _retire_updates(plan.suppress, profile, content_root)
-        # Reported, never discarded. `set_status` names every key that matched no account
-        # and refuses to invent one; throwing that away is what let a retire that reached
-        # nothing read as a retire that worked.
-        summary = set_status(
-            profile,
-            updates,
-            reason=EVAL_DISQUALIFIED,
-            source=f"hold-{stamp}",
-            content_root=content_root,
-        )
-        unmatched = list(summary["unmatched"])
+        # Every suppressed PERSON is on the suppression ledger above. Only the questions whose
+        # copy promised it retire the ACCOUNT too — a duplicate contact's colleague stays.
+        retiring = [e for e in plan.suppress if retires_account(e)]
+        if retiring:
+            updates = _retire_updates(retiring, profile, content_root)
+            # Reported, never discarded. `set_status` names every key that matched no account
+            # and refuses to invent one; throwing that away is what let a retire that reached
+            # nothing read as a retire that worked.
+            summary = set_status(
+                profile,
+                updates,
+                reason=EVAL_DISQUALIFIED,
+                source=f"hold-{stamp}",
+                content_root=content_root,
+            )
+            unmatched = list(summary["unmatched"])
     recorded = []
     for kind in ("suppress", "generic", "salvage"):
         for e in getattr(plan, kind):

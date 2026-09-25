@@ -2483,3 +2483,131 @@ def test_one_parser_reads_both_the_spec_and_the_pack_surface():
     assert declared_capability("**Capability:** Credentials & delegation") == (
         "credentials-delegation"
     )
+
+
+def test_a_premise_may_declare_whether_it_attests_a_boundary(tmp_path):
+    """``attests_boundary`` is optional and three-valued: absent is "not said" — the value
+    every vocabulary written before 2026-09-24 carries, and the one that arms nothing."""
+    v = _vocab(tmp_path, _VOCAB + "attests_boundary = false\n")
+    assert v["ships-agents"].attests_boundary is False
+    assert v["multi-framework"].attests_boundary is None
+
+
+_TWO_GRID_SEAT_MATRIX = """---
+source: generated
+---
+# Outreach hook matrix — Northwind Systems
+
+## builder
+
+| Signal → / Seat ↓ | agents-in-path × account-event |
+| --- | --- |
+| ceo | "Prove whose authority the agent carries." |
+
+## startup
+
+| Signal → / Seat ↓ | agents-in-path × account-event |
+| --- | --- |
+| ceo | "Trust as a feature of the demo." |
+"""
+
+
+def test_resolve_declared_cell_prefers_the_grid_the_angle_declares():
+    """An angle declares its grid; a seat with a twin cell in another grid must not be
+    measured against the twin. Measured 2026-09-24 on a live campaign: six specs whose
+    seat also had a builder-grid cell were reported MISAIMED at 0% builder on lists that
+    were 100% in the angle's own segment.
+    """
+    from collections import Counter
+    from dataclasses import replace
+
+    from gtm_core.hook_coverage import resolve_declared_cell
+    from gtm_core.hook_coverage.fit import segment_fit
+
+    m = parse_matrix(_TWO_GRID_SEAT_MATRIX)
+    reg = _registry()
+    reg.angles["handoff-evidence-ceo"] = replace(
+        reg.angles["handoff-evidence-ceo"], segments=("startup",)
+    )
+    d = resolve_declared_cell(_spec("angle:      handoff-evidence-ceo\n"), m, reg)
+    assert d is not None
+    assert d.segment == "startup"
+    fit = segment_fit("spec.md", d, m, Counter({"startup": 8}))
+    assert fit is not None
+    assert fit.declared_segment == "startup"
+    assert fit.counts["startup"] == 8
+
+    # Negative control: an angle that declares NO grid keeps the segment-insensitive read
+    # and lands on the first grid the matrix holds the pair under.
+    plain = resolve_declared_cell(_spec("angle:      handoff-evidence-ceo\n"), m, _registry())
+    assert plain is not None
+    assert plain.segment == ""
+    assert segment_fit("spec.md", plain, m, Counter({"startup": 8})).declared_segment == "builder"
+
+
+def test_capability_monotone_counts_per_capability_and_seat():
+    """2026-09-24: an angle-tagged campaign runs one capability at every seat that has an
+    angle for it. The same group at three different seats is three arguments and stays
+    silent; at one seat it is one argument in three costumes and fires, naming the seat.
+    Without ``seats`` the count stays per capability — the pre-change behaviour, kept as the
+    negative control so a rule that went silent everywhere would be caught here."""
+    caps = {f"spec-{i}.md": "identity" for i in range(MAX_SPECS_PER_CAPABILITY + 1)}
+    spread = {spec: f"seat-{n}" for n, spec in enumerate(caps)}
+    assert capability_monotone(caps, seats=spread) == []
+    same = dict.fromkeys(caps, "cto")
+    findings = capability_monotone(caps, seats=same)
+    assert len(findings) == 1
+    assert "identity" in findings[0]
+    assert "'cto'" in findings[0]
+    assert len(capability_monotone(caps)) == 1
+
+
+_VOCAB_ATTESTED = """
+schema = 1
+[premise.regulated-entity]
+claim = "operates under a named regulator"
+min_distinct = 1
+terms = ["bank"]
+industry_terms = ["commercial banking", "health care"]
+[premise.seat-remit]
+claim = "the seat owns the standing problem"
+attested_by_seat = true
+terms = []
+"""
+
+
+def test_an_industry_term_attests_a_premise_from_the_industry_column_alone(tmp_path):
+    """A commercial bank is a regulated entity whether or not a sentence of research says so.
+    The industry column is a classification, so its terms fire there and nowhere else."""
+    v = _vocab(tmp_path, _VOCAB_ATTESTED)
+    premise = v["regulated-entity"]
+    bank = {
+        "email": "a@x.example",
+        "signal_evidence": "Opened an office.",
+        "industry": "Commercial Banking",
+    }
+    assert premise_unsupported([bank], premise) == []
+    assert premise.hits_for(bank) == {"commercial banking"}
+    # Negative controls: the same words in free text do not count as an industry term, and a
+    # sector the list does not name attests nothing.
+    free_text = {
+        "email": "b@x.example",
+        "signal_evidence": "commercial banking is changing",
+        "industry": "",
+    }
+    assert premise_unsupported([free_text], premise) != []
+    other = {"email": "c@x.example", "signal_evidence": "", "industry": "Software Publishers"}
+    assert premise_unsupported([other], premise) != []
+
+
+def test_a_seat_attested_premise_asks_nothing_of_the_record(tmp_path):
+    """`attested_by_seat = true` loads as arity 0 with no terms, so every row attests it —
+    and only a literal `true` declares it; a term-less premise otherwise stays unloaded."""
+    v = _vocab(tmp_path, _VOCAB_ATTESTED)
+    premise = v["seat-remit"]
+    assert premise.attested_by_seat and premise.min_distinct == 0
+    assert premise_unsupported([{"email": "a@x.example"}], premise) == []
+    dropped = _vocab(
+        tmp_path, 'schema = 1\n[premise.empty]\nattested_by_seat = "yes"\nterms = []\n'
+    )
+    assert "empty" not in dropped

@@ -164,21 +164,22 @@ def test_country_split_is_shown(tmp_path):
 
 
 def test_unknown_seats_are_explained_as_a_classifier_gap(tmp_path):
-    """The honest answer to "why are so many unknown?" is that the resolver covers three
-    of the tenant's seven seats — not that data is missing."""
+    """The honest answer to "why are so many unknown?" is that the resolver recognises only
+    the seats it names — not that data is missing. The count it prints is `SEAT_COVERAGE`'s:
+    the typed "seven … three" sat over a list of six (PS20 P1.7)."""
     profile = _seed(tmp_path)
+    listing = pc._prospects_dir(profile, tmp_path) / "sequences" / "list.csv"
+    with listing.open("a", encoding="utf-8") as fh:
+        fh.write(
+            "Quinn,Tide,quinn@tidewater.example,Chief Happiness Officer,Tidewater,"
+            "tidewater.example,NY,United States,enterprise,A,Tidewater opened an office,,,,,\n"
+        )
     page = _page(tmp_path, profile)
     assert "gap in our own classifier" in page
-    assert "Chief Information Officer" in page  # the actual unplaced title, shown
-    assert "seven" in page and "three" in page
-
-
-def test_persona_axis_and_detection_coverage_are_shown(tmp_path):
-    profile = _seed(tmp_path)
-    page = _page(tmp_path, profile)
-    assert "Which problem we lead on, per job" in page
-    assert "Head of AI / Applied AI" in page  # a seat we do NOT detect
-    assert "not detected" in page
+    # The actual unplaced title, named from the data. The typed "Chief Information Officer"
+    # this replaced was not unplaced at all: the resolver has seated a CIO since 2026-08-20.
+    assert "The largest group below is Chief Happiness Officer (1)." in page
+    assert f'data-figure="seats-recognised">{len(gd.SEAT_COVERAGE)}<' in page
 
 
 def test_every_subject_line_is_listed_with_reach(tmp_path):
@@ -210,10 +211,11 @@ def test_missing_quality_record_reads_as_unchecked_not_clean(tmp_path):
     assert "No quality record on file" in _page(tmp_path, profile)
 
 
-def test_learning_tab_leads_with_a_hypothesis_and_parameters(tmp_path):
+def test_learning_tab_shows_the_parameters_and_the_grid(tmp_path):
+    """The hard-coded hypothesis card that led this tab is retired (PS20 P1.7 Rule B): a
+    tenant's hypotheses render from its own manifest, under "Full experiment notes"."""
     profile = _seed(tmp_path)
     page = _page(tmp_path, profile)
-    assert "The hypothesis" in page
     assert "What varies, and by how much" in page
     assert "possible combinations" in page
     assert "The experiment, drawn" in page
@@ -236,10 +238,18 @@ def test_reconciliation_fires_when_snapshot_and_ledger_disagree(tmp_path):
 
 
 def test_not_sending_banner_while_everything_is_paused(tmp_path):
+    """Asserted on the ops card itself, through its marked figures (PS20 T1.3). This used to
+    pass only because the send tile also printed "0 of 9"."""
+    from tests.contracts.test_dashboard_ps20_trust import _fig, _ops_card
+
     profile = _seed(tmp_path)
-    page = _page(tmp_path, profile)
-    assert "Nothing has been sent" in page
-    assert "0 of 9" in page
+    card = _ops_card(_page(tmp_path, profile))
+    assert _fig(card, "ops-heading") == "Nothing has been sent"
+    assert _fig(card, "ops-contacted") == "0"
+    assert _fig(card, "planned-emails") == "9"
+    # Readable snapshot, nobody contacted, the campaign paused, and its copy unverified
+    # since the check: the note says it is not cleared to start.
+    assert "not cleared to start" in card
 
 
 def test_stubs_redirect_every_retired_page(tmp_path):
@@ -317,7 +327,7 @@ def test_status_tiles_render_a_dash_when_the_router_has_never_run(tmp_path):
         [{"email": "ada@analytical.example", "lane": "personalised", "reason": "researcher-send"}],
     )
     page_with_state = _page(tmp_path, profile)
-    assert "These five sum to" in page_with_state
+    assert "These 5 sum to" in page_with_state
     assert page_with_state.count('<div class="stat-value">—</div>') < 5
 
 
@@ -342,7 +352,7 @@ def test_status_tiles_sum_to_the_derived_total_and_hold_out_the_unmapped(tmp_pat
     assert model["prospect_status"]["total"] == 5
     assert model["prospect_status"]["unmapped"] == 1
     page = gd.render_html(model)
-    assert "These five sum to <strong>5</strong>" in page
+    assert "These 5 sum to <strong>5</strong>" in page
     # The terminal prints the unmapped record as an "Unrecognised" row inside ITS total, so
     # the page names the same label and the same whole-list figure rather than a private
     # "1 more row(s)" sentence that made the two totals disagree (5 here, 6 there).
@@ -540,7 +550,8 @@ def test_a_malformed_lane_state_line_is_refused_never_quietly_skipped(tmp_path, 
 
 def test_m16_unmapped_status(tmp_path):
     """M16: an unmapped row is recorded as 'unmapped' in by_email and rendered as
-    '<span class="pill warn">status unmapped</span>'."""
+    '<span class="pill warn" data-warn="unmapped">status unmapped</span>' — a warn that says
+    why (PS20 P1.5)."""
     from gtm_core.email_campaign_dashboard.format import _row_status
     from gtm_core.email_campaign_dashboard.model import prospect_status_model
 
@@ -561,12 +572,13 @@ def test_m16_unmapped_status(tmp_path):
 
     m = {"prospect_status": ps}
     assert (
-        _row_status(m, "unmapped@example.com") == '<span class="pill warn">status unmapped</span>'
+        _row_status(m, "unmapped@example.com")
+        == '<span class="pill warn" data-warn="unmapped">status unmapped</span>'
     )
     from gtm_core.prospect_status import LABELS
 
     assert _row_status(m, "good@example.com") == LABELS["ready_to_send"]
-    assert _row_status(m, "good@example.com") == "Routed — not yet checked", (
+    assert _row_status(m, "good@example.com") == "Sorted — not yet checked", (
         "the per-row cell is where this surface carries the routed-is-not-checked "
         "correction; it has no count to put a checked figure beside"
     )
@@ -579,7 +591,7 @@ def test_m17_ops_view_drifted_deduplication_by_sequence_id():
 
     m = {
         "campaigns": {
-            "campaigns": [{"state": "not_sending", "targets": {"emails": 10}, "sequences": []}]
+            "campaigns": [{"state": "staged", "targets": {"emails": 10}, "sequences": []}]
         },
         "status": {"sequences": []},
         "messages": [
@@ -700,7 +712,7 @@ def test_goals_are_stated_on_qualified_people_not_everyone_loaded(tmp_path):
     assert "people we will actually email" in page
     assert "How many actually count" in page
     assert "job title unread" in page
-    assert "Two filters stand between" in page
+    assert "sit the opening-line check" in page and "and the job-title check" in page
 
 
 def test_reply_rate_benchmarks_are_sourced_and_caveated(tmp_path):
@@ -721,9 +733,11 @@ def test_reply_rate_benchmarks_are_sourced_and_caveated(tmp_path):
     assert "8.5%" in page
 
 
-def test_target_is_judged_against_the_closest_icp_comparator(tmp_path):
-    """3% is ~1.7x the SaaS-to-enterprise figure. Calling that a conservative floor —
-    as the page originally did — inverts the truth."""
+def test_the_target_sits_beside_every_benchmark_with_no_fit_claim(tmp_path):
+    """Which published figure fits a campaign's audience is a claim about the tenant's market,
+    and engine code makes none (PS20 P1.7 Rule B). The page named one benchmark "the
+    published figure closest to who this campaign actually writes to" and judged the target
+    against it; now the target is drawn beside every sourced figure and the reader compares."""
     profile = _seed(tmp_path)
     camp = pc._prospects_dir(profile, tmp_path).parent / "plans" / "campaigns"
     (camp / "c1.campaign.toml").write_text(
@@ -732,28 +746,12 @@ def test_target_is_judged_against_the_closest_icp_comparator(tmp_path):
         encoding="utf-8",
     )
     page = _page(tmp_path, profile)
-    assert gd.PRIMARY_BENCHMARK["label"] == "SaaS selling to enterprise"
-    assert "1.7x the closest published comparator" in page
-    assert "stretch target" in page
-
-    # Matching the comparator exactly reads as neither stretch nor floor.
-    (camp / "c1.campaign.toml").write_text(
-        'slug = "c1"\ntitle = "Campaign One"\nsequences = ["S1"]\n\n'
-        "[targets]\nemails = 9\nreply_rate = 0.018\n",
-        encoding="utf-8",
-    )
-    page = _page(tmp_path, profile)
-    assert "roughly in line with the closest published comparator" in page
-    assert "neither a stretch nor a floor" in page
-
-
-def test_cta_is_described_as_an_offer_not_an_ask(tmp_path):
-    """We put an artifact on the table; we do not ask for the reader's time. Calling it an
-    "ask" misdescribes the copy — every CTA in the live specs offers something."""
-    profile = _seed(tmp_path)
-    page = _page(tmp_path, profile)
-    assert "One offer" in page
-    assert "One ask" not in page
+    card = page.split("<h2>Reply rate</h2>", 1)[1].split("</details>", 1)[0]
+    assert '<div class="blabel">our target</div>' in card and "3.0%" in card
+    for bm in gd.BENCHMARKS:
+        assert f'<div class="blabel">{bm["label"]}</div>' in card
+    for claim in ("closest to who", "closest published comparator", "stretch", "floor"):
+        assert claim not in card, claim
 
 
 def test_reply_target_comes_from_the_manifest_not_a_hardcoded_number(tmp_path):
@@ -826,17 +824,6 @@ def test_topic_distribution_and_qualification_route_are_shown(tmp_path):
     assert "intent-only-relaxed" in page
 
 
-def test_trigger_hypothesis_is_stated_with_its_own_limits(tmp_path):
-    """A hypothesis the run cannot answer must say so, or it reads as a plan."""
-    profile = _seed(tmp_path)
-    _with_pool(tmp_path, profile)
-    page = _page(tmp_path, profile)
-    assert "does the trigger predict the reply" in page
-    assert "half-answerable at best" in page
-    assert "To make it answerable next run" in page
-    assert "Trigger type" in page  # counted as a parameter, with 1 level
-
-
 def test_page_renders_for_a_profile_with_no_prospect_pool(tmp_path):
     """A zero-coverage profile must render, not raise.
 
@@ -847,7 +834,6 @@ def test_page_renders_for_a_profile_with_no_prospect_pool(tmp_path):
     profile = _seed(tmp_path)  # no latest.json written
     page = _page(tmp_path, profile)
     assert "How well they fit the ideal customer" in page
-    assert "half-answerable at best" in page
 
 
 # --------------------------------------------------------------------------- operator split
@@ -960,12 +946,16 @@ def test_run_state_is_not_a_banner_over_every_panel(tmp_path):
 
 
 def test_the_status_panel_still_states_that_nothing_has_gone_out(tmp_path):
-    """Moving the banner must not cost the reader the fact. The first tile carries it."""
+    """Moving the banner must not cost the reader the fact. The first tile carries it, as a
+    count of PEOPLE contacted read off its marked figure (PS20 T1.4) — "emails sent" also
+    appears in the benchmark notes, so a substring check here passed by accident."""
+    from tests.contracts.test_dashboard_ps20_trust import _fig, _tile
+
     profile = _seed_operational(tmp_path)
     page = _page(tmp_path, profile)
     status = page.split('id="p-status"')[1].split("</section>")[0]
-    assert "emails sent" in status
-    assert "nothing goes out until a person starts it" in status
+    assert _fig(status, "contacted-current") == "0"
+    assert '<div class="stat-label">people contacted</div>' in _tile(status, "contacted-current")
 
 
 def test_a_figures_warning_does_stay_above_every_panel(tmp_path):

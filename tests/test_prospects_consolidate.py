@@ -1889,6 +1889,44 @@ def test_a_corrected_account_clause_brings_its_own_provenance(tmp_path):
     assert row["signal_observed"] == "2026-06-01"
 
 
+def test_a_corrected_account_clause_brings_the_judgements_that_describe_it(tmp_path):
+    """Subject, agent kind and relation describe the CLAUSE, so they follow it.
+
+    Row-wins protects a row's own, more specific reading of the clause it carries. Once the
+    account's clause has replaced the row's, that reading describes a sentence the row no
+    longer holds. Seen 2026-09-25: re-research promoted corrected records onto their
+    accounts, the pool took each new clause and kept the old subject beside it, the gate
+    blocked those rows on `signal-subject-mismatch`, and an adjacent vendor's row still read
+    `prospect` — the direction that passes silently.
+    """
+    _one_row(
+        tmp_path,
+        extra_cols=[
+            "GTM_Why_Now",
+            "GTM_Signal_Subject",
+            "GTM_Signal_Agent_Kind",
+            "GTM_Category_Relation",
+        ],
+        extra_vals=["stale raise clause", "Northwind Capital (lead investor)", "none", "prospect"],
+    )
+    _latest_with_record(
+        tmp_path,
+        **{
+            **_FULL_RECORD,
+            "why_now": "Northwind names Contoso as its agent partner",
+            "category_relation": "adjacent",
+        },
+    )
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["why_now"] == "Northwind names Contoso as its agent partner"
+    assert row["signal_subject"] == "Northwind"
+    assert row["signal_agent_kind"] == "ai"
+    assert row["category_relation"] == "adjacent"
+
+
 def test_stale_provenance_is_repaired_even_when_the_clause_already_matches(tmp_path):
     """Negative control for the LATCH bug, and it has to be THIS scenario.
 
@@ -2239,3 +2277,89 @@ def test_a_current_spelling_is_never_shadowed_by_the_shape_fallback():
     assert column_value({"Tier": "A", "OLD_Tier": "B"}, "tier") == "A"
     # A field with no underscore-bearing alias cannot match by shape at all.
     assert column_value({"OLD_Conf": "9"}, "conf") == ""
+
+
+def test_load_master_lowercases_a_capitalised_segment_and_keeps_an_unknown_one(tmp_path):
+    """Storage is lowercase; 46 of 622 pooled rows read `Startup`/`Enterprise` on 2026-09-24.
+    Case-only repair: a value `SEGMENTS` does not know passes through as written."""
+    from gtm_core.prospects_consolidate.columns import MASTER_COLS
+    from gtm_core.prospects_consolidate.io import _load_master
+
+    path = tmp_path / "master-list.csv"
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=MASTER_COLS)
+        w.writeheader()
+        for email, segment in (
+            ("a@x.example", "Startup"),
+            ("b@x.example", "Enterprise"),
+            ("c@x.example", "builder"),
+            ("d@x.example", "Weird"),
+        ):
+            w.writerow(
+                {
+                    "email": email,
+                    "segment": segment,
+                    "first": "Avery",
+                    "last": "Quill",
+                    "company": "Copperline",
+                    "title": "CTO",
+                }
+            )
+    assert {r["email"]: r["segment"] for r in _load_master(path)} == {
+        "a@x.example": "startup",
+        "b@x.example": "enterprise",
+        "c@x.example": "builder",
+        "d@x.example": "Weird",
+    }
+
+
+def test_stamp_lanes_owns_the_judge_columns(tmp_path):
+    """The judge's columns come from the state record the last route wrote, and are BLANK
+    when it attached none — never carried from the previous master. On 2026-09-24 the pool
+    carried 283 `re-angle` / 220 `drop` scored against August specs nobody would send,
+    while the state file, routed without records, held no verdict at all."""
+    from gtm_core.lanes.decisions import state_path
+    from gtm_core.prospects_consolidate.consolidate import _stamp_lanes
+
+    profile = "acme"
+    state_file = state_path(profile, tmp_path)
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "email": "a@x.example",
+                "lane": "personalised",
+                "reason": "researcher-send",
+                "judge_verdict": "send",
+                "judge_defect_class": "",
+                "judge_note": "clean",
+                "judge_calibrated": "false",
+            }
+        )
+        + "\n"
+        + json.dumps({"email": "b@y.example", "lane": "generic", "reason": "no-signal"})
+        + "\n",
+        encoding="utf-8",
+    )
+    stale = {
+        "judge_verdict": "drop",
+        "judge_verdict_reason": "an August spec",
+        "judge_defect_class": "vague_frame",
+        "judge_calibrated": "true",
+    }
+    rows = [
+        {"email": "a@x.example", **stale},
+        {"email": "b@y.example", **stale},  # routed, no record attached
+        {"email": "c@z.example", **stale},  # not in the state file at all
+    ]
+    _stamp_lanes(rows, profile, tmp_path)
+    by_email = {r["email"]: r for r in rows}
+    a = by_email["a@x.example"]
+    assert (a["judge_verdict"], a["judge_verdict_reason"], a["judge_defect_class"]) == (
+        "send",
+        "clean",
+        "",
+    )
+    assert a["judge_calibrated"] == "false"
+    for email in ("b@y.example", "c@z.example"):
+        assert all(by_email[email][col] == "" for col in stale), email

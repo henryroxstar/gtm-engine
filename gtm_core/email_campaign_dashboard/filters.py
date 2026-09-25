@@ -37,6 +37,12 @@ be (and is the copy a "just paste the page somewhere" would carry).
 from __future__ import annotations
 
 from html import escape as _e
+from pathlib import Path
+
+#: The page's filter template and interpreter, read ONCE, at import (PS20 P1.6):
+#: ``render_html`` opens no file. Both are package data, versioned with this module.
+_TEMPLATE = (Path(__file__).parent / "template_filter.html").read_text(encoding="utf-8")
+_FILTER_JS = (Path(__file__).parent / "filter.js").read_text(encoding="utf-8")
 
 #: ``(row key, row label field, heading)``. The key is what the filter matches on and the
 #: label is what the dropdown shows — they differ because ``GTM_Segment`` is spelled
@@ -293,7 +299,7 @@ def bar_html(m: dict) -> str:
         '<p class="why filter-note" id="filter-note" data-filter-note hidden>Some figures '
         "below are marked <strong>not filtered</strong>: they count something the filter does "
         "not select from, so they stay as they were. Hover a mark for the exact reason.</p>"
-        '<div class="card banner" id="filter-tripwire" hidden>'
+        '<div class="card warn" id="filter-tripwire" data-warn="tripwire" hidden>'
         "<h2>This page disagrees with its own filter data</h2>"
         "<p>A headline figure and the row data behind the filter do not match, so every "
         "number the filter writes is unreliable. Read the figures as first rendered and "
@@ -308,8 +314,6 @@ def script_block(m: dict) -> str:
     Returns ``""`` when :func:`bar_html` rendered nothing, so a page with no usable facet
     ships no payload at all rather than a script with nothing to drive.
     """
-    from pathlib import Path
-
     from ..htmlpage import script_json
 
     rows = (m.get("roster") or {}).get("rows") or []
@@ -319,9 +323,7 @@ def script_block(m: dict) -> str:
     # checked against each other by test_no_payload_ships_without_a_bar.
     if not fs or not any(f["selectable"] for f in fs):
         return ""
-    here = Path(__file__).parent
-    tpl = (here / "template_filter.html").read_text(encoding="utf-8")
     # `__FILTER_JS__` last: the JS is a literal, so substituting it first would let a `$`
     # or a token-shaped comment inside it collide with the payload substitution.
-    tpl = tpl.replace("__ROWS_JSON__", script_json(payload_rows(m)))
-    return tpl.replace("__FILTER_JS__", (here / "filter.js").read_text(encoding="utf-8"))
+    tpl = _TEMPLATE.replace("__ROWS_JSON__", script_json(payload_rows(m)))
+    return tpl.replace("__FILTER_JS__", _FILTER_JS)

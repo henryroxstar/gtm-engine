@@ -219,7 +219,7 @@ credit pricing (§"Budget"). A cap is a property of the API; a rate limit is a p
 | **Topic buyer-intent** — in-market accounts | **Vibe** `business_intent_topics` filter (Bombora, weekly), **RocketReach** tracked topics / `intent` facet (Intentsify, weekly), **and Apollo** buying-intent filters on company search (LeadSift, weekly — tracked topics must be set in Apollo's web UI first) | — (flag as absent; run fit-only) |
 | **Trigger signals** — news / hiring / events | **RocketReach** `news_signal` + `job_posting_signal`; **Vibe** `events`; **Apollo** `apollo_job_postings` (hiring signal, 1 credit/page) | web sweep discovers instead of confirms |
 | **Person timing** — job changes / tenure | **RocketReach** `job_change_signal`; **Vibe** prospect events + `current_role_months` | — (Apollo does not carry this signal) |
-| **Contact resolution** — verified email (RocketReach also direct phone) | **RocketReach** lookup (single / bulk) | Vibe `enrich-prospects` → **Apollo** `apollo_person_enrich`/`apollo_bulk_person_enrich` (email only, never phone — see §Apollo below) → public web (unverified) |
+| **Contact resolution** — verified email + direct phone (Vibe can also return phones; Apollo never does) | **RocketReach** lookup (single / bulk) | Vibe `enrich-prospects` → **Apollo** `apollo_person_enrich`/`apollo_bulk_person_enrich` (email only, never phone — see §Apollo below) → public web (unverified) |
 | **Bulk contact resolution** | **RocketReach** `rocketreach_bulk_lookup` (≤25/call) | Vibe `enrich-prospects` bulk → **Apollo** `apollo_bulk_person_enrich` (≤10/call, Apollo's documented batch cap) |
 | "Why now" dated signal | web sweep (Step 4, 0 credits) — **confirms and dates** what the feeds pre-flag | — |
 
@@ -235,7 +235,7 @@ Discovery + enrichment engine (OAuth connector "Vibe Prospecting"; an Explorium 
 
 Auth: `ROCKETREACH_API_KEY` (Doppler-injected — **never** hardcode or echo the key). Two capability groups, and two tool surfaces that may expose them:
 
-**1) Contact resolution** — person lookup (single / bulk). **Quota model:** lookups are effectively unmetered; **person *exports* / premium lookups are the finite unit** (a plan allotment — check the remaining balance before a run). Look up freely to confirm a person exists, but **spend the metered unit only on a scored finalist's contact**, never a candidate's; bulk-resolve all finalists in one call. When the balance runs low, tell the colleague before the run — never auto-purchase.
+**1) Contact resolution** — person lookup (single / bulk). **Quota model:** lookups are effectively unmetered; **person *exports* / premium lookups are the finite unit** (a plan allotment — check the remaining balance before a run). Look up freely to confirm a person exists, but **spend the metered unit only on a scored finalist's contact**, never a candidate's; on the in-repo worker bulk-resolve finalists with `rocketreach_bulk_lookup` (≤25 per call), on the hosted connector call `person_lookup` once per finalist. When the balance runs low, tell the colleague before the run — never auto-purchase.
 
 **2) Signal search (credit-free — searches never consume lookups/exports):**
 - **Topic intent** (`intent` on company search / `company_intent` on person search) — **company-level** Intentsify topics, scored 0–100 weekly in the web app (≥75 = high intent). Intent is a **premium, plan-gated feature** — check `PROFILE.md` §"Connector plans & entitlements" → `rocketreach.features` **before** relying on this facet. If `"intent"` isn't listed there (or the section says "not captured"), don't assume the filter is live: an unentitled plan can pass the facet through and silently return **unfiltered** results — a false sense of intent-filtering, not an error. When entitlement is confirmed, two more prerequisites apply: a team admin must have **set the tracked topics** in the web app (**12 active**, changeable ~3×/yr — mirror the profile's intent-topic list; the cap is plan-dependent, confirm against the live "Intent Data" tab), and the API/MCP exposes intent as a **search facet only** (filter by topic; scores aren't returned) — the weekly ≥75 list lives in the app's Intent Data tab.
@@ -243,7 +243,30 @@ Auth: `ROCKETREACH_API_KEY` (Doppler-injected — **never** hardcode or echo the
 - **Hiring triggers** (`job_posting_signal` / `company_job_posting_signal`) — `"<Department> Roles::window"`, e.g. `"Engineering Roles::three_months"`, `"Machine Learning Roles::three_months"`.
 - **Job-change timing** (`job_change_signal`, person search) — `"Company Change::three_months"` or `"Promotion::three_months"` (windows cap at three_months) — powers the new-in-role check (Step 6).
 
-**Surface note:** both tool surfaces expose both groups — the official RocketReach MCP/connector as `person_search` / `company_search` / `person_lookup`, the in-repo VPS worker (`agent/mcp/rocketreach`) as `rocketreach_person_search` / `rocketreach_company_search` / `rocketreach_lookup` / `rocketreach_bulk_lookup`. Tool names differ per surface; call whichever the session offers (facet names are identical). If no signal-search tool is present at all, skip the RocketReach signal pass, run Vibe events + the web sweep as usual, and note "RR signals: unavailable" in the run header. Never substitute raw HTTP.
+**Surface note:** both tool surfaces expose both groups, under different names — call whichever the session offers (facet names are identical):
+
+| Capability | In-repo worker (`agent/mcp/rocketreach`) | Hosted connector (`mcp.rocketreach.co`) |
+|---|---|---|
+| Liveness · plan, credits, rate limits | — | `ping` · `account` |
+| Person / company search (credit-free) | `rocketreach_person_search` / `rocketreach_company_search` | `person_search` / `company_search` |
+| Person lookup (metered) | `rocketreach_lookup` (polls a pending record for you) | `person_lookup` → on `status: pending`, wait `retry_after_seconds`, then `check_person_status` |
+| Several finalists at once | `rocketreach_bulk_lookup` (≤25) | **none** — one `person_lookup` per finalist |
+| Person + their company in one call | — | `profile_company_lookup` (spends a company credit too — use only when you need the company record) |
+| Company lookup · email verify | — | `company_lookup` · `email_verify` (small separate allowance — do not rely on it) |
+
+`rocketreach_bulk_lookup` is **not** RocketReach's native bulk endpoint: that one needs ≥10 profiles
+per batch and delivers results to a webhook, and this deployment has no inbound path for one. The
+worker loops single lookups instead, so "bulk" saves round-trips, never credits.
+
+**Rate limits (every surface, including "free" search).** RocketReach caps each action per
+minute / hour / day / month by plan, plus 10 requests/second overall; `account` returns the live
+`rate_limits` array. A search can be refused while credits are healthy — the hourly person-search
+cap is the one a large signal pass spends first. So: pass the `account` response to
+`gtm_core.preflight --limits` (SKILL Step 2); **page wide** — `page_size` up to 25 on the in-repo
+worker and up to 100 on the hosted connector, so one request carries a whole page instead of ten;
+and on a `[rocketreach-rate-limited]` refusal or a 429, **stop that pass and record which one was
+cut short** in the run header — never loop on it, and never read an empty cut-short pass as "no
+signal". If no signal-search tool is present at all, skip the RocketReach signal pass, run Vibe events + the web sweep as usual, and note "RR signals: unavailable" in the run header. Never substitute raw HTTP.
 
 **Apollo surface note (both surfaces now recorded — live-verified 2026-07-27):**
 
@@ -469,7 +492,7 @@ because the economic buyer is always the easier person to find, and a resolver t
 it can see will hand you a CISO every time.
 
 Depth:
-- **Contact (email + phone) → RocketReach**, finalists only, `BulkLookup` in one call. Depth is
+- **Contact (email + phone) → RocketReach**, finalists only (`rocketreach_bulk_lookup` on the in-repo worker; one `person_lookup` each on the hosted connector). Depth is
   **per segment, because committee size is a property of the segment, not of the budget**:
   - **Enterprise — up to 3 seats: champion, economic buyer, technical evaluator.** A 6–12 month
     cycle with a 4–6 seat committee cannot be worked through one contact. The technical evaluator

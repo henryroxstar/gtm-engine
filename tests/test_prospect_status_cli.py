@@ -65,7 +65,7 @@ def _counts_from_output(out: str) -> dict[str, int]:
     counts = {}
     for label, key in [
         ("Waiting on you", "waiting_on_you"),
-        ("Routed — not yet checked", "ready_to_send"),
+        ("Sorted — not yet checked", "ready_to_send"),
         ("Being fixed", "being_fixed"),
         ("In the sending tool", "in_sending_tool"),
         ("Not emailing", "not_emailing"),

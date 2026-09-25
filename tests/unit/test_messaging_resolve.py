@@ -29,7 +29,7 @@ _COMPANY = "Copperline Logistics"
 
 _VOCABULARY_TOML = """\
 default_persona = "ciso"
-segments = ["enterprise", "unspecified"]
+segments = ["enterprise", "startup", "unspecified"]
 
 [[persona]]
 name = "ciso"
@@ -196,6 +196,7 @@ def _tenant(
     claims: list[dict] | None = None,
     proof: list[dict] | None = None,
     angles: list[dict] | None = None,
+    premises: str | None = None,
 ) -> tuple[registry.Registry, Path]:
     """A loaded fixture registry plus its profiles root.
 
@@ -213,7 +214,7 @@ def _tenant(
         "proof.toml": _render("proof", _PROOF if proof is None else proof),
         "angles.toml": _render("angle", _ANGLES if angles is None else angles),
         "role-vocabulary.toml": _VOCABULARY_TOML,
-        "premise-vocab.toml": _PREMISE_TOML,
+        "premise-vocab.toml": _PREMISE_TOML if premises is None else premises,
     }
     for filename, text in files.items():
         (knowledge / filename).write_text(text, encoding="utf-8")
@@ -500,3 +501,253 @@ def test_resolve_never_reads_signal_evidence_for_claim_selection(tmp_path, monke
     )
     assert other.premise == "cross-org-agents"
     assert other.angle_id == "c1-security-cross-org"
+
+
+# --- segment: the grid an angle is written for ------------------------------------------
+
+
+def _segmented(row: dict, segment: str) -> dict:
+    return {**row, "segment": segment}
+
+
+def test_resolve_honours_the_angle_segment(tmp_path, monkeypatch):
+    """A row is offered the angle written for ITS segment, never the one that sorts first.
+
+    Measured 2026-09-24 on a live 229-row pool: 31 of 72 resolved rows took an angle from
+    another segment's grid. ``segments`` was declared, rendered as its own grid, and never
+    read here — so the lowest-id tie-break let the alphabet choose the grid.
+    """
+    angles = _amend(_ANGLES, "a1-security-multi-framework", segments=["enterprise"])
+    # A second angle for the same seat and premise whose id sorts FIRST and whose grid is
+    # the other segment: the exact shape that won the tie on live data.
+    angles.append(
+        {
+            **_ANGLES[0],
+            "id": "a0-security-multi-framework-startup",
+            "summary": "One chain per agent, for a company of twelve.",
+            "segments": ["startup"],
+        }
+    )
+    reg, root = _tenant(tmp_path, monkeypatch, "segment-honoured", angles=angles)
+    base = _row("Chief Information Security Officer", "Singapore", _EVIDENCE_MULTI)
+
+    result = _resolve(_segmented(base, "Enterprise"), reg, root)
+    assert result.refusal is None
+    assert result.angle_id == "a1-security-multi-framework"
+    assert result.segment == "enterprise"
+    # The other grid's angle is not "also fits": an alternative is a tie INSIDE the grid.
+    assert result.alternatives == ()
+
+    # Negative control: the same row tagged for the other grid takes the other angle.
+    other = _resolve(_segmented(base, "startup"), reg, root)
+    assert other.angle_id == "a0-security-multi-framework-startup"
+    assert other.segment == "startup"
+
+
+def test_resolve_refuses_a_row_with_no_grid(tmp_path, monkeypatch):
+    """A blank or unknown segment against segmented angles is a typed refusal.
+
+    The premise is not consulted: like ``seat-unresolved`` this refusal is about who the
+    reader is, so ``premise`` stays empty and ``segment`` reports what was read.
+    """
+    # BOTH of the seat's angles segmented: an angle declaring no segment is offered to
+    # every reader, so leaving one unscoped would hand this row that one instead.
+    angles = _amend(_ANGLES, "a1-security-multi-framework", segments=["enterprise"])
+    angles = _amend(angles, "c1-security-cross-org", segments=["enterprise"])
+    reg, root = _tenant(tmp_path, monkeypatch, "segment-refused", angles=angles)
+    base = _row("Chief Information Security Officer", "Singapore", _EVIDENCE_MULTI)
+
+    for segment in ("", "smb"):
+        result = _resolve(_segmented(base, segment), reg, root)
+        assert result.refusal == resolve.SEGMENT_UNRESOLVED
+        assert result.refusal in resolve.REFUSALS
+        assert result.angle_id is None
+        assert result.alternatives == ()
+        assert result.seat == "security"
+        assert result.premise == ""
+        assert result.segment == segment
+
+    # Negative control 1: the same row in the declared grid resolves.
+    good = _resolve(_segmented(base, "enterprise"), reg, root)
+    assert good.angle_id == "a1-security-multi-framework"
+
+    # Negative control 2: an angle that declares NO segment is offered to every reader,
+    # including one with no segment at all. That is the fixture's own default, and it is
+    # why every other test in this file passes without tagging its rows.
+    plain, plain_root = _tenant(tmp_path, monkeypatch, "segment-unscoped")
+    assert _resolve(base, plain, plain_root).angle_id == "a1-security-multi-framework"
+
+
+# --- 2026-09-24: how a premise is attested decides which angle, and which opener -------------
+
+_PREMISE_TOML_ATTESTED = (
+    _PREMISE_TOML
+    + """
+[premise.regulated-entity]
+claim = "the reader operates under a named regulator"
+min_distinct = 1
+terms = ["licensed"]
+industry_terms = ["commercial banking"]
+
+[premise.seat-remit]
+claim = "the seat owns the standing problem the body names"
+attested_by_seat = true
+attests_boundary = false
+terms = []
+"""
+)
+
+_ANGLES_ATTESTED = [
+    *_ANGLES,
+    {
+        "id": "d1-security-regulated-public",
+        "seat": "security",
+        "premise": "regulated-entity",
+        "claim": "audit-signed",
+        "proof": "rollout-outcome",
+        "opener_kind": "public-event",
+        "summary": "The regulator's question, answered once.",
+        "status": "draft",
+    },
+    {
+        "id": "e1-security-regulated",
+        "seat": "security",
+        "premise": "regulated-entity",
+        "claim": "audit-signed",
+        "proof": "rollout-outcome",
+        "opener_kind": "account-event",
+        "summary": "Your licence renewal names the agent.",
+        "status": "draft",
+    },
+    {
+        "id": "z9-security-seat-remit-public",
+        "seat": "security",
+        "premise": "seat-remit",
+        "claim": "audit-signed",
+        "proof": "rollout-outcome",
+        "opener_kind": "public-event",
+        "summary": "Admission sits on the receiving side.",
+        "status": "draft",
+    },
+]
+
+_CISO = "Chief Information Security Officer"
+_EVIDENCE_LICENSED = "Licensed by the regulator this quarter."
+
+
+def test_a_seat_attested_premise_is_the_fallback_never_the_winner(tmp_path, monkeypatch):
+    """A row whose record attests nothing still gets the seat's own argument; a row whose
+    record attests a premise gets THAT angle, with the seat-remit one as the runner-up.
+
+    Measured 2026-09-24 on the live generic pool: 171 of 397 rows refused
+    `premise-unsupported`, 136 of them with no industry on the ledger either — nothing any
+    record-attested premise could ever reach, and exactly the rows the generic lane exists
+    to write to on the seat alone.
+    """
+    reg, root = _tenant(
+        tmp_path,
+        monkeypatch,
+        "seat-remit",
+        angles=_ANGLES_ATTESTED,
+        premises=_PREMISE_TOML_ATTESTED,
+    )
+    bare = _resolve(_row(_CISO, "Singapore", _EVIDENCE_NONE), reg, root)
+    assert bare.refusal is None
+    assert bare.angle_id == "z9-security-seat-remit-public"
+    assert bare.attestation == "seat"
+    assert bare.alternatives == ()
+
+    attested = _resolve(_row(_CISO, "Singapore", _EVIDENCE_MULTI), reg, root)
+    assert attested.angle_id == "a1-security-multi-framework"
+    assert attested.attestation == "record"
+    assert "z9-security-seat-remit-public" in attested.alternatives
+
+    # Negative control: without the seat-remit angle the bare row is refused, as before.
+    reg2, root2 = _tenant(
+        tmp_path,
+        monkeypatch,
+        "seat-remit-control",
+        angles=_without(_ANGLES_ATTESTED, "z9-security-seat-remit-public"),
+        premises=_PREMISE_TOML_ATTESTED,
+    )
+    refused = _resolve(_row(_CISO, "Singapore", _EVIDENCE_NONE), reg2, root2)
+    assert refused.refusal == resolve.PREMISE_UNSUPPORTED
+
+
+def test_an_industry_attests_a_premise_and_selects_the_public_opener(tmp_path, monkeypatch):
+    """A bank with no research event: the regulated premise holds on the industry column, and
+    the angle offered opens on a public event — an industry is not an event to open on. The
+    same seat with the licence in its EVIDENCE gets the account-event angle."""
+    reg, root = _tenant(
+        tmp_path, monkeypatch, "industry", angles=_ANGLES_ATTESTED, premises=_PREMISE_TOML_ATTESTED
+    )
+    bank = {**_row(_CISO, "Singapore", _EVIDENCE_NONE), "industry": "Commercial Banking"}
+    by_industry = _resolve(bank, reg, root)
+    assert by_industry.angle_id == "d1-security-regulated-public"
+    assert by_industry.attestation == "industry"
+
+    by_event = _resolve(_row(_CISO, "Singapore", _EVIDENCE_LICENSED), reg, root)
+    assert by_event.angle_id == "e1-security-regulated"
+    assert by_event.attestation == "record"
+
+    # Negative control: a sector the vocabulary does not name attests nothing, so the row
+    # falls through to the seat's own argument rather than to the regulated one.
+    other = {**_row(_CISO, "Singapore", _EVIDENCE_NONE), "industry": "Software Publishers"}
+    assert _resolve(other, reg, root).angle_id == "z9-security-seat-remit-public"
+
+
+def test_the_generic_lane_prefers_a_public_event_opener(tmp_path, monkeypatch):
+    """Same evidence, two lanes. A generic-lane body makes no claim about the account, so
+    its angle opens on a public event even when the record would let it open on the
+    account's own; every other lane keeps the account-event angle first."""
+    reg, root = _tenant(
+        tmp_path, monkeypatch, "lane", angles=_ANGLES_ATTESTED, premises=_PREMISE_TOML_ATTESTED
+    )
+    generic = _resolve(
+        {**_row(_CISO, "Singapore", _EVIDENCE_LICENSED), "lane": "generic"}, reg, root
+    )
+    assert generic.angle_id == "d1-security-regulated-public"
+    assert generic.alternatives == ("z9-security-seat-remit-public",)
+
+    signal = _resolve({**_row(_CISO, "Singapore", _EVIDENCE_LICENSED), "lane": "signal"}, reg, root)
+    assert signal.angle_id == "e1-security-regulated"
+
+
+def test_the_generic_lane_never_opens_on_the_account(tmp_path, monkeypatch):
+    """A record-attested premise whose only angle opens on the account's own event is not
+    offered in the generic lane at all: the row takes the seat's public argument instead.
+
+    Measured 2026-09-24 on the live generic pool: 89 of 367 resolved rows won an
+    account-event angle because a record-attested premise outranked the seat-remit one,
+    and every one of them would have opened on research the generic lane does not stand
+    behind.
+    """
+    reg, root = _tenant(
+        tmp_path,
+        monkeypatch,
+        "generic-public",
+        angles=_ANGLES_ATTESTED,
+        premises=_PREMISE_TOML_ATTESTED,
+    )
+    row = _row(_CISO, "Singapore", _EVIDENCE_MULTI)
+    generic = _resolve({**row, "lane": "generic"}, reg, root)
+    assert generic.angle_id == "z9-security-seat-remit-public"
+    assert generic.attestation == "seat"
+    assert "a1-security-multi-framework" not in generic.alternatives
+
+    # Negative control: outside the generic lane the record-attested angle still wins.
+    assert _resolve({**row, "lane": "signal"}, reg, root).angle_id == "a1-security-multi-framework"
+
+    # A seat with no public angle for the row is refused, never handed an account-event one.
+    reg2, root2 = _tenant(
+        tmp_path,
+        monkeypatch,
+        "generic-public-control",
+        angles=_without(
+            _without(_ANGLES_ATTESTED, "z9-security-seat-remit-public"),
+            "d1-security-regulated-public",
+        ),
+        premises=_PREMISE_TOML_ATTESTED,
+    )
+    refused = _resolve({**row, "lane": "generic"}, reg2, root2)
+    assert refused.refusal == resolve.PREMISE_UNSUPPORTED

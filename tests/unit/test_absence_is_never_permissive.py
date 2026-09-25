@@ -18,10 +18,15 @@ wrong about.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from gtm_core.connector_categories import BOUND, CATEGORIES, preflight
+from gtm_core.email_campaign_dashboard import health
+from gtm_core.email_campaign_dashboard.config import FIGURES_MAX_AGE_DAYS
 from gtm_core.lane_verdicts import LANE_VERDICTS
+from gtm_core.prospect_lede import go_live
 from gtm_core.prospects_item import new_account_defaults
 from gtm_core.retention_campaign_gate import FINISHED_STATUSES, _status_of
 from gtm_core.scorecard import Categorised, Scored, parse, score_row
@@ -29,6 +34,8 @@ from gtm_core.scorecard.evidence import GRANTING_VALUES as SCORECARD_GRANTING
 from gtm_core.scorecard.evidence import Evidence
 from gtm_core.scorecard.evidence import classify as scorecard_classify
 from gtm_core.sequencers import _grants
+from tests.contracts.test_dashboard_colour_reasons import reason_violations
+from tests.test_email_campaign_dashboard import _page, _seed
 
 #: Nothing at all, empty, whitespace, and a word the vocabulary has never heard.
 ABSENT: tuple[object, ...] = (None, "", "   ", "wharrgarbl")
@@ -254,3 +261,136 @@ def test_a_blank_connector_name_does_not_bind_a_category(value: object) -> None:
     """A half-written binding is absence, not permission: `{"crm": ("",)}` is a row somebody
     started and did not finish, and truthiness on the tuple alone would read it as wired."""
     assert not preflight("crm", bound={**BOUND, "crm": (value,)}).granted  # type: ignore[dict-item]
+
+
+# ── PS20 Task 13 / TP §4.2: go-live evidence, figures age, colour reasons ─────────────
+#
+# Three more refuse-on-absence decisions from the campaign-page restructure, each paired with
+# a deliberately permissive stand-in that shows the decision would have granted under the
+# naive/older shape of the rule — so a passing test here is never vacuous.
+
+
+#: `go_live`'s `contacted` argument (PS20 P1.10): missing, blank, unparseable text, a
+#: numeric-LOOKING string, a float, and the bool trap — `isinstance(True, int)` is True in
+#: Python, so a bare truthy check would grant `started` on a value that was never a count.
+GO_LIVE_ABSENT_CONTACTED: tuple[object, ...] = (
+    None,
+    "",
+    "   ",
+    "wharrgarbl",
+    "5",
+    5.0,
+    True,
+    False,
+)
+
+
+@pytest.mark.parametrize("contacted", GO_LIVE_ABSENT_CONTACTED)
+def test_go_live_never_reads_started_without_a_real_positive_count(contacted: object) -> None:
+    """`started` is the dashboard's one claim that a real person has actually been emailed
+    (`GO_LIVE_WORDS["started"]` = "started, people have been contacted"). `contacted` must be
+    a genuine `int > 0`; anything else — missing, blank, a non-numeric word, a numeric-LOOKING
+    string, a float, or a bare bool — is not evidence and must fall through exactly as no
+    evidence at all would."""
+    assert go_live([], contacted, True, readable=True) != "started"
+
+
+def test_go_live_is_unknown_whenever_the_snapshot_is_unreadable() -> None:
+    """`readable=False` must win over every other input — a torn snapshot must never be graded
+    on whatever evidence happens to already sit in its (unreliable) parsed fields."""
+    for statuses, contacted, on_record in (
+        ([], 0, False),
+        (["active"], 50, True),
+        ([], None, True),
+        (["paused"], 9, True),
+    ):
+        assert go_live(statuses, contacted, on_record, readable=False) == "unknown"
+
+
+def test_a_real_positive_count_still_reads_started() -> None:
+    """The other half: the rule must not simply refuse everything."""
+    assert go_live([], 5, True, readable=True) == "started"
+
+
+def test_a_naive_truthy_check_is_the_permissive_bug_this_entry_refuses() -> None:
+    """The instrument check. A stand-in that grants on ANY truthy `contacted` — the shape of
+    bug this registry entry exists to catch — DOES read a non-numeric string and a bare `True`
+    as `started`. The real rule refuses both, which is what proves the parametrized refusal
+    above is exercising a real branch rather than passing vacuously."""
+
+    def naive(contacted: object) -> str:
+        return "started" if contacted else "staged"
+
+    assert naive("wharrgarbl") == "started"
+    assert naive(True) == "started"
+    assert go_live([], "wharrgarbl", True, readable=True) != "started"
+    assert go_live([], True, True, readable=True) != "started"
+
+
+#: `health.figures_age_days`'s `fetched` argument (PS20 T1.11): missing, blank, unparseable
+#: text, and the wrong TYPE entirely (an int or a list can arrive if a producer's schema ever
+#: drifts) — none of these may read as "no age constraint", because that is exactly what would
+#: let a page show sending numbers from a snapshot nobody can date as if they were current.
+FIGURES_AGE_ABSENT: tuple[object, ...] = (None, "", "   ", "wharrgarbl", 12345, ["2026-09-01"])
+
+_NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("fetched", FIGURES_AGE_ABSENT)
+def test_an_unparseable_fetched_with_rows_present_counts_as_old_never_fresh(
+    fetched: object,
+) -> None:
+    status = {"sequences": [{"id": "S1"}], "snapshot": {"fetched": fetched, "unreadable": False}}
+    assert "figures-old" in health.page_warnings(status, {"ok": True}, True, _NOW)
+
+
+def test_a_fresh_readable_fetched_raises_no_warning() -> None:
+    """The other half: a genuinely fresh, parseable `fetched` must not be swept into the
+    refusal by an over-eager rule."""
+    status = {
+        "sequences": [{"id": "S1"}],
+        "snapshot": {"fetched": "2026-09-25", "unreadable": False},
+    }
+    assert health.page_warnings(status, {"ok": True}, True, _NOW) == []
+
+
+def test_a_naive_none_is_fresh_rule_is_the_permissive_bug_this_entry_refuses() -> None:
+    """The instrument check. Treating "the age could not be computed" as "no age problem"
+    (``age is None or age <= MAX`` — `None` short-circuits the `or` as true) is the permissive
+    shape this entry refuses: it WOULD call a garbage `fetched` fresh. The real
+    `page_warnings` reads that same `None` as too old to trust."""
+
+    def naive_is_fresh(fetched: object, now: datetime) -> bool:
+        age = health.figures_age_days(fetched, now)
+        return age is None or age <= FIGURES_MAX_AGE_DAYS
+
+    assert naive_is_fresh("wharrgarbl", _NOW) is True
+    status = {
+        "sequences": [{"id": "S1"}],
+        "snapshot": {"fetched": "wharrgarbl", "unreadable": False},
+    }
+    assert "figures-old" in health.page_warnings(status, {"ok": True}, True, _NOW)
+
+
+def test_a_warn_or_risk_class_with_no_listed_reason_is_a_violation(tmp_path) -> None:
+    """T1.5's refusal, registered here rather than re-derived: a coloured element that names
+    no reason — or one outside the closed `WARN_REASONS`/`RISK_REASONS` vocabulary — is a
+    violation. `reason_violations` (tests/contracts/test_dashboard_colour_reasons.py) is the
+    one checker every warn/risk site on the real page is judged by; reused here rather than
+    re-implemented, so this entry and that contract can never quietly disagree. This shape
+    doesn't fit the file's pure-function pattern above — it needs a rendered page — so it is
+    the one entry in this section that takes `tmp_path`."""
+    page = _page(tmp_path, _seed(tmp_path))
+    assert reason_violations(page) == []  # the real page: nothing coloured without a reason
+
+    # The permissive stand-in: a warn-painted element that names NO reason at all.
+    missing = page.replace("</style>", ".zz{color:var(--warn)}</style>").replace(
+        "</body>", '<span class="zz">x</span></body>'
+    )
+    assert reason_violations(missing) != []
+
+    # ...and one that names a reason outside the closed vocabulary.
+    unlisted = page.replace("</style>", ".zz{color:var(--risk)}</style>").replace(
+        "</body>", '<span class="zz" data-risk="not-a-real-reason">x</span></body>'
+    )
+    assert reason_violations(unlisted) != []

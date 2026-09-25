@@ -237,3 +237,83 @@ def test_pace_is_disabled_when_configured_to_zero(slept, monkeypatch):
     monkeypatch.setattr(resilience, "PACE_S", 0.0)
     _run(resilience.pace(5))
     assert slept == []
+
+
+# --- bounded concurrency (bulk lookup) ----------------------------------------------
+
+
+def test_gather_paced_keeps_input_order_when_items_finish_out_of_order(monkeypatch):
+    """A bulk caller zips results back to the people it asked about, so order is identity."""
+    monkeypatch.setattr(resilience, "PACE_S", 0.0)
+    monkeypatch.setattr(resilience, "CONCURRENCY", 3)
+
+    async def worker(delay: float) -> float:
+        await asyncio.sleep(delay)
+        return delay
+
+    delays = [0.03, 0.0, 0.02, 0.01]
+    assert _run(resilience.gather_paced(delays, worker)) == delays
+
+
+@pytest.mark.parametrize("limit", [1, 3])
+def test_gather_paced_never_exceeds_the_concurrency_limit(monkeypatch, limit):
+    monkeypatch.setattr(resilience, "PACE_S", 0.0)
+    monkeypatch.setattr(resilience, "CONCURRENCY", limit)
+    in_flight = peak = 0
+
+    async def worker(item: int) -> int:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.005)
+        in_flight -= 1
+        return item
+
+    out = _run(resilience.gather_paced(list(range(10)), worker))
+    assert out == list(range(10))
+    assert peak == limit, f"expected {limit} in flight at peak, saw {peak}"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(None, 3), ("", 3), ("5", 5), ("1", 1), ("0", 1), ("-2", 1), ("x", 1)]
+)
+def test_concurrency_env_parses_safely(raw, expected):
+    """A junk env value must degrade to sequential, never crash the worker at import."""
+    assert resilience._concurrency(raw) == expected
+
+
+def test_gather_paced_turns_a_raising_worker_into_an_error_row(monkeypatch):
+    """Siblings may already have spent credit; the caller must still reach its metering."""
+    monkeypatch.setattr(resilience, "PACE_S", 0.0)
+    monkeypatch.setattr(resilience, "CONCURRENCY", 3)
+
+    async def worker(item: int) -> dict:
+        if item == 1:
+            raise AttributeError("list has no .get")
+        await asyncio.sleep(0)
+        return {"ok": item}
+
+    out = _run(resilience.gather_paced([0, 1, 2], worker))
+    assert out == [{"ok": 0}, {"error": "lookup failed: AttributeError"}, {"ok": 2}]
+
+
+def test_gather_paced_serialises_starts_even_with_parallel_slots(monkeypatch):
+    """Parallel slots must not sleep their pace together and then fire as a burst.
+
+    Real (tiny) sleeps and a monotonic clock: a recorded-sleep fake cannot tell three
+    parallel 20ms sleeps from three serial ones, which is the whole bug.
+    """
+    import time
+
+    monkeypatch.setattr(resilience, "PACE_S", 0.02)
+    monkeypatch.setattr(resilience, "CONCURRENCY", 3)
+    starts: list[float] = []
+
+    async def worker(item: int) -> int:
+        starts.append(time.monotonic())
+        await asyncio.sleep(0.2)  # hold every slot, so only pacing separates the starts
+        return item
+
+    _run(resilience.gather_paced([0, 1, 2], worker))
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert all(g >= 0.015 for g in gaps), f"starts fired together: gaps {gaps}"

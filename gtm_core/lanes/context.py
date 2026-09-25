@@ -167,14 +167,53 @@ def _load_statuses(ctx: RouterContext, profile: str, content_root: Path | None) 
                 ctx.industries.setdefault(key, industry)
 
 
+def _deleted_sequences(history: Path) -> set[str]:
+    """Sequence ids the audit trail records as gone from the provider.
+
+    Two event shapes carry one: ``sequence_deleted`` (one ``sequence_id``) and
+    ``sequence_cleanup`` (a ``sequences_deleted`` list, each item with an ``id``) — the
+    second is the retroactive-reconciliation shape, written when a live ``list_sequences``
+    read found ids the ledger still showed as staged. ``cells.toml`` keeps its row for such
+    a sequence, because the row is the reply-attribution join and history is not deleted;
+    this is what stops that row from also counting its list as ENROLLED. Measured
+    2026-09-24: the four 2026-08-18 seat-split sequences, reconciled as deleted on
+    2026-08-31 with 0 emails sent, were still excluding 85 of 96 "already-enrolled" rows.
+    """
+    if not history.is_file():
+        return set()
+    gone: set[str] = set()
+    for line in history.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        event = row.get("event")
+        if event == "sequence_deleted" and row.get("sequence_id"):
+            gone.add(str(row["sequence_id"]).strip())
+        elif event == "sequence_cleanup":
+            for item in row.get("sequences_deleted") or []:
+                if isinstance(item, dict) and item.get("id"):
+                    gone.add(str(item["id"]).strip())
+    return gone
+
+
 def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) -> None:
-    """email → sequence id for every list registered with a REAL sequence id. A ``DRAFT-*``
-    entry is a list that was never staged — its rows are enrolled nowhere, and counting
-    them excluded 81 judged rows from the pool on the first real routing run."""
+    """email → sequence id for every list registered with a REAL sequence id the provider
+    still has. A ``DRAFT-*`` entry is a list that was never staged — its rows are enrolled
+    nowhere, and counting them excluded 81 judged rows from the pool on the first real
+    routing run. A list whose sequence ``history.jsonl`` records as deleted is the same
+    fact arrived at later (:func:`_deleted_sequences`)."""
     drafts = 0
+    deleted = 0
+    gone = _deleted_sequences(root / profile / "history.jsonl")
     for src in load_cell_map(profile, root):
         if str(src["sequence_id"]).upper().startswith("DRAFT"):
             drafts += 1
+            continue
+        if str(src["sequence_id"]).strip() in gone:
+            deleted += 1
             continue
         csv_path = seq_dir / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
         if not csv_path.is_file():
@@ -190,6 +229,11 @@ def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) 
     if drafts:
         ctx.notes.append(
             f"{drafts} DRAFT-* list(s) in cells.toml were never staged and do not count as enrolled"
+        )
+    if deleted:
+        ctx.notes.append(
+            f"{deleted} registered list(s) in cells.toml belong to sequences history.jsonl "
+            "records as deleted from the provider and do not count as enrolled"
         )
 
 

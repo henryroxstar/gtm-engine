@@ -506,7 +506,7 @@ def test_the_judge_tally_is_independent_of_the_roster_sources(tmp_path):
 #: green. Kept as literals rather than parsed out of that module: a regex over its source
 #: would silently narrow the moment someone reformats an assertion.
 _REFUSAL_LITERALS = (
-    "the whole segment, not a slice",
+    "accounts researched",
     "Every account in",
     "Not shown for",
     "declare where their accounts live",
@@ -514,7 +514,7 @@ _REFUSAL_LITERALS = (
     "do not run side by side",
     "No single verdict",
     "(weighted by prospects)",
-    "of —",
+    "a partial sum reads as a total",
 )
 
 
@@ -538,7 +538,7 @@ def test_no_grey_out_reason_collides_with_a_pinned_refusal_phrase():
 
 
 def test_a_refused_figure_stays_refused_under_every_selection(page):
-    """Step 33's real claim: a filter cannot turn ``of —`` into a number.
+    """Step 33's real claim: a filter cannot turn a refused figure's ``—`` into a number.
 
     ``_stat`` only emits a count slot for a tile whose ``src`` is a single ``rows:`` token,
     so a refused figure has nowhere for the filter to write. Asserted on the rendered page

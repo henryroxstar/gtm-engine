@@ -192,6 +192,13 @@ class DeclaredCell:
     signal: str
     argument_id: str = ""
     raw: str = ""
+    #: The matrix grid the declaring ANGLE places this cell in — the first of the angle's
+    #: ``segments`` under which the matrix holds the (persona, signal) pair. Empty for a
+    #: hand-declared ``hook_cell:`` (no angle, so no grid claim) and for an angle that
+    #: declares no segments; both keep the segment-insensitive read. Added 2026-09-24: six
+    #: specs whose seat also had a builder-grid twin were measured against the builder grid
+    #: and reported MISAIMED at 0% on lists that were 100% in the angle's own segment.
+    segment: str = ""
 
 
 def declared_cell(spec_text: str, matrix: Matrix | None = None) -> DeclaredCell | None:
@@ -386,7 +393,35 @@ def resolve_declared_cell(
     # The angle id IS the stable argument slug (`argument_id` was superseded, not renamed),
     # and `Coverage.arguments` keys on it — without this, two angles that derive one cell
     # would be counted as one argument.
-    return None if cell is None else replace(cell, argument_id=angle.id)
+    if cell is None:
+        return None
+    return replace(cell, argument_id=angle.id, segment=_grid_for(angle, cell, matrix))
+
+
+def _grid_for(angle: Angle, cell: DeclaredCell, matrix: Matrix | None) -> str:
+    """The grid ``angle`` places ``cell`` in, or ``""`` when it claims none the matrix holds.
+
+    ``Matrix.find`` is segment-insensitive on purpose — a spec declares the pair a reader
+    experiences, and which table it came from is the matrix's filing system. An ANGLE is
+    different: it declares its grid (``segments``), and ``gtm_core.messaging.resolve`` offers
+    it only to rows in that grid, so measuring its list against a sibling grid's twin cell is
+    a comparison against the wrong claim. Imported lazily: ``fit`` imports this module.
+    """
+    if matrix is None or not matrix.ok or not angle.segments:
+        return ""
+    from .fit import _norm_segment
+
+    want_p, want_s = cell.persona.lower(), cell.signal.lower()
+    grids = {
+        _norm_segment(c.segment): c.segment
+        for c in matrix.cells.values()
+        if c.segment and c.persona.lower() == want_p and c.signal.lower() == want_s
+    }
+    for declared in angle.segments:
+        hit = grids.get(_norm_segment(declared))
+        if hit:
+            return hit
+    return ""
 
 
 def declared_angle(spec_text: str, registry: Registry | None = None) -> str:

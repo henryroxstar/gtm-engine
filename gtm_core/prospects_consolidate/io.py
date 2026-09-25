@@ -7,7 +7,13 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..merge_hygiene import clean_company, clean_first_name, clean_last_name, clean_title
+from ..merge_hygiene import (
+    clean_company,
+    clean_first_name,
+    clean_last_name,
+    clean_segment,
+    clean_title,
+)
 from .columns import MASTER_COLS
 from .confidence import classify_confidence
 from .paths import _pool_dir, _sequences_dir
@@ -47,6 +53,11 @@ def _load_master(path: Path | None) -> list[dict]:
         rec["last"] = clean_last_name(rec["last"])
         rec["company"] = clean_company(rec["company"])
         rec["title"] = clean_title(rec["title"])
+        # Storage is lowercase (`merge_hygiene.SEGMENTS`); every reader that COMPARES a
+        # segment lowercases first, but the pool is also read by people and by joins that
+        # do not. Measured 2026-09-24: 46 of 622 pooled rows spelled `Startup`/`Enterprise`
+        # beside 576 lowercase ones. Case-only: an unknown value passes through as written.
+        rec["segment"] = clean_segment(rec["segment"])
         if not rec["conf_tier"]:
             rec["conf_tier"] = classify_confidence(
                 rec["email_status"],

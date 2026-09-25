@@ -832,6 +832,16 @@ def test_signal_rules_are_not_data_borne_eligible():
 # was a correct rule that nobody had opted into for months; an opt-in rule with no off-state
 # test is that failure waiting to repeat.
 
+
+def _strip_company(row, evidence_fields) -> str:
+    """The evidence text the way `Premise.hits_for` reads it: joined, the account's own name removed."""
+    import re as _re
+
+    text = " ".join(str(row.get(f) or "") for f in evidence_fields)
+    company = str(row.get("company") or "").strip()
+    return _re.sub(_re.escape(company), " ", text, flags=_re.IGNORECASE) if company else text
+
+
 #: A miniature tenant premise vocabulary. Carries no real tenant's terms — the shape is what
 #: is under test, and the live vocabulary is profile data.
 MINI_PREMISE = {
@@ -847,6 +857,12 @@ MINI_PREMISE = {
                 t for t in ("langgraph", "crewai", "bedrock") if t in (text or "").lower()
             },
             "met_by": lambda self, text: len(self.attested_by(text)) >= self.min_distinct,
+            "industry_terms": frozenset(),
+            "industry_hits": lambda self, industry: set(),
+            # Mirrors `Premise.hits_for` (2026-09-24): the one row matcher every reader calls.
+            "hits_for": lambda self, row, evidence_fields=("signal_evidence", "signal_clause", "why_now"): (
+                self.attested_by(_strip_company(row, evidence_fields))
+            ),
         },
     )(),
     # An arity-1 premise whose term is an ordinary business word — the shape that makes
@@ -864,6 +880,12 @@ MINI_PREMISE = {
                 t for t in ("partner", "third-party", "vendor") if t in (text or "").lower()
             },
             "met_by": lambda self, text: len(self.attested_by(text)) >= self.min_distinct,
+            "industry_terms": frozenset(),
+            "industry_hits": lambda self, industry: set(),
+            # Mirrors `Premise.hits_for` (2026-09-24): the one row matcher every reader calls.
+            "hits_for": lambda self, row, evidence_fields=("signal_evidence", "signal_clause", "why_now"): (
+                self.attested_by(_strip_company(row, evidence_fields))
+            ),
         },
     )(),
 }

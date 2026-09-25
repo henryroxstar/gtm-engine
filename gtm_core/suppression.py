@@ -43,6 +43,7 @@ import sys
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import fsio
@@ -630,6 +631,57 @@ def _cli_reconcile_dnc(args) -> int:
     return 0
 
 
+def _cli_write_dnc_cache(args) -> int:
+    """Refresh the consolidate-time DNC cache from the provider's own read.
+
+    Same stdin payload as ``reconcile-dnc`` (``list_dnc_lists`` -> ``get_dnc_items_by_id``,
+    piped in by the skill; this command performs no network I/O, §R6). Writes the shape
+    ``gtm_core.prospects_consolidate.suppression._load_dnc`` reads — ``{"emails",
+    "domains", "fetched_at"}`` — to :func:`gtm_core.prospects_consolidate.paths.dnc_cache_path`,
+    the file ``consolidate --require-dnc`` refuses when it is missing, empty, undatable or
+    older than its window. Until 2026-09-24 nothing wrote that file but a hand: the loader
+    documented its shape, the reconcile verb read the same payload, and the cache went stale
+    between them.
+
+    Refuses an empty read rather than writing it. An empty cache is indistinguishable
+    downstream from a correct one, and the provider list has never been empty.
+    """
+    from .prospects_consolidate.paths import dnc_cache_path
+
+    raw = sys.stdin.read().strip()
+    if not raw:
+        print(
+            "FAIL — no payload on stdin. Pipe the provider's DNC read in as JSON "
+            "(`list_dnc_lists` -> `get_dnc_items_by_id`).",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"FAIL — payload is not JSON: {exc}", file=sys.stderr)
+        return 2
+    emails, domains = normalize_dnc_payload(payload)
+    if not emails and not domains:
+        print(
+            "FAIL — the payload carried no DNC entries; refusing to write an empty cache",
+            file=sys.stderr,
+        )
+        return 1
+    out = Path(args.out) if args.out else dnc_cache_path(args.profile)
+    body = {
+        "emails": sorted(emails),
+        "domains": sorted(domains),
+        "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f".{out.name}.tmp")
+    tmp.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(out)
+    print(f"PASS — wrote {len(emails)} email(s), {len(domains)} domain(s) to {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="gtm_core.suppression",
@@ -653,6 +705,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     r.add_argument("--ledger", required=True, type=Path)
     r.set_defaults(func=_cli_reconcile_dnc)
+
+    w = sub.add_parser(
+        "write-dnc-cache",
+        help="refresh the consolidate-time DNC cache from the provider's DNC read (reads the "
+        "same JSON payload as reconcile-dnc on stdin; performs no network I/O)",
+    )
+    w.add_argument("--profile", required=True)
+    w.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="override the cache path (default: the profile's prospects/.cache/dnc-emails.json)",
+    )
+    w.set_defaults(func=_cli_write_dnc_cache)
 
     m = sub.add_parser(
         "migrate",

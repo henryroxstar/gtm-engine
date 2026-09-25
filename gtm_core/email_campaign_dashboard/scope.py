@@ -20,12 +20,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: Manifest ``status`` values that mean "this campaign is live work". Deliberately the
-#: same vocabulary ``campaigns_dashboard`` already uses to decide ``state == "sending"``
-#: — a second spelling of "active" is a second thing to keep in sync, and the first one
-#: to be forgotten. Anything else (``"list too small"``, ``"not set up"``, blank) is out
-#: of ``open`` and is NAMED when excluded, never silently dropped.
-OPEN_STATUSES = frozenset({"active", "running", "live"})
+from gtm_core.prospect_lede import LIVE_STATUSES
+
+#: Manifest ``status`` values that mean "this campaign is live work" — literally
+#: ``prospect_lede.LIVE_STATUSES``, the same set ``campaigns_dashboard`` feeds through
+#: ``go_live`` to decide ``state == "active"``. Imported, not re-typed, so there is only
+#: one place to keep in sync. Anything else (``"list too small"``, ``"not set up"``,
+#: blank) is out of ``open`` and is NAMED when excluded, never silently dropped.
+OPEN_STATUSES = LIVE_STATUSES
 
 MODES = ("campaign", "open", "all")
 

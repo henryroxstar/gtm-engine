@@ -124,13 +124,16 @@ def test_the_block_says_so_in_the_operators_own_words(tmp_path, monkeypatch, cap
     _seed(tmp_path, monkeypatch, [record], [_account(status="do-not-contact")])
     assert cli.main(["--profile", PROFILE]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^  Ready\s+0\b", out, re.M)
+    assert re.search(r"^  Sorted\s+0\b", out, re.M)
     assert re.search(r"^  Not a fit / excluded\s+1\b", out, re.M)
     assert re.search(
-        r"^Routed — not yet checked\s+1\b", out, re.M
+        r"^Sorted — not yet checked\s+1\b", out, re.M
     )  # the contact table is left as routed
-    (check,) = [ln for ln in out.splitlines() if ln.startswith("Check:")]
+    (check,) = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("Check:")]
     assert "1 contact is on the list for an account marked not a fit / excluded" in check
+    # PS15: the line says what happens to sending, and it is true of the build: the next list
+    # build removes a contact at a do-not-contact account by itself.
+    assert "The next list build removes those at do-not-contact" in check
 
     lint_dir = Path(__file__).resolve().parents[1] / "lint"
     if str(lint_dir) not in sys.path:

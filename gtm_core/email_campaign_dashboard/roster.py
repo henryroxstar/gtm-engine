@@ -110,8 +110,10 @@ def judge_queue(profile: str, content_root: Path | None = None) -> dict[str, dic
             # Normalised, so the judge's kebab and snake spellings of one finding
             # (`fact-earns-its-place` / `fact_earns_its_place`) count as one class rather than
             # rendering as two entries of the same thing.
-            key = f"class:{dest}|{_normalise_defect(cls)}"
-            tally[key] = tally.get(key, 0) + 1
+            # Its own name: this once reused `key`, the row's ADDRESS, so every classified row
+            # was filed under its class and never reached its account (PS20 P1.7 follow-up).
+            class_key = f"class:{dest}|{_normalise_defect(cls)}"
+            tally[class_key] = tally.get(class_key, 0) + 1
         if dest == "spec:re-argue":
             # Of the rows routed back to the writer, how many are a defect the operator has
             # ALREADY ruled on rather than an open rewrite. Two classes qualify and both are

@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .account_exclusion_keys import (
-    account_is_dropped,
+    account_hold_reason,
     ledger_account_keys,
     row_account_keys,
 )
@@ -303,14 +303,17 @@ def _extract_blocked_lookups(
     blocked_emails: dict[str, str] = {}
     for it in items:
         st = str(it.get("status") or "").strip().lower()
-        if st.replace("_", "-") not in BLOCKED_ACCOUNT_STATUSES and account_is_dropped(it):
-            # A dropped account is closed to sending on a second axis. A row that cannot be tied
-            # to it by an exact key carries a blank verdict, which the generic lane admits.
-            st = "verdict drop"
+        hold = account_hold_reason(it)
+        if st.replace("_", "-") not in BLOCKED_ACCOUNT_STATUSES and hold:
+            # Closed to sending on a second axis — the SAME rule the send-list build removes
+            # them by (`account_hold_reason`), so a list built before a rescore is refused here
+            # rather than sent. A row that cannot be tied to a dropped account by an exact key
+            # carries a blank verdict, which the generic lane admits.
+            st = _HOLD_LABELS[hold]
         if (
             st in BLOCKED_ACCOUNT_STATUSES
             or st.replace("_", "-") in BLOCKED_ACCOUNT_STATUSES
-            or st == "verdict drop"
+            or st in _HOLD_LABELS.values()
         ):
             for k in ledger_account_keys(it):
                 blocked_keys[k] = st
@@ -319,6 +322,15 @@ def _extract_blocked_lookups(
                 if em:
                     blocked_emails[em] = st
     return blocked_keys, blocked_emails
+
+
+#: How each ``account_hold_reason`` reads in a refusal line. "verdict drop" is kept verbatim —
+#: it is the word this gate has always printed for a dropped account.
+_HOLD_LABELS: dict[str, str] = {
+    "drop": "verdict drop",
+    "outside-market": "outside target markets",
+    "needs-research": "not yet researched",
+}
 
 
 def _row_identity_keys(r: dict) -> list[str]:

@@ -34,7 +34,9 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
+from dataclasses import field as dc_field
 
+from .account_exclusion_keys import account_hold_reason
 from .prospects_state import _identity_key, _identity_keys
 
 #: Contact statuses that make their account ready / held (``prospect_status.STATUSES`` ids).
@@ -56,11 +58,11 @@ BUCKETS: tuple[str, ...] = (
 BUCKET_LABELS: dict[str, str] = {
     "total_intake": "All accounts",
     "failed_fit": "Not a fit / excluded",
-    "failed_intent": "Needs a new angle (queued)",
-    "failed_enrichment": "No usable contact yet",
-    "not_routed": "Not yet routed",
+    "failed_intent": "Being researched",
+    "failed_enrichment": "Finding a contact",
+    "not_routed": "Not yet sorted",
     "held": "Held",
-    "ready": "Ready",
+    "ready": "Sorted",
 }
 BUCKET_NOTES: dict[str, str] = {
     "total_intake": "every company in the ledger",
@@ -69,7 +71,7 @@ BUCKET_NOTES: dict[str, str] = {
     "failed_enrichment": "the machine's — it is still finding someone to write to",
     "not_routed": "nobody here has been sorted yet",
     "held": "a contact is waiting on you, or being fixed",
-    "ready": "at least one contact is ready to send",
+    "ready": "a contact is on the list — the checks decide if it sends",
 }
 ACCOUNTS_HEADING = "Accounts — where each stands"
 
@@ -115,6 +117,10 @@ class AttritionReceipt:
     routed_unrecognised: int = 0
     unmatched_contacts: int = 0
     excluded_listed_contacts: int = 0
+    #: PS15: of those, the ones already LOADED in the sending tool, by why their account is
+    #: closed. The only ones a person must act on — nothing here can unload a sequence — and
+    #: the list build removes the rest by itself.
+    excluded_loaded: dict[str, int] = dc_field(default_factory=dict)
     #: False when the caller supplied no routed state (held/ready came from ledger hints).
     from_routed_state: bool = False
 
@@ -153,25 +159,57 @@ def _word(item: dict, key: str) -> str:
     return str(item.get(key) or "").strip().lower()
 
 
-def _fails_fit(item: dict) -> bool:
+#: Why an account is closed to sending, as a closed set of ids an operator surface can put
+#: plain words to (``prospect_lede.RISK_WORDS``). Order is precedence: the first that applies.
+FIT_FAILURE_REASONS: tuple[str, ...] = (
+    "do-not-contact",
+    "disqualified",
+    "outside-market",
+    "competitor",
+    "regulator",
+    "ruled-out",
+)
+
+
+def fit_failure_reason(item: dict) -> str | None:
+    """Why this ledger account is closed to sending, or ``None`` if it is a fit.
+
+    PS15 (operator decision 2026-09-24): tier C is a fit — it is 50-64 on the 0-100 card, above
+    the bottom tier D, and the router sends it the general email. An UNSCORED account is closed
+    only when it is outside the target markets; unscored for missing research it is work in
+    progress (:func:`_fails_intent`), not a rejection. Both come from
+    :func:`~gtm_core.account_exclusion_keys.account_hold_reason`, the rule the send-list build
+    and the enrollment gate also use.
+    """
+    status = _word(item, "status")
     lane_reason = _word(item, "reason") or _word(item, "lane_reason")
-    return (
-        _word(item, "verdict") == "drop"
-        or _word(item, "category_relation") in ("competitor", "regulator")
-        or _word(item, "status") in _FIT_FAIL_STATUSES
-        # "UNSCORED" joined this list on 2026-09-22 with gtm_core.scorecard. It is NOT a weak
-        # tier — it means an input was missing, so no rubric ever ran. Either way the row is not
-        # ready to move: before this it passed the fit gate outright and kept going toward
-        # enrolment, which is a row reaching a recipient on research nobody did.
-        or _word(item, "tier").upper() in ("C", "DROP", "UNSCORED")
+    hold = account_hold_reason(item)
+    if status == "do-not-contact":
+        return "do-not-contact"
+    if status in _FIT_FAIL_STATUSES:
+        return "disqualified"
+    if hold == "outside-market":
+        return "outside-market"
+    if _word(item, "category_relation") in ("competitor", "regulator"):
+        return _word(item, "category_relation")
+    if (
+        hold == "drop"
+        or _word(item, "tier").upper() == "DROP"
         or item.get("fit") is False
         or (_word(item, "lane") == "excluded" and lane_reason != "already-enrolled")
-    )
+    ):
+        return "ruled-out"
+    return None
+
+
+def _fails_fit(item: dict) -> bool:
+    return fit_failure_reason(item) is not None
 
 
 def _fails_intent(item: dict) -> bool:
     return (
-        _word(item, "verdict") == "re-angle"
+        account_hold_reason(item) == "needs-research"
+        or _word(item, "verdict") == "re-angle"
         or _word(item, "status") in _INTENT_FAIL_STATUSES
         or item.get("intent") is False
     )
@@ -211,15 +249,30 @@ def _ledger_bucket(item: dict, *, hints: bool) -> str:
     return "not_routed"
 
 
+#: How far a contact has got, lowest first (PS15). An account's word is the FURTHEST stage any
+#: of its contacts reached — the rule the three set tests this replaced encoded implicitly,
+#: now stated once and built from the same three sets. A status outside them (an unrecognised
+#: reason, or anything a later build adds) ranks above "closed" and below "held": it cannot
+#: make an account look finished, and it cannot hide a contact that is waiting on someone.
+_CONTACT_STAGE: dict[str, int] = {
+    **dict.fromkeys(CLOSED_CONTACT, 0),
+    **dict.fromkeys(HELD_CONTACT, 2),
+    **dict.fromkeys(READY_CONTACT, 3),
+}
+_UNKNOWN_STAGE = 1
+_STAGE_BUCKET: dict[int, tuple[str, str]] = {
+    0: ("failed_fit", "closed"),
+    1: ("not_routed", "unrecognised"),
+    2: ("held", "held"),
+    3: ("ready", "ready"),
+}
+
+
 def _routed_bucket(statuses: set[str]) -> tuple[str, str]:
-    """``(bucket, kind)`` for an account at least one routed contact reached."""
-    if statuses & READY_CONTACT:
-        return "ready", "ready"
-    if statuses & HELD_CONTACT:
-        return "held", "held"
-    if statuses <= CLOSED_CONTACT:
-        return "failed_fit", "closed"
-    return "not_routed", "unrecognised"
+    """``(bucket, kind)`` for an account at least one routed contact reached: the bucket of
+    the furthest stage among its contacts."""
+    furthest = max((_CONTACT_STAGE.get(s, _UNKNOWN_STAGE) for s in statuses), default=0)
+    return _STAGE_BUCKET[furthest]
 
 
 def dedupe_accounts(accounts: Iterable[dict]) -> list[dict]:
@@ -320,11 +373,17 @@ def compute_attrition_receipt(
     buckets: Counter[str] = Counter()
     kinds: Counter[str] = Counter()
     live = READY_CONTACT | HELD_CONTACT
+    loaded: Counter[str] = Counter()
     for pos, item in enumerate(rows):
-        if pos in reached and _fails_fit(item):
+        reason = fit_failure_reason(item)
+        if pos in reached and reason:
             # The ledger's exclusion outranks the routed state; what is still listed is said.
             bucket = "failed_fit"
             kinds["excluded_listed"] += sum(1 for s in reached[pos] if s in live)
+            loaded[reason] += sum(1 for s in reached[pos] if s == "in_sending_tool")
+        elif pos in reached and account_hold_reason(item) == "needs-research":
+            # Leaves the list at the next build and rejoins once researched: the machine's.
+            bucket = "failed_intent"
         elif pos in reached:
             bucket, kind = _routed_bucket(set(reached[pos]))
             kinds[kind] += 1
@@ -340,6 +399,7 @@ def compute_attrition_receipt(
         routed_unrecognised=kinds["unrecognised"],
         unmatched_contacts=unmatched,
         excluded_listed_contacts=kinds["excluded_listed"],
+        excluded_loaded={k: v for k, v in loaded.items() if v},
         from_routed_state=routed is not None,
     )
     verify_funnel_conservation(receipt)
@@ -357,13 +417,23 @@ def cross_check(
     the list. An "accounts placed" comparison used to sit here too — ready + held + closed +
     unrecognised against the accounts reached — and was deleted: both sides were counted in
     one loop, so it could not fail (§R18).
+
+    Each line ends with what the discrepancy does to SENDING, and that sentence must be true
+    of the gate as written (PS15), never a reassurance. An unmatched contact is not refused (the
+    account-status join finds no objection). A contact on a "not a fit" account is NOT
+    necessarily refused either: this module's fit test (``_fails_fit``) is broader than the
+    gate's (``enrollment_gate.BLOCKED_ACCOUNT_STATUSES``) — tier C and unscored accounts fail
+    fit here and pass the gate. On the first live run all 99 such contacts were tier C or
+    unscored and the gate would have admitted every one; the line said the opposite until it
+    was measured. So it now states the gate's actual rule rather than a promise.
     """
     out: list[str] = []
     table_total = sum(contact_counts.values())
     if table_total != routed_records:
         out.append(
             f"Check: the contact table adds up to {table_total}, but {routed_records} "
-            f"contact(s) were routed."
+            f"contact(s) were routed. Only these counts are affected, not what the checks "
+            f"let through."
         )
     if not receipt.from_routed_state:
         return out
@@ -372,7 +442,8 @@ def cross_check(
         out.append(
             f"Check: {n} routed contact{'s' if n != 1 else ''} match{'es' if n == 1 else ''} "
             f"no ledger account — the account lines above leave "
-            f"{'it' if n == 1 else 'them'} out."
+            f"{'it' if n == 1 else 'them'} out. {'It' if n == 1 else 'They'} can still be "
+            f"sent; only the account count misses {'it' if n == 1 else 'them'}."
         )
     if receipt.excluded_listed_contacts:
         n = receipt.excluded_listed_contacts
@@ -380,7 +451,10 @@ def cross_check(
             f"Check: {n} contact{' is' if n == 1 else 's are'} on the list for an account marked "
             f"{BUCKET_LABELS['failed_fit'].lower()} — nothing should go to "
             f"{'that person' if n == 1 else 'those people'}; take "
-            f"{'that person' if n == 1 else 'them'} off the list, or correct the account."
+            f"{'that person' if n == 1 else 'them'} off the list, or correct the account. "
+            f"The next list build removes those at do-not-contact, disqualified, out-of-market "
+            f"or not-yet-researched companies; anyone already loaded in the sending tool is "
+            f"named at the top, because only a person can take them out there."
         )
     return out
 

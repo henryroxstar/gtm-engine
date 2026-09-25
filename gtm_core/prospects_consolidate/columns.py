@@ -94,6 +94,12 @@ MASTER_COLS = [
     # change is about, so the pool's row identity gets its own name.
     "pool_row_id",
     ACCOUNT_ID_FIELD,
+    # The account's industry classification, carried from `latest.json` (2026-09-24). A
+    # firmographic fact, never free text: `premise-vocab.toml` may name `industry_terms` a
+    # premise is attested by on this column alone — a commercial bank is a regulated entity
+    # whether or not a sentence of research says so — and the generic lane has no event to
+    # attest from. Appended, for the projection reason every block above records.
+    "industry",
 ]
 
 # Canonical field -> header variants seen across hubspot exports + the flat
@@ -120,6 +126,7 @@ _ALIASES = {
     "intent_topics": ("GTM_Intent_Topics", "Intent Topics", "intent_topics"),
     "cohort": ("GTM_Persona_Tier", "Cohort", "cohort"),
     "qualification_path": ("GTM_Qualification_Path", "Qualification Path", "qualification_path"),
+    "industry": ("GTM_Industry", "Industry", "industry"),
     # The research record + the researcher's verdict. Absent from this map until
     # 2026-08-27, which made the documented handoff impossible: `prospect` is told to
     # write the record into its export, `_get` returns "" for any field with no alias,
@@ -217,8 +224,9 @@ _COLUMN_NOTES = {
     "city": "HQ city — cross-examined against `country` by the compliance gate",
     "country": "HQ country, full name",
     "segment": (
-        "one of `gtm_core.merge_hygiene.SEGMENTS`, capitalised — read the tuple, never a "
-        "list restated here (it gained `builder` on 2026-09-04 and this note did not)"
+        "one of `gtm_core.merge_hygiene.SEGMENTS`, lowercase (`clean_segment` runs on every "
+        "load since 2026-09-24) — read the tuple, never a list restated here (it gained "
+        "`builder` on 2026-09-04 and this note did not)"
     ),
     "tier": (
         "`A` / `B` only, never a third letter. Tier is the effort allocation — Tier-A earns "
@@ -245,6 +253,11 @@ _COLUMN_NOTES = {
     "intent_topics": "`topic:score` pairs, highest first, semicolon-joined",
     "cohort": "ICP cohort this account was scored under",
     "qualification_path": "set only when a gate was relaxed for the run",
+    "industry": (
+        "the account's industry classification from `latest.json`, a firmographic fact "
+        "`premise-vocab.toml` may attest a premise from (`industry_terms`); blank when the "
+        "ledger has none"
+    ),
     "signal_source_url": "primary source for the why-now — https, re-fetchable",
     "signal_observed": "ISO date the source showed it (freshness lives here, not in the clause)",
     "signal_evidence": "verbatim span of the source the clause reduces",

@@ -138,11 +138,13 @@ def test_status_cli_outputs_accounts_block_and_action_alert(
     assert cli.main(["--profile", profile]) == 0
     out = capsys.readouterr().out
 
-    assert "> [!WARNING] ACTION REQUIRED: 2 contacts are waiting on your decision." in out
+    # PS15: the decision count leads the block as "Yours", not as a warning banner.
+    assert "Yours (2): decide on 2 contacts" in out
+    assert "ACTION REQUIRED" not in out
     assert "Accounts — where each stands (companies, not people):" in out
     assert "Contacts — by status (people, not companies):" in out
     assert re.search(r"^  Held\s+2\b", out, re.M)
-    assert re.search(r"^  Ready\s+1\b", out, re.M)
+    assert re.search(r"^  Sorted\s+1\b", out, re.M)
     assert re.search(r"^  All accounts\s+3\b", out, re.M)
     assert "Check:" not in out
 
@@ -246,9 +248,9 @@ def test_status_cli_prints_no_action_alert_when_only_the_ledger_says_held(
     assert "ACTION REQUIRED" not in out
     assert re.search(r"^Waiting on you\s+0\b", out, re.M)
     assert re.search(r"^  Held\s+0\b", out, re.M)
-    assert re.search(r"^  Ready\s+1\b", out, re.M)
+    assert re.search(r"^  Sorted\s+1\b", out, re.M)
     # The three unrouted accounts have no usable contact; none of them is "held".
-    assert re.search(r"^  No usable contact yet\s+3\b", out, re.M)
+    assert re.search(r"^  Finding a contact\s+3\b", out, re.M)
 
 
 def test_provenance_pairing_contract() -> None:

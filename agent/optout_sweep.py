@@ -37,6 +37,7 @@ from datetime import UTC, datetime, timedelta
 
 from agent.config import Config
 from agent.ledgers import Ledgers
+from agent.optout_auto_add import handle_optout
 from agent.optout_categories import _categories_by_thread
 from gtm_core.optout_watch import (
     OptOutMatch,
@@ -47,7 +48,6 @@ from gtm_core.optout_watch import (
     is_unreadable,
     load_watermark,
     new_threads,
-    record_optout_event,
     record_unreadable_event,
     save_watermark,
     thread_id_of,
@@ -345,9 +345,9 @@ async def run(profile: str, *, cfg: Config | None = None) -> int:
                     )
             continue
         found += 1
-        escalated = await _escalate(cfg, profile, match)
-        record_optout_event(ledgers, match, escalated=escalated)
-        # SC9. The per-opt-out Telegram alert above STAYS — it is the same-day deadline and
+        if await handle_optout(cfg, profile, ledgers, match, _escalate):
+            continue
+        # SC9. The per-opt-out Telegram alert STAYS — it is the same-day deadline and
         # is not aggregated away. This signal is the second half the alert never had: a
         # route to actually mirror the suppression onto the provider, drafted for a human
         # rather than written by a timer.
@@ -453,12 +453,17 @@ async def _dispatch_signals(cfg: Config, profile: str) -> None:
         )
 
 
-async def _escalate(cfg: Config, profile: str, match) -> bool:
+async def _escalate(cfg: Config, profile: str, match, *, auto_outcome=None) -> bool:
     """Push the Telegram alert; never let a notification failure abort the sweep."""
     from agent.gate_notify import push_optout_alert
 
     try:
-        await push_optout_alert(cfg, cfg.profiles_root, profile, match)
+        if auto_outcome is None:
+            await push_optout_alert(cfg, cfg.profiles_root, profile, match)
+        else:
+            await push_optout_alert(
+                cfg, cfg.profiles_root, profile, match, auto_outcome=auto_outcome
+            )
         return True
     except Exception:
         logger.warning("optout_sweep: push_optout_alert failed for %s", match.email, exc_info=True)

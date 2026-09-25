@@ -17,46 +17,45 @@ TABS = (
 
 PAGE_NAME = "email_campaign_status.html"
 
-#: The tenant's persona axis, from ``knowledge/voice.md``. Reproduced here as the page's
-#: reference copy so a reader can see the rule the copy is written against without opening
-#: the knowledge pack. Seven seats are defined; the automated resolver recognises three
-#: (see :data:`SEAT_COVERAGE`) — that gap is the reason so many recipients read "unknown".
-PERSONA_AXIS = (
-    (
-        "CEO / Founder",
-        "the trust gap stalling an enterprise or partner deal",
-        "close the logo your agents keep getting stuck on",
-    ),
-    (
-        "CTO / Head of Platform",
-        "identity and policy rebuilt per framework, burning 2–4 engineers",
-        "one identity layer across your frameworks — ship, don't build",
-    ),
-    (
-        "CISO / Head of Security",
-        "cannot prove what agents did or who authorised them",
-        "verifiable identity, tamper-evident audit, policy per action",
-    ),
-    (
-        "Head of AI / Applied AI",
-        "can build agents, cannot safely run them at scale",
-        "reach production without the risk team stopping you",
-    ),
-    (
-        "Chief Data Officer / DPO",
-        "an agent on regulated data is a reportable breach",
-        "delegation bound to the consenting human, auditor-ready",
-    ),
-    (
-        "Head of Partnerships",
-        "roadmap depends on partner agents you cannot verify",
-        "trust that travels with the partner's agent",
-    ),
-    (
-        "Compliance / Audit",
-        "no provenance or attribution to show a regulator",
-        "provenance from agent #1, not retrofitted at audit",
-    ),
+#: PS20 (``health.page_warnings``) — sending figures older than this are flagged stale on
+#: the page-wide warning strip, regardless of whether the reconciliation itself agrees.
+FIGURES_MAX_AGE_DAYS = 2
+
+#: PS20 P3.5 — a bounce rate STRICTLY above this percentage draws the ``bounce-rate`` risk
+#: pill (``RISK_REASONS`` below). ``aggregate.bounce_rate`` returns a percentage (e.g. 3.1,
+#: not 0.031), so this constant is a percentage too, and the comparison is a plain ``>``.
+BOUNCE_RISK_PCT = 3
+
+#: PS20 P1.5 — the only reasons a WARN colour may give (``data-warn``). Warn means one thing:
+#: a number on this page cannot be trusted. Closed, so a new warning has to name itself here
+#: before it can render (``tests/contracts/test_dashboard_colour_reasons.py``).
+WARN_REASONS: tuple[str, ...] = (
+    "checks-untrusted",  # the lede: the checks never ran, or their report is stale/unreadable
+    "records-disagree",  # two records of one thing disagree: figures vs lists, list vs provider
+    "figures-old",  # the sending figures are older than FIGURES_MAX_AGE_DAYS, or undated
+    "unreadable",  # the sending figures could not be read at all
+    "tripwire",  # the filter's row data disagrees with the figures it filters
+    "unmapped",  # a routed row whose status this build cannot name
+)
+
+#: PS20 P1.5 — the only reasons a RISK colour may give (``data-risk``): a genuine risk to a
+#: person or to the brand. States, design facts, verdicts and ages stay neutral.
+#: ``out-of-market`` and ``competitor`` colour no element yet. Both are kept because a live
+#: source reaches the page: ``prospect_status_receipt.fit_failure_reason`` feeds the lede's
+#: "take them out of the sending tool" line — ``outside-market`` from PS15's
+#: ``account_hold_reason``, ``competitor`` from the ledger's ``category_relation``. (The
+#: ``competitor-adjacent`` hold trigger never does: it folds into "Waiting on you".)
+RISK_REASONS: tuple[str, ...] = (
+    "opted-out",
+    "do-not-contact",
+    "unread-reply",  # a reply this system could not read may be an opt-out
+    "bounce-rate",
+    "do-not-load",
+    "re-push",  # starting now would send copy that was already replaced
+    "blocking-check",
+    "compliance",
+    "out-of-market",
+    "competitor",
 )
 
 #: Which persona-axis seats the automated resolver can actually detect today.
@@ -104,8 +103,8 @@ FUNNEL_GLOSS = (
         "excluded_dnc_or_sent",
         "Off limits",
         "Everything we are holding but cannot mail. Three different reasons live here: already "
-        "contacted, asked us not to write again, and — the largest group — outside the "
-        "jurisdictions this profile is allowed to email at all.",
+        "contacted, asked us not to write again, and outside the jurisdictions this profile is "
+        "allowed to email at all.",
     ),
 )
 
@@ -136,7 +135,7 @@ BENCHMARKS = (
         "basis": "per person contacted",
         "source": "Cleanlist meta-analysis, Feb 2026",
         "url": "https://www.cleanlist.ai/blog/2026-02-18-cold-email-response-rate-statistics",
-        "note": "the closest published comparator to this campaign's own audience",
+        "note": "",
     },
     {
         "label": "SaaS selling to SaaS",
@@ -176,9 +175,6 @@ BENCHMARKS = (
     },
 )
 
-#: The comparator the target is judged against — same ICP shape as this campaign.
-PRIMARY_BENCHMARK = BENCHMARKS[0]
-
 
 def dashboard_path(profile: str, content_root: Path | None = None) -> Path:
     return _prospects_dir(profile, content_root).parent / PAGE_NAME
@@ -205,11 +201,18 @@ def page_title(m: dict) -> str:
 #: records the globs, so a manifest or roster export that APPEARS after a render is caught
 #: too. Keep it in step with `sources.py` / `model.py` — a file read but not listed here is
 #: a file whose change can silently pass the check, which is worse than not checking.
-#: `tests/contracts/test_dashboard_freshness.py` asserts every path the model actually
-#: opens matches one of these, so the two cannot drift quietly.
+#: `tests/contracts/test_dashboard_reads_are_inventoried.py` asserts every path the model
+#: actually opens (or, for a few name/stat-only reads it lists directly, matches) one of
+#: these, so the two cannot drift quietly.
 INPUT_GLOBS = (
     "plans/campaigns/*.campaign.toml",
     "history.jsonl",
+    # PS20 T1.9 — read by `outcomes.read_outcomes` (via `build_model`), at the profile's
+    # top level like `history.jsonl`, not under `prospects/`.
+    "outcomes.jsonl",
+    # PS20 T1.9 — `prospect_readiness.load_readiness` (via `build_model`); also top-level,
+    # not under `prospects/`.
+    "preflight/latest.json",
     "prospects/latest.json",
     "prospects/sequences/cells.toml",
     "prospects/sequences/*.md",
@@ -218,12 +221,45 @@ INPUT_GLOBS = (
     "prospects/sequences/.pool/sequence-stats.json",
     "prospects/sequences/.pool/sequence-state.json",
     "prospects/sequences/.pool/lint-*.json",
+    # PS20 T1.9 — `prospects_dashboard.build_status` counts this hold queue (via
+    # `build_model`). A dedicated entry, not a `*.csv` wildcard: `sequences/*.csv` cannot
+    # cross into the hidden `.pool/` subdirectory (glob `*` never crosses `/`).
+    "prospects/sequences/.pool/needs-verification.csv",
+    # PS20 T1.9 review round 2 — `prospect_readiness.input_paths`/`fingerprints` (reached
+    # through `load_readiness` via `build_model`) STATS this (mtime/size), never opens it —
+    # `prospect_readiness.suppression_ledger`'s path. Flips the lede's readiness state, so a
+    # change here changes the page with nothing ever calling `open()` on it — a `_confine`-
+    # style gap the content-digest read of `suppression.csv` closes more strongly than the
+    # stat-only check it complements.
+    "prospects/sequences/.pool/suppression.csv",
     "prospects/evals/lanes-state.jsonl",
+    # PS20 T1.9 — `roster.judge_queue` (via `model.roster_model`) reads the newest of these.
+    "prospects/evals/retarget-queue-*.jsonl",
+    # PS20 T1.9 — the eval-labeling round `health.eval_labeler` links to, and the markdown
+    # sheet it counts pre-filled/blind rows from (read by the model since Task 9, so
+    # `render_html` opens nothing). Date-shaped, to match `health._LABELER_RE`/the exact
+    # ``sheet-{stamp}.md`` name `eval_labeler` builds — a bare `*` glob also matched an
+    # unrelated `sheet-<date>-ship30-labeled.md` on a live tenant, which is read by nothing
+    # here and so flagged false staleness on every edit to it.
+    "prospects/evals/labeler-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.html",
+    "prospects/evals/sheet-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md",
+    # PS20 T1.9 — the lane hold sheet `health.review_sheet` finds for the lede's link (PS15).
+    # Date-shaped, to match `health._SHEET_RE` exactly: a bare `hold-*.csv` also matched
+    # `hold-decisions-<date>-filled.csv` on a live tenant (`gtm_core.lanes.decisions`'s own
+    # answers file, read by nothing here) and flagged it as false staleness on every edit.
+    "prospects/evals/hold-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].csv",
+    "prospects/evals/hold-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].html",
     "prospects/imports/*.csv",
     "prospects/prospects-*-hubspot.csv",
     "accounts/*/prospects-*-outreach-*.md",
     "accounts/*/email-*.md",
 )
+
+#: Named (not globbed) files under ``resolve_profiles_root()/<profile>`` — a different root
+#: than everything in :data:`INPUT_GLOBS`, which is why `page_inputs` tracks them separately
+#: (its ``profile_files`` section). ``PROFILE.md`` feeds `email_compliance.read_target_markets`,
+#: reached through `model.market_split` -> `prospects_consolidate.suppression._resolve_market_gate`.
+PROFILE_FILES = ("PROFILE.md",)
 
 
 def input_globs(profile: str, content_root: Path | None = None) -> tuple[Path, list[str]]:

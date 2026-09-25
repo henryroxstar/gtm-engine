@@ -205,3 +205,16 @@ def test_a_scoped_page_never_shows_a_pool_figure_unlabelled(tmp_path):
         "a pool-wide block rendered on a scoped page with no note saying it is not scoped "
         "— see format._pool_scope_note."
     )
+
+
+def test_subject_card_does_not_render_twice_on_scoped_page(tmp_path):
+    """The subject-line card should appear exactly once on a campaign-scoped page.
+
+    BUG (2026-09-25): views_what.py had {subjects_card} on one line and
+    {subjects_card or subjects_full} on the next, causing a double render on scoped pages.
+    """
+    _seed(tmp_path)
+    scoped = gd.render_html(gd.scope_to_campaign(_model(tmp_path), "mine-20260904"))
+    heading_text = "Every subject line in the campaign"
+    count = scoped.count(heading_text)
+    assert count == 1, f"heading '{heading_text}' appears {count} times, expected 1"

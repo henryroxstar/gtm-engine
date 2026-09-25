@@ -15,7 +15,21 @@ else's. Enforced by ``tests/contracts/test_dashboard_aggregation_refusal.py``.
 
 from __future__ import annotations
 
-from .format import _agree, _e, _i, _rate_of, scope_label
+from collections import Counter
+
+from ..prospect_lede import GO_LIVE_WORDS, go_live
+from .format import _agree, _e, _i, _rate_of, figure_span, scope_label
+
+#: PS20 P3.1 — the sequencer's own reply-label vocabulary. Names the exact ``actuals``
+#: fields ``campaigns_dashboard.build_campaigns`` writes (no second vocabulary here).
+_LABEL_FIELDS = (
+    "interested",
+    "not_interested",
+    "not_now",
+    "out_of_office",
+    "unsubscribed",
+    "do_not_contact",
+)
 
 
 def _scope_figures(m: dict) -> dict:
@@ -83,6 +97,64 @@ def _scope_figures(m: dict) -> dict:
         # gives the smallest campaign the same vote as the largest.
         target_rate, rate_why = None, "a campaign in scope sets a rate but no prospect count"
 
+    # PEOPLE CONTACTED (PS20 T1.2), and whether the pieces add up to the whole (T1.3).
+    # `current`/`earlier` are SUMMED across campaigns' own `actuals`/`archived_actuals` —
+    # each campaign's own count of what it sent — while `not_linked` reads the live rows
+    # directly for anything no campaign claims. `sum_ok` — comparing the split's total to
+    # one pass over the live rows — catches a mismatch in EITHER direction: a sequence two
+    # campaigns both claim sums into BOTH campaigns' `actuals` and OVER-counts; a snapshot
+    # that lists the same id twice sums once per campaign (`actuals` is keyed by id) but
+    # twice in the raw row total, and UNDER-counts. It is not an aggregation-RULE question
+    # like `cap`/`touches` above, so it gets no refusal of its own and instead flags the
+    # whole page (`page_warnings`).
+    status = m.get("status")
+    if not status:
+        # A model with no `status` at all must refuse, not read as a readable snapshot
+        # with zero rows — that would drop every campaign's `actuals` out of `sum_ok`'s
+        # comparison and mislabel an ordinary page "counted twice".
+        why = "no sending figures in this model"
+        contacted = loaded = replied = meetings = labels = bounces = (None, why)
+        sum_ok = True
+    elif (status.get("snapshot") or {}).get("unreadable"):
+        why = "the sending tool's figures couldn't be read"
+        contacted = loaded = replied = meetings = labels = bounces = (None, why)
+        sum_ok = True
+    else:
+        rows = status.get("sequences") or []
+        listed = {
+            s["sequence_id"] for c in camps for k in ("sequences", "archived") for s in c.get(k, [])
+        }
+
+        def total(key: str, field: str) -> int:
+            return sum(_i((c.get(key) or {}).get(field)) for c in camps)
+
+        split = {
+            "current": total("actuals", "sent"),
+            "earlier": total("archived_actuals", "sent"),
+            "not_linked": sum(_i(r.get("sent")) for r in rows if r.get("id") not in listed),
+        }
+        contacted = (split, None)
+        loaded, replied, meetings = (
+            (total("actuals", f), None) for f in ("loaded", "replied", "meetings")
+        )
+        # PS20 P3.1/P3.4 — the reply labels are the sequencer's own vocabulary, summed the
+        # same way as `loaded`/`replied`/`meetings`: over campaigns' CURRENT `actuals`
+        # only, never re-derived from `rows`.
+        labels = ({f: total("actuals", f) for f in _LABEL_FIELDS}, None)
+        # PS20 P3.5 — bounces are an EMAIL count, a different unit from `contacted`
+        # (people). `build_campaigns` already restricted the sum to rows whose per-email
+        # status block was present (`bounce_source == "emails"`), so this is a plain sum
+        # of what it recorded, not a second filter.
+        bounces = (
+            {
+                "bounced": total("actuals", "bounced"),
+                "delivered": total("actuals", "delivered"),
+                "unavailable": total("actuals", "bounce_unavailable"),
+            },
+            None,
+        )
+        sum_ok = sum(split.values()) == sum(_i(r.get("sent")) for r in rows)
+
     return {
         "n": n,
         "cap": (cap, cap_why),
@@ -94,7 +166,41 @@ def _scope_figures(m: dict) -> dict:
         # stop asserting one verdict about "our target" and list them instead.
         "rates_differ": len(distinct) > 1,
         "rates": rated,
+        "contacted": contacted,
+        "loaded": loaded,
+        "replied": replied,
+        "meetings": meetings,
+        "labels": labels,
+        "bounces": bounces,
+        "sum_ok": sum_ok,
     }
+
+
+def bounce_rate(bounced: int, delivered: int) -> float | None:
+    """``bounced / (delivered + bounced)``, as a percentage — the same shape as
+    ``BOUNCE_RISK_PCT`` (``config.py``), so a caller compares this return value against
+    that constant directly with a plain ``>``. ``None`` when there is no denominator: an
+    empty ratio is not a 0% rate, it is no rate (PS20 P3.5)."""
+    total = bounced + delivered
+    if not total:
+        return None
+    return 100 * bounced / total
+
+
+def _people_n(n: int) -> str:
+    return f"{n:,} {'person' if n == 1 else 'people'}"
+
+
+def sent_heading(contacted: dict | None) -> str:
+    """PS20 P1.3 — the one answer to 'has anything gone out?', from the figures."""
+    if contacted is None:
+        return "Sending figures unavailable"
+    live = contacted["current"] + contacted["not_linked"]
+    if live:
+        return f"{_people_n(live)} contacted so far"
+    if contacted["earlier"]:
+        return "Nothing sent in the current campaigns"
+    return "Nothing has been sent"
 
 
 def _ceiling_sub(fig: dict, cap, why: str | None) -> str:
@@ -109,18 +215,86 @@ def _ceiling_sub(fig: dict, cap, why: str | None) -> str:
     return base if fig["n"] < 2 else f"{base} · shared across all {fig['n']} campaigns, not each"
 
 
-def _planned_sub(fig: dict, why: str | None) -> str:
-    """The email target is a SUM, and at N>1 the sum needs its composition shown.
+def goal_sub_html(fig: dict) -> str:
+    """The contacted tile's sub-line: the email goal in ITS OWN unit, never "N of M" — the
+    tile counts people and the goal counts emails (PS20 P1.4).
 
-    Two targets set months apart, each assuming the whole shared ceiling for itself, add
-    to a plan the mailboxes were never sized to deliver. The total is real; what a reader
-    cannot see without this line is that nobody ever agreed to it as one number.
+    The goal is a SUM, and at N>1 the sum needs its composition shown. Two targets set
+    months apart, each assuming the whole shared ceiling for itself, add to a plan the
+    mailboxes were never sized to deliver. The total is real; what a reader cannot see
+    without this line is that nobody ever agreed to it as one number.
     """
+    planned, why = fig["planned"]
+    mark = figure_span("planned-emails", planned)
     if why:
-        return f" · target not shown: {why}, and a partial sum reads as a total"
+        return f"goal {mark} · not shown: {_e(why)}, and a partial sum reads as a total"
+    if planned is None:
+        return "no email goal declared"
     if fig["n"] < 2:
-        return ""
-    return f" · the target is {fig['n']} campaign plans added together, each set on its own"
+        return f"goal: {mark} emails"
+    return (
+        f"goal: {mark} emails · the target is {fig['n']} campaign plans added together, "
+        "each set on its own"
+    )
+
+
+def seq_tally(rows: list[dict], readable: bool) -> str:
+    """PS20 P1.10 — the "sequences set up" sub-line: each sequence's go-live word, counted
+    ("2 started · 1 staged"), so the tile's value and its tally count the same thing.
+
+    Per row, the ONE liveness rule (``prospect_lede.go_live``) over that row's own snapshot
+    status and contacted count — on record by definition, since it is a campaign's
+    sequence. No word claims present-tense sending unless the snapshot's own row says so,
+    and a row synthesized from the ledger (status ``""``) reads ``staged``, never the
+    ledger's by-construction "paused".
+    """
+    words = Counter(
+        go_live([r.get("status")], r.get("sent"), True, readable=readable) for r in rows
+    )
+    return " · ".join(f"{words[w]} {w}" for w in GO_LIVE_WORDS if words[w])
+
+
+def sending_tiles(m: dict, fig: dict) -> dict:
+    """What the status tab's sending tiles show — read off ``fig``, never re-summed.
+
+    The tiles used to add up snapshot rows themselves, each with its own idea of which rows
+    count, so the send tile, "enrolled" and the ops card could disagree about one fact
+    (PS20 P1.2). ``_scope_figures`` is the only place a headline figure is summed; this only
+    picks the scope's current rows for the per-sequence table and the tally. A refused
+    figure is ``None`` and renders as an em dash.
+    """
+    camps = m["campaigns"]["campaigns"]
+    ids = {s["sequence_id"] for c in camps for s in c.get("sequences", [])}
+    current = [x for x in m["status"].get("sequences", []) if x.get("id") and x["id"] in ids]
+    readable = not (m["status"].get("snapshot") or {}).get("unreadable")
+    split = fig["contacted"][0]
+    # The first campaign that declares a window, as the loop this replaced took it. Only its
+    # capacity blocker is read, and only as a pointer to Operator notes.
+    window = next((c["window"] for c in camps if c.get("window")), {})
+    return {
+        "current": current,
+        "contacted": None if split is None else split["current"],
+        "loaded": fig["loaded"][0],
+        "replied": fig["replied"][0],
+        # Unknown, not zero, when an unreadable snapshot left no row to count.
+        "sequences": len(current) if readable or current else None,
+        "tally": seq_tally(current, readable),
+        "goal": goal_sub_html(fig),
+        "blocker": window.get("capacity_blocker") or "",
+    }
+
+
+def campaign_contacted(fig: dict, c: dict) -> dict | None:
+    """One campaign's own split, shaped like ``fig["contacted"]`` so ``sent_heading`` reads
+    it. ``None`` when the scope's figures refuse: a campaign card must not read a zero off
+    an unreadable snapshot."""
+    if fig["contacted"][0] is None:
+        return None
+    return {
+        "current": _i((c.get("actuals") or {}).get("sent")),
+        "earlier": _i((c.get("archived_actuals") or {}).get("sent")),
+        "not_linked": 0,
+    }
 
 
 def _cadence_split(m: dict, camps: list[dict], why: str) -> str:

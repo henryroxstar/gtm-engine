@@ -326,6 +326,10 @@ def _cli_resolve(args: argparse.Namespace) -> int:
                 # text (§R5) exactly as `company` is, and is defanged at the same one place.
                 # `seat` is not: it is a key from the tenant's own closed seat vocabulary.
                 "market": _inert(result.market),
+                # Same shape as `market`: `clean_segment` passes an unrecognised value
+                # through as written, so this is the row's own column, defanged here.
+                "segment": _inert(result.segment),
+                "attestation": _inert(result.attestation),
                 # Angle ids are registry text and carry the same marker risk as a company
                 # name; `None` stays `None` so "no angle" is not reported as the string.
                 "angle": _inert(result.angle_id) if result.angle_id else result.angle_id,
@@ -354,11 +358,12 @@ def _cli_resolve(args: argparse.Namespace) -> int:
 
     _say(f"messaging resolve — {profile} · {len(rows)} row(s) · {Path(args.csv).name}")
     for r in reported:
-        verdict = r["angle"] or f"refused: {r['refusal']}"
+        verdict = f"{r['angle']} [{r['attestation']}]" if r["angle"] else f"refused: {r['refusal']}"
         extra = f"  (also fit: {', '.join(r['alternatives'])})" if r["alternatives"] else ""
         _say(
             f"  {r['row']:>4}  {r['company'] or '<no company>'} · "
-            f"{r['seat'] or '<no seat>'} · {r['market'] or '<no market>'} → {verdict}{extra}"
+            f"{r['seat'] or '<no seat>'} · {r['segment'] or '<no segment>'} · "
+            f"{r['market'] or '<no market>'} → {verdict}{extra}"
         )
     _say()
     _say(f"  resolved:  {resolved}")

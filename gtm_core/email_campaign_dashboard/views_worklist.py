@@ -23,11 +23,7 @@ so a row cannot say "staged" here and "held" on another panel.
 
 from __future__ import annotations
 
-import csv as _csv
-from pathlib import Path
-
 from ..lane_verdicts import LANE_VERDICTS
-from ..prospects_consolidate import _prospects_dir
 from ..slugify import slug
 from .format import _e, _row_status, roster_partial, scope_label
 
@@ -110,26 +106,21 @@ def _staged_candidates(m: dict) -> dict[str, dict]:
     ``admissible`` is therefore "admissible on at least one list", which is what
     :func:`_group_of` needs to ask; the account-wide refusal it must also respect is the
     roster's own verdict, which ``_group_of`` reads separately.
+
+    The rows are each message's ``list_rows``, parsed by the model (``health.list_rows``,
+    PS20 P1.6: the renderer opens no file). They ride on the message, so a campaign page —
+    whose messages ``scope_to_campaign`` has already narrowed — sees only its own lists.
     """
-    root: Path | None = m.get("_content_root")
-    seq_dir = _prospects_dir(m["profile"], root) / "sequences"
     found: dict[str, set[str]] = {}
     for msg in m.get("messages") or []:
         label = msg.get("sequence_id") or "a sequence"
-        path = seq_dir / (msg.get("csv") or "")
-        if not (msg.get("csv") and path.is_file()):
-            continue
-        try:
-            with path.open(newline="", encoding="utf-8") as fh:
-                for row in _csv.DictReader(fh):
-                    email = (row.get("email") or "").strip().lower()
-                    if not email:
-                        continue
-                    entry = found.setdefault(email, set())
-                    if (row.get("verdict") or "").strip() in _SENDABLE:
-                        entry.add(label)
-        except OSError:
-            continue
+        for row in msg.get("list_rows") or []:
+            email = (row.get("email") or "").strip().lower()
+            if not email:
+                continue
+            entry = found.setdefault(email, set())
+            if (row.get("verdict") or "").strip() in _SENDABLE:
+                entry.add(label)
     return {
         email: {"sequences": tuple(sorted(seqs)), "admissible": bool(seqs)}
         for email, seqs in found.items()
@@ -205,10 +196,13 @@ def _stands(row: dict, group: str, candidates: dict[str, dict]) -> str:
     if group == "staged":
         # Every list, not one of them. Naming a single sequence for a person queued on three
         # was not just incomplete — which one got named depended on file read order.
+        # No "Nothing sent." (PS20 P1.3): nothing on disk records one person's sends, so the
+        # clause was typed, not derived — true on the day it was written, false once a
+        # sequence started.
         seqs = (candidates.get(row["email"].lower()) or {}).get("sequences") or ()
         if len(seqs) > 1:
-            return f"On {len(seqs)} recipient lists: {', '.join(seqs)}. Nothing sent."
-        return f"On the recipient list for {seqs[0] if seqs else 'a sequence'}. Nothing sent."
+            return f"On {len(seqs)} recipient lists: {', '.join(seqs)}."
+        return f"On the recipient list for {seqs[0] if seqs else 'a sequence'}."
     if group == "handsend":
         return "Body written for a role inbox. Manual send — the merge-field gate refuses it."
     if group == "nocontact":
@@ -295,10 +289,11 @@ def _reconcile(m: dict, staged: list[dict], candidates: dict[str, dict]) -> str:
             )
         else:
             lines.append(
-                f'<li class="warn"><code>{_e(seq)}</code>: <strong>{listed} admissible on the '
-                f"list but {loaded} enrolled at the provider.</strong> The rows above are the "
-                "ones the gate would admit; which of them are actually loaded is not knowable "
-                "from disk. Check the sequence in the provider before sending.</li>"
+                f'<li class="warn" data-warn="records-disagree"><code>{_e(seq)}</code>: '
+                f"<strong>{listed} admissible on the list but {loaded} enrolled at the "
+                "provider.</strong> The rows above are the ones the gate would admit; which of "
+                "them are actually loaded is not knowable from disk. Check the sequence in the "
+                "provider before sending.</li>"
             )
     if not lines:
         return ""

@@ -26,6 +26,7 @@ import pytest
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospect_status, prospect_status_cli
 from gtm_core.email_campaign_dashboard import loadfiles
+from gtm_core.prospect_lede import GO_LIVE_WORDS
 from gtm_core.prospect_status_receipt import ACCOUNTS_HEADING, BUCKET_LABELS, BUCKETS
 
 REPO = Path(__file__).resolve().parents[1]
@@ -191,14 +192,14 @@ def test_every_number_on_the_page_is_the_number_the_terminal_prints(
 
     expected = {
         "Not a fit / excluded": 1,
-        "Needs a new angle (queued)": 1,
-        "No usable contact yet": 1,
-        "Not yet routed": 2,  # never sorted + the unrecognised one
+        "Being researched": 1,
+        "Finding a contact": 1,
+        "Not yet sorted": 2,  # never sorted + the unrecognised one
         "Held": 1,
-        "Ready": 1,
+        "Sorted": 1,
         "All accounts": 7,
         "Waiting on you": 2,
-        "Routed — not yet checked": 1,
+        "Sorted — not yet checked": 1,
         "Being fixed": 0,
         "In the sending tool": 0,
         "Not emailing": 1,
@@ -229,12 +230,12 @@ def test_the_banner_is_the_waiting_contact_count_in_contact_words(tmp_path, monk
     monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
     _tenant(tmp_path, MIXED_ACCOUNTS, MIXED_STATE)
     text = "\n".join(visible_lines(_render(tmp_path)))
-    assert "2 contacts are waiting on your decision" in text
+    assert "Yours (2): decide on 2 contacts" in text
     assert "waiting on a routing decision" not in text
 
     one = [r for r in MIXED_STATE if r["email"] != "jo.lind@litwarepay.example"]
     _tenant(tmp_path, MIXED_ACCOUNTS, one)
-    assert "1 contact is waiting on your decision" in "\n".join(visible_lines(_render(tmp_path)))
+    assert "Yours (1): decide on 1 contact" in "\n".join(visible_lines(_render(tmp_path)))
 
 
 def test_no_banner_when_nobody_is_waiting_even_if_the_ledger_says_held(
@@ -248,7 +249,7 @@ def test_no_banner_when_nobody_is_waiting_even_if_the_ledger_says_held(
     _tenant(tmp_path, accounts, state)
     html = _render(tmp_path)
     assert "ACTION REQUIRED" not in html
-    assert page_numbers(html)["Held"] == 0 and page_numbers(html)["Ready"] == 1
+    assert page_numbers(html)["Held"] == 0 and page_numbers(html)["Sorted"] == 1
 
     # ...and with no sorted list at all, a ledger that says "held" is still not a decision
     # anybody is waiting on.
@@ -373,10 +374,10 @@ def test_go_live_says_nothing_staged_on_a_tenant_with_nothing_staged(tmp_path, m
     _tenant(tmp_path, MIXED_ACCOUNTS, MIXED_STATE)
     model = gd.build_model(PROFILE, content_root=tmp_path)
     assert model["go_live_status"] == "none"
-    assert _badge(gd.render_html(model)) == "Nothing staged yet"
+    assert _badge(gd.render_html(model)) == GO_LIVE_WORDS["none"]
     # The view has no constant to fall back on either.
     model.pop("go_live_status")
-    assert _badge(gd.render_html(model)) == "Nothing staged yet"
+    assert _badge(gd.render_html(model)) == GO_LIVE_WORDS["none"]
 
 
 def test_go_live_says_staged_only_when_a_staged_sequence_is_on_record(
@@ -398,7 +399,7 @@ def test_go_live_says_staged_only_when_a_staged_sequence_is_on_record(
     )
     model = gd.build_model(PROFILE, content_root=tmp_path)
     assert model["go_live_status"] == "staged"
-    assert _badge(gd.render_html(model)) == "STAGED"
+    assert _badge(gd.render_html(model)) == GO_LIVE_WORDS["staged"]
 
 
 # ------------------------------------------------------------------ UX-07: the disclaimer
@@ -552,9 +553,19 @@ def test_sandbox_page_and_terminal_agree_and_scope_open_falls_back(sandbox) -> N
     assert cli["Held"] == 3 and cli["Waiting on you"] == 3, "fixture must exercise the join"
 
     text = "\n".join(visible_lines(html))
-    assert "3 contacts are waiting on your decision" in text
+    assert "Yours (3): decide on 3 contacts" in text
+    # PS15: the page renders the terminal's lede, not a paraphrase of it. Every lede line
+    # the terminal printed is on the page, except the two that legitimately differ: the
+    # clock ("As of …", rendered a moment later) and the sending-tool line, which the page
+    # words from the go-live state it can observe and the terminal cannot.
+    lede = status.stdout.split("\n\n", 1)[0].splitlines()
+    assert lede[0].startswith("As of ") and lede[1].startswith("Today: ")
+    for line in lede:
+        if line.startswith(("As of ", "In the sending tool:")):
+            continue
+        assert line.strip() in text, f"terminal lede line missing from the page: {line!r}"
     assert "do NOT load this file: it still contains 3 contacts waiting on a decision" in text
-    assert _badge(html) == "Nothing staged yet"
+    assert _badge(html) == GO_LIVE_WORDS["none"]
     assert not LONG_DISCLAIMER.search(text)
 
     fresh = run(

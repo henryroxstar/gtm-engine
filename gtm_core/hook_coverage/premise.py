@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import tomllib
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +43,11 @@ from .matrix import _clean_cell, _sections, _split_row
 _PREMISE_VOCAB_FILE = "premise-vocab.toml"
 
 
+#: The row fields a premise is matched against, in the order the gate reads them: the
+#: verbatim source span first, then the clause, then the raw notes.
+EVIDENCE_FIELDS = ("signal_evidence", "signal_clause", "why_now")
+
+
 @dataclass(frozen=True)
 class Premise:
     """One entry from the tenant's ``premise-vocab.toml``.
@@ -56,6 +62,29 @@ class Premise:
     min_distinct: int
     terms: frozenset[str]
     claim: str = ""
+    #: Whether a row attesting this premise has thereby shown an ORGANISATIONAL BOUNDARY —
+    #: another party's agent, system or customer at the far end of the fact. Three-valued on
+    #: purpose: ``None`` is "the tenant has not said", the state every vocabulary written
+    #: before 2026-09-24 is in, and it arms nothing. ``False`` is the 2026-08-25 finding as
+    #: data — "they built an agent" does not entail "their agent crosses a boundary" — and it
+    #: is what lets :mod:`gtm_core.messaging.registry` refuse an angle joining such a premise
+    #: to a claim that needs one, instead of leaving the ban in a comment the next
+    #: angle-mining pass cannot see (§R13).
+    attests_boundary: bool | None = None
+    #: Terms matched against the row's ``industry`` field ALONE — the ledger's classification
+    #: of the account, never free text — each hit counting as one attesting term. Added
+    #: 2026-09-24 for a premise a firmographic fact establishes on its own: a commercial bank
+    #: is a regulated entity whether or not a sentence of research says so. The generic lane
+    #: has no event to attest from, and on the live pool 171 of 397 rows refused
+    #: `premise-unsupported` while 35 of their accounts carried an industry that settled it.
+    industry_terms: frozenset[str] = frozenset()
+    #: ``True`` when the premise asks NOTHING of the record: the seat resolving is the whole
+    #: attestation, because the argument is the seat's standing problem rather than an event
+    #: at the account. This is the generic lane's copy as registry data — until 2026-09-24 a
+    #: seat-only argument could only be written outside the registry, where nothing could
+    #: resolve or check it. Loaded as ``min_distinct = 0`` so every arity check passes by
+    #: arithmetic; the resolver ranks such a premise LAST, after anything the row attests.
+    attested_by_seat: bool = False
 
     def attested_by(self, text: str) -> set[str]:
         """Which of this premise's terms the text carries, as distinct terms."""
@@ -70,6 +99,32 @@ class Premise:
 
     def met_by(self, text: str) -> bool:
         return len(self.attested_by(text)) >= self.min_distinct
+
+    def industry_hits(self, industry: str) -> set[str]:
+        """Which ``industry_terms`` the account's industry field carries."""
+        low = (industry or "").lower()
+        return {t for t in self.industry_terms if re.search(rf"\b{re.escape(t)}\b", low)}
+
+    def hits_for(
+        self, row: Mapping[str, object], evidence_fields: tuple[str, ...] = EVIDENCE_FIELDS
+    ) -> set[str]:
+        """Every distinct term this ROW attests: its recorded evidence, with the account's
+        own name stripped first, plus its ``industry`` field against ``industry_terms``.
+
+        The one place a row is matched against a premise. The resolver, the render gate, the
+        groundedness cascade and the attestation counter all read this, so they cannot
+        disagree about what a row establishes — a second implementation of "what does this
+        row attest" is how one of them ends up reporting on a check nobody runs.
+
+        The name-stripping is the gate's original rule: a company literally called
+        "<X> Partners" or "<X> Multi-Cloud" would otherwise attest a premise on its own
+        letterhead — the evidence carrying the term without the FACT carrying it.
+        """
+        text = " ".join(str(row.get(f) or "") for f in evidence_fields)
+        company = str(row.get("company") or "").strip()
+        if company:
+            text = re.sub(re.escape(company), " ", text, flags=re.IGNORECASE)
+        return self.attested_by(text) | self.industry_hits(str(row.get("industry") or ""))
 
 
 def load_premise_vocab(
@@ -115,13 +170,26 @@ def load_premise_vocab(
         terms = frozenset(
             str(t).strip().lower() for t in (entry.get("terms") or []) if str(t).strip()
         )
-        if not terms:
+        industry_terms = frozenset(
+            str(t).strip().lower() for t in (entry.get("industry_terms") or []) if str(t).strip()
+        )
+        # `True` and nothing else: a premise that asks nothing of the record is a deliberate
+        # declaration, and this loader's lenient contract (a typo disarms a check) must not
+        # let a mistyped value arm the one premise every row attests.
+        by_seat = entry.get("attested_by_seat") is True
+        if not terms and not industry_terms and not by_seat:
             continue
+        boundary = entry.get("attests_boundary")
         out[key.strip().lower()] = Premise(
             key=key.strip().lower(),
-            min_distinct=max(1, int(entry.get("min_distinct", 1))),
+            min_distinct=0 if by_seat else max(1, int(entry.get("min_distinct", 1))),
             terms=terms,
             claim=str(entry.get("claim") or "").strip(),
+            # A non-bool is "not said", not "false": this loader is lenient by contract
+            # (a malformed file disables the check), and a typo must not arm a refusal.
+            attests_boundary=boundary if isinstance(boundary, bool) else None,
+            industry_terms=industry_terms,
+            attested_by_seat=by_seat,
         )
     return out
 
@@ -261,9 +329,19 @@ def declared_capability(spec_text: str, vocab: dict[str, str] | None = None) -> 
 
 
 def capability_monotone(
-    capabilities: dict[str, str], cap: int = MAX_SPECS_PER_CAPABILITY
+    capabilities: dict[str, str],
+    cap: int = MAX_SPECS_PER_CAPABILITY,
+    seats: dict[str, str] | None = None,
 ) -> list[str]:
     """Findings for capability groups more than ``cap`` specs in this campaign argue from.
+
+    **Counted per capability × seat since 2026-09-24.** The cap's own rationale is that a
+    campaign legitimately runs one capability at two seats. An angle-tagged campaign (one spec
+    per angle, FR4) runs one capability at every seat that has an angle for it — six specs on
+    ``identity`` across five seats are five arguments, not one in six costumes — so the unit
+    the cap counts is ``(capability, seat)`` wherever the seat is known. ``seats`` maps spec ->
+    seat (the declared cell's persona); a spec with no known seat, and every caller that passes
+    no ``seats``, counts under the bare capability — the pre-2026-09-24 behaviour.
 
     **Why this is a campaign-level rule and not a linter rule.** Every gate in
     ``merge_render_linter`` judges one spec against its own rows; none of them can see a
@@ -276,13 +354,20 @@ def capability_monotone(
     an unmigrated one, not a violation — :func:`audit_campaign` reports those separately as
     an advisory ``capability-undeclared``.
     """
-    counts = Counter(slug for slug in capabilities.values() if slug)
+    seats = seats or {}
+    keyed: dict[tuple[str, str], list[str]] = {}
+    for spec, slug in capabilities.items():
+        if slug:
+            keyed.setdefault((slug, seats.get(spec, "")), []).append(spec)
     out = []
-    for slug, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+    for (slug, seat), members in sorted(keyed.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        n = len(members)
         if n > cap:
-            specs = ", ".join(sorted(s for s, c in capabilities.items() if c == slug)[:EXEMPLARS])
+            specs = ", ".join(sorted(members)[:EXEMPLARS])
+            where = f" at seat {seat!r}" if seat else ""
             out.append(
-                f"argument-monotone: {n} specs argue capability {slug!r} (cap {cap}) — "
+                f"argument-monotone: {n} specs argue capability {slug!r}{where} "
+                f"(cap {cap} per capability × seat) — "
                 f"{specs}; one argument in {n} costumes reads as mass mail, "
                 f"re-angle one onto a group product.md's pain->owner table gives this seat"
             )
@@ -330,14 +415,10 @@ def premise_attestation(
     """
     solo: Counter = Counter()
     for r in rows:
-        text = " ".join(str(r.get(f) or "") for f in evidence_fields)
-        # Same name-stripping and same `attested_by` the gate itself uses. A second
-        # implementation of "what does this row attest" would drift from the first, and then
-        # this function would be reporting on a check nobody runs.
-        company = str(r.get("company") or "").strip()
-        if company:
-            text = re.sub(re.escape(company), " ", text, flags=re.IGNORECASE)
-        hits = premise.attested_by(text)
+        # The same `hits_for` the gate itself uses. A second implementation of "what does
+        # this row attest" would drift from the first, and then this function would be
+        # reporting on a check nobody runs.
+        hits = premise.hits_for(r, evidence_fields)
         if len(hits) == 1:
             solo[sorted(hits)[0]] += 1
     return solo
@@ -359,19 +440,15 @@ def premise_unsupported(
     """
     out: list[PremiseFinding] = []
     for r in rows:
-        text = " ".join(str(r.get(f) or "") for f in evidence_fields)
-        # Strip the account's own name before matching. A company literally called
-        # "<X> Partners", "<X> Ecosystem" or "<X> Vendors" would otherwise attest a premise
-        # on its letterhead — the evidence would carry the term without the FACT carrying it,
-        # which is precisely the "relevance is not entailment" error this rule exists to catch,
-        # committed by the rule itself. Caught 2026-08-21 by reading a render (a health system
-        # with "Partners" in its name); that row's attestation turned out to be genuine (its why_now names an
-        # announced enterprise partnership), so this changes no live verdict — it closes the
-        # hazard before a row passes on its name alone.
-        company = str(r.get("company") or "").strip()
-        if company:
-            text = re.sub(re.escape(company), " ", text, flags=re.IGNORECASE)
-        hits = premise.attested_by(text)
+        # `hits_for` strips the account's own name before matching. A company literally
+        # called "<X> Partners", "<X> Ecosystem" or "<X> Vendors" would otherwise attest a
+        # premise on its letterhead — the evidence would carry the term without the FACT
+        # carrying it, which is precisely the "relevance is not entailment" error this rule
+        # exists to catch, committed by the rule itself. Caught 2026-08-21 by reading a render
+        # (a health system with "Partners" in its name); that row's attestation turned out to
+        # be genuine (its why_now names an announced enterprise partnership), so it changed no
+        # live verdict — it closes the hazard before a row passes on its name alone.
+        hits = premise.hits_for(r, evidence_fields)
         if len(hits) < premise.min_distinct:
             out.append(
                 PremiseFinding(

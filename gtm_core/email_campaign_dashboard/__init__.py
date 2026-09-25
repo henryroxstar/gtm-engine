@@ -6,10 +6,10 @@ both halves, and splitting there is what let a reply rate live on one page while
 quality that explains it lived on another. This page splits **by question**:
 
 * **Who we're emailing** — how many, where, which seat, and what we actually know.
-* **What we're saying** — the template, the per-seat message, every subject line, the
-  signals it opens on, and every check the copy passed.
-* **What we'll learn** — the hypothesis, the parameters, and which comparisons are
-  readable versus confounded.
+* **What we're saying** — every subject line, the signals it opens on, the emails
+  themselves, and every check the copy passed.
+* **What we'll learn** — the campaign's own questions (from its manifest), the
+  parameters, and which comparisons are readable versus confounded.
 * **Operator notes** — the mechanics: what is loaded in the sending tool right now, what
   still has to be pushed, and what is blocking the start. Split off because the reader this
   page is written for is not the person who presses the buttons, and the re-push procedure
@@ -42,8 +42,6 @@ from .config import (  # noqa: F401
     BENCHMARKS,
     FUNNEL_GLOSS,
     PAGE_NAME,
-    PERSONA_AXIS,
-    PRIMARY_BENCHMARK,
     SEAT_COVERAGE,
     TABS,
     dashboard_path,
@@ -64,20 +62,19 @@ from .model import (  # noqa: F401
 )
 from .render import _stub, check_fresh, page_path, render_dashboard, render_html  # noqa: F401
 from .scope import MODES, Scope, resolve  # noqa: F401
+from .views_intent import _intent_block  # noqa: F401
 from .views_learn import _learn_view, _ops_view  # noqa: F401
 from .views_samples import _samples_section  # noqa: F401
 from .views_status import _status_view  # noqa: F401
 from .views_what import _what_view  # noqa: F401
-from .views_who import _intent_block, _who_view  # noqa: F401
+from .views_who import _who_view  # noqa: F401
 
 __all__ = [
     "TABS",
     "PAGE_NAME",
-    "PERSONA_AXIS",
     "SEAT_COVERAGE",
     "FUNNEL_GLOSS",
     "BENCHMARKS",
-    "PRIMARY_BENCHMARK",
     "dashboard_path",
     "reconcile_snapshot",
     "market_split",

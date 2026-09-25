@@ -77,6 +77,7 @@ from .finding_budget import (
 )
 from .paths import resolve_content_root, resolve_profiles_root
 from .prospect_paths import ready_to_load, suppression_ledger
+from .prospect_readiness import readiness_or_error, report_path
 from .prospects_consolidate.confidence import org_token
 
 __all__ = [
@@ -473,6 +474,10 @@ class PreflightReport:
     checks: list[CheckResult] = field(default_factory=list)
     acked: tuple[str, ...] = ()
     budget: int = WARN_BUDGET
+    #: Every send-list row's fate under the enrollment gate's rules (PS15,
+    #: :mod:`gtm_core.prospect_readiness`). ``None`` when no list is staged; ``{"error": …}``
+    #: when it could not be computed. Observation only — it does not change ``failed``.
+    readiness: dict | None = None
 
     @property
     def errors(self) -> list[str]:
@@ -542,6 +547,7 @@ class PreflightReport:
             ],
             "acked": list(self.acked),
             "checks": [c.to_dict() for c in self.checks],
+            "readiness": self.readiness,
         }
 
 
@@ -609,6 +615,25 @@ def run_preflight(
         checks=results,
         acked=acked,
         budget=budget,
+        readiness=_readiness(inputs),
+    )
+
+
+def _readiness(i: _Inputs) -> dict | None:
+    """The send list's fates under the gate's rules (PS15), or the recorded reason they could
+    not be found. ``None`` only when no list is staged."""
+    if i.rows is None:
+        return None
+    return readiness_or_error(
+        i.profile,
+        i.rows,
+        i.fieldnames,
+        _lane_groups(i.rows),
+        content_root=i.content_root,
+        profiles_root=i.profiles_root,
+        acked=i.acked,
+        budget=i.budget,
+        as_of=i.as_of,
     )
 
 
@@ -680,13 +705,15 @@ def write_report(report: PreflightReport, *, content_root: Path | None = None) -
     it. Plain writes — this module never touches the cost ledger, by construction.
     """
     croot = content_root if content_root is not None else resolve_content_root()
-    out_dir = croot / report.profile / "preflight"
+    # One spelling of the path, shared with the reader (`prospect_readiness.load_readiness`).
+    latest = report_path(report.profile, croot)
+    out_dir = latest.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(report.to_dict(), indent=2) + "\n"
     day = report.ran_at[:10]
     dated = out_dir / f"report-{day}.json"
     dated.write_text(payload, encoding="utf-8")
-    (out_dir / "latest.json").write_text(payload, encoding="utf-8")
+    latest.write_text(payload, encoding="utf-8")
     return dated
 
 

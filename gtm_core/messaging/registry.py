@@ -32,10 +32,16 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..paths import _safe_segment, resolve_knowledge_file, resolve_profiles_root
 from ..role_vocabulary import VocabularyError
 from ..role_vocabulary import load as load_vocabulary
+
+if TYPE_CHECKING:  # type-only: the premise loader is imported at call time (`_load_premises`)
+    from collections.abc import Mapping
+
+    from ..hook_coverage.premise import Premise
 
 #: The three tenant files this module owns. ``role-vocabulary.toml`` and
 #: ``premise-vocab.toml`` are read through their existing loaders, never re-parsed here.
@@ -72,7 +78,9 @@ ANGLE_STATUSES = frozenset({"draft", "live", "retired"})
 
 #: Frozen key allowlists. A typo'd field (``statment``) is dropped without complaint by
 #: every TOML reader in existence, so the only place it can be caught is here.
-_CLAIM_KEYS = frozenset({"id", "group", "status", "statement", "source", "do_not_say", "notes"})
+_CLAIM_KEYS = frozenset(
+    {"id", "group", "status", "statement", "source", "do_not_say", "boundary", "notes"}
+)
 _CLAIM_REQUIRED = ("id", "group", "status", "statement")
 
 _PROOF_KEYS = frozenset(
@@ -125,6 +133,12 @@ class Claim:
     statement: str
     source: str = ""
     do_not_say: tuple[str, ...] = ()
+    #: Whether the claim is about the far side of an ORGANISATIONAL BOUNDARY — a stranger's
+    #: agent admitted, a call across orgs presented, a merchant paid. Such a claim may only
+    #: ride a premise whose evidence shows that boundary; ``_check_references`` refuses the
+    #: pairing with a premise that says ``attests_boundary = false``. Default ``False``:
+    #: an unlabelled claim is an intra-org one, which is what most of a registry holds.
+    boundary: bool = False
     notes: str = ""
 
 
@@ -308,6 +322,10 @@ def _parse_claims(blocks: list[tuple[str, dict]], errors: list[str]) -> dict[str
         # there is nothing to check, and the status is an assertion about an assertion.
         if status == "verified" and not source:
             errors.append(f"{CLAIMS_FILE}: {name} — `verified` with no `source`")
+        boundary = block.get("boundary", False)
+        if not isinstance(boundary, bool):
+            errors.append(f"{CLAIMS_FILE}: {name} — `boundary` must be true or false")
+            boundary = False
         out[name] = Claim(
             id=name,
             group=_text(block, "group"),
@@ -315,6 +333,7 @@ def _parse_claims(blocks: list[tuple[str, dict]], errors: list[str]) -> dict[str
             statement=_text(block, "statement"),
             source=source,
             do_not_say=_str_tuple(block, "do_not_say", CLAIMS_FILE, name, errors),
+            boundary=boundary,
             notes=_text(block, "notes"),
         )
     return out
@@ -364,11 +383,11 @@ def _check_references(
     claims: dict[str, Claim],
     proof: dict[str, Proof],
     seats: dict[str, tuple[str, ...]],
-    premises: set[str],
+    premises: Mapping[str, Premise],
     segments: set[str],
     errors: list[str],
 ) -> None:
-    """Five references per angle, each checked against the table that owns it — and one rule
+    """Five references per angle, each checked against the table that owns it — and two rules
     about what a reference is allowed to SAY.
 
     These are relationships BETWEEN files, so they cannot be checked where either side is
@@ -389,6 +408,16 @@ def _check_references(
     ``status`` on purpose — an angle on a ``conditional`` or ``design-target`` claim is
     legitimate while it is ``draft``, and refusing the claim alone would delete the tenant's
     whole backlog of arguments waiting on a verification.
+
+    The seventh (2026-09-24): a claim about the far side of an organisational boundary may
+    not ride a premise the tenant has said attests none. This is the 2026-08-25 refutation
+    as data — ``ships-agent-product`` shows the reader BUILT an agent, not that it crosses a
+    boundary, and 47 of 56 rows argued across that gap were judged ``drop``. The ban lived in
+    a comment in ``premise-vocab.toml``, so the angle mining of 09-24 put eleven angles on the
+    premise and nothing could object (§R13). Conditional on both sides having SAID: an
+    unlabelled premise arms nothing, because every vocabulary written before the field
+    existed is unlabelled. ``retired`` is exempt — the file keeps history, and history is
+    not an offer.
     """
     homes = (
         ("claim", claims, CLAIMS_FILE),
@@ -415,21 +444,36 @@ def _check_references(
                 f"{ANGLES_FILE}: {name} — `live` on claim `{claim.id}`, which is "
                 f"`{claim.status}` and not `{VERIFIED}`"
             )
+        premise = premises.get(angle.premise)
+        if (
+            angle.status != "retired"
+            and claim is not None
+            and claim.boundary
+            and premise is not None
+            and premise.attests_boundary is False
+        ):
+            errors.append(
+                f"{ANGLES_FILE}: {name} — claim `{claim.id}` is about a boundary and premise "
+                f"`{premise.key}` attests none (`attests_boundary = false`); re-premise the "
+                "angle or retire it"
+            )
 
 
 def _load_premises(
     profile: str, profiles_root: Path, product: str | None, overlay: str | None
-) -> set[str]:
-    """The tenant's premise ids, via the one existing parser.
+) -> dict[str, Premise]:
+    """The tenant's premises by id, via the one existing parser.
 
     Imported inside the function on purpose: :mod:`gtm_core.hook_coverage.config` puts
     ``tests/linter`` on ``sys.path`` at import time, and the registry's own import graph
     stays clear of a dev-only tree. A tenant that ships no ``premise-vocab.toml`` simply
     declares no premises — that loader's existing opt-in convention, not a second one.
+    The whole entry is kept, not only the key: ``attests_boundary`` is read by the seventh
+    cross-block rule.
     """
     from ..hook_coverage.premise import load_premise_vocab
 
-    return set(load_premise_vocab(profile, profiles_root, product, overlay))
+    return dict(load_premise_vocab(profile, profiles_root, product, overlay))
 
 
 def load(

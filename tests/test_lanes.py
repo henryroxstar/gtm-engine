@@ -1533,3 +1533,41 @@ def test_c3_archiving_preserves_registered_enrolled_lists_and_exact_stamp_shape(
     assert "alex@brightpath.example" in ctx.enrolled
     # Missing registered list produces a note
     assert any("missing-list-20260909.csv" in note for note in ctx.notes)
+
+
+def test_a_list_whose_sequence_history_records_as_deleted_is_not_enrolled(tmp_path, monkeypatch):
+    """`cells.toml` keeps the row (it is the reply-attribution join); history says the
+    sequence is gone. Both deletion shapes: `sequence_deleted` (one id) and
+    `sequence_cleanup` (a list) — the latter is how the four 2026-08-18 seat-split sequences
+    were reconciled on 2026-08-31, and on 2026-09-24 those four were still excluding 85 of
+    96 "already-enrolled" pooled rows."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path / "content"))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(tmp_path / "profiles"))
+    seq = tmp_path / "content" / "acme" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    for name in ("live", "gone", "swept"):
+        (seq / f"{name}.csv").write_text(
+            f"email,title,segment\n{name}@x.example,CISO,enterprise\n", encoding="utf-8"
+        )
+    (seq / "cells.toml").write_text(
+        '[[sequence]]\nid = "Live01"\ncsv = "live.csv"\nspec = "spec-a-2026-09-01.md"\n'
+        '[[sequence]]\nid = "Gone01"\ncsv = "gone.csv"\nspec = "spec-b-2026-09-01.md"\n'
+        '[[sequence]]\nid = "Swept1"\ncsv = "swept.csv"\nspec = "spec-c-2026-09-01.md"\n',
+        encoding="utf-8",
+    )
+    history = tmp_path / "content" / "acme" / "history.jsonl"
+    history.write_text(
+        json.dumps({"event": "sequence_deleted", "sequence_id": "Gone01"})
+        + "\n"
+        + json.dumps({"event": "sequence_cleanup", "sequences_deleted": [{"id": "Swept1"}]})
+        + "\n",
+        encoding="utf-8",
+    )
+    ctx = lanes.load_context("acme", as_of=AS_OF)
+    assert ctx.enrolled == {"live@x.example": "Live01"}
+    assert any("deleted from the provider" in n for n in ctx.notes)
+
+    # Negative control: with nothing on record, all three registered lists count.
+    history.write_text("", encoding="utf-8")
+    ctx = lanes.load_context("acme", as_of=AS_OF)
+    assert set(ctx.enrolled) == {"live@x.example", "gone@x.example", "swept@x.example"}

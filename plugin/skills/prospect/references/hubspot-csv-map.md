@@ -23,7 +23,7 @@ an older export keeps importing; the first spelling is the one to write today.
 | `Company Domain Name` | `company_domain` | the company's own domain, e.g. `example.com` |
 | `City` | `HQ City`, `city` | HQ city — cross-examined against `country` by the compliance gate |
 | `Country/Region` | `Market`, `country` | HQ country, full name |
-| `GTM_Segment` | `Segment`, `segment` | one of `gtm_core.merge_hygiene.SEGMENTS`, capitalised — read the tuple, never a list restated here (it gained `builder` on 2026-09-04 and this note did not) |
+| `GTM_Segment` | `Segment`, `segment` | one of `gtm_core.merge_hygiene.SEGMENTS`, lowercase (`clean_segment` runs on every load since 2026-09-24) — read the tuple, never a list restated here (it gained `builder` on 2026-09-04 and this note did not) |
 | `GTM_Tier` | `Tier`, `tier` | `A` / `B` only, never a third letter. Tier is the effort allocation — Tier-A earns a 1:1 pack, Tier-B the merge sequence — and BOTH are sent, so a `C` is not a lower tier, it is a row nobody will pick up. One appeared on 78 rows of the 2026-07-24 bulk run, describing the bottom of a `score` column that was itself on the wrong scale |
 | `GTM_Score` | `Score`, `Lead Score`, `score` | the per-account QUALIFICATION verdict from the profile's `icp-personas.md` rubric — an integer 0-`QUALIFICATION_SCORE_MAX`, heat capped AT the ceiling rather than added above it. NOT a spend ranking: the enrichment queue's `icp_backlog_score` is a different scorer on a 0-53 scale and must never land here. `merge_hygiene.check_row` warns `score-out-of-range` outside that band. This note read 'numeric, no denominator' until 2026-09-04, which is precisely why 749 published rows carry a spend ranking in a verdict column |
 | `conf` | — | source-reported confidence, if any |
@@ -46,6 +46,7 @@ an older export keeps importing; the first spelling is the one to write today.
 | `GTM_Signal_Column` | `Signal Column`, `signal_column` | the hook-matrix signal this row's own why-now attests |
 | `lane` | — | one of `personalised` / `repair` / `generic` / `hold` / `excluded` — which BODY this row can carry. Read by the enrollment gate (`account_integrity --lane`), which refuses a list whose column disagrees. Stamped by `gtm_core.lanes route`, never by hand: pooled CSVs are rebuilt, so a hand-written value is discarded on the next sweep |
 | `lane_reason` | — | why this lane; required for anything but `personalised` |
+| `GTM_Industry` | `Industry`, `industry` | the account's industry classification from `latest.json`, a firmographic fact `premise-vocab.toml` may attest a premise from (`industry_terms`); blank when the ledger has none |
 
 ## Columns the pipeline assigns
 

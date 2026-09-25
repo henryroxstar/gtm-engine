@@ -46,6 +46,9 @@ Give it the new material (drag a file in, paste it, or point it at a folder) and
 **Will it make things up?**
 It's grounded in your profile and cites sources for time-sensitive facts (funding, leadership, launches). But **you're the editor** — review before anything leaves your hands. If it can't verify something, it marks it "unverified" rather than stating it as fact.
 
+**How does it decide what to say about our product?**
+From a fact sheet in your profile — never from the prospect research. Each claim about your product is marked *verified*, *conditional* (true only under a condition), or *design-target* (roadmap), and each number as *measured*, *illustrative*, or *disputed*. Research decides who to write to and why now; it can't change what an email says about you. A checker refuses any draft that quotes a *disputed* number or uses a phrase you've listed as an overclaim — so when a figure is retracted, you change it once and every draft relying on it is caught. The fact sheet is yours to edit; nothing rewrites it for you.
+
 **Can my whole team use it?**
 Yes. Each person installs the desktop app and runs "set me up." If your team shares one company copy of the engine, you share the same profile and knowledge.
 

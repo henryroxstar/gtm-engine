@@ -13,11 +13,11 @@ from ..merge_hygiene import check_row as mh_check_row
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_keys
 from ..suppression import load_index as load_suppression_index
 from .accounts import (
-    _AUTHORITATIVE_RECORD_COLUMNS,
     _account_id_index,
     _account_item_of,
     _account_keys_of,
     _account_record_index,
+    _account_record_wins,
     _disqualified_account_keys,
     _verdict_at_least_as_strict,
 )
@@ -51,6 +51,16 @@ from .suppression import MarketGate, _load_dnc, _load_sent, _resolve_market_gate
 _HAND_SEND_OK = LANE_VERDICTS["generic"]
 
 # --- core ---------------------------------------------------------------
+
+
+#: ``(pool column, lanes-state key)`` for the judge's columns — stamped by ``_stamp_lanes``
+#: from the state record ``lanes route`` wrote, never carried across sweeps.
+_JUDGE_STAMPS = (
+    ("judge_verdict", "judge_verdict"),
+    ("judge_verdict_reason", "judge_note"),
+    ("judge_defect_class", "judge_defect_class"),
+    ("judge_calibrated", "judge_calibrated"),
+)
 
 
 def _stamp_lanes(rows: list[dict], profile: str, content_root: Path | None) -> int:
@@ -96,9 +106,22 @@ def _stamp_lanes(rows: list[dict], profile: str, content_root: Path | None) -> i
         if not rec:
             row["lane"] = ""
             row["lane_reason"] = ""
+            for col, _key in _JUDGE_STAMPS:
+                row[col] = ""
             continue
         row["lane"] = rec.get("lane") or ""
         row["lane_reason"] = rec.get("reason") or rec.get("trigger") or ""
+        # The judge's columns are the router's too (2026-09-24). `lanes route --records`
+        # is the one step that binds a verdict to the record files it was read from,
+        # checks their age and reports their coverage — so the pooled CSV carries exactly
+        # the verdict the last route attached and nothing older. Until now `judge_verdict`
+        # rode the rolling master from sweep to sweep with no record of which spec it had
+        # judged: the generic pool carried 283 `re-angle` / 220 `drop` scored against
+        # August specs nobody would send, while the state file, routed without records,
+        # held none. Blank when the route attached none — "not judged on this route" is
+        # true; a stale verdict reads as fresh, which is not.
+        for col, key in _JUDGE_STAMPS:
+            row[col] = rec.get(key) or ""
         stamped += 1
     return stamped
 
@@ -301,7 +324,7 @@ def consolidate(
                         row.get("verdict", ""), record.get("verdict", "")
                     )
                 else:
-                    authoritative = col in _AUTHORITATIVE_RECORD_COLUMNS
+                    authoritative = _account_record_wins(col, record)
                 if authoritative or not str(row.get(col) or "").strip():
                     if str(row.get(col) or "") != value:
                         filled = True

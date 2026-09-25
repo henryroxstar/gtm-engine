@@ -1258,3 +1258,80 @@ def test_only_a_not_now_signal_carries_a_reshow_date(tmp_path, monkeypatch):
     signals = [r for r in records if r.get("event") == "signal"]
     assert signals[0]["signal_type"] == "reply_received"
     assert "reshow_after" not in signals[0]["meta"]
+
+
+# --- 2026-09-24: a clear opt-out is added by the sweep itself, no gate ---------------------
+
+
+def _auto_add_run(tmp_path, monkeypatch, body, *, outcome_status):
+    """One opt-out thread through `run` with the DNC switch ON and the dispatcher faked."""
+    from agent import dnc_dispatch
+
+    records: list = []
+    _fake_ledgers_module(monkeypatch, records)
+
+    async def fake_get_inbox_threads(**kw):
+        return _threads_payload({"id": "t1", "lastMessageAt": "2026-09-24T14:00:00Z"})
+
+    async def fake_get_thread(thread_id):
+        return _thread_detail(
+            "t1", "re: hi", [{"from": "sam@lee.example", "body": body, "direction": "inbound"}]
+        )
+
+    added: list = []
+
+    async def fake_dispatch(cfg, ledgers, *, draft, dry_run=False, approved_by="operator"):
+        added.append((draft["addresses"], approved_by))
+        ok = outcome_status == "added"
+        return dnc_dispatch.DncDispatchOutcome(ok=ok, status=outcome_status, detail="x")
+
+    alerts: list = []
+
+    async def fake_push(cfg, profiles_root, profile, match, *, auto_outcome=None):
+        alerts.append(auto_outcome.status if auto_outcome else None)
+
+    monkeypatch.setattr("agent.mcp.saleshandy.server.get_inbox_threads", fake_get_inbox_threads)
+    monkeypatch.setattr("agent.mcp.saleshandy.server.get_thread", fake_get_thread)
+    monkeypatch.setattr("agent.gate_notify.push_optout_alert", fake_push)
+    monkeypatch.setattr(dnc_dispatch, "enabled", lambda: True)
+    monkeypatch.setattr(dnc_dispatch, "dispatch_approved_dnc_add", fake_dispatch)
+    monkeypatch.setattr(optout_sweep, "_dispatch_signals", _no_dispatch)
+    assert asyncio.run(optout_sweep.run("example", cfg=_Cfg(content_root=tmp_path))) == 0
+    return records, added, alerts
+
+
+async def _no_dispatch(cfg, profile):
+    return None
+
+
+def _signals(records):
+    return [r for r in records if r.get("signal_type") == "optout_detected"]
+
+
+def test_a_clear_optout_is_added_without_a_gate(tmp_path, monkeypatch):
+    records, added, alerts = _auto_add_run(tmp_path, monkeypatch, "Stop", outcome_status="added")
+    assert added == [(["sam@lee.example"], "auto:clear-optout")]
+    events = [r["event"] for r in records]
+    # The open row MUST precede the add: the dispatcher only adds an address that has one.
+    assert events.index("optout_detected") < events.index("optout_auto_add")
+    assert alerts == ["added"]
+    assert _signals(records) == [], "handled — no approval gate may open for it"
+
+
+def test_a_failed_automatic_add_falls_back_to_the_gate(tmp_path, monkeypatch):
+    records, added, alerts = _auto_add_run(
+        tmp_path, monkeypatch, "Unsubscribe", outcome_status="dnc_add_failed"
+    )
+    assert added and alerts == ["dnc_add_failed"]
+    assert len(_signals(records)) == 1
+
+
+def test_an_unclear_optout_never_reaches_the_dispatcher(tmp_path, monkeypatch):
+    records, added, alerts = _auto_add_run(
+        tmp_path,
+        monkeypatch,
+        "Thanks. We are evaluating vendors next quarter so please take me off for now",
+        outcome_status="added",
+    )
+    assert added == [] and alerts == [None]
+    assert len(_signals(records)) == 1

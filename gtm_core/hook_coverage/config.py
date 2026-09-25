@@ -68,6 +68,11 @@ MIN_SIGNAL_ATTESTATION = 0.25
 #: the same capability at two different seats (a CISO and a Chief Risk seat both meet the
 #: attribution gap), and forbidding that would push drafters into contrived arguments —
 #: the failure this rule exists to prevent, arrived at from the other side.
+#:
+#: Counted per (capability, seat) since 2026-09-24, not per capability campaign-wide: an
+#: angle-tagged campaign (one spec per angle) runs one capability at every seat that has an
+#: angle for it, and the first such campaign — 15 specs — sat at six on `identity` across five
+#: seats. Same two-per rationale, applied to the unit it was written for.
 MAX_SPECS_PER_CAPABILITY = 2
 
 

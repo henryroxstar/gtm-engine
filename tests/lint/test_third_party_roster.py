@@ -380,6 +380,12 @@ def test_the_digest_is_a_union_that_only_grows(tmp_path, monkeypatch):
     external storage, a partial checkout. A plain rewrite hands all three back as permission
     to name those companies again.
     """
+    # Union semantics are under test, not the noise filter — so supply a wordlist rather than
+    # depend on the host's. `write_digest` refuses to persist without one, which made this
+    # test fail on any machine missing /usr/share/dict/words (CI installs it; dev boxes vary).
+    words = tmp_path / "words"
+    words.write_text("retired\naccount\nname\n", encoding="utf-8")
+    monkeypatch.setattr(roster, "DICT_FILE", words)
     kept = roster.digest("retired account name")
     digest_file = tmp_path / "third_party_digest.txt"
     digest_file.write_text(f"# header\n\n{kept}\n", encoding="utf-8")

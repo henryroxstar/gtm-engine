@@ -219,15 +219,24 @@ multi-step arc:
    ```
 
    It returns **one angle id per row, or one typed refusal** — `no-verified-claim`,
-   `no-anchor-for-market`, `premise-unsupported`, `seat-unresolved` — and a count for *every*
-   refusal kind, including the ones that did not fire. Read the counts, not just the resolutions:
+   `no-anchor-for-market`, `premise-unsupported`, `seat-unresolved`, `segment-unresolved` — and
+   a count for *every* refusal kind, including the ones that did not fire. Read the counts, not just the resolutions:
    a personalised lane that has quietly halved looks exactly like a lane nobody got to, and only
    the zeros tell the two apart. `--dry-run` is accepted and always true; this verb writes
-   nothing.
+   nothing. Each resolution also names how the premise was attested — `record` (the row's own
+   evidence), `industry` (the account's industry column alone) or `seat` (a premise that asks
+   nothing of the record: the generic lane's own argument, offered last, only when nothing the
+   row carries attests another). In the generic lane the resolver offers public-event angles
+   only — an angle that opens on the account's own event is not a candidate there at all,
+   because that lane's body makes no claim about the account. A list resolving mostly on
+   `seat` is a list nobody researched — a fact to report, never a defect to fix in the copy.
 
    **A refusal is an answer.** `premise-unsupported` re-cuts the list (the research is missing, and
    softening the body to fit is the failure this rule exists to stop); `seat-unresolved` resolves
-   the title; `no-verified-claim` means every angle fitting that seat rests on a claim we cannot
+   the title; `segment-unresolved` means the seat has angles but none written for the grid this
+   row's `segment` names — tag the row, or write the angle; never hand it a neighbouring grid
+   (until 2026-09-24 the resolver did exactly that, and 31 of 72 rows on a live pool took another
+   segment's argument); `no-verified-claim` means every angle fitting that seat rests on a claim we cannot
    stand behind, so there is nothing honest to write for it; `no-anchor-for-market` means the
    reader's market has no anchor on file and the offer carries the argument instead.
 

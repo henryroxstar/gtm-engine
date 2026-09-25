@@ -100,6 +100,47 @@ def account_is_dropped(item: dict) -> bool:
     return str(item.get("verdict") or "").strip().lower() == "drop"
 
 
+#: Scorecard inputs whose absence CLOSES an account to sending (a hard block), as opposed to
+#: every other missing input, which only means the research is not done yet. The tenant's
+#: scorecard names this category "Blocked — outside target markets"; the id is matched, never
+#: the display text, because the text is tenant-authored.
+MARKET_BLOCK_INPUTS: frozenset[str] = frozenset({"in_target_market"})
+
+#: The reasons :func:`account_hold_reason` can return — a closed set, so a reader that maps a
+#: reason to words cannot meet one it has no words for.
+HOLD_REASONS: frozenset[str] = frozenset({"drop", "outside-market", "needs-research"})
+
+
+def _missing_inputs(item: dict) -> set[str]:
+    raw = item.get("score_missing_inputs")
+    found = {str(x).strip() for x in raw} if isinstance(raw, list) else set()
+    one = str(item.get("score_missing_input") or "").strip()
+    return found | ({one} if one else set())
+
+
+def account_hold_reason(item: dict) -> str | None:
+    """Why the ledger keeps this account OFF the send list today, or ``None`` (PS15).
+
+    One rule, read by the send-list build (``prospects_consolidate``) and the enrollment gate
+    alike, so the list and the gate cannot disagree about who may be emailed:
+
+    * ``drop`` — the research verdict dropped the account (:func:`account_is_dropped`);
+    * ``outside-market`` — the scorecard could not place it in a target market. A hard block;
+    * ``needs-research`` — the scorecard could not score it for any other missing input. Not a
+      rejection: the account rejoins the list by itself once it is researched and rescored.
+      An unscored row with NO recorded missing input is held here too — fail closed.
+
+    Tier C is deliberately absent: on the 0-100 card it is a middling fit (50-64), above the
+    bottom tier D, and it gets the general email like any other fit (operator decision
+    2026-09-24). The status page used to call C "not a fit" while the router and gate sent it.
+    """
+    if account_is_dropped(item):
+        return "drop"
+    if str(item.get("tier") or "").strip().lower() != "unscored":
+        return None
+    return "outside-market" if _missing_inputs(item) & MARKET_BLOCK_INPUTS else "needs-research"
+
+
 def ledger_account_keys(item: dict) -> list[str]:
     """Every key a ``latest.json`` account is excluded under: its identity keys + ``n:``.
 

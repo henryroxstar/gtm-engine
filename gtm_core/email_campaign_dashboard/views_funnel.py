@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..prospect_lede import GO_LIVE_WORDS
 from ..prospect_status_receipt import ACCOUNTS_HEADING, BUCKET_LABELS, BUCKET_NOTES, BUCKETS
 from .format import _e
 from .loadfiles import TTL_DAYS
@@ -58,13 +59,11 @@ def _attrition_funnel_block(m: dict) -> str:
       </div>"""
 
 
-#: The go-live badge, by the evidence the model found. There is deliberately no default
-#: that claims anything: a model with no ``go_live_status`` reads as nothing staged.
-_GO_LIVE = {
-    "active": ("good", "ACTIVE"),
-    "paused": ("warn", "PAUSED"),
-    "staged": ("warn", "STAGED"),
-}
+#: The go-live badge, by the evidence the model found — the exact words
+#: ``prospect_lede.GO_LIVE_WORDS`` uses, so the badge and the lede can never say this two
+#: different ways. Always a neutral pill: six words (PS20) is too many states for a
+#: good/warn/bad traffic light to carry honestly.
+_GO_LIVE = GO_LIVE_WORDS
 
 
 def _people(n: int) -> str:
@@ -77,7 +76,7 @@ def _list_line(f: dict, sorted_on: str | None) -> str:
         return (
             f'<li><a href="{_e(f["path"])}" download>{label}</a> &mdash; '
             f"{_people(f['rows'])} cleared to load "
-            f'<span class="pill good">load this</span> '
+            f'<span class="pill ok">load this</span> '
             f'<span class="muted">{_e(f["name"])}</span></li>'
         )
     if f["state"] == "empty":
@@ -101,7 +100,7 @@ def _working_line(w: dict) -> str:
         return (
             "<li><strong>Working list</strong> &mdash; do NOT load this file: it still contains "
             f"{_people(n)} waiting on a decision. "
-            f'<span class="pill bad">do not load</span> '
+            f'<span class="pill risk" data-risk="do-not-load">do not load</span> '
             f'<span class="muted">{_e(w["name"])}, {_people(w["rows"])} in all</span></li>'
         )
     if w["state"] == "reference":
@@ -114,7 +113,7 @@ def _working_line(w: dict) -> str:
             f'<li><a href="{_e(w["path"])}" download><strong>Whole list</strong></a> &mdash; '
             f"{_people(w['rows'])}. The list has not been split into sending lists, and "
             "nobody is waiting on a decision. "
-            f'<span class="pill good">load this</span> '
+            f'<span class="pill ok">load this</span> '
             f'<span class="muted">{_e(w["name"])}</span></li>'
         )
     return ""
@@ -128,8 +127,8 @@ def _safe_downloads_block(m: dict) -> str:
         lines.append(_working_line(found["working"]))
     items_html = "".join(lines) or '<li class="muted">Nothing is ready to load yet.</li>'
 
-    tone, word = _GO_LIVE.get(m.get("go_live_status") or "", ("", "Nothing staged yet"))
-    go_live_badge = f'<span class="pill {tone}">{_e(word)}</span>'
+    word = _GO_LIVE.get(m.get("go_live_status") or "", GO_LIVE_WORDS["none"])
+    go_live_badge = f'<span class="pill">{_e(word)}</span>'
 
     return f"""
       <div class="card safe-downloads-card">

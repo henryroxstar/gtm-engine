@@ -29,7 +29,7 @@ def _row_status(m: dict, email: str) -> str:
     if not status:
         return '<span class="muted">not yet routed</span>'
     if status == "unmapped":
-        return '<span class="pill warn">status unmapped</span>'
+        return '<span class="pill warn" data-warn="unmapped">status unmapped</span>'
     return _e(LABELS[status])
 
 
@@ -86,6 +86,15 @@ def _tiles_recorded() -> list[dict]:
     return list(_TILES)
 
 
+def figure_span(name: str, value) -> str:
+    """One headline figure, marked (PS20). ``data-figure`` names WHICH figure an element
+    shows, so a test reads that element rather than a page-wide substring — benchmark prose
+    and tag-split phrases make a page-wide check pass or fail by accident. ``None`` is a
+    refusal and renders as an em dash, never as a zero."""
+    shown = "—" if value is None else f"{value:,}" if isinstance(value, int) else _e(value)
+    return f'<span data-figure="{_e(name)}">{shown}</span>'
+
+
 def _stat(
     value,
     label: str,
@@ -94,6 +103,7 @@ def _stat(
     raw: dict | None = None,
     src=None,
     sub_html: str = "",
+    figure: str = "",
 ) -> str:
     """One headline tile. ``raw``/``src`` declare its components and their provenance.
 
@@ -113,14 +123,20 @@ def _stat(
     explanation now appears once, beside the filter (``filters.bar_html``).
 
     ``sub_html`` is pre-escaped markup and the ONLY way to get a live count into a sub-line;
-    build it with ``filters.sub_counts`` and nothing else. ``sub`` stays escaped.
+    build it with ``filters.sub_counts`` (a live count) or :func:`figure_span` (a marked
+    figure) and nothing else. ``sub`` stays escaped.
+
+    ``figure`` marks the value with ``data-figure`` (see :func:`figure_span`). A ``None``
+    value is a refusal and renders as an em dash, never as the word "None".
     """
     _TILES.append({"label": label, "value": value, "raw": raw or {"value": value}, "src": src})
     idx = len(_TILES) - 1
     pred = filters.predicate_of(src)
-    v = f"{value:,}" if isinstance(value, int) else _e(value)
+    v = "—" if value is None else f"{value:,}" if isinstance(value, int) else _e(value)
     if pred:
         v = f'<span data-count-pred="{_e(pred)}">{v}</span>'
+    if figure:
+        v = f'<span data-figure="{_e(figure)}">{v}</span>'
     body = sub_html or (_e(sub) if sub else "")
     sub_block = f'<div class="stat-sub">{body}</div>' if body else ""
     why = (

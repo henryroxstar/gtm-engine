@@ -225,6 +225,15 @@ class _P:
     def attested_by(self, text):
         return {t for t in ("langgraph", "crewai", "bedrock") if t in (text or "").lower()}
 
+    industry_terms = frozenset()
+
+    def industry_hits(self, industry):
+        return set()
+
+    def hits_for(self, row, evidence_fields=("signal_evidence", "signal_clause", "why_now")):
+        """Mirrors `Premise.hits_for` (2026-09-24): the one row matcher every reader calls."""
+        return self.attested_by(" ".join(str(row.get(f) or "") for f in evidence_fields))
+
 
 def test_a_row_attesting_enough_is_settled_without_spend():
     settled, escalate = premise_cascade(

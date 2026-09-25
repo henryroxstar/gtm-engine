@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from ..hook_coverage.config import MAX_SPECS_PER_CAPABILITY as _CAP
-from .config import PERSONA_AXIS, SEAT_COVERAGE
-from .format import _barlist, _e, _pct, _scoped_out, _seat_label
-from .views_samples import _samples_section
+from .format import _barlist, _e, _i, _pct, _scoped_out, _seat_label
+from .views_samples import _has_samples, _samples_section
 
 
 def _packs_section(m: dict) -> str:
@@ -23,7 +22,7 @@ def _packs_section(m: dict) -> str:
         + (
             f"<td><code>{_e(r['capability'])}</code></td>"
             if r["capability"]
-            else '<td><span class="pill warn">undeclared</span></td>'
+            else '<td><span class="pill">undeclared</span></td>'
         )
         + f"<td class='muted'>{_e(r['rules_version'] or '—')}</td></tr>"
         for r in rows
@@ -72,27 +71,35 @@ def _what_view(m: dict) -> str:
         m,
         "What the opening line is about",
         "The event-vs-capability split is counted across the whole prospect pool, so it "
-        "describes the profile's opening lines rather than this campaign's. Every email in "
-        "this campaign is shown in full under The emails themselves.",
+        "describes the profile's opening lines rather than this campaign's."
+        # A pointer only where there is something to point at (PS20 P1.7 Rule B).
+        + (
+            " This campaign's emails are shown under The emails themselves."
+            if _has_samples(m)
+            else ""
+        ),
     )
+    # "Not registered" only when the registration check fails (PS20 P1.7 Rule B): a scoped
+    # page keeps the cells.toml messages of this campaign's own sequences, so none means none.
+    unregistered = ", which this campaign's sequence spec is not registered in"
     subjects_card = _scoped_out(
         m,
         "Every subject line in the campaign",
-        "Subject lines are counted across the whole prospect pool and read from cells.toml, "
-        "which this campaign's sequence spec is not registered in. Its two subjects are in the "
-        "spec itself; the sequence table on Where things stand names the sequence.",
+        "Subject lines are counted across the whole prospect pool and read from cells.toml"
+        + ("" if m["messages"] else unregistered)
+        + ". This campaign's subject lines are in its own spec; the sequence table on Where "
+        "things stand names the sequence.",
     )
     sup = m["supply"]
-
-    axis_rows = "".join(
-        f"<tr><td><strong>{_e(seat)}</strong>"
-        + (
-            ' <span class="pill good">detected</span>'
-            if seat in SEAT_COVERAGE.values()
-            else ' <span class="pill warn">not detected</span>'
-        )
-        + f"</td><td>{_e(pain)}</td><td class='muted'>{_e(gain)}</td></tr>"
-        for seat, pain, gain in PERSONA_AXIS
+    # Said only when true (PS20 P1.7 Rule B): every enrolled row carries a researched opening
+    # clause and no registered lane is generic — a generic lane's body opens on none.
+    researched = (
+        sup["total"]
+        and not any(s["shape"] == "none" for s in sup["signals"])
+        and not any(c["lane"] == "generic" for c in m["cells"]["cells"])
+    )
+    every = (
+        "Every email opens on one researched sentence about that company. " if researched else ""
     )
 
     subjects: dict[str, int] = {}
@@ -129,7 +136,7 @@ def _what_view(m: dict) -> str:
 
     sig_rows = "".join(
         f"<tr><td>{_e(s['kind'])}</td>"
-        f"<td><span class='pill {'good' if s['shape'] == 'event' else 'warn'}'>"
+        "<td><span class='pill'>"
         f"{_e(s['shape'])}</span></td>"
         f"<td class='num-cell'>{s['n']:,}</td>"
         f"<td class='num-cell muted'>{_pct(s['n'], sup['total'])}</td></tr>"
@@ -169,13 +176,19 @@ def _what_view(m: dict) -> str:
                 f"<td class='num-cell'>{levels.get('WARN', 0):,}</td></tr>"
                 for rule, levels in sorted(fired.items())
             )
-            ok = lint.get("verdict") == "PASS"
+            # Risk only when a blocking check failed — counted, or a FAIL that carries no
+            # count; a pass is a verdict, so neutral.
+            qa_pill = (
+                'class="pill risk" data-risk="blocking-check"'
+                if _i(lint.get("errors")) > 0 or lint.get("verdict") == "FAIL"
+                else 'class="pill"'
+            )
             drift = lint.get("drift") or []
             # The state stays here, next to the badge it qualifies — a PASS must never read
             # as "ready to send" while the checked copy and the loaded copy differ. The
             # procedure that clears it lives in the Operator notes panel.
             drift_note = (
-                '<p class="note"><span class="pill warn">not cleared to start</span> '
+                '<p class="note"><span class="pill risk" data-risk="re-push">not cleared to start</span> '
                 "The badge below describes the reviewed files, not what would go out today. "
                 "See <strong>Operator notes</strong> for what is left to do.</p>"
                 if drift
@@ -183,7 +196,7 @@ def _what_view(m: dict) -> str:
             )
             qa = f"""
               {drift_note}
-              <p><span class="pill {"good" if ok else "bad"}">{_e(lint.get("verdict", "?"))}</span>
+              <p><span {qa_pill}>{_e(lint.get("verdict", "?"))}</span>
               Every email was rendered against every recipient and checked —
               <strong>{lint.get("renders", 0):,} rendered emails</strong>
               ({lint.get("rows", 0):,} people × {lint.get("touches", 0)} emails),
@@ -220,9 +233,7 @@ def _what_view(m: dict) -> str:
         " carry no new subject at all — the reader sees the conversation, not a fresh pitch."
         if threaded
         else ""
-    }
-        Subjects are deliberately not personalised (the personalisation is the first line of the
-        body), but this is the least varied part of the campaign.</p>
+    }</p>
         {shared_note}
         <table><thead><tr><th>Subject</th><th>People who receive it</th><th>Used by</th></tr>
         </thead><tbody>{subj_rows}</tbody></table>
@@ -230,10 +241,10 @@ def _what_view(m: dict) -> str:
 
     opening_full = f"""<div class="card">
         <h2>What the opening line is about</h2>
-        <p class="note">Every email opens on one researched sentence about that company.
-        They are not all the same kind of claim: an <strong>event</strong> is something that
-        happened on a date and decays; a <strong>capability</strong> describes what the company
-        does and stays true. Both are legitimate, but only an event justifies "why now".</p>
+        <p class="note">{every}An opening sentence claims either an <strong>event</strong>,
+        something that happened on a date and decays, or a <strong>capability</strong>, what
+        the company does, which stays true. Both are legitimate, but only an event justifies
+        "why now".</p>
         {
         _barlist(
             [
@@ -243,46 +254,11 @@ def _what_view(m: dict) -> str:
             sup["total"],
         )
     }
-        <p class="note"><strong>{_pct(sup["capability_shaped"], sup["total"])} are capability
-        statements.</strong> Worth knowing, because the sequence spec describes the clause as
-        "event-shaped, not a static capability statement" — the shipped list is mostly the
-        latter. The campaign's own experiment notes say the news hook was dropped deliberately;
-        the spec text was not updated to match.</p>
         <table><thead><tr><th>Kind</th><th>Shape</th><th>People</th><th>Share</th></tr></thead>
         <tbody>{sig_rows}</tbody></table>
       </div>"""
 
     return f"""
-      <div class="card">
-        <h2>How every email is built</h2>
-        <p class="note">Each email follows one fixed structure. Only the first line and the
-        seat-specific problem change per person.</p>
-        <ol class="steps">
-          <li><strong>A fact about them</strong> — one verified sentence about that specific
-              company, researched and checked against a primary source.</li>
-          <li><strong>Their seat's problem</strong> — the thing that job actually loses sleep
-              over, never a generic pitch.</li>
-          <li><strong>Why their current stack can't close it</strong> — identity tooling
-              records what happened; it does not prove who authorised it.</li>
-          <li><strong>Proof</strong> — one comparable customer, described by company type,
-              never named.</li>
-          <li><strong>One offer</strong> — we put a single artifact on the table and let them
-              take it or not. We are not asking them for anything: no meeting request, no
-              calendar link, no "quick call". "Want the short write up?" is the shape.</li>
-        </ol>
-      </div>
-
-      <div class="card">
-        <h2>Which problem we lead on, per job</h2>
-        <p class="note">The rule the copy is written against. "Detected" means our automated
-        check can recognise that title and verify the email matches the seat; the other four
-        are written by hand and unverified.</p>
-        <table><thead><tr><th>Job</th><th>What we lead on</th><th>What they get</th></tr></thead>
-        <tbody>{axis_rows}</tbody></table>
-      </div>
-
-      {subjects_card}
-
       {subjects_card or subjects_full}
 
       {opening_card or opening_full}

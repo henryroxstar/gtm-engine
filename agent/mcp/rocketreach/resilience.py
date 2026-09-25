@@ -68,6 +68,22 @@ BULK_MAX = 25
 # batch (~6s), large enough that a batch is not a burst. 0 disables.
 PACE_S = float(os.getenv("ROCKETREACH_PACE_S", "0.25"))
 
+
+def _concurrency(raw: str | None) -> int:
+    """Parse ``ROCKETREACH_CONCURRENCY``; junk or <1 falls back to 1 (sequential)."""
+    try:
+        return max(1, int(raw or 3))
+    except ValueError:
+        return 1
+
+
+# How many lookups in a bulk call may be in flight at once. Each lookup spends most of its
+# time waiting (a ``checkStatus`` poll every POLL_INTERVAL_S), so a strictly sequential loop
+# leaves the provider's per-minute lookup allowance mostly unused. 3 stays far under the
+# 10 requests/second global cap even with every slot polling; a 429 is still retried by
+# ``request`` below. 1 restores the old one-at-a-time behaviour.
+CONCURRENCY = _concurrency(os.getenv("ROCKETREACH_CONCURRENCY"))
+
 # 429 is the only retried status: it is the one that tells us when to come back.
 MAX_429_RETRIES = 2
 _BACKOFF_BASE_S = 5.0
@@ -137,6 +153,33 @@ async def pace(index: int = 1) -> None:
     """
     if index and PACE_S > 0:
         await asyncio.sleep(PACE_S)
+
+
+async def gather_paced(items: list, worker) -> list:
+    """Run ``worker(item)`` for every item, at most :data:`CONCURRENCY` at once.
+
+    Starts are serialised through :func:`pace` (a lock, so parallel slots cannot sleep
+    together and then fire at once), so a batch never opens as a burst. Results come back
+    in **input order** whatever order they finish in — a bulk caller zips them back to the
+    people it asked about.
+
+    A worker that raises becomes an ``{"error": ...}`` row instead of propagating. With
+    requests in flight in sibling slots, an exception escaping here would skip the caller's
+    metering while those siblings still spent provider credit (§R2).
+    """
+    gate = asyncio.Semaphore(CONCURRENCY)
+    start = asyncio.Lock()
+
+    async def one(index: int, item: object) -> object:
+        async with gate:
+            async with start:
+                await pace(index)
+            try:
+                return await worker(item)
+            except Exception as exc:  # noqa: BLE001 — see docstring: metering must still run
+                return {"error": f"lookup failed: {type(exc).__name__}"}
+
+    return list(await asyncio.gather(*(one(i, item) for i, item in enumerate(items))))
 
 
 def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:

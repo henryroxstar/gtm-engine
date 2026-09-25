@@ -47,7 +47,7 @@ STATUSES: tuple[str, ...] = (
 #: never the gate's answer to "may it go".
 LABELS: dict[str, str] = {
     "waiting_on_you": "Waiting on you",
-    "ready_to_send": "Routed — not yet checked",
+    "ready_to_send": "Sorted — not yet checked",
     "being_fixed": "Being fixed",
     "in_sending_tool": "In the sending tool",
     "not_emailing": "Not emailing",
@@ -76,6 +76,13 @@ CHECKED_NEXT_STEP = "yours — these are the ones that may go"
 #: that the checks ran and refused everything, which is a different fact an operator acts on
 #: differently. Absent is not zero.
 CHECKED_NOT_RUN = "not run yet — the checks decide this, and they have not seen this list"
+#: The line for each readiness state that is not a count (``prospect_readiness.Readiness``).
+#: A stale answer is never shown as a number: the list changed after it was measured.
+CHECKED_NOTES: dict[str, str] = {
+    "none": CHECKED_NOT_RUN,
+    "stale": "out of date — the list changed after the checks last ran",
+    "unreadable": "unknown — the last check report could not be read",
+}
 
 
 class UnmappedStatus(ValueError):

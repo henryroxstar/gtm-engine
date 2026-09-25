@@ -24,14 +24,45 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from gtm_core.optout_watch import typed_text
+
 if TYPE_CHECKING:
     from agent.config import Config
+    from agent.dnc_dispatch import DncDispatchOutcome
     from gtm_core.optout_watch import OptOutMatch
 
 logger = logging.getLogger("agent.gate_notify")
 
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 _TIMEOUT_S = 10
+
+
+def _optout_alert_wording(
+    match: OptOutMatch, auto_outcome: DncDispatchOutcome | None, email: str
+) -> tuple[str, str]:
+    """``(title, action)`` for an opt-out alert, in plain words. ``email`` is pre-escaped."""
+    if auto_outcome is not None and auto_outcome.ok and auto_outcome.status == "added":
+        return "Opt-out handled", (
+            f"✅ Added {email} to the Saleshandy Do Not Contact list and checked it is "
+            "there. Nothing for you to do."
+        )
+    if auto_outcome is not None:
+        return "Opt-out: automatic add failed", (
+            f"⚠️ Tried to add {email} to Do Not Contact and it did not work "
+            f"({html.escape(auto_outcome.detail[:120])}). An approval request follows — or "
+            "add it by hand in Saleshandy today."
+        )
+    if match.clear:
+        return "Opt-out: needs your approval", (
+            "Not yet blocked. This is a clear opt-out, but automatic adding is switched off "
+            f"(GTM_DNC_ADD_ENABLED). Approve the request that follows, or add {email} to "
+            "Do Not Contact in Saleshandy today."
+        )
+    return "Possible opt-out: needs your call", (
+        "Not yet blocked. This reply is not clearly an opt-out, so a person decides. If it "
+        f"is one, approve the request that follows, or add {email} to Do Not Contact in "
+        "Saleshandy today."
+    )
 
 
 async def push_gate1(
@@ -177,13 +208,15 @@ async def push_optout_alert(
     profiles_root: Path,
     profile: str,
     match: OptOutMatch,
+    *,
+    auto_outcome: DncDispatchOutcome | None = None,
 ) -> None:
     """Alert the operator that an inbound reply looks like an opt-out.
 
     Fire-and-forget, same posture as :func:`push_gate1`: this notifies, it never acts.
-    The message never claims the person has been suppressed — DNC has no removal API,
-    so the confirm step stays a human tap (Saleshandy UI, or an agent session told to
-    add the address), not this function. No-ops silently when the bot token or the
+    The message claims the person is blocked ONLY when ``auto_outcome`` says the sweep's
+    automatic add succeeded and was read back; every other case tells the operator what
+    is still theirs to do. No-ops silently when the bot token or the
     profile's ``telegram_gate1_chat_id`` is unset (same channel as Gate 1 — this is
     the same "wake the founder" urgency, not a new chat to configure).
     """
@@ -211,13 +244,16 @@ async def push_optout_alert(
     # itself — it is untrusted content (RULES.md §R5), quoted here for the operator to
     # read, never interpreted. An unescaped `<`/`&` would make Telegram reject the
     # whole message, and the failure is swallowed below by design.
+    # Shown as what the sender TYPED, not the raw HTML with our quoted original under it.
+    email = f"<code>{html.escape(match.email)}</code>"
+    said = typed_text(match.snippet) or match.snippet
+    title, action = _optout_alert_wording(match, auto_outcome, email)
     text = (
-        f"<b>[{html.escape(profile)}] Possible opt-out reply</b>\n"
-        f"From: <code>{html.escape(match.email)}</code>\n"
+        f"<b>[{html.escape(profile)}] {title}</b>\n"
+        f"From: {email}\n"
         f"Subject: {html.escape(match.subject)}\n"
-        f'Reply: "{html.escape(match.snippet)}"\n\n'
-        "Not yet suppressed — Global DNC has no removal API, so this stays a human tap. "
-        f"Add <code>{html.escape(match.email)}</code> to DNC today (same-day is the standing rule)."
+        f'They wrote: "{html.escape(said)}"\n\n'
+        f"{action}"
     )
 
     import httpx  # lazy — keeps module + unit tests import-light (mirrors agent/publish.py)

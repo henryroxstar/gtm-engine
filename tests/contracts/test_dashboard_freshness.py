@@ -198,3 +198,98 @@ def test_the_declared_globs_cover_what_the_model_actually_reads(tmp_path):
             "so a change to it would pass --check-fresh while reporting the page fresh — "
             "a green result that is a false claim. Add a glob."
         )
+
+
+def test_outcomes_jsonl_is_tracked(tmp_path):
+    """PS20 T1.9 — ``outcomes.jsonl`` feeds ``build_model`` (``read_outcomes``) but was
+    invisible to the inventory; a changed reply/meeting count used to pass ``--check-fresh``
+    silently."""
+    _seed(tmp_path)
+    (tmp_path / "acme" / "outcomes.jsonl").write_text('{"event": "reply"}\n', encoding="utf-8")
+    _render(tmp_path, scope="open")
+    assert gd.check_fresh("acme", tmp_path, scope="open").ok
+
+    (tmp_path / "acme" / "outcomes.jsonl").write_text(
+        '{"event": "reply"}\n{"event": "meeting"}\n', encoding="utf-8"
+    )
+    rep = gd.check_fresh("acme", tmp_path, scope="open")
+    assert rep.ok is False
+    assert "outcomes.jsonl" in rep.changed
+
+
+def test_profile_md_is_tracked_when_a_profile_is_given(tmp_path, monkeypatch):
+    """PROFILE.md lives under ``resolve_profiles_root()`` — a different root than every
+    other input — so ``page_inputs`` checks it separately (its ``profile_files`` section),
+    and only when the CALLER supplies the profile, never read back from the inventory JSON
+    (CLAUDE.md tenant boundary).
+    """
+    profiles_root = tmp_path / "profiles-root"
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    (profiles_root / "acme").mkdir(parents=True, exist_ok=True)
+    (profiles_root / "acme" / "PROFILE.md").write_text(
+        "target_markets: [Singapore]\n", encoding="utf-8"
+    )
+    _seed(tmp_path)
+    page = _render(tmp_path, scope="open")
+    root, _ = input_globs("acme", tmp_path)
+    assert pi.verify_inventory(page, root, profile="acme").ok
+
+    (profiles_root / "acme" / "PROFILE.md").write_text(
+        "target_markets: [United States]\n", encoding="utf-8"
+    )
+    rep = pi.verify_inventory(page, root, profile="acme")
+    assert rep.ok is False
+    assert "PROFILE.md" in rep.explain()
+
+    # Omitting `profile` is the pre-T1.9 call shape (also line 175 above): it simply does
+    # NOT check profile-rooted inputs, by design — PROFILE.md having just changed is not
+    # asked about at all, so this stays `.ok` regardless of what it holds.
+    assert pi.verify_inventory(page, root).ok
+
+
+def test_suppression_csv_is_tracked(tmp_path):
+    """PS20 T1.9 review round 2 — `suppression.csv` is only STATTED (mtime/size, via
+    `prospect_readiness.load_readiness` -> `fingerprints`), never opened, so it needs its
+    own glob entry: the ``open``/``glob``-spy contract test in
+    tests/contracts/test_dashboard_reads_are_inventoried.py structurally cannot see this
+    one either, the same reason it cannot see the labeler page or the hold sheet's html.
+    """
+    _seed(tmp_path)
+    pool = tmp_path / "acme" / "prospects" / "sequences" / ".pool"
+    pool.mkdir(parents=True, exist_ok=True)
+    (pool / "suppression.csv").write_text(
+        "email,reason\nada@analytical.example,dnc\n", encoding="utf-8"
+    )
+    _render(tmp_path, scope="open")
+    assert gd.check_fresh("acme", tmp_path, scope="open").ok
+
+    (pool / "suppression.csv").write_text(
+        "email,reason\nada@analytical.example,dnc\nbo@borogove.example,dnc\n", encoding="utf-8"
+    )
+    rep = gd.check_fresh("acme", tmp_path, scope="open")
+    assert rep.ok is False
+    assert "prospects/sequences/.pool/suppression.csv" in rep.changed
+
+
+def test_check_fresh_catches_profile_md_drift(tmp_path, monkeypatch):
+    """PS20 T1.9 follow-up — ``check_fresh`` (the production ``--check-fresh`` path) wires
+    ITS caller's ``profile`` into ``verify_inventory`` too, not only a direct ``page_inputs``
+    call. Without this wiring the mechanism above exists but a real ``--check-fresh`` run
+    never exercises it, so PROFILE.md drift would still silently pass.
+    """
+    profiles_root = tmp_path / "profiles-root"
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    (profiles_root / "acme").mkdir(parents=True, exist_ok=True)
+    (profiles_root / "acme" / "PROFILE.md").write_text(
+        "target_markets: [Singapore]\n", encoding="utf-8"
+    )
+    _seed(tmp_path)
+    _render(tmp_path, scope="open")
+    assert gd.check_fresh("acme", tmp_path, scope="open").ok
+
+    (profiles_root / "acme" / "PROFILE.md").write_text(
+        "target_markets: [United States]\n", encoding="utf-8"
+    )
+    rep = gd.check_fresh("acme", tmp_path, scope="open")
+    assert rep.ok is False
+    assert "PROFILE.md" in rep.explain()

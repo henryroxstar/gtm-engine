@@ -10,6 +10,8 @@ All fixtures are invented (docs/RULES.md R9).
 from __future__ import annotations
 
 import csv
+import io
+import json
 
 import pytest
 
@@ -755,3 +757,35 @@ def test_provider_dnc_reasons_is_the_single_source_of_truth():
     """reconcile_dnc must key off the constant, not a hardcoded 'dnc-optout'."""
     assert "dnc-optout" in PROVIDER_DNC_REASONS
     assert suppression.EVAL_DISQUALIFIED not in PROVIDER_DNC_REASONS
+
+
+def test_write_dnc_cache_writes_the_shape_consolidate_reads_and_refuses_an_empty_read(
+    tmp_path, monkeypatch
+):
+    """Until 2026-09-24 nothing wrote the cache `consolidate --require-dnc` reads but a
+    hand; the verb takes the same provider payload `reconcile-dnc` does."""
+    from gtm_core.prospects_consolidate.suppression import _load_dnc
+
+    payload = {
+        "payload": {
+            "dncListDetails": [
+                {"value": "Opt@Out.example", "type": "email"},
+                {"value": "www.Blocked.example", "type": "domain"},
+            ]
+        }
+    }
+    out = tmp_path / "dnc-emails.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert suppression.main(["write-dnc-cache", "--profile", "acme", "--out", str(out)]) == 0
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body["emails"] == ["opt@out.example"]
+    assert body["domains"] == ["blocked.example"]
+    loaded = _load_dnc("acme", tmp_path, out, require=True)
+    assert loaded.fetched_at is not None
+    assert loaded.blocks("OPT@out.example")
+
+    # An empty read is refused and the file left as it was.
+    before = out.read_text(encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"payload": {"dncListDetails": []}})))
+    assert suppression.main(["write-dnc-cache", "--profile", "acme", "--out", str(out)]) == 1
+    assert out.read_text(encoding="utf-8") == before

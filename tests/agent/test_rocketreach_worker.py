@@ -422,3 +422,13 @@ def test_bulk_uncapped_when_allowance_none(monkeypatch):
     people = [{"name": f"P{i}", "current_employer": "Acme"} for i in range(3)]
     out = json.loads(asyncio.run(server._bulk(people)))
     assert out["resolved"] == 3
+
+
+@pytest.mark.parametrize("tool", ["rocketreach_person_search", "rocketreach_company_search"])
+def test_search_tools_default_to_a_full_page(tool):
+    """Search is credit-free but capped per hour; a 10-row default spent 2.5x the requests."""
+    import inspect
+
+    fn = getattr(server, tool)
+    fn = getattr(fn, "fn", fn)  # tolerate a decorator that wraps the function
+    assert inspect.signature(fn).parameters["page_size"].default == server._SEARCH_MAX_PAGE_SIZE

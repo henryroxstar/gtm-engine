@@ -64,26 +64,25 @@ def _stub_calls(monkeypatch, *, lists=None, add=None, items=None, seen=None):
     2026-09-24 SC9b fix, so it was passing against its own bug rather than the API.
     """
     seen = seen if seen is not None else []
+    # Unless `items` scripts the read, the list behaves like the real one: empty until a
+    # successful POST adds to it. (The dispatcher pre-reads, so a list that already held
+    # the address would — correctly — skip the POST these tests are about.)
+    held: list[str] = []
 
     async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
         seen.append((method, path, json_body))
-        if path == "/dnc":
+        if method == "GET" and path == "/dnc":
             return lists if lists is not None else json.dumps({"payload": [{"id": "L1"}]})
-        if path == "/dnc-lists/items":  # _add_items's endpoint — unchanged by SC9b
-            return add if add is not None else json.dumps({"message": "ok"})
+        if method == "POST" and path == "/dnc":  # _add_items — same path, POST
+            result = add if add is not None else json.dumps({"message": "ok"})
+            if not result.startswith("[saleshandy-error]"):
+                held.extend(json_body["items"])
+            return result
         if path.startswith("/dnc/"):
-            return (
-                items
-                if items is not None
-                else json.dumps(
-                    {
-                        "payload": {
-                            "dncListDetails": [{"value": "dana@acme.example", "type": "email"}],
-                            "meta": _ONE_PAGE_META,
-                        }
-                    }
-                )
-            )
+            if items is not None:
+                return items
+            details = [{"value": v, "type": "email"} for v in held]
+            return json.dumps({"payload": {"dncListDetails": details, "meta": _ONE_PAGE_META}})
         return "{}"
 
     monkeypatch.setattr("agent.mcp.saleshandy.server._call", fake_call)
@@ -127,6 +126,22 @@ def test_with_the_switch_off_nothing_is_attempted(tmp_path, monkeypatch):
     assert "switched off" in out.operator_line()
 
 
+def test_the_add_matches_the_vendor_spec(tmp_path, monkeypatch):
+    """`DncController_addItemsToDncList` (open-api.saleshandy.com/api-doc-json, read
+    2026-09-24): `POST /v1/dnc`, body `{"items": [string], "dncListId": string}`. The first
+    live add sent `POST /dnc-lists/items` with object items and got a 404."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    seen = _stub_calls(monkeypatch)
+    out = _run(
+        _Cfg(tmp_path),
+        _Ledgers([_optout("dana@acme.example")]),
+        {"addresses": ["dana@acme.example"]},
+    )
+    assert out.ok is True
+    posts = [(p, b) for m, p, b in seen if m == "POST"]
+    assert posts == [("/dnc", {"dncListId": "L1", "items": ["dana@acme.example"]})]
+
+
 # --- the key --------------------------------------------------------------------------
 
 
@@ -159,9 +174,9 @@ def test_an_address_with_no_ledger_row_is_refused(tmp_path, monkeypatch):
     assert out.ok is True
     assert out.added == ("dana@acme.example",)
     assert out.refused == ("rival@competitor.example",)
-    sent = [body for _m, path, body in seen if path == "/dnc-lists/items"]
+    sent = [body for _m, path, body in seen if (_m, path) == ("POST", "/dnc")]
     assert sent, "nothing was sent at all"
-    values = [i["value"] for i in sent[0]["items"]]
+    values = sent[0]["items"]
     assert values == ["dana@acme.example"]
     assert "rival@competitor.example" not in json.dumps(sent)
 
@@ -171,7 +186,7 @@ def test_a_draft_naming_only_unevidenced_addresses_does_nothing(tmp_path, monkey
     seen = _stub_calls(monkeypatch)
     out = _run(_Cfg(tmp_path), _Ledgers([]), {"addresses": ["rival@competitor.example"]})
     assert out.status == "nothing_to_do"
-    assert not [p for _m, p, _b in seen if p == "/dnc-lists/items"]
+    assert not [p for _m, p, _b in seen if (_m, p) == ("POST", "/dnc")]
 
 
 def test_an_already_mirrored_address_is_not_re_added(tmp_path, monkeypatch):
@@ -230,7 +245,7 @@ def test_the_list_id_is_never_taken_from_the_draft(tmp_path, monkeypatch):
         {"addresses": ["dana@acme.example"], "dnc_list_id": "ATTACKER-LIST"},
     )
     assert out.ok is True
-    sent = [b for _m, p, b in seen if p == "/dnc-lists/items"]
+    sent = [b for _m, p, b in seen if (_m, p) == ("POST", "/dnc")]
     assert sent[0]["dncListId"] == "L1"
     assert "ATTACKER-LIST" not in json.dumps(sent)
 
@@ -246,7 +261,7 @@ def test_several_lists_without_the_env_refuses_rather_than_guessing(tmp_path, mo
     )
     assert out.ok is False
     assert "refusing to guess" in out.detail
-    assert not [p for _m, p, _b in seen if p == "/dnc-lists/items"]
+    assert not [p for _m, p, _b in seen if (_m, p) == ("POST", "/dnc")]
 
 
 def test_a_configured_list_id_that_does_not_exist_refuses(tmp_path, monkeypatch):
@@ -259,7 +274,7 @@ def test_a_configured_list_id_that_does_not_exist_refuses(tmp_path, monkeypatch)
         {"addresses": ["dana@acme.example"]},
     )
     assert out.ok is False
-    assert not [p for _m, p, _b in seen if p == "/dnc-lists/items"]
+    assert not [p for _m, p, _b in seen if (_m, p) == ("POST", "/dnc")]
 
 
 # --- the read-back ------------------------------------------------------------------------
@@ -294,6 +309,57 @@ def test_an_unreadable_read_back_also_records_nothing(tmp_path, monkeypatch):
     assert not [r for r in ledgers.written if r.get("event") == "dnc_added"]
 
 
+def test_an_address_already_on_the_list_is_not_resent_and_is_recorded(tmp_path, monkeypatch):
+    """The provider 400s a request naming an existing entry ("Inserted email or domain
+    already exist in this list", live 2026-09-24), so an opt-out someone already added by
+    hand must not be POSTed again — it is confirmed by the read and recorded."""
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    seen = _stub_calls(
+        monkeypatch,
+        add="[saleshandy-error] HTTP 400",
+        items=json.dumps(
+            {
+                "payload": {
+                    "dncListDetails": [{"value": "dana@acme.example", "type": "email"}],
+                    "meta": _ONE_PAGE_META,
+                }
+            }
+        ),
+    )
+    ledgers = _Ledgers([_optout("dana@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example"]})
+    assert out.ok is True
+    assert not [p for m, p, _b in seen if m == "POST"]
+    assert [r["email"] for r in ledgers.written if r.get("event") == "dnc_added"] == [
+        "dana@acme.example"
+    ]
+
+
+def test_only_the_addresses_not_yet_held_are_posted(tmp_path, monkeypatch):
+    monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
+    seen = []
+    held = ["dana@acme.example"]
+
+    async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
+        seen.append((method, path, json_body))
+        if method == "GET" and path == "/dnc":
+            return json.dumps({"payload": [{"id": "L1"}]})
+        if method == "POST" and path == "/dnc":
+            if set(json_body["items"]) & set(held):
+                return "[saleshandy-error] HTTP 400"
+            held.extend(json_body["items"])
+            return json.dumps({"message": "ok"})
+        details = [{"value": v, "type": "email"} for v in held]
+        return json.dumps({"payload": {"dncListDetails": details, "meta": _ONE_PAGE_META}})
+
+    monkeypatch.setattr("agent.mcp.saleshandy.server._call", fake_call)
+    ledgers = _Ledgers([_optout("dana@acme.example"), _optout("eli@acme.example")])
+    out = _run(_Cfg(tmp_path), ledgers, {"addresses": ["dana@acme.example", "eli@acme.example"]})
+    assert out.ok is True
+    assert [b["items"] for m, _p, b in seen if m == "POST"] == [["eli@acme.example"]]
+    assert out.added == ("dana@acme.example", "eli@acme.example")
+
+
 def test_a_failed_add_call_records_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
     _stub_calls(monkeypatch, add="[saleshandy-error] HTTP 422")
@@ -316,12 +382,14 @@ def test_the_read_back_pages_to_find_an_address_past_page_one(tmp_path, monkeypa
     land on page 1. This is the defect SC9b exists to fix."""
     monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
     seen = []
+    posted = []
 
     async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
         seen.append((method, path, params))
-        if path == "/dnc":
+        if method == "GET" and path == "/dnc":
             return json.dumps({"payload": [{"id": "L1"}]})
-        if path == "/dnc-lists/items":
+        if method == "POST" and path == "/dnc":
+            posted.append(json_body)
             return json.dumps({"message": "ok"})
         if path == "/dnc/L1":
             page = (params or {}).get("page", 1)
@@ -330,7 +398,7 @@ def test_the_read_back_pages_to_find_an_address_past_page_one(tmp_path, monkeypa
                 details = [{"value": f"other{i}@acme.example", "type": "email"} for i in range(100)]
                 meta = {"currentPage": 1, "totalPages": 2}
             else:
-                details = [{"value": "dana@acme.example", "type": "email"}]
+                details = [{"value": "dana@acme.example", "type": "email"}] if posted else []
                 meta = {"currentPage": 2, "totalPages": 2}
             return json.dumps({"payload": {"dncListDetails": details, "meta": meta}})
         return "{}"
@@ -341,7 +409,8 @@ def test_the_read_back_pages_to_find_an_address_past_page_one(tmp_path, monkeypa
     assert out.ok is True
     assert out.added == ("dana@acme.example",)
     read_pages = [p.get("page") for _m, path, p in seen if path == "/dnc/L1"]
-    assert read_pages == [1, 2], "did not page past the first page"
+    # Two full passes: the pre-read (what is already held) and the confirming read-back.
+    assert read_pages == [1, 2, 1, 2], "did not page past the first page"
 
 
 def test_a_read_back_page_with_no_paging_signal_refuses_rather_than_confirms(tmp_path, monkeypatch):
@@ -367,9 +436,9 @@ def test_a_read_back_that_never_reaches_the_last_page_refuses(tmp_path, monkeypa
     monkeypatch.setenv("GTM_DNC_ADD_ENABLED", "true")
 
     async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
-        if path == "/dnc":
+        if method == "GET" and path == "/dnc":
             return json.dumps({"payload": [{"id": "L1"}]})
-        if path == "/dnc-lists/items":
+        if method == "POST" and path == "/dnc":
             return json.dumps({"message": "ok"})
         if path == "/dnc/L1":
             details = [{"value": "dana@acme.example", "type": "email"}]
@@ -391,9 +460,9 @@ def test_the_read_back_sends_pagesize_not_limit_and_filters_type_email(tmp_path,
     read_params = []
 
     async def fake_call(method, path, *, params=None, json_body=None, api_key=None):
-        if path == "/dnc":
+        if method == "GET" and path == "/dnc":
             return json.dumps({"payload": [{"id": "L1"}]})
-        if path == "/dnc-lists/items":
+        if method == "POST" and path == "/dnc":
             return json.dumps({"message": "ok"})
         if path == "/dnc/L1":
             read_params.append(params or {})
@@ -534,7 +603,7 @@ def test_a_malformed_dnc_lists_payload_refuses(tmp_path, monkeypatch):
     )
     assert out.ok is False
     assert "no DNC list" in out.detail
-    assert not [p for _m, p, _b in seen if p == "/dnc-lists/items"]
+    assert not [p for _m, p, _b in seen if (_m, p) == ("POST", "/dnc")]
 
 
 def test_an_unconfigured_key_during_list_resolution_says_so(tmp_path, monkeypatch):

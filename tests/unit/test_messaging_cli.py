@@ -508,6 +508,7 @@ def test_resolve_dry_run_writes_nothing(tmp_path, monkeypatch, capsys):
     assert payload_code == 0
     assert payload["counts"] == {
         resolve.SEAT_UNRESOLVED: 1,
+        resolve.SEGMENT_UNRESOLVED: 0,
         resolve.PREMISE_UNSUPPORTED: 1,
         resolve.NO_VERIFIED_CLAIM: 1,
         resolve.NO_ANCHOR_FOR_MARKET: 0,

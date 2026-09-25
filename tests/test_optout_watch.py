@@ -620,3 +620,64 @@ def test_trimming_a_signature_does_not_invent_an_optout(label: str, body: str):
     fire on ordinary prose — and the third case is the one that matters most: our own
     instruction text, quoted back inside the original, must not opt the sender out."""
     assert ow.is_optout(body) is False, label
+
+
+# --- clear opt-outs: the narrow test that gates the sweep's automatic DNC add ---------
+
+_GMAIL_STOP = (
+    '<div dir="ltr">Stop</div><br><div class="gmail_quote gmail_quote_container">'
+    '<div dir="ltr" class="gmail_attr">On Thu, Sep 24, 2026 at 10:15 PM Sam Lee wrote:<br>'
+    '</div><blockquote class="gmail_quote">Not relevant? Reply stop to opt out.</blockquote></div>'
+)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _GMAIL_STOP,  # the live shape: ONE line of HTML, quoted original underneath
+        "Unsubscribe",
+        "STOP",
+        "Stop.\n\nSent from my iPhone",
+        "Please remove me from your list",
+        "Unsubscribe &amp; remove me",
+    ],
+)
+def test_a_short_typed_optout_is_clear(body):
+    assert ow.is_clear_optout(body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Matched ONLY by our own quoted original — the reply itself is a yes.
+        '<div dir="ltr">Yes, Tuesday works</div><div class="gmail_quote"><blockquote>'
+        "reply stop to opt out</blockquote></div>",
+        "Don't unsubscribe me",
+        "Can I opt out of the webinar?",
+        "Stop by Tuesday",
+        "Not interested, remove me",
+        "Thanks. We are evaluating vendors next quarter so please take me off for now",
+        "",
+    ],
+)
+def test_anything_else_is_left_to_a_human(body):
+    assert not ow.is_clear_optout(body)
+
+
+def test_the_quoted_original_is_not_what_was_typed():
+    """Before 2026-09-24 the one-line Gmail HTML was never cut, so a reply matched on the
+    words of OUR email. The recall matcher still does that (a human reviews it); the
+    clear test must not."""
+    yes = '<div>Yes please</div><div class="gmail_quote"><blockquote>opt out</blockquote></div>'
+    assert ow.typed_text(yes) == "Yes please"
+    assert ow.typed_text(_GMAIL_STOP) == "Stop"
+
+
+def test_find_optouts_marks_a_clear_match():
+    thread = {
+        "id": "t1",
+        "subject": "re: hi",
+        "messages": [{"fromEmail": "sam@lee.example", "content": _GMAIL_STOP, "fromProspectId": 7}],
+    }
+    match = ow.find_optouts_in_thread(thread)
+    assert match is not None and match.clear is True

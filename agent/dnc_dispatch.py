@@ -21,6 +21,12 @@ cannot suppress them. The DNC list id is resolved here, never taken from the dra
 it — the 2026-08-11 shape (``modifiedAt`` moved, the value did not). An add is recorded only
 after a re-read shows the address actually on the list.
 
+**Second caller: the sweep, for a clear opt-out (2026-09-24).** :mod:`agent.optout_sweep`
+calls :func:`dispatch_approved_dnc_add` directly, no gate, for a reply that passed
+``gtm_core.optout_watch.is_clear_optout`` — one address, the reply's own sender, which the
+sweep has just recorded as an open ``optout_detected`` row. No model is involved on that
+path, and every step below (kill switch, intersection, read-back) still runs.
+
 Never raises: every failure maps to an outcome the caller records and shows the operator.
 """
 
@@ -33,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent.permissions import dnc_context
+from gtm_core.optout_sets import DNC_ADDED_EVENT, optout_sets
 
 log = logging.getLogger("agent.dnc_dispatch")
 
@@ -46,12 +53,10 @@ _ENABLED_ENV = "GTM_DNC_ADD_ENABLED"
 #: would write a suppression to a list no sequence reads.
 _LIST_ID_ENV = "SALESHANDY_DNC_LIST_ID"
 
-#: Ledger events that make an address a legitimate candidate — both mean "this person, or
-#: someone this system could not read, asked us to stop".
-_OPEN_EVENTS = frozenset({"optout_detected", "optout_unreadable"})
-
-#: The event that closes a candidate: already mirrored, nothing to do.
-_CLOSED_EVENT = "dnc_added"
+#: The event this dispatcher WRITES once a read-back confirms an add. Sourced from
+#: gtm_core.optout_sets so the writer here and the reader there share one spelling of
+#: "already mirrored" rather than each hardcoding ``"dnc_added"`` separately.
+_CLOSED_EVENT = DNC_ADDED_EVENT
 
 
 def enabled() -> bool:
@@ -100,19 +105,15 @@ def open_candidates(ledgers: Any) -> set[str]:
 
     This is the whole of the brain's permitted vocabulary for a DNC add. It is derived from
     the ledger, never from the draft, so the draft can only ever name a subset of it.
+
+    The address key and the three per-event sets come from
+    :func:`gtm_core.optout_sets.optout_sets`, shared with the campaign Results page so the
+    two can never quietly disagree on either. This formula — OPEN is detected-or-unreadable,
+    minus whatever is already mirrored — stays here, unchanged, and is pinned by
+    ``tests/agent/test_dnc_dispatch.py::test_open_candidates_is_derived_from_the_ledger_not_the_draft``.
     """
-    opened: set[str] = set()
-    closed: set[str] = set()
-    for row in ledgers.iter_history():
-        event = row.get("event")
-        addr = str(row.get("email") or "").strip().lower()
-        if not addr:
-            continue
-        if event in _OPEN_EVENTS:
-            opened.add(addr)
-        elif event == _CLOSED_EVENT:
-            closed.add(addr)
-    return opened - closed
+    detected, unreadable, added, _unattributable = optout_sets(ledgers.iter_history())
+    return (detected | unreadable) - added
 
 
 async def _resolve_list_id(api_key: str) -> tuple[str | None, str]:
@@ -166,39 +167,24 @@ async def _add_items(api_key: str, list_id: str, addresses: list[str]) -> str:
     """The add request. Lives HERE, not in ``server.py``, so it is not an ``@mcp.tool()``
     and therefore never appears on the brain's surface at all.
 
-    # VERIFY: endpoint path/verb/body are taken from the vendor's CLI reference
-    # (`saleshandy dnc add --dnc-list-id ID --items …`, read 2026-09-21) and have NOT been
-    # run against a live account. The first live add is an operator task; until it passes,
-    # this marker stays and `GTM_DNC_ADD_ENABLED` stays closed by default.
+    # VERIFY: path and body now come from the vendor's OpenAPI spec, not a guess — the
+    # live add that would retire this marker has not run against the corrected call yet.
     #
-    # SHARPENED 2026-09-24 (SC9b): the sibling GET reads in this module both turned out to
-    # be calling a `/dnc-lists` prefix this repo's own server.py already proved 404s/rejects
-    # (see _resolve_list_id and _read_back). This POST still uses that same `/dnc-lists`
-    # prefix and has NOT been touched — there is no live-tested comment anywhere in this
-    # repo for a working POST DNC-add path, so fixing it on the strength of the GET finding
-    # would be exactly the guess this file's culture refuses to make blind. Treat this
-    # endpoint with LESS confidence than before the GET fix, not more.
-    #
-    # NARROWED 2026-09-22, read-only, WITHOUT performing an add. `dncListId` is confirmed as
-    # the right key. The `items` SHAPE is genuinely ambiguous and is the thing the live add
-    # must settle, because the two available sources disagree:
-    #   - the connected MCP server's `add_dnc_items` takes flat strings (["a@b.com"]) and says
-    #     "the API will automatically detect whether each item is an email or domain";
-    #   - but the live GET returns items AS OBJECTS, {"id","value","type","createdAt","addedBy"},
-    #     which is what the body below mirrors.
-    # So do not "fix" this to flat strings on the strength of the tool description alone — that
-    # is the believed-not-read failure this whole contract exists to stop. Run the add, and if
-    # the provider rejects the object form, the flat form is the next thing to try.
+    # CORRECTED 2026-09-24. The first live add (operator-approved) sent
+    # `POST /dnc-lists/items` with object items and got HTTP 404 — the path was invented
+    # from the CLI's `dnc add` verb. The vendor spec (open-api.saleshandy.com/api-doc-json,
+    # operationId `DncController_addItemsToDncList`, read 2026-09-24) is `POST /v1/dnc` with
+    # `AddDncListDto` = {"items": [string], "dncListId": string}, both required, and items
+    # described as "emails or domains". So the items are FLAT STRINGS: the object shape the
+    # GET returns is the stored record, not the request body. Same path as the list lookup
+    # in `_resolve_list_id`; only the verb differs.
     """
     from agent.mcp.saleshandy.server import _call
 
     return await _call(
         "POST",
-        "/dnc-lists/items",
-        json_body={
-            "dncListId": list_id,
-            "items": [{"value": a, "type": "email"} for a in addresses],
-        },
+        "/dnc",
+        json_body={"dncListId": list_id, "items": list(addresses)},
         api_key=api_key,
     )
 
@@ -243,11 +229,8 @@ async def _read_back(api_key: str, list_id: str, addresses: list[str]) -> set[st
        ever adds emails; this is the documented ``item_type`` values ("all"/"email"/
        "domain"), not a guess.
 
-    :func:`_add_items`'s own endpoint (``POST /dnc-lists/items``) is UNTOUCHED here and
-    stays exactly as unverified as before — there is no live-tested comment anywhere in
-    this repo for a POST DNC-add path the way there is for the two GET reads above, and
-    guessing at a write endpoint on the strength of a fixed read endpoint would be the
-    same blind-fix mistake this docstring is correcting. It remains the live add's job.
+    :func:`_add_items`'s endpoint was corrected separately, from the vendor's spec — see
+    its own comment.
     """
     from agent.mcp.saleshandy.server import _call
     from gtm_core import suppression
@@ -321,6 +304,7 @@ async def dispatch_approved_dnc_add(
     *,
     draft: dict,
     dry_run: bool = False,
+    approved_by: str = "operator",
 ) -> DncDispatchOutcome:
     """Add exactly the approved-and-evidenced addresses to the provider DNC list, or refuse.
 
@@ -334,6 +318,10 @@ async def dispatch_approved_dnc_add(
       6. the write happens inside ``dnc_context()``, the only window that admits it;
       7. a read-back confirms each address before any ``dnc_added`` row or local
          suppression entry is written.
+
+    ``approved_by`` is recorded on each ``dnc_added`` row: ``"operator"`` for a gate
+    approval, ``"auto:clear-optout"`` when :mod:`agent.optout_sweep` adds a clear opt-out
+    itself — the same seven steps either way, so the audit says which path ran.
     """
     refusal = _preflight_refusal(cfg)
     if refusal is not None:
@@ -376,11 +364,19 @@ async def dispatch_approved_dnc_add(
         return DncDispatchOutcome(ok=False, status=status, detail=detail, refused=refused)
 
     with dnc_context():
-        raw = await _add_items(api_key, list_id, addresses)
-        if raw.startswith("[saleshandy-error]"):
-            return DncDispatchOutcome(
-                ok=False, status="dnc_add_failed", detail=raw[:200], refused=refused
-            )
+        # Send only what the list does not already hold. The provider rejects a request
+        # naming an existing entry with HTTP 400 ("Inserted email or domain already exist in
+        # this list", observed live 2026-09-24) — and the connector hides that body — so an
+        # opt-out someone had already added by hand would otherwise fail forever. An
+        # unreadable pre-read yields an empty set, so everything is sent: the safe direction.
+        already = await _read_back(api_key, list_id, addresses)
+        to_add = [a for a in addresses if a not in already]
+        if to_add:
+            raw = await _add_items(api_key, list_id, to_add)
+            if raw.startswith("[saleshandy-error]"):
+                return DncDispatchOutcome(
+                    ok=False, status="dnc_add_failed", detail=raw[:200], refused=refused
+                )
         confirmed = await _read_back(api_key, list_id, addresses)
 
     missing = [a for a in addresses if a not in confirmed]
@@ -409,6 +405,7 @@ async def dispatch_approved_dnc_add(
                 "email": addr,
                 "dnc_list_id": list_id,
                 "confirmed_by_read_back": True,
+                "approved_by": approved_by,
             }
         )
     ledger_path = cfg.content_root / ledgers.profile / "prospects" / ".pool" / "suppression.csv"

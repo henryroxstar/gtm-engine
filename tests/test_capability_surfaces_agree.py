@@ -45,22 +45,37 @@ def test_the_dashboard_panel_uses_the_shared_renderer():
     that formats its own table would pass the content test above and still drift."""
     import ast
 
-    from gtm_core.email_campaign_dashboard import views_status
+    # The panel moved to its own module (PS20 Task 8, §R10), and its rows are resolved by the
+    # model (`health.capability_rows_for`, PS20 Task 9: the renderer opens no file, and the
+    # registry is a file). The property is unchanged: one object, one renderer.
+    from gtm_core.email_campaign_dashboard import health, views_inbound
 
-    source = Path(views_status.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    block = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.FunctionDef) and n.name == "_inbound_health_block"
-    )
-    called = {
-        n.func.id
-        for n in ast.walk(block)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
-    assert "render_summary" in called
-    assert "capability_rows" in called
+    def called_in(module, name):
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        block = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
+        return {
+            n.func.id
+            for n in ast.walk(block)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+
+    assert "render_summary" in called_in(views_inbound, "_inbound_health_block")
+    assert "capability_rows" in called_in(health, "capability_rows_for")
+
+
+def test_the_dashboard_page_renders_the_rows_the_model_resolved(tmp_path):
+    """The model→view link the structural test above cannot see (PS20 Task 9). Both calls
+    can still exist while the model hands the panel nothing — `capability_rows=[]` from
+    `inbound_health` — and the page silently loses its capability lines. So render a real
+    page and require the same HTML the terminal preflight and the gate preview render."""
+    from gtm_core import email_campaign_dashboard as gd
+    from tests.contracts.test_dashboard_ps20_trust import _seed_with_roster
+
+    # The model resolves the default registry (no `registry_path`), so the expectation does too.
+    summary = render_summary(cp.capability_rows("saleshandy"), fmt="html")
+    assert summary, "instrument: an empty summary is `in` every page, whatever it rendered"
+    profile = _seed_with_roster(tmp_path)  # its history holds a saleshandy `capability_asserted`
+    assert summary in gd.render_html(gd.build_model(profile, tmp_path))
 
 
 def test_the_preflight_table_and_the_capability_rows_cover_the_same_set():

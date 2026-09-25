@@ -16,6 +16,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-25
+
+### Added
+- **Clear opt-outs are suppressed without waiting for approval.** A short typed "stop",
+  "unsubscribe" or "remove me" reply (at most ten words, never negated or phrased as a question,
+  judged on what the sender typed with quoted text and signatures removed) is added to the
+  sequencer's Do Not Contact list through the same dispatcher, kill switch and read-back a gate
+  approval uses. Every other opt-out still waits at the `optout-suppress` gate.
+- A **prospecting status lede and readiness report**: the status page now opens with a plain
+  summary of what is ready, what is held and why, plus a "passed the checks" tile.
+- **Campaign page views** for sequencer health, inbound replies and buyer intent, and a shared
+  opt-out set module so the page's people counts and the DNC dispatcher can never disagree.
+- Premises can now be attested by the row's **industry** (`industry_terms`) or by the **seat
+  alone** (`attested_by_seat = true`), so a generic lane can argue from the buyer's remit when
+  there is no account-specific evidence. The template profile carries examples.
+
+### Changed
+- `messaging resolve` honours an angle's `segments` and refuses with `segment-unresolved` rather
+  than silently picking an angle written for another segment; hook coverage had the same defect
+  and is fixed too.
+- The registry can mark a claim as a product **boundary** and a premise as not attesting it, and
+  refuses any live angle that joins the two.
+- The argument-monotone cap is counted per capability and seat.
+- RocketReach bulk lookups run concurrently (`ROCKETREACH_CONCURRENCY`, default 3) while keeping
+  input order and metering every row; search pages default to the 25-row cap. The `prospect`
+  skill documents the real hosted-connector tool map, polls pending lookups before counting a
+  miss, and batches all misses into one fallback enrichment.
+- Consolidation stamps judge columns from the lane's own state record instead of carrying old
+  verdicts forward, and normalises `segment` casing on load.
+
+### Fixed
+- Enrolment exclusion no longer counts contacts in sequences that were deleted without sending.
+- Opt-out detection on single-line HTML replies no longer matches text in the quoted original.
+- The opt-out review prompt now writes the DNC draft that approval dispatches.
+- The unscored-tier test now matches the shipped rule: an unscored account outside the target
+  markets fails fit, and one missing other research is held as "being researched".
+
 ## [0.21.1] - 2026-09-24
 
 ### Fixed

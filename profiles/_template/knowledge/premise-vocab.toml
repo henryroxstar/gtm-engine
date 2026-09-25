@@ -37,7 +37,33 @@ terms = []  # e.g. the vendor/framework names whose co-occurrence proves the plu
 
 # A premise whose claim is about a boundary EXISTING needs only `min_distinct = 1`: a single
 # attested instance establishes it, and the body's claim is not about how many there are.
+#
+# `attests_boundary` (optional, true | false) says whether a row attesting this premise has
+# thereby shown an ORGANISATIONAL boundary. Absent means "not said" and arms nothing. Set it to
+# `false` on a premise like "the recipient ships an agent" — true of a company running an agent
+# inside its own product for its own users — and `gtm_core.messaging check` will refuse any angle
+# that puts a claim marked `boundary = true` (claims.toml) on it. "They built an agent" does not
+# entail "their agent crosses a boundary", and a body that assumes the second from the first is
+# the defect a reader names as "assumes a constraint but shows no evidence it is real".
 [premise.example-cross-org]
 claim = "the recipient's systems call across an organisational boundary, so the far side must admit a stranger"
 min_distinct = 1
+attests_boundary = true
 terms = []  # e.g. the words that put the boundary IN the evidence, never topic words
+
+# A premise a FIRMOGRAPHIC fact establishes may also name `industry_terms` (optional): sector
+# names matched against the row's `industry` column alone — the ledger's classification of the
+# account, never free text — each hit counting as one attesting term. Spell them the way the
+# ledger spells its sectors; a term that would also fire in free text belongs in `terms`.
+#
+# A premise that asks NOTHING of the record — the seat's own remit is the argument, which is the
+# generic lane's copy — declares `attested_by_seat = true` and may leave `terms` empty. Every row
+# the seat resolves for attests it, so the resolver offers it LAST, after any premise the row's
+# own evidence or industry attests. Say `attests_boundary = false` on it: nothing here shows a
+# boundary, so an angle on this premise may not cite a boundary claim, and the registry refuses
+# the pairing.
+[premise.example-seat-remit]
+claim = "the recipient holds the seat, and the seat owns the standing problem the body names"
+attested_by_seat = true
+attests_boundary = false
+terms = []

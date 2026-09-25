@@ -19,6 +19,10 @@ from .graph import Graph, Node
 from .pipeline import StageExecutor, StageOutcome
 from .pipeline_executor import execute_stage
 
+#: External effects whose dispatcher reads a draft named after the run. `publish` is not
+#: here: it reads the plan draft, which is not run-named.
+_RUN_NAMED_DRAFT_EFFECTS = frozenset({"email_enroll", "dnc_add"})
+
 
 def pack_graph_to_engine_graph(pack: PackGraph) -> Graph:
     """Convert a loaded, validated :class:`PackGraph` into a runnable engine :class:`Graph`.
@@ -73,13 +77,19 @@ def make_executor_from_pack(
     # DECLARATION too — a gate=true node pauses whether or not its skill emits a
     # ⟦GATE:…⟧ sentinel. See execute_stage's docstring for why this matters.
     gates = {n.id: n.gate for n in pack.nodes if n.gate}
-    # Gated nodes whose approval dispatches a direct `email_enroll` successor: their draft is
-    # named after the run, so execute_stage tells them the run id (client issue #245).
+    # Gated nodes whose approval dispatches a direct successor that reads a RUN-NAMED draft
+    # (`<run_id>.enroll-draft.json` / `<run_id>.dnc-draft.json`, agent/gate_actions.py):
+    # execute_stage tells them the run id so they can name the file (client issue #245).
+    # `dnc_add` was missing until 2026-09-24 — the optout-suppress review node was never told
+    # its run id, wrote no draft, and every approval refused with "found none".
     run_id_stages = frozenset(
         n.id
         for n in pack.nodes
         if n.gate
-        and any(m.external_effect == "email_enroll" and n.id in m.depends_on for m in pack.nodes)
+        and any(
+            m.external_effect in _RUN_NAMED_DRAFT_EFFECTS and n.id in m.depends_on
+            for m in pack.nodes
+        )
     )
 
     async def _executor(stage_name: str, manifest: dict) -> StageOutcome:

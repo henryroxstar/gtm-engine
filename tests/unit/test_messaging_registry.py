@@ -361,3 +361,55 @@ def test_registry_exposes_claims_proof_angles_and_seats(tmp_path):
     assert "security" in reg.seats
     assert reg.angle_count == 2
     assert [a.id for a in reg.live_angles()] == ["ciso-live-angle"]
+
+
+def test_a_claim_needing_a_boundary_refuses_a_premise_that_attests_none(tmp_path):
+    """The 2026-08-25 refutation, as data rather than as a comment.
+
+    ``ships-agent-product`` attests that the reader BUILT an agent, not that the agent
+    crosses an organisational boundary; 47 of 56 rows argued across that gap were judged
+    ``drop``. The ban lived in a TOML comment, so the 09-24 angle mining put eleven angles
+    on the premise and nothing objected (§R13). Now the premise says
+    ``attests_boundary = false``, a claim says ``boundary = true``, and an angle joining the
+    two is refused at load — unless it is ``retired``, which is history and not an offer.
+    """
+    premise = _PREMISE_TOML.replace(
+        "min_distinct = 2", "min_distinct = 2\nattests_boundary = false"
+    )
+
+    def _with_premise(root: Path) -> Path:
+        (root / _PROFILE / "knowledge" / "premise-vocab.toml").write_text(premise, encoding="utf-8")
+        return root
+
+    bad = _with_premise(_write(tmp_path, "boundary-bad", claims=[_claim(boundary=True)]))
+    message = _refusal(bad)
+    assert "ciso-multi-framework-audit" in message
+    assert "audit-signed" in message
+    assert "multi-framework" in message
+    assert "boundary" in message
+
+    # Negative control 1: the same claim against a premise that does not SAY — no rule
+    # fires, because absent is "not said", the state every vocabulary written before this
+    # rule is in.
+    unlabelled = _write(tmp_path, "boundary-unlabelled", claims=[_claim(boundary=True)])
+    assert registry.load(_PROFILE, profiles_root=unlabelled).claims["audit-signed"].boundary
+
+    # Negative control 2: the same premise, a claim that needs no boundary — loads.
+    intra = _with_premise(_write(tmp_path, "boundary-intra", claims=[_claim(boundary=False)]))
+    assert not registry.load(_PROFILE, profiles_root=intra).claims["audit-signed"].boundary
+
+    # Negative control 3: the offending angle retired — loads; the file keeps its history.
+    retired = _with_premise(
+        _write(
+            tmp_path,
+            "boundary-retired",
+            claims=[_claim(boundary=True)],
+            angles=[_angle(status="retired")],
+        )
+    )
+    assert registry.load(_PROFILE, profiles_root=retired).angles
+
+
+def test_claim_boundary_must_be_a_bool(tmp_path):
+    root = _write(tmp_path, "boundary-string", claims=[_claim(boundary="yes")])
+    assert "`boundary` must be true or false" in _refusal(root)

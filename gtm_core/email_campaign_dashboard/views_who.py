@@ -10,9 +10,11 @@ from .format import (
     _row_status,
     _seat_label,
     _stat,
+    figure_span,
     roster_gap,
     scope_label,
 )
+from .views_intent import _intent_block
 from .views_segments import segment_mix
 
 
@@ -34,7 +36,6 @@ def _next_step(j: dict | None) -> str:
     """
     if not j:
         return "<td class='muted'>—<div class='muted' style='opacity:.75;margin-top:3px'>no drafted email, so nothing to judge</div></td>"
-    tone = {"send": "good", "re-angle": "warn"}.get(j["verdict"], "bad")
     also = (
         " <span class='muted'>· a second row for this address scored differently; the "
         "stricter one is shown</span>"
@@ -43,7 +44,7 @@ def _next_step(j: dict | None) -> str:
     )
     return (
         "<td class='muted'>"
-        f'<span class="pill {tone}">{_e(j["verdict"] or "—")}</span> '
+        f'<span class="pill">{_e(j["verdict"] or "—")}</span> '
         f"<strong>{_e(j['action'] or 'unrouted')}</strong>"
         f"<div class='muted' style='opacity:.75;margin-top:3px'>{_e(_trim(j['note'], 150))}"
         f"{also}</div></td>"
@@ -96,18 +97,41 @@ def _seat_fit_note(m: dict) -> str:
         f"matrix has no row for at all ({eg}, plus {f.get('no_title', 0)} role inboxes with no "
         f"title), and {f.get('elsewhere', 0)} who resolve to a different seat. Only "
         f"<strong>{f.get('matched', 0)}</strong> are the declared one.</p>"
+        f"{_generic_lane_finding(m, f)}{_STALE_SEAT}</div>"
+    )
+
+
+def _generic_lane_finding(m: dict, f: dict) -> str:
+    """Why an off-seat recipient on a GENERIC lane is still a targeting defect — only where the
+    data holds each clause (P1.7 Rule B): every sequence here is registered on the generic lane
+    in cells.toml, its spec declares a persona; "nothing was checking it" needs a title no
+    persona resolves, and "the empty why-now column" needs the lane's rows to carry none."""
+    msgs = m.get("messages") or []
+    if not (msgs and all(x.get("lane") == "generic" for x in msgs) and f.get("declared")):
+        return ""
+    to = {(r.get("to") or "").lower() for r in (m.get("samples") or {}).get("rendered") or []}
+    rows = (m.get("roster") or {}).get("rows") or []
+    lane = [x for x in rows if (x.get("email") or "").lower() in to]
+    unchecked = (
+        " That is a targeting finding, not a metadata one: <code>persona-lead-mismatch</code> "
+        "cannot fire on a title it does not recognise, so nothing was checking it."
+        if f.get("unresolved")
+        else ""
+    )
+    return (
         '<p class="note"><strong>Being on the generic lane does not excuse that.</strong> '
         "Generic means <em>signal-free</em>, not <em>seat-free</em>: the body makes no claim "
         "about the recipient's company — that is what the lane buys — but the spec still "
         "declares a <code>hook_cell</code> whose left half is a persona, and the body still "
         "argues that persona's problem and that persona's stakes. A recipient who is not that "
-        "seat gets an argument written for someone else. That is a targeting finding, not a "
-        "metadata one: <code>persona-lead-mismatch</code> cannot fire on a title it does not "
-        "recognise, so nothing was checking it.</p>"
-        '<p class="note">The empty why-now column on these rows is <em>correct</em>, by '
-        "contrast — a generic lane makes no per-row research claim, and filling it would mean "
-        "inventing the signals these rows were put in the lane for lacking.</p>"
-        f"{_STALE_SEAT}</div>"
+        f"seat gets an argument written for someone else.{unchecked}</p>"
+        + (
+            '<p class="note">The empty why-now column on these rows is <em>correct</em>, by '
+            "contrast — a generic lane makes no per-row research claim, and filling it would "
+            "mean inventing the signals these rows were put in the lane for lacking.</p>"
+            if lane and not any(x.get("why_now") for x in lane)
+            else ""
+        )
     )
 
 
@@ -125,7 +149,7 @@ def _roster_who(m: dict) -> str:
     if not rows:
         return ""
     pill = lambda ok, yes, no: (  # noqa: E731
-        f'<span class="pill good">{yes}</span>' if ok else f'<span class="pill warn">{no}</span>'
+        f'<span class="pill ok">{yes}</span>' if ok else f'<span class="pill">{no}</span>'
     )
     body = "".join(
         # Same canonical roster index the worklist stamps — see `_row_html` there. This
@@ -136,7 +160,8 @@ def _roster_who(m: dict) -> str:
         f"<td class='muted tech'>{_e(x['seat'] or '—')}</td>"
         f"<td>{_e(x['tier'] or '—')}</td>"
         f"<td>{pill(bool(x['email']), 'verified', 'no address')}</td>"
-        f"<td class='tech'>{pill(x['named'], 'named seat', 'role inbox')}</td>"
+        f"<td class='tech'><span class='pill'>{'named seat' if x['named'] else 'role inbox'}"
+        "</span></td>"
         + (
             f"<td class='muted'>{_e(_trim(x['why_now'], 150))}</td>"
             if x.get("why_now")
@@ -154,10 +179,8 @@ def _roster_who(m: dict) -> str:
         for x in rows
     )
     one = len(m["campaigns"]["campaigns"]) == 1
-    # A hand-written finding about ONE campaign's generic lane. True of sg-builders and
-    # of nothing else, so it renders only when the page is about a single campaign — under
-    # a multi-campaign heading it is a specific claim about a set it was never measured on,
-    # which is a mis-scoped tile wearing prose.
+    # Seat fit only on a single campaign's page: a multi-campaign set was never measured.
+    # Its hand-written explanation is further gated on the lane's data (_generic_lane_finding).
     lane_finding = _seat_fit_note(m) if one else ""
     tiers = ", ".join(f"{n} {_e(k)}" for k, n in r.get("tiers", []))
     verdicts = ", ".join(f"{n} {_e(k)}" for k, n in r.get("verdicts", []))
@@ -171,13 +194,15 @@ def _roster_who(m: dict) -> str:
     filed = next((j["filed"] for j in judged if j.get("filed")), "")
     judge_src = (
         f" Scored {_e(filed)}, filed in <code>{_e(src)}</code>."
+        if src and filed
+        else f" Filed in <code>{_e(src)}</code>."
         if src
         else " No judge run on file for this roster."
     )
     by_action: dict[str, int] = {}
     for j in judged:
         by_action[j["action"] or "unrouted"] = by_action.get(j["action"] or "unrouted", 0) + 1
-    uncal = any(not j["calibrated"] for j in judged)
+    uncal = all(not j["calibrated"] for j in judged)
     judge_split = ""
     if by_action:
         parts = ", ".join(
@@ -186,16 +211,24 @@ def _roster_who(m: dict) -> str:
         )
         judge_split = (
             "<div data-stale-when-filtered>"
-            f'<p class="note"><strong>Where the {len(judged)} judged rows go:</strong> {parts}. '
-            "Those are two different queues, not two shades of the same one — a re-target is a "
-            "prospecting run to find a seat that owns the problem, a re-argue is a rewrite of "
-            "the spec or the pack. <strong>Neither has been worked yet:</strong> every drafted "
-            "email on this page is the version the judge scored, so a row reading "
-            "<em>rewrite the argument</em> has not been rewritten."
+            f'<p class="note"><strong>Where the {len(judged)} judged rows go:</strong> {parts}.'
+            + (
+                " Those are two different queues, not two shades of the same one — a re-target "
+                "is a prospecting run to find a seat that owns the problem, a re-argue is a "
+                "rewrite of the spec or the pack."
+                if len(set(by_action) - {"unrouted"}) == 2
+                else ""
+            )
+            # Only the copy half of "has either queue been worked" is on record (P1.7 Rule B).
+            + (
+                " No judged row records a copy revision since it was scored, so a row reading "
+                "<em>rewrite the argument</em> has not been rewritten."
+                if not any(j.get("revised") for j in judged)
+                else ""
+            )
             + (
                 " And the judge is UNCALIBRATED for this profile — no sealed holdout has "
-                "passed — so read the ordering, never the count, and expect it to reject "
-                "well-formed category copy on principle."
+                "passed — so read the ordering, never the count."
                 if uncal
                 else ""
             )
@@ -204,6 +237,13 @@ def _roster_who(m: dict) -> str:
             + "</div>"
         )
     srcs = ", ".join(f"<code>{_e(s)}</code>" for s in r.get("sources", []))
+    # The re-angle gloss only beside a re-angle verdict (PS20 P1.7 Rule B). It also said the
+    # account's follow-up had happened — routed to the generic lane — which nothing records.
+    reangle = (
+        " — <code>re-angle</code> there means the evidence was too thin for a hand-written 1:1"
+        if any((x.get("verdict") or "").strip().lower() == "re-angle" for x in rows)
+        else ""
+    )
     return f"""
       <div class="stats">
         {_stat(r["accounts"], f"accounts in {scope_label(m)}", "every one, not a sample", src="rows:all")}
@@ -219,12 +259,10 @@ def _roster_who(m: dict) -> str:
         <p class="note">Tiers: {tiers or "—"}. Research verdicts: {verdicts or "—"}.</p>
         <p class="note"><strong>Two different verdicts sit in this table and they answer
         different questions.</strong> <em>Research verdict</em> is the researcher's call on the
-        ACCOUNT, made before any copy existed — <code>re-angle</code> there means the evidence
-        was too thin for a hand-written 1:1, and its follow-up already happened: that account
-        was routed to the generic seat lane, which is why it has a drafted email at all.
-        <em>What happens next</em> is the email judge's read of that drafted email, and it is a
-        RANKING, not a gate — no verdict here stops a send, and the deterministic
-        <code>account_integrity</code> check is what does.{judge_src}</p>
+        ACCOUNT, made before any copy existed{reangle}. <em>What happens next</em> is the email
+        judge's read of the account's drafted email, and it is a RANKING, not a gate — no
+        verdict here stops a send, and the deterministic <code>account_integrity</code> check
+        is what does.{judge_src}</p>
         {judge_split}
         <table><thead><tr><th>Company</th><th>Status</th><th class="tech">Seat</th><th>Tier</th>
         <th>Address</th><th class="tech">Seat kind</th><th>Why-now (the signal)</th>
@@ -236,6 +274,19 @@ def _roster_who(m: dict) -> str:
         snapshot that preceded it. The shared prospect pool is deliberately not shown here: it
         answers "who could we email next", which is a question about the profile.</p>
       </div>"""
+
+
+def _markets_note(sup: dict) -> str:
+    """The markets the pool spans and the largest one's share, from the market data — it said
+    "Three markets … overwhelmingly a US motion", true of one tenant's pool (PS20 P1.7)."""
+    countries = sup.get("countries") or []
+    if not countries:
+        return "No market is recorded for anyone in the pool."
+    top = max(countries, key=lambda c: c["n"])
+    return (
+        f"{len(countries)} market{'' if len(countries) == 1 else 's'}. The largest, "
+        f"{_e(top['name'])}, holds {_pct(top['n'], sup['total'])} of the pool."
+    )
 
 
 def _who_view(m: dict) -> str:
@@ -297,6 +348,10 @@ def _who_view(m: dict) -> str:
         for t in sup["unplaced_titles"][:12]
     )
     covered = ", ".join(f"{v} (<code>{k}</code>)" for k, v in SEAT_COVERAGE.items())
+    # The pool figures below are described, never tied to goals: nothing here compares a
+    # manifest's targets to them (PS20 P1.7 Rule B).
+    top = (sup["unplaced_titles"] or [None])[0]
+    largest = f" The largest group below is {_e(top['name'])} ({top['n']:,})." if top else ""
 
     return f"""
       {scope_note}
@@ -305,12 +360,7 @@ def _who_view(m: dict) -> str:
         _stat(
             sup["qualified_sendable"],
             "people we will actually email",
-            (
-                f"of {sup['total']:,} loaded — pool-wide; this campaign's goals are on "
-                "Where things stand"
-                if m.get("campaign_scope")
-                else f"of {sup['total']:,} loaded — goals are set on this number"
-            ),
+            f"of {sup['total']:,} loaded" + (" — pool-wide" if m.get("campaign_scope") else ""),
         )
     }
         {_stat(f["ready"], "more we could email", "verified address, not yet loaded")}
@@ -320,15 +370,15 @@ def _who_view(m: dict) -> str:
 
       <div class="card">
         <h2>How many actually count</h2>
-        <p class="note">Two filters stand between "loaded" and "will receive an email", and the
-        goals are set after both. <strong>{sup["suppressed"]:,} of {sup["total"]:,} are held
+        <p class="note">Between "loaded" and "will receive an email" sit the opening-line check
+        and the job-title check.
+        <strong>{sup["suppressed"]:,} of {sup["total"]:,} are held
         back</strong> because the one researched sentence their email opens on does not survive
         inspection — {supp_top}. Separately, <strong>{sup["unclear"]:,} rows are
         "unread"</strong>: nobody has checked whether that job title could own this, and the
         qualification gate treats unread as not-proven rather than a soft pass.
-        {sup["not_qualified"]:,} are ruled out outright. What is left —
-        <strong>{sup["qualified_sendable"]:,} people</strong> — is what the goals are stated
-        on.</p>
+        {sup["not_qualified"]:,} are ruled out outright. What is left is
+        <strong>{sup["qualified_sendable"]:,} people</strong>.</p>
         {supp_rows}
         {
         _barlist(
@@ -345,8 +395,8 @@ def _who_view(m: dict) -> str:
 
       <div class="card">
         <h2>What each group means</h2>
-        <p class="note">These are the four states a person can be in. The only one we can
-        email today is the first.</p>
+        <p class="note">These are the {len(FUNNEL_GLOSS)} states a person can be in. The only one
+        we can email today is the first.</p>
         <table><tbody>{gloss_rows}</tbody></table>
       </div>
 
@@ -354,8 +404,7 @@ def _who_view(m: dict) -> str:
         <h2>Where they are</h2>
         {_barlist([(c["name"], c["n"]) for c in sup["countries"]], sup["total"])}
         <p class="why" hidden title="Not filtered — this counts the shared prospect pool, a different and much larger set than the campaign roster the filter selects from. Filtering the roster cannot move it, and rescaling it to the selection would answer a question nobody asked.">not filtered</p>
-        <p class="note">Three markets. The campaign is overwhelmingly a US motion — the two
-        smaller markets are too small to read a result from on their own.</p>
+        <p class="note">{_markets_note(sup)}</p>
       </div>
 
       <div class="card">
@@ -363,15 +412,11 @@ def _who_view(m: dict) -> str:
         {_barlist([(_seat_label(s["name"]), s["n"]) for s in sup["seats"]], sup["total"], tone="b")}
         <h3>Why {unplaced:,} say "other"</h3>
         <p class="note"><strong>This is a gap in our own classifier, not missing data.</strong>
-        Every one of these people has a job title on file. The tenant's voice guide defines
-        <strong>seven</strong> buyer seats, but the automated resolver only recognises
-        <strong>three</strong> — {covered} — so anything outside those three is grouped as "other".
-        The largest group below is Chief Information Officer, which is plainly a technology
-        seat and simply is not in the resolver's word list.</p>
+        Every one of these people has a job title on file. The automated resolver recognises
+        <strong>{figure_span("seats-recognised", len(SEAT_COVERAGE))}</strong> buyer seats —
+        {covered} — so any title outside them is grouped as "other".{largest}</p>
         <p class="note">This matters beyond tidiness: the check that stops us leading on the
-        wrong seat's problem stays <em>silent</em> on an unrecognised title, by design. So
-        these {unplaced:,} people received seat-targeted copy that nothing verified was aimed
-        at them.</p>
+        wrong seat's problem stays <em>silent</em> on an unrecognised title, by design.</p>
         <table><thead><tr><th>Title we could not place</th><th>People</th></tr></thead>
         <tbody>{unplaced_rows}</tbody></table>
         <p class="note">{sup["unplaced_distinct"]} distinct titles in total.</p>
@@ -379,93 +424,3 @@ def _who_view(m: dict) -> str:
 
       {_intent_block(m)}
       {roster}"""
-
-
-def _intent_block(m: dict) -> str:
-    """ICP score and buying-intent evidence, with coverage stated first.
-
-    Coverage leads because it governs everything below it: a score distribution drawn
-    from half the list is not a description of the list.
-    """
-    it = m["intent"]
-    total, matched = it["total"], it["matched"]
-    cov = _pct(matched, total)
-
-    feed_rows = "".join(
-        f"<tr><td>{_e(f['label'])}</td>"
-        f"<td class='muted'>{_e(f['level'])}-level · {_e(f['means'])}</td>"
-        + (
-            f"<td class='num-cell'>{f['n']:,}</td><td><span class='pill good'>present</span></td>"
-            if f["present"]
-            # f['n'] is `feeds.get(k, 0)` upstream (gtm_core/cells.py intent_profile) — it IS 0
-            # here by construction whenever `present` is False, so this derives rather than types.
-            else f"<td class='num-cell muted'>{f['n']:,}</td>"
-            "<td><span class='pill warn'>not on this list</span></td>"
-        )
-        + "</tr>"
-        for f in it["feeds"]
-    )
-    topic_rows = "".join(
-        f"<tr><td>{_e(t['topic'])}</td><td class='num-cell'>{t['n']:,}</td>"
-        f"<td class='num-cell muted'>{t['avg_score'] if t['avg_score'] is not None else '—'}</td></tr>"
-        for t in it["topics"]
-    )
-    path_rows = "".join(
-        f"<tr><td>{_e(p['name'])}</td><td class='num-cell'>{p['n']:,}</td>"
-        f"<td class='num-cell muted'>{_pct(p['n'], matched)}</td></tr>"
-        for p in it["paths"]
-    )
-    nir = it["new_in_role"]
-
-    score_line = (
-        f"Scores run {it['score_min']:.0f} to {it['score_max']:.0f} "
-        f"(average {it['score_avg']}) across the {it['score_n']:,} we can trace."
-        if it["score_n"]
-        else "No ICP score could be recovered for anyone on this list."
-    )
-
-    return f"""
-      <div class="card">
-        <h2>How well they fit the ideal customer</h2>
-        <p class="note"><strong>We can only answer this for {matched:,} of {total:,} people
-        ({cov}).</strong> The other {it["unmatched"]:,} were loaded into the sending list without a
-        traceable link back to the scored prospect pool, so they carry no known score and no known
-        buying-intent signal at all. That is not a low score — it is no score, and it is the single
-        biggest gap in what we know about who we are writing to.</p>
-        <p class="note">{score_line} The scores are attached to the <em>company</em>, not the
-        person, and the link back is made on company domain, so read every number below as a
-        statement about the employer.</p>
-        {_barlist([("traceable to a scored record", matched), ("no score on file", it["unmatched"])], total)}
-      </div>
-
-      <div class="card">
-        <h2>What buying-intent signals we actually hold</h2>
-        <p class="note">The full roster of signals this pipeline can source, and which of them
-        reached this list. Showing the absent ones matters: otherwise there is no way to tell
-        "we have no hiring signal here" from "hiring signal is not a thing we collect".</p>
-        <table><thead><tr><th>Buying signal</th><th>What it means</th><th>People</th><th></th></tr>
-        </thead><tbody>{feed_rows}</tbody></table>
-        <p class="note"><strong>Only one feed is actually present.</strong> Everything we know
-        about intent on this list is topic surge — a third party observing that people at the
-        company are reading unusually much about a subject. No hiring signal, no news signal, and
-        no job-change timing reached these rows.</p>
-        <p class="note"><strong>"New in role" is empty.</strong> {nir["true"]:,} people are marked
-        as recently changed job, {nir["false"]:,} are marked as not, {nir["unknown"]:,} are
-        unrecorded. A marker that is never true cannot be tested, and it is one of the questions
-        this campaign originally set out to answer.</p>
-      </div>
-
-      <div class="card">
-        <h2>Which topics they are researching</h2>
-        <p class="note">Topic surge across the traceable group. The score is the third party's own
-        intensity reading, not ours.</p>
-        <table><thead><tr><th>Topic</th><th>Companies</th><th>Avg intensity</th></tr></thead>
-        <tbody>{topic_rows or "<tr><td colspan=3 class='muted'>none recorded</td></tr>"}</tbody>
-        </table>
-        <h3>How each one qualified</h3>
-        <table><thead><tr><th>Qualification path</th><th>People</th><th>Share</th></tr></thead>
-        <tbody>{path_rows}</tbody></table>
-        <p class="note">Worth reading closely: the dominant route is a <em>relaxed</em> one. Very
-        few cleared the full qualification gate, which means most of this list is here on topic
-        surge alone rather than on surge plus a firmographic fit check.</p>
-      </div>"""

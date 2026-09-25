@@ -169,9 +169,10 @@ data; re-running the generator rebuilds it.
   `status-standalone.html` it wrote were retired 2026-09-05; the model is consumed by the one
   renderer below.
 - **Campaigns dashboard** ([`gtm_core/campaigns_dashboard.py`](../gtm_core/campaigns_dashboard.py))
-  — joins the `.campaign.toml` manifests written by `campaign-plan` against the staged
-  sequencer state into one promised-vs-actual portfolio view (`campaigns.html`), auto-refreshed
-  on `consolidate()`. It **reads** staged sequences; it never activates or sends.
+  — model only (`build_campaigns`); rendered by `email_campaign_dashboard --scope all`. Joins
+  the `.campaign.toml` manifests written by `campaign-plan` against the staged sequencer state
+  into one promised-vs-actual portfolio view. It **reads** staged sequences; it never activates
+  or sends.
 - **Account-folder resolver** ([`gtm_core/account_folder.py`](../gtm_core/account_folder.py)) —
   the single implementation that maps a target-company name to its `<account-slug>` folder.
   Every skill that writes into an account folder resolves the name through this helper (via

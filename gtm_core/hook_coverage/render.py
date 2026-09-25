@@ -85,12 +85,19 @@ def render(cov: Coverage) -> str:
         # before writing the next spec is "which groups are already taken", and a report
         # that speaks only when the cap breaks cannot answer that.
         lines.append(
-            f"  capability spread (cap {MAX_SPECS_PER_CAPABILITY} spec(s) per group): "
+            f"  capability spread (cap {MAX_SPECS_PER_CAPABILITY} spec(s) per capability × seat): "
             f"{len(declared_caps)} group(s) declared, {blank} spec(s) undeclared"
         )
-        for slug, n in declared_caps.most_common():
+        # One line per (capability, seat): the unit the cap counts since 2026-09-24, so the
+        # OVER CAP flag and the finding it mirrors agree on what was counted.
+        by_seat = Counter(
+            (c, (cov.declared[s].persona if cov.declared.get(s) else ""))
+            for s, c in cov.capabilities.items()
+            if c
+        )
+        for (slug, seat), n in by_seat.most_common():
             flag = "  OVER CAP" if n > MAX_SPECS_PER_CAPABILITY else ""
-            lines.append(f"    x{n}  {slug}{flag}")
+            lines.append(f"    x{n}  {slug}{(' @ ' + seat) if seat else ''}{flag}")
     if cov.segment_fits or cov.signal_fits:
         lines.append("  list vs declared cell (is the copy aimed at these recipients?):")
         for name in sorted(set(cov.segment_fits) | set(cov.signal_fits)):

@@ -319,7 +319,8 @@ def build_status(
     # "Can I send?" is answered by `go_live_status` and the preflight report, both of
     # which are lane-aware. Do not reintroduce a second, unlaned gate count here.
 
-    sequences = _load_sequences(profile, content_root)
+    snap = load_sequence_snapshot(profile, content_root)
+    sequences = snap["rows"]
 
     prospects_dir_abs = _prospects_dir(profile, content_root)
     links = {
@@ -353,6 +354,7 @@ def build_status(
         },
         "sequences": sequences,
         "sequence": sequences[0] if sequences else None,  # back-compat
+        "snapshot": {k: snap[k] for k in ("fetched", "unreadable", "skipped", "source")},
         "cost_model": COST_MODEL,
     }
 
@@ -373,12 +375,24 @@ def _normalize_seq(d: dict) -> dict:
     """
     if "prospects" in d and isinstance(d.get("prospects"), list):
         p = (d["prospects"] or [{}])[0]
-        est = (d.get("emails") or {}).get("status", {})
-        bounced = _int(est.get("bounced")) or (
-            _int(est.get("hardBounced"))
-            + _int(est.get("softBounced"))
-            + _int(est.get("blockBounced"))
+        emails = d.get("emails")
+        status_block = emails.get("status") if isinstance(emails, dict) else None
+        est = status_block if isinstance(status_block, dict) else {}
+        # Presence of a bounce key -- not its value -- decides the source; missing or blank never reads as a genuine 0.
+        has_bounce_figure = isinstance(status_block, dict) and any(
+            est.get(k) not in (None, "")
+            for k in ("bounced", "hardBounced", "softBounced", "blockBounced")
         )
+        if has_bounce_figure:
+            bounced = _int(est.get("bounced")) or (
+                _int(est.get("hardBounced"))
+                + _int(est.get("softBounced"))
+                + _int(est.get("blockBounced"))
+            )
+            bounce_source = "emails"
+        else:
+            bounced = _int(p.get("bounced"))
+            bounce_source = "prospects"
         return {
             "id": d.get("sequenceId", ""),
             "name": d.get("sequenceName", ""),
@@ -389,8 +403,14 @@ def _normalize_seq(d: dict) -> dict:
             "delivered": _int(est.get("delivered")),
             "opened": _int(p.get("open")) or _int(est.get("opened")),
             "replied": _int(p.get("replied")) or _int(est.get("replied")),
-            "bounced": bounced or _int(p.get("bounced")),
+            "bounced": bounced,
+            "bounce_source": bounce_source,
             "interested": _int(p.get("interested")),
+            "not_interested": _int(p.get("notInterested")),
+            "not_now": _int(p.get("notNow")),
+            "out_of_office": _int(p.get("outOfOffice")),
+            "unsubscribed": _int(p.get("unsubscribed")),
+            "do_not_contact": _int(p.get("doNotContact")),
             "meetings": _int(p.get("meetingBooked")),
             "deal_value": _int(p.get("meetingBookedDealValue"))
             + _int(p.get("interestedDealValue")),
@@ -408,33 +428,66 @@ def _normalize_seq(d: dict) -> dict:
         "replied",
         "bounced",
         "interested",
+        "not_interested",
+        "not_now",
+        "out_of_office",
+        "unsubscribed",
+        "do_not_contact",
         "meetings",
         "deal_value",
     )
-    return {k: (d.get(k) if k in ("id", "name", "status") else _int(d.get(k))) for k in keys}
+    flat = {k: (d.get(k) if k in ("id", "name", "status") else _int(d.get(k))) for k in keys}
+    flat["bounce_source"] = None  # no per-email block on the flat path -> rate is "not available"
+    return flat
 
 
-def _load_sequences(profile: str, content_root: Path | None) -> list[dict]:
-    """Live sequencer stats, dropped by the skill/agent layer (MCP-free module).
+def _snapshot(rows, fetched, *, unreadable, skipped, source) -> dict:
+    return {
+        "rows": rows,
+        "fetched": fetched,
+        "unreadable": unreadable,
+        "skipped": skipped,
+        "source": source,
+    }
 
-    Prefers ``sequence-stats.json`` (a list of raw or flat sequence stats); falls
-    back to the older single-sequence ``sequence-state.json``. Absent → empty list
-    (the page renders fine without a sequencer section)."""
+
+def load_sequence_snapshot(profile: str, content_root: Path | None) -> dict:
+    """The live sequencer snapshot and what the page must know about it (PS20 P1.11).
+
+    A present-but-unusable ``sequence-stats.json`` is ``unreadable`` and yields NO rows — it
+    never falls back to the older ``sequence-state.json``, because a smaller answer from an
+    older file reads exactly like the right one. Non-dict rows are counted, not dropped.
+    """
     pool = _pool_dir(profile, content_root)
     stats_file = pool / "sequence-stats.json"
     if stats_file.exists():
         try:
             raw = json.loads(stats_file.read_text(encoding="utf-8"))
-            items = raw.get("sequences", raw) if isinstance(raw, dict) else raw
-            return [_normalize_seq(s) for s in items if isinstance(s, dict)]
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return _snapshot([], None, unreadable=True, skipped=0, source="stats")
+        if isinstance(raw, dict) and isinstance(raw.get("sequences"), list):
+            items, fetched = raw["sequences"], raw.get("fetched")
+        elif isinstance(raw, list):
+            items, fetched = raw, None
+        else:
+            return _snapshot([], None, unreadable=True, skipped=0, source="stats")
+        rows = [_normalize_seq(s) for s in items if isinstance(s, dict)]
+        return _snapshot(
+            rows, fetched, unreadable=False, skipped=len(items) - len(rows), source="stats"
+        )
     state_file = pool / "sequence-state.json"
     if state_file.exists():
         try:
             d = json.loads(state_file.read_text(encoding="utf-8"))
-            d.setdefault("loaded", d.get("loaded", 0))
-            return [_normalize_seq(d)]
-        except (json.JSONDecodeError, OSError):
-            pass
-    return []
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return _snapshot([], None, unreadable=True, skipped=0, source="state")
+        if not isinstance(d, dict):
+            return _snapshot([], None, unreadable=True, skipped=0, source="state")
+        d.setdefault("loaded", d.get("loaded", 0))
+        return _snapshot([_normalize_seq(d)], None, unreadable=False, skipped=0, source="state")
+    return _snapshot([], None, unreadable=False, skipped=0, source=None)
+
+
+def _load_sequences(profile: str, content_root: Path | None) -> list[dict]:
+    """Rows only — kept for importers. See :func:`load_sequence_snapshot`."""
+    return load_sequence_snapshot(profile, content_root)["rows"]
