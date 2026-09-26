@@ -324,7 +324,6 @@ def test_finalize_research_record_reaches_ready_to_load_via_consolidate(tmp_path
     import datetime
 
     from gtm_core import prospects_consolidate as pc
-    from gtm_core.merge_hygiene import signal_clause
     from gtm_core.signal_record import check_record, missing_record_columns
 
     why_now = "Recorded Co raised a $40M Series B round"
@@ -377,10 +376,10 @@ def test_finalize_research_record_reaches_ready_to_load_via_consolidate(tmp_path
     assert row["signal_agent_kind"] == "none"
     assert row["signal_column"] == "Funding event"
 
-    # As enrollment actually sees it: the signal-lane copy adds `signal_clause`
-    # (derived from `why_now`, gtm_core.prospects_consolidate.queues) before the gate
-    # runs check_record — reproduce that here rather than asserting on the bare
-    # ready-to-load row, which never carries signal_clause itself.
-    row["signal_clause"] = signal_clause(row["why_now"])
-    assert row["signal_clause"]  # sanity: the clause survived reduction
-    assert check_record(row, as_of=datetime.date(2026, 9, 4)) == []
+    from gtm_core.signal_sources import store_capture
+
+    sources_dir = tmp_path / "acme" / "sources"
+    store_capture(
+        "https://news.example/2026/08/20/recorded-co-series-b/", evidence, sources_dir=sources_dir
+    )
+    assert check_record(row, as_of=datetime.date(2026, 9, 4), sources_dir=sources_dir) == []

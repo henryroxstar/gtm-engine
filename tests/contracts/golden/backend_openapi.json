@@ -1430,16 +1430,20 @@
       "PatchWorkspaceRequest": {
         "properties": {
           "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Workspace display name",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
+            "title": "Display Name"
           }
         },
-        "required": [
-          "display_name"
-        ],
         "title": "PatchWorkspaceRequest",
         "type": "object"
       },
@@ -1485,9 +1489,15 @@
       "PublishSettingsSyncRequest": {
         "properties": {
           "enabled": {
-            "default": false,
-            "title": "Enabled",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
           },
           "schedule_enabled": {
             "anyOf": [

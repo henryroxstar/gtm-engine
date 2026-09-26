@@ -34,6 +34,12 @@ from gtm_core.account_integrity import (
 )
 from gtm_core.prospect_paths import evals_dir
 from gtm_core.signal_record import RECORD_COLUMNS
+from gtm_core.signal_sources import store_capture
+
+
+def _write_capture(content_root, url: str, text: str):
+    store_capture(url, text, sources_dir=content_root / "sources", profile=PROFILE, tool="test")
+
 
 PROFILE = "acme"
 
@@ -287,7 +293,11 @@ def test_competitor_match_none_for_an_unrelated_account(tmp_path):
 def test_audit_flags_a_clean_row_as_no_dossier_only(tmp_path):
     content_root = tmp_path / "content"
     a = audit_rows(
-        [_row()], PROFILE, content_root=content_root, profiles_root=tmp_path / "profiles"
+        [_row()],
+        PROFILE,
+        content_root=content_root,
+        profiles_root=tmp_path / "profiles",
+        lane="personalised",
     )
     assert a.failed
     assert a.no_dossier == 1
@@ -298,8 +308,17 @@ def test_audit_flags_a_clean_row_as_no_dossier_only(tmp_path):
 def test_audit_passes_a_fully_covered_row(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "account-dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     a = audit_rows(
-        [_row()], PROFILE, content_root=content_root, profiles_root=tmp_path / "profiles"
+        [_row()],
+        PROFILE,
+        content_root=content_root,
+        profiles_root=tmp_path / "profiles",
+        lane="personalised",
     )
     assert not a.failed
     assert a.no_dossier == 0
@@ -309,8 +328,17 @@ def test_audit_passes_a_fully_covered_row(tmp_path):
 def test_audit_flags_leadership_freshness_for_brief_only_accounts(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     a = audit_rows(
-        [_row()], PROFILE, content_root=content_root, profiles_root=tmp_path / "profiles"
+        [_row()],
+        PROFILE,
+        content_root=content_root,
+        profiles_root=tmp_path / "profiles",
+        lane="personalised",
     )
     assert not a.failed  # a WARN, not a block
     assert a.leadership_unverified == 1
@@ -388,6 +416,11 @@ def test_audit_without_account_id_still_keys_on_the_org_token(tmp_path):
 def test_audit_hard_blocks_on_academic_domain_and_stale_artifact(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "account-dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     rows = [
         _row(email="jordan.vance@riverbend.edu"),
         _row(
@@ -477,6 +510,11 @@ def test_a_pre_record_list_blocks_but_still_runs_every_other_check(tmp_path):
 def test_record_findings_reach_the_audit(tmp_path):
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "account-dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     a = audit_rows(
         [_row(signal_subject="Cascade Financial")],
         PROFILE,
@@ -882,6 +920,11 @@ def test_a_negative_why_now_is_an_error_not_a_warning(tmp_path):
     sentence, so this is never something the operator reads past."""
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     a = audit_rows(
         [_row(why_now="No qualifying dated public hit found this pass.")],
         PROFILE,
@@ -905,6 +948,11 @@ def test_provenance_does_not_rescue_a_stale_negative_why_now(tmp_path):
     """
     content_root = tmp_path / "content"
     _write_dossier(content_root, "vertex-systems", "dossier-vertex-systems-2026-08-12.md")
+    _write_capture(
+        content_root,
+        "https://vertexsystems.example/news/ai-governance",
+        "Vertex Systems opened an AI governance program covering autonomous agents across its claims and underwriting workflows.",
+    )
     a = audit_rows(
         [
             _row(

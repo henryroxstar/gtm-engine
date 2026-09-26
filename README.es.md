@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -57,11 +56,11 @@ Tres principios inmutables:
 
 | Capacidad | Plataformas comerciales "AI SDR" (11x, Artisan) | Diálogo directo con Prompts (ChatGPT / Claude) | Frameworks genéricos de agentes (CrewAI / LangChain) | **GTM Engine (Este sistema)** |
 |---|---|---|---|---|
-| **Coste base** | \$500 – \$3,000 / mes | \$20 / mes (con copiado y pegado manual continuo) | Consumo de tokens + costes de servidor | **\$0 base** (funciona sobre tu suscripción actual de IA) |
+| **Coste base** | Suscripción por usuario o por contacto | \$20 / mes (con copiado y pegado manual continuo) | Consumo de tokens + costes de servidor | **Tu plan de IA actual**, más el proveedor de datos que decidas conectar — cada llamada de pago se compara con tu límite antes de ejecutarse |
 | **Seguridad de salida** | Envío automático de emails fríos (riesgo de reputación) | Copiado y revisión manual | Permisos amplios concedidos a herramientas | **Puertas de aprobación humana obligatorias** (imposible el autoenvío) |
 | **Contexto de la empresa** | Extracción web superficial | Reexplicar el contexto en cada prompt | Requiere configurar bases de datos vectoriales complejas | **Segundo Cerebro en Perfiles** (configura una vez, hereda en todos los flujos) |
 | **Variedad de flujos** | Limitado a email frío | Limitado a texto plano | Requiere programar grafos complejos a medida | **78 habilidades y 11 paquetes integrados** (vídeo, presentaciones, posts, prospección) |
-| **Privacidad de datos** | Bloqueo por proveedores externos en la nube | Datos susceptibles de usarse en entrenamiento | Depende de la configuración del usuario | **100% Local / Gitignored** (la información nunca sale de tu equipo) |
+| **Privacidad de datos** | En la nube del proveedor | Se pega en cada chat | Depende de la configuración del usuario | **Archivos locales, en .gitignore** — los datos solo salen por las herramientas que conectes |
 
 ---
 
@@ -74,9 +73,9 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. Abre esta carpeta en tu entorno de IA favorito (Claude Desktop, Google Antigravity, Cursor o Codex)
 
 # 3. Escribe en el chat:
-"set me up" --site tuempresa.com
+"set me up — here's our site: tuempresa.com"
 ```
-*No requiere Docker, ni servidores en segundo plano, ni claves API de terceros para comenzar.*
+*Sin Docker, sin servidores en segundo plano y sin claves API para tu primer resultado. Para outreach que se pueda enviar necesitas además un proveedor de contactos.*
 
 ---
 

@@ -1670,3 +1670,64 @@ cues = ["kiln warden"]
     f_tenant = seat_fit(m, profile)
     assert f_tenant["matched"] == 1, f"tenant persona not resolved — {f_tenant}"
     assert f_tenant["unresolved"] == 0
+
+
+def test_resolve_seat_coverage_respects_custom_personas(tmp_path):
+    from gtm_core.email_campaign_dashboard.config import SEAT_COVERAGE, resolve_seat_coverage
+    from gtm_core.role_vocabulary import clear_cache
+
+    clear_cache()
+
+    profiles = tmp_path / "profiles"
+    prof_dir = profiles / "custom_tenant" / "knowledge"
+    prof_dir.mkdir(parents=True, exist_ok=True)
+
+    # "security" is a default seat. Here we change its personas.
+    # The display label should become "Cloud Sec / Privacy Lead".
+    (prof_dir / "role-vocabulary.toml").write_text(
+        'default_persona = "other"\n'
+        'segments = ["unspecified"]\n'
+        '[[persona]]\nname = "other"\ncues = ["other"]\n'
+        '[[persona]]\nname = "cloud-sec"\ncues = ["cloud"]\n'
+        '[[persona]]\nname = "privacy-lead"\ncues = ["privacy"]\n'
+        '[[seat]]\nname = "security"\npersonas = ["cloud-sec", "privacy-lead"]\nstakes = ["risk"]\n',
+        encoding="utf-8",
+    )
+
+    coverage = resolve_seat_coverage("custom_tenant", profiles_root=profiles)
+    assert "security" in coverage
+    assert coverage["security"] == "Cloud Sec / Privacy Lead"
+    assert coverage["security"] != SEAT_COVERAGE["security"]
+
+    # For a built-in default, it should use SEAT_COVERAGE exactly
+    empty_prof_dir = profiles / "empty_tenant" / "knowledge"
+    empty_prof_dir.mkdir(parents=True, exist_ok=True)
+    coverage_default = resolve_seat_coverage("empty_tenant", profiles_root=profiles)
+    assert coverage_default["security"] == SEAT_COVERAGE["security"]
+
+
+def test_render_dashboard_non_existent_profile_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        gd.render_dashboard("non_existent_profile_12345", content_root=tmp_path)
+    assert not (tmp_path / "non_existent_profile_12345").exists()
+
+
+def test_cli_non_existent_profile_exits_nonzero(tmp_path):
+    import subprocess
+    import sys
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gtm_core.email_campaign_dashboard",
+            "--profile",
+            "non_existent_profile_12345",
+            "--content-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert not (tmp_path / "non_existent_profile_12345").exists()

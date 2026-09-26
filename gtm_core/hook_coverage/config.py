@@ -90,3 +90,15 @@ PACK_GLOBS = (
     "*/prospects-{date}-outreach-*.md",
     "*/email-*-{date}.md",
 )
+
+
+def __getattr__(name: str):
+    if name == "parse_matrix":
+        from .matrix import parse_matrix
+
+        return parse_matrix
+    if name == "derive_hook_cell":
+        from ..hook_cell import derive_hook_cell
+
+        return derive_hook_cell
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

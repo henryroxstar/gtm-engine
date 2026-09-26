@@ -48,13 +48,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 from gtm_core.merge_hygiene import clean_company, signal_clause
+from gtm_core.merge_hygiene.names import _has_letters
+from gtm_core.merge_hygiene.signal_clean import (
+    _INTENT_LABEL_RE,
+    _NO_SIGNAL_RE,
+    EM_DASH,
+    SIGNAL_MAX_CHARS,
+    SIGNAL_MIN_CHARS,
+    SIGNAL_SUBSTANCE_CHARS,
+    _drop_trailing_provenance,
+    _split_top_level,
+)
 from gtm_core.web_sweep_hits import (
     _SHAPE_REJECT_REASONS,
-    _VALID_SEGMENTS,
+    VALID_SEGMENTS,
     _determine_agent_kind,
     _evaluate_hit,
     _validate_segment,
@@ -68,6 +80,70 @@ from gtm_core.web_sweep_hits import (
 )
 from gtm_core.web_sweep_queries import generate_queries
 from gtm_core.web_sweep_urls import is_valid_source_url as is_valid_source_url
+
+_VALID_SEGMENTS = VALID_SEGMENTS
+
+_UNVERIFIED_RE = re.compile(
+    r"\b(unconfirmed|to confirm|confirm at outreach)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_pattern_rule(original: str) -> str | None:
+    if not original:
+        return "empty"
+    if _INTENT_LABEL_RE.search(original):
+        return "intent label"
+    if _UNVERIFIED_RE.search(original):
+        return "unverified"
+    if _NO_SIGNAL_RE.search(original):
+        return "no signal"
+    return None
+
+
+def _check_clause_rule(clause: str, original: str) -> str:
+    if len(clause) < SIGNAL_MIN_CHARS:
+        return "too short"
+    if len(clause) > SIGNAL_MAX_CHARS:
+        return "too long"
+    if EM_DASH in clause:
+        return "banned em-dash"
+    if clause.count("(") != clause.count(")"):
+        return "unbalanced parentheses"
+    if clause.count('"') % 2:
+        return "unbalanced quotes"
+    if not _has_letters(clause):
+        return "no letters"
+    if clause == original and not re.search(r"[.)\"'\d]$|[a-z]$", original):
+        return "incomplete sentence"
+    return "unusable clause"
+
+
+def _signal_clause_rejection_rule(why_now: str) -> str:
+    original = re.sub(r"\s+", " ", (why_now or "").strip())
+    pat = _check_pattern_rule(original)
+    if pat is not None:
+        return pat
+    raw = _drop_trailing_provenance(original)
+    if not raw:
+        return "trailing provenance only"
+
+    clause = raw.strip(" ;,.")
+    fits_lead = SIGNAL_MIN_CHARS <= len(clause) <= SIGNAL_MAX_CHARS
+    if not fits_lead:
+        segments = [s.strip(" ;,.") for s in _split_top_level(raw)]
+        lead = segments[0]
+        second = segments[1] if len(segments) > 1 else ""
+        fits_second = SIGNAL_MIN_CHARS <= len(second) <= SIGNAL_MAX_CHARS
+        if len(lead) < SIGNAL_SUBSTANCE_CHARS and fits_second:
+            clause = second
+        elif SIGNAL_MIN_CHARS <= len(lead) <= SIGNAL_MAX_CHARS:
+            clause = lead
+        else:
+            clause = re.sub(r"\s*\([^()]*\)\s*$", "", lead).strip(" ;,.")
+
+    clause = _drop_trailing_provenance(clause)
+    return _check_clause_rule(clause, original)
 
 
 def normalize_sweep(
@@ -159,7 +235,11 @@ def normalize_sweep(
 
     agent_kind = _determine_agent_kind(why_now + " " + chosen["evidence"])
     verdict = "" if why_now else "re-angle"
-    verdict_reason = "" if why_now else "evidence rejected by signal_clause (e.g. contains digits)"
+    if why_now:
+        verdict_reason = ""
+    else:
+        rule = _signal_clause_rejection_rule(chosen["evidence"])
+        verdict_reason = f"evidence rejected by signal_clause ({rule})"
 
     return {
         "company": cleaned_co,
@@ -287,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
 
     q_p = sub.add_parser("queries", help="Generate 6 standardized search queries for a company")
     q_p.add_argument("--company", required=True, help="Target company name")
-    q_p.add_argument("--segment", default="startup", choices=list(_VALID_SEGMENTS), help="Segment")
+    q_p.add_argument("--segment", default="startup", choices=list(VALID_SEGMENTS), help="Segment")
     q_p.add_argument("--domain", default=None, help="Optional company domain")
     q_p.add_argument(
         "--profile", default=None, help="Tenant profile to load web-sweep.toml vocabulary from"
@@ -305,7 +385,8 @@ def main(argv: list[str] | None = None) -> int:
     n_p.add_argument(
         "--hits", required=True, help="Path to JSON file of raw hits, or '-' for stdin"
     )
-    n_p.add_argument("--segment", default="startup", choices=list(_VALID_SEGMENTS), help="Segment")
+    n_p.add_argument("--segment", default="startup", choices=list(VALID_SEGMENTS), help="Segment")
+
     n_p.add_argument("--as-of", default=None, help="Reference date ISO YYYY-MM-DD")
     n_p.add_argument("--out", default=None, help="Output JSON path (defaults to stdout)")
 

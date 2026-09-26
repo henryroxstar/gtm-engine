@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -56,11 +55,11 @@
 
 | 核心维度 | 黑盒“AI SDR”商业平台 (如 11x, Artisan) | 原生 Prompt 对话 (ChatGPT / Claude) | 泛化 Agent 框架 (CrewAI / LangChain) | **GTM Engine (本系统)** |
 |---|---|---|---|---|
-| **使用成本** | 500 – 3,000 美元 / 月 | 20 美元 / 月（伴随大量手工复制粘贴） | 纯 Token 费用 + 服务器部署成本 | **0 美元底价**（完全依赖你现有的 Claude 订阅） |
+| **使用成本** | 按席位或按联系人订阅 | 20 美元 / 月（伴随大量手工复制粘贴） | 纯 Token 费用 + 服务器部署成本 | **你现有的 AI 订阅**，外加你自选连接的数据提供方——计费调用执行前先核对预算上限 |
 | **外发安全性** | 自动向目标客户发送冷邮件（极高声誉风险） | 手动逐条复制与审核 | 赋予模型泛化的工具执行权限 | **不可绕过的人类审批门禁**（模型完全无权自行发送） |
 | **公司业务上下文** | 机械的外部网页爬取 | 每次对话重新粘贴公司背景 | 需要自行搭建向量数据库与外挂管道 | **Profile 第二大脑**（一次录入，全技能自动继承） |
 | **覆盖工作流丰富度**| 仅局限于冷邮件发送 | 仅局限于纯文本生成 | 需自行编写复杂的代码与节点图 | **78 项预置技能 & 11 大工作包**（涵盖视频、PPT、文章、SDR） |
-| **数据隐私与安全** | 第三方商业云厂商锁定与外泄担忧 | 数据可能参与模型训练迭代 | 视用户自建配置而定 | **100% 本地运行 / 物理隔离**（数据绝不脱离你的掌控） |
+| **数据隐私与安全** | 数据存放在厂商云端 | 每次都粘贴进对话 | 视用户自建配置而定 | **本地文件，已 gitignore**——数据只经由你连接的工具离开 |
 
 ---
 
@@ -73,9 +72,9 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. 在你顺手的 AI 工作区中打开本项目（Claude Desktop、Google Antigravity、Cursor 或 Codex）
 
 # 3. 在对话框中直接说出：
-"set me up" --site yourcompany.com
+"set me up — here's our site: yourcompany.com"
 ```
-*首次运行完全无需 Docker，无需后台服务器，无需配置任何第三方 API Key。*
+*首次产出无需 Docker、后台服务器或 API Key。可直接发送的外联还需要连接一个联系人数据提供方。*
 
 ---
 

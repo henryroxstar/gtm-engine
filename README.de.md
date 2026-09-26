@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -57,11 +56,11 @@ Drei unverrückbare Prinzipien:
 
 | Kriterium | Intransparente "AI SDR"-Plattformen (11x, Artisan etc.) | Reine Prompt-Chats (ChatGPT / Claude) | Generische Agent-Frameworks (CrewAI / LangChain) | **GTM Engine (Dieses System)** |
 |---|---|---|---|---|
-| **Kosten** | \$500 – \$3.000 / Monat | \$20 / Monat (verbunden mit hohem manuellem Kopieraufwand) | Token-Verbrauch + Serverkosten | **\$0 Basis** (nutzt dein bestehendes Workspace-Abonnement) |
+| **Kosten** | Abo pro Nutzer oder pro Kontakt | \$20 / Monat (verbunden mit hohem manuellem Kopieraufwand) | Token-Verbrauch + Serverkosten | **Dein bestehender KI-Plan**, plus jeder Datenanbieter, den du verbindest — kostenpflichtige Aufrufe werden vorher gegen dein Limit geprüft |
 | **Outbound-Sicherheit** | Automatischer Kaltversand (hohes Reputationsrisiko) | Manuelles Kopieren & Prüfen | Weitgehende Werkzeug-Berechtigungen | **Verbindliche menschliche Freigabegates** (kein Auto-Versand) |
 | **Unternehmenskontext** | Oberflächliches Web-Scraping | Kontext muss ständig neu eingefügt werden | Aufwendige Vektor-DB-Infrastruktur nötig | **Profil als "Second Brain"** (einmal anlegen, in allen Skills verfügbar) |
 | **Workflows** | Ausschließlich Kaltakquise per E-Mail | Nur reiner Text | Erfordert individuelles Programmieren komplexer Graphen | **78 Skills & 11 Workflows** (Video, Decks, Social Media, SDR) |
-| **Datenschutz & Souveränität**| Bindung an Drittanbieter-Cloud | Daten können für Modelltraining genutzt werden | Stark abhängig vom Setup | **100% lokal & Git-ignoriert** (Daten verbleiben auf deinem Rechner) |
+| **Datenschutz & Souveränität**| Liegt in der Cloud des Anbieters | Wird in jeden Chat kopiert | Stark abhängig vom Setup | **Lokale Dateien, Git-ignoriert** — Daten verlassen den Rechner nur über Tools, die du verbindest |
 
 ---
 
@@ -74,9 +73,9 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. Ordner im bevorzugten KI-Workspace öffnen (Claude Desktop, Google Antigravity, Cursor oder Codex)
 
 # 3. Im Chat eingeben:
-"set me up" --site deinedomain.de
+"set me up — here's our site: deinedomain.de"
 ```
-*Für den ersten Start werden weder Docker, Hintergrundserver noch Drittanbieter-API-Schlüssel benötigt.*
+*Für das erste Ergebnis brauchst du weder Docker noch Hintergrundserver noch API-Schlüssel. Versandfertige Outreach braucht zusätzlich einen Kontaktdaten-Anbieter.*
 
 ---
 

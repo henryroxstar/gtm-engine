@@ -151,3 +151,17 @@ def test_preflight_report_refusal_is_clean():
     r = preflight_refusal(rep_err)
     assert r is not None
     assert findings(r.render()) == []
+
+
+def test_render_with_alternative_and_empty_next_step():
+    r = Refusal(what="Stopped", why="Denied", next_step="", alternative="Run X")
+    rendered = r.render()
+    assert "You can Run X." in rendered
+
+
+def test_render_avoids_punctuation_stacking():
+    r = Refusal(what="I stopped!", why="No key", next_step="Add key")
+    rendered = r.render()
+    assert "!." not in rendered
+    assert "?." not in rendered
+    assert rendered.startswith("I stopped! That's because No key.")

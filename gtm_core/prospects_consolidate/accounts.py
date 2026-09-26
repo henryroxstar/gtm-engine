@@ -141,6 +141,7 @@ def _account_id_index(profile: str, content_root: Path | None) -> dict[str, str]
 _INHERITED_RECORD_COLUMNS = (
     *RECORD_COLUMNS,
     SIGNAL_COLUMN,
+    "hook_cell",
     "why_now",
     "segment",
     "tier",
@@ -181,6 +182,7 @@ _AUTHORITATIVE_RECORD_COLUMNS = frozenset(
         "tier",
         "score",
         "industry",
+        "hook_cell",
     }
 )
 #: The three provenance columns travel WITH ``why_now`` and are not separable from it. A
@@ -286,7 +288,7 @@ def _verdict_promotes(row: dict, record: dict[str, str]) -> bool:
 #: The atomic signal group: the clause plus every column that describes or evidences it. They
 #: move together or not at all — see ``_AUTHORITATIVE_RECORD_COLUMNS`` and
 #: ``_CLAUSE_BOUND_RECORD_COLUMNS``.
-SIGNAL_GROUP_COLUMNS = ("why_now", *SIGNAL_RECORD_COLUMNS, SIGNAL_COLUMN)
+SIGNAL_GROUP_COLUMNS = ("why_now", *SIGNAL_RECORD_COLUMNS, SIGNAL_COLUMN, "hook_cell")
 
 #: ``signal_state`` on a ledger account: the one value that says research LOOKED and found no
 #: qualifying signal, as opposed to a blank record, which says nothing. Closed on purpose —

@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -57,11 +56,11 @@
 
 | 比較項目 | ブラックボックス「AI SDR」商用SaaS (11x, Artisan等) | 単純なPrompt対話 (ChatGPT / Claude) | 汎用Agentフレームワーク (CrewAI / LangChain等) | **GTM Engine (本システム)** |
 |---|---|---|---|---|
-| **導入コスト** | 月額 $500 – $3,000 | 月額 $20（ただし手動コピペの嵐） | Token従量課金 ＋ サーバーホスティング費用 | **基本 $0**（既存のAIワークスペースサブスクリプションで動作） |
+| **導入コスト** | 席数または連絡先数に応じたサブスクリプション | 月額 $20（ただし手動コピペの嵐） | Token従量課金 ＋ サーバーホスティング費用 | **既存の AI プラン**＋任意で接続するデータプロバイダー（従量課金の呼び出しは実行前に上限を確認） |
 | **外部発信の安全性** | コールドメールの自動送信（ドメイン失墜リスク） | 手作業によるコピー＆レビュー | ツール実行権限が広範に委譲される | **回避不能な人間承認ゲート**（プログラム上自動送信不可） |
 | **自社コンテキスト理解**| 画一的なWebスクレイピング | 毎回チャットに会社概要を再貼り付け | ベクトルDBやパイプラインの独自構築が必要 | **Profile セカンドブレイン**（1度のオンボーディングで全スキルへ自動継承） |
 | **対応ワークフロー** | コールドメールに限定 | テキスト生成に限定 | 複雑なコードやノードグラフの自作が必要 | **78種類のスキル ＆ 11大ワークフローパック**（動画・スライド・記事・SDR） |
-| **データ主権とプライバシー**| 第三者クラウドSaaSへのロックイン | 学習データへの流用懸念 | 構築環境のセキュリティ依存 | **100% ローカル完結 / Gitignore**（データは手元のマシンから出ません） |
+| **データ主権とプライバシー**| ベンダーのクラウドに保管 | 毎回チャットに貼り付け | 構築環境のセキュリティ依存 | **ローカルファイル・Gitignore 済み**（データは接続したツール経由でのみ外に出ます） |
 
 ---
 
@@ -74,9 +73,9 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. お好みのAIワークスペースでこのフォルダを開く (Claude Desktop、Google Antigravity、Cursor、または Codex)
 
 # 3. チャットで次のように入力：
-"set me up" --site yourcompany.com
+"set me up — here's our site: yourcompany.com"
 ```
-*最初の実行にはDocker、常駐バックエンドサーバー、サードパーティAPIキーは一切不要です。*
+*最初のアウトプットまでは Docker・常駐サーバー・API キーは不要です。実際に送れるアウトリーチには、連絡先データのプロバイダー接続が別途必要です。*
 
 ---
 

@@ -1,4 +1,5 @@
 add_dnc_items
+add_email_accounts_to_sequence
 add_leads_to_sequence
 clear_dnc_list
 create_dnc_list
@@ -8,8 +9,10 @@ create_post_template
 create_website
 delete_dnc_item
 delete_dnc_list
+delete_domain
 delete_post
 delete_post_template
+delete_sequence
 deploy_website
 edit_post
 execute_mutation
@@ -19,10 +22,12 @@ import_prospects_to_sequence
 participate_in_contest
 publish_clip
 publish_website
+purchase_domain
 remove_dnc_items
 rename_website
 reply
 reply_to_email
+revoke_domain
 schedule_clips
 send_message
 slack_schedule_message

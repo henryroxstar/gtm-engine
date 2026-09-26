@@ -7,6 +7,10 @@ Every company, person, URL and quote below is invented (docs/RULES.md R9).
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from gtm_core.groundedness import (
     GroundednessReport,
     assertive_internals_claims,
@@ -18,6 +22,22 @@ from gtm_core.groundedness import (
     research_record_findings,
 )
 from gtm_core.signal_record import Verdict
+
+
+@pytest.fixture(autouse=True)
+def _setup_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    from gtm_core.signal_sources import store_capture
+
+    text = (
+        "Halden Systems raised a $40M Series B led by Northgate to expand its agent "
+        "orchestration platform across Europe."
+    )
+    store_capture(
+        "https://halden.example/news/series-b",
+        text,
+        sources_dir=tmp_path / "sources",
+    )
 
 
 def _row(**kw):

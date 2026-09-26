@@ -199,6 +199,12 @@ def test_pipeline_bash_commands_allowed(cmd):
         "python -",  # bare stdin read — same class as -c
         "python3 -  ",  # with trailing space — still denied
         "uv run python -",  # via uv run
+        'python "-c" "print(1)"',
+        "python '-c' 'print(1)'",
+        'python -B -c "print(1)"',
+        'python3 "-c" "print(1)"',
+        'uv run python "-c" "print(1)"',
+        'uv run python -B -c "print(1)"',
     ],
 )
 def test_dangerous_bash_denied(cmd):
@@ -958,6 +964,73 @@ def test_email_context_propagates_through_async_callback():
     cb = permissions.make_headless_can_use_tool()
     result = asyncio.run(cb("mcp__saleshandy__add_leads_to_sequence", {}, None))
     assert type(result).__name__ == "PermissionResultDeny"
+
+
+# ── Hosted sequencer connectors expose MORE enrolment/activation verbs than ours ─────
+# A claude.ai Saleshandy connector's server segment is an opaque UUID, so no category binds
+# it and only the leaf rules apply. Those were exact names, and the hosted connector ships
+# `import_prospects_to_sequence_step`, `import_prospects_with_field_name` and
+# `update_sequence_status` — all three were class-allowed (verified 2026-09-25). The
+# enrolment families are denied by PREFIX so the next hosted variant is denied by
+# construction. `agent/email_dispatch.py` calls the in-repo HTTP helpers directly, never an
+# MCP tool, so no variant needs an admitting context: only the two exact names keep one.
+
+_HOSTED = "mcp__a84f5f15-b971-4074-8e7c-ca9385bd1cb1__"
+_ALL_CONTEXTS = (email_context, publish_context, permissions.dnc_context)
+
+HOSTED_ENROLL_VARIANTS = [
+    "import_prospects_to_sequence_step",
+    "import_prospects_with_field_name",
+    "add_leads_to_sequence_step",  # a variant no connector ships yet — denied by the prefix
+]
+SEND_STATE_VERBS = ["update_sequence_status", "activate_sequence", "resume_sequence"]
+HOSTED_ACCOUNT_VERBS = [
+    "purchase_domain",
+    "delete_sequence",
+    "delete_domain",
+    "revoke_domain",
+    "add_email_accounts_to_sequence",
+]
+
+
+@pytest.mark.parametrize("leaf", HOSTED_ENROLL_VARIANTS)
+def test_hosted_enroll_variants_denied_even_inside_email_context(leaf):
+    assert classify_tool(_HOSTED + leaf, {}) == "deny"
+    assert classify_tool(f"mcp__saleshandy__{leaf}", {}) == "deny"
+    with email_context():
+        assert classify_tool(_HOSTED + leaf, {}) == "deny"
+
+
+@pytest.mark.parametrize("leaf", SEND_STATE_VERBS + HOSTED_ACCOUNT_VERBS)
+def test_send_state_and_account_verbs_denied_in_every_context(leaf):
+    """Activating a sequence IS sending — a person does it in the provider UI. Buying,
+    deleting and re-pointing mailboxes have no automated caller at all."""
+    assert classify_tool(_HOSTED + leaf, {}) == "deny"
+    for ctx in _ALL_CONTEXTS:
+        with ctx():
+            assert classify_tool(_HOSTED + leaf, {}) == "deny", ctx.__name__
+
+
+@pytest.mark.parametrize("leaf", SEND_STATE_VERBS + HOSTED_ENROLL_VARIANTS)
+def test_categorised_sequencer_cannot_admit_variants_or_status(monkeypatch, leaf):
+    """The category path returned before the leaf rules and admitted every `import_prospects_*`
+    in email_context, while `update_sequence_status` matched no category pattern at all."""
+    monkeypatch.setattr(
+        "gtm_core.mcp_categories.get_category_for_connector",
+        lambda name, config=None: "~~email_sequencer" if name == "saleshandy" else None,
+    )
+    assert classify_tool(f"mcp__saleshandy__{leaf}", {}) == "deny"
+    with email_context():
+        assert classify_tool(f"mcp__saleshandy__{leaf}", {}) == "deny"
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    ["list_sequences", "create_sequence", "add_sequence_step", "update_sequence_settings"],
+)
+def test_building_a_paused_sequence_stays_allowed_on_a_hosted_connector(leaf):
+    """Positive control: the prefixes must not swallow the verbs that build a paused sequence."""
+    assert classify_tool(_HOSTED + leaf, {}) == "allow"
 
 
 # ── the deny floor is a claim about SHELL SEMANTICS, not about first tokens ────

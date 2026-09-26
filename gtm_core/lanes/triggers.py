@@ -12,7 +12,7 @@ from ..adjudication import Adjudication
 from ..adjudication.defects import defect_scope, normalize_defect_class
 from ..prospects_consolidate.confidence import _person_key, _row_to_record, org_token
 from ..prospects_state import _identity_keys
-from ..signal_record import CategoryRelation
+from ..signal_record import SIGNAL_COLUMN, CategoryRelation
 from .context import RouterContext
 
 Hit = tuple[str, str] | None
@@ -158,6 +158,26 @@ def untraceable_number(row: dict, ctx: RouterContext, judge: Adjudication | None
     )
 
 
+def missing_hook_cell(row: dict, ctx: RouterContext, judge: Adjudication | None) -> Hit:
+    hook_cell = (row.get("hook_cell") or "").strip()
+    signal = (row.get("signal_column") or row.get(SIGNAL_COLUMN) or "").strip()
+    segment = (row.get("segment") or "").strip()
+    detail = f"Add '{signal}' or 'generic' column to {segment} row in hook-matrix.md"
+
+    if not hook_cell:
+        if not signal:
+            return None
+        return "missing-hook-cell", detail
+
+    from ..hook_cell import validate_hook_cell
+
+    is_valid, _ = validate_hook_cell(hook_cell, matrix=ctx.matrix)
+    if not is_valid:
+        return "missing-hook-cell", detail
+
+    return None
+
+
 #: Row-scoped holds, in :data:`gtm_core.lanes.model.HOLD_ORDER` — minus the two that need
 #: the provisional lane (``tier-a-generic``) or the whole batch (``duplicate-contact``);
 #: the router applies those in a second pass.
@@ -172,6 +192,7 @@ HOLDS = (
     judge_account_scope,
     researcher_drop,
     untraceable_number,
+    missing_hook_cell,
 )
 
 

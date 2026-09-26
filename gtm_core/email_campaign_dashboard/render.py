@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from ..page_inputs import Report, verify_inventory, write_inventory
+from ..paths import resolve_content_root, resolve_profiles_root
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from .config import (
     PAGE_NAME,
@@ -167,6 +168,17 @@ def _mode(scope: str | None, campaign: str | None, campaigns: list[dict]) -> str
     return mode
 
 
+def _validate_profile(
+    profile: str,
+    profiles_root: Path | None = None,
+    content_root: Path | None = None,
+) -> None:
+    p_root = profiles_root if profiles_root is not None else resolve_profiles_root()
+    c_root = content_root if content_root is not None else resolve_content_root()
+    if not (p_root / profile).is_dir() and not (c_root / profile).is_dir():
+        raise FileNotFoundError(f"Profile {profile!r} does not exist in {p_root}")
+
+
 def render_dashboard(
     profile: str,
     content_root: Path | None = None,
@@ -174,6 +186,7 @@ def render_dashboard(
     stubs: bool = True,
     campaign: str | None = None,
     scope: str | None = None,
+    profiles_root: Path | None = None,
 ) -> Path:
     """Render the status page at one scope.
 
@@ -181,6 +194,7 @@ def render_dashboard(
     were named and ``all`` otherwise, so every existing caller — the `prospect` skill and
     the no-argument refresh at the tail of `consolidate` — keeps its behaviour exactly.
     """
+    _validate_profile(profile, profiles_root=profiles_root, content_root=content_root)
     model = build_model(profile, content_root)
     campaigns = model["campaigns"]["campaigns"]
     sc = resolve(_mode(scope, campaign, campaigns), campaign, campaigns)
@@ -229,6 +243,7 @@ def check_fresh(
     *,
     campaign: str | None = None,
     scope: str | None = None,
+    profiles_root: Path | None = None,
 ) -> Report:
     """Is the page for this scope still built from what is on disk now?
 
@@ -236,6 +251,7 @@ def check_fresh(
     page, so a check folded into it could only ever pass. The question that matters is
     asked LATER — which is exactly when nobody asks it.
     """
+    _validate_profile(profile, profiles_root=profiles_root, content_root=content_root)
     from ..campaigns_dashboard import _load_manifests
 
     manifests = _load_manifests(profile, content_root)
@@ -245,7 +261,11 @@ def check_fresh(
 
 
 def refresh_all(
-    profile: str, content_root: Path | None = None, *, stubs: bool = True
+    profile: str,
+    content_root: Path | None = None,
+    *,
+    stubs: bool = True,
+    profiles_root: Path | None = None,
 ) -> list[Path]:
     """Re-render **every page that already exists**, each under its own recorded scope.
 

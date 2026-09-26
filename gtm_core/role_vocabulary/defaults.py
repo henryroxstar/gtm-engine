@@ -51,6 +51,7 @@ from __future__ import annotations
 #: CTOs into the exec bucket.
 DEFAULT_ANTI_CUES: dict[str, tuple[str, ...]] = {
     "ceo": ("vice president", "vice-president", "evp", "svp", "avp"),
+    "innovation": ("marketing", "brand innovation", "brand"),
 }
 
 #: The exec cues that name the JOB rather than a seniority band. ``_PERSONA_RULES`` puts
@@ -122,6 +123,15 @@ DEFAULT_PERSONA_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "internal audit",
             "financial crimes",
             "compliance",
+        ),
+    ),
+    (
+        "innovation",
+        (
+            "head of innovation",
+            "director of innovation",
+            "digital innovation",
+            "emerging technology",
         ),
     ),
     (
@@ -486,3 +496,12 @@ DEFAULT_SEAT_GAIN: dict[str, str] = {}
 DEFAULT_SEAT_FORBIDDEN_PAINS: dict[str, tuple[str, ...]] = {}
 DEFAULT_SEAT_REGISTER: dict[str, str] = {}
 DEFAULT_SEAT_SEGMENTS: dict[str, tuple[str, ...]] = {}
+
+
+DEFAULT_LEVEL_CUES: dict[str, tuple[str, ...]] = {}
+DEFAULT_LEVEL_MIX: dict[str, dict[str, int]] = {
+    "enterprise": {"champion": 50, "evaluator": 25, "economic-buyer": 25},
+    "startup": {"economic-buyer": 100},
+    "builder": {"economic-buyer": 100},
+}
+DEFAULT_WEDGE_SEATS: dict[str, tuple[str, ...]] = {}

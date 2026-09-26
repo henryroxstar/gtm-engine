@@ -33,6 +33,7 @@ exactly as ``outreach_pack_linter._SEAT_RULES`` already does for seats.
 
 from __future__ import annotations
 
+from ..hook_cell import derive_hook_cell, parse_hook_cell, validate_hook_cell  # noqa: F401
 from .audit import audit_campaign, campaign_packs  # noqa: F401
 from .backlog import Backlog, BacklogCell, BacklogUnreadable, backlog, render_backlog
 from .cli import main  # noqa: F401
@@ -160,7 +161,10 @@ __all__ = [
     "declared_cell",
     "resolve_declared_cell",
     "declared_stakes",
+    "derive_hook_cell",
     "derive_row_cell",
+    "parse_hook_cell",
+    "validate_hook_cell",
     "segment_fit",
     "signal_columns_for_segment",
     "signal_fit",

@@ -57,7 +57,9 @@ class WorkspaceResponse(BaseModel):
 
 
 class PatchWorkspaceRequest(BaseModel):
-    display_name: str = Field(min_length=1, max_length=200, description="Workspace display name")
+    display_name: str | None = Field(
+        default=None, min_length=1, max_length=200, description="Workspace display name"
+    )
 
 
 # ── profiles ─────────────────────────────────────────────────────────────────
@@ -246,6 +248,8 @@ class GateRequest(BaseModel):
     def _edit_requires_edited_content(self) -> GateRequest:
         if self.decision == "edit" and self.edited_content is None:
             raise ValueError("edited_content is required when decision is 'edit'")
+        if self.decision != "edit" and self.edited_content is not None:
+            raise ValueError("edited_content must be None when decision is not 'edit'")
         return self
 
 
@@ -405,7 +409,7 @@ class PublishSettingsSyncRequest(BaseModel):
     # A5: per-workspace publish destination, set ONLY by the service (require_service_auth),
     # never a user JWT and never client run inputs. `secret_ref` is an env-var NAME
     # (PUBLISH_*), never the secret value — resolved at dispatch. `url` must be https.
-    enabled: bool = False
+    enabled: bool | None = None
     url: str | None = Field(None, max_length=2000)
     secret_ref: str | None = Field(None, max_length=200)
     # V020: scheduling gets its OWN opt-in, on top of `enabled` — mirrors the VPS

@@ -438,3 +438,193 @@ def test_a_state_file_that_is_not_text_stops_the_route_with_one_line(tmp_path, m
     err = capsys.readouterr().err
     assert err.startswith("REFUSED: lanes-state.jsonl is not UTF-8 text")
     assert "Traceback" not in err and state.read_bytes() == before
+
+
+# --------------------------------------------------------------------- W1a: Judge advisory until calibrated (R1.1, R1.2)
+
+
+def test_r1_1_uncalibrated_judge_re_angle_does_not_route_to_repair(monkeypatch):
+    """R1.1: with is_calibrated() == False, a row whose record stamp says calibrated: true
+    and whose verdict is re-angle does not route to repair, and its lane equals the lane
+    with no judge record (the oracle is an independent route of the same row without the
+    judge record). The verdict and defect class remain on the routed row."""
+    from gtm_core import eval_calibration
+
+    monkeypatch.setattr(eval_calibration, "is_calibrated", lambda profile: False)
+
+    row = _row(verdict="send")
+    rec = Adjudication(
+        email=row["email"],
+        verdict="re-angle",
+        score=2,
+        repair_attempt=0,
+        body_hash="h1",
+        touch=1,
+        calibrated=True,
+        defect_class="fact-creates-problem",
+    )
+    ctx = _ctx()
+
+    oracle_result = lanes.route([row], [], ctx)
+    oracle_lane = oracle_result.routed[0].lane
+    assert oracle_lane == "generic"
+
+    result = lanes.route([row], [rec], ctx)
+    routed = result.routed[0]
+    assert routed.lane != "repair"
+    assert routed.lane == "generic"
+    assert routed.lane == oracle_lane
+    assert routed.judge_verdict == "re-angle"
+    assert routed.judge_defect_class == "fact_earns_its_place"
+
+
+def test_r1_1_uncalibrated_judge_drop_does_not_route_to_repair(monkeypatch):
+    """R1.1: with is_calibrated() == False, an argument-scope drop does not route to repair,
+    and takes the lane its research verdict earns. Verdict and defect class stay attached."""
+    from gtm_core import eval_calibration
+
+    monkeypatch.setattr(eval_calibration, "is_calibrated", lambda profile: False)
+
+    row = _row(verdict="send")
+    rec = Adjudication(
+        email=row["email"],
+        verdict="drop",
+        score=1,
+        repair_attempt=0,
+        body_hash="h1",
+        touch=1,
+        calibrated=True,
+        defect_class="fact-creates-no-problem",
+    )
+    ctx = _ctx()
+
+    oracle_result = lanes.route([row], [], ctx)
+    oracle_lane = oracle_result.routed[0].lane
+    assert oracle_lane == "generic"
+
+    result = lanes.route([row], [rec], ctx)
+    routed = result.routed[0]
+    assert routed.lane != "repair"
+    assert routed.lane == "generic"
+    assert routed.lane == oracle_lane
+    assert routed.judge_verdict == "drop"
+    assert routed.judge_defect_class == "fact_earns_its_place"
+
+
+def test_r1_1_calibrated_judge_routes_to_repair_as_today(monkeypatch):
+    """R1.1: with is_calibrated() == True, re-angle and argument-scope drop route to repair."""
+    from gtm_core import eval_calibration
+
+    monkeypatch.setattr(eval_calibration, "is_calibrated", lambda profile: True)
+
+    row = _row(verdict="send")
+    rec_reangle = Adjudication(
+        email=row["email"],
+        verdict="re-angle",
+        score=2,
+        repair_attempt=0,
+        body_hash="h1",
+        touch=1,
+        calibrated=False,
+        defect_class="fact-creates-problem",
+    )
+    ctx = _ctx()
+
+    result = lanes.route([row], [rec_reangle], ctx)
+    routed = result.routed[0]
+    assert routed.lane == "repair"
+    assert routed.judge_verdict == "re-angle"
+    assert routed.judge_defect_class == "fact_earns_its_place"
+
+    rec_drop = Adjudication(
+        email=row["email"],
+        verdict="drop",
+        score=1,
+        repair_attempt=0,
+        body_hash="h1",
+        touch=1,
+        calibrated=False,
+        defect_class="fact-creates-no-problem",
+    )
+    result_drop = lanes.route([row], [rec_drop], ctx)
+    routed_drop = result_drop.routed[0]
+    assert routed_drop.lane == "repair"
+    assert routed_drop.judge_verdict == "drop"
+    assert routed_drop.judge_defect_class == "fact_earns_its_place"
+
+
+def test_r1_1_is_calibrated_is_called_once_per_route(monkeypatch):
+    """R1.1: is_calibrated is evaluated ONCE per route (spy count = 1)."""
+    from gtm_core import eval_calibration
+
+    calls = []
+
+    def spy(profile):
+        calls.append(profile)
+        return False
+
+    monkeypatch.setattr(eval_calibration, "is_calibrated", spy)
+
+    rows = [
+        _row(
+            email=f"user{i}@northwindrobotics.example",
+            company=f"Northwind {i}",
+            company_domain="northwindrobotics.example",
+        )
+        for i in range(5)
+    ]
+    recs = [
+        Adjudication(
+            email=r["email"],
+            verdict="re-angle",
+            score=2,
+            repair_attempt=0,
+            body_hash="h1",
+            touch=1,
+        )
+        for r in rows
+    ]
+    ctx = _ctx()
+
+    result = lanes.route(rows, recs, ctx)
+    assert len(result.routed) == 5
+    assert len(calls) == 1
+    assert calls == [PROFILE]
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected_lane"),
+    [
+        ("0", "repair"),
+        (None, "generic"),
+        ("1", "generic"),
+        ("wharrgarbl", "generic"),
+    ],
+)
+def test_r1_2_kill_switch_governs_calibration_requirement(monkeypatch, env_value, expected_lane):
+    """R1.2: GTM_JUDGE_REPAIR_REQUIRES_CALIBRATION, default on.
+    Only the literal "0" turns it off (restoring repair routing regardless of calibration).
+    Unset, "1", or any other value means calibration check applies."""
+    from gtm_core import eval_calibration
+
+    monkeypatch.setattr(eval_calibration, "is_calibrated", lambda profile: False)
+
+    if env_value is None:
+        monkeypatch.delenv("GTM_JUDGE_REPAIR_REQUIRES_CALIBRATION", raising=False)
+    else:
+        monkeypatch.setenv("GTM_JUDGE_REPAIR_REQUIRES_CALIBRATION", env_value)
+
+    row = _row(verdict="send")
+    rec = Adjudication(
+        email=row["email"],
+        verdict="re-angle",
+        score=2,
+        repair_attempt=0,
+        body_hash="h1",
+        touch=1,
+        defect_class="fact-creates-problem",
+    )
+    ctx = _ctx()
+
+    result = lanes.route([row], [rec], ctx)
+    assert result.routed[0].lane == expected_lane

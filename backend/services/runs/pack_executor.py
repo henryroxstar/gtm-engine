@@ -253,6 +253,17 @@ def _gate_draft_content(
     )
     if draft_kind == "enroll":
         gate_actions.parse_enroll_draft(pending_content, source=draft_path.name)
+        from gtm_core.send_cards import check_gate2_preview
+
+        try:
+            draft_dict = json.loads(pending_content)
+        except Exception:
+            draft_dict = {}
+        ok, reason = check_gate2_preview(
+            draft_dict, profile_name, content_root=getattr(cfg, "content_root", None)
+        )
+        if not ok:
+            raise gate_actions.EnrollDraftError(reason)
     if draft_kind == "dnc":
         gate_actions.parse_dnc_draft(pending_content, source=draft_path.name)
     return pending_content, draft_path, draft_kind

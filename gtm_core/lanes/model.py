@@ -23,7 +23,7 @@ LANE_COLUMNS = ("lane", "lane_reason", "judge_defect_class")
 
 #: What the operator may decide for a held row. Blank means "still deciding" — the row stays
 #: held; it is never sent and never suppressed by silence.
-DECISIONS = ("suppress", "generic", "salvage")
+DECISIONS = ("suppress", "generic", "salvage", "send")
 
 #: The structured half of a ``salvage`` note. A chip the repair lane can act on without
 #: reading prose. ``different-argument:<capability>``, ``different-person:<role>`` and
@@ -51,6 +51,8 @@ HOLD_ORDER = (
     "untraceable-number",
     "tier-a-generic",
     "duplicate-contact",
+    "champion-missing",
+    "missing-hook-cell",
     "unattended-generic",
     "unattended-repair",
 )
@@ -82,6 +84,8 @@ PROTECTIVE_HOLD_TRIGGERS: frozenset[str] = frozenset(
         "negative-reply",
         "engaged-account",
         "duplicate-contact",
+        "champion-missing",
+        "missing-hook-cell",
     }
 )
 
@@ -201,6 +205,22 @@ HOLD_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "salvage": "rework it — say the better fact, argument, or person",
         },
     ),
+    "champion-missing": (
+        "This account has no champion in the wedge seats",
+        {
+            "send": "send anyway",
+            "salvage": "find a champion",
+            "suppress": "skip this contact",
+        },
+    ),
+    "missing-hook-cell": (
+        "Missing or unresolvable messaging matrix hook cell",
+        {
+            "suppress": "skip this contact",
+            "generic": "send generic email",
+            "salvage": "add missing hook cell to hook-matrix.md",
+        },
+    ),
 }
 
 #: Which QUESTION a hold trigger answers, for the hold sheet (PS12). Several triggers with
@@ -224,6 +244,8 @@ HOLD_QUESTION: dict[str, str] = {
     "duplicate-contact": "second-contact-same-account",
     "unattended-generic": "unattended-fail-closed",
     "unattended-repair": "unattended-needs-rework",
+    "champion-missing": "champion-missing",
+    "missing-hook-cell": "missing-hook-cell",
 }
 
 #: Plain-English title + per-choice meaning per QUESTION id (not per trigger) — adapted from
@@ -306,6 +328,22 @@ QUESTION_COPY: dict[str, tuple[str, dict[str, str]]] = {
             "suppress": "keep it out of outreach (reversible)",
             "generic": "send the seat email instead of a reworked one",
             "salvage": "rework it — say the better fact, argument, or person",
+        },
+    ),
+    "champion-missing": (
+        "This account has no champion in the wedge seats",
+        {
+            "send": "send anyway",
+            "salvage": "find a champion",
+            "suppress": "skip this contact",
+        },
+    ),
+    "missing-hook-cell": (
+        "Missing or unresolvable messaging matrix hook cell",
+        {
+            "suppress": "skip this contact",
+            "generic": "send generic email",
+            "salvage": "add missing hook cell to hook-matrix.md",
         },
     ),
 }

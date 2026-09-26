@@ -73,19 +73,20 @@ def _get_spent(profile: str, today: date, content_root: Path | None = None) -> f
         return 0.0
 
     total = 0.0
-    for line in costs_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-            ts_str = rec.get("ts")
-            if ts_str:
-                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                if dt.year == today.year and dt.month == today.month:
-                    total += float(rec.get("cost_usd", 0.0))
-        except (ValueError, TypeError, AttributeError):
-            continue
+    with costs_file.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                ts_str = rec.get("ts")
+                if ts_str:
+                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if dt.year == today.year and dt.month == today.month:
+                        total += float(rec.get("cost_usd", 0.0))
+            except (ValueError, TypeError, AttributeError):
+                continue
     return total
 
 
@@ -95,8 +96,13 @@ def status(
     profiles_root: Path | None = None,
     content_root: Path | None = None,
 ) -> BudgetStatus:
+    p_root = profiles_root if profiles_root is not None else resolve_profiles_root()
+    profile_dir = p_root / profile
+    if not profile_dir.is_dir():
+        raise FileNotFoundError(f"Profile {profile!r} does not exist in {p_root}")
+
     today_dt = today if today is not None else date.today()
-    cap = _get_cap(profile, profiles_root=profiles_root, content_root=content_root)
+    cap = _get_cap(profile, profiles_root=p_root, content_root=content_root)
     spent = _get_spent(profile, today_dt, content_root=content_root)
 
     if today_dt.month == 12:

@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2078%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
@@ -57,11 +56,11 @@
 
 | 핵심 항목 | 블랙박스 "AI SDR" 상용 플랫폼 (11x, Artisan 등) | 단순 프롬프트 대화 (ChatGPT / Claude) | 일반 범용 에이전트 프레임워크 (CrewAI / LangChain) | **GTM Engine (본 시스템)** |
 |---|---|---|---|---|
-| **기본 비용** | 월 $500 – $3,000 | 월 $20 (반복적인 수동 복사/붙여넣기 수반) | 토큰 종량제 비용 + 서버 호스팅 비용 | **기본 $0** (보유 중인 기존 AI 워크스페이스 구독 활용) |
+| **기본 비용** | 좌석 또는 연락처 단위 구독 | 월 $20 (반복적인 수동 복사/붙여넣기 수반) | 토큰 종량제 비용 + 서버 호스팅 비용 | **기존 AI 플랜**과 직접 연결하는 데이터 제공자 — 유료 호출은 실행 전에 한도를 확인 |
 | **발송 안전성** | 콜드 메일 자동 발송 (도메인 평판 훼손 위험) | 수동 복사 및 검토 | 도구 권한의 광범위한 위임 | **우회 불가능한 휴먼 승인 게이트** (자동 발송 기능 원천 차단) |
 | **회사 맥락 이해**| 기계적인 외부 웹 스크래핑 | 대화할 때마다 회사 소개 재입력 필요 | 복잡한 벡터 DB 및 파이프라인 구축 필요 | **Profile 세컨드 브레인** (한 번 설정으로 모든 스킬에 자동 반영) |
 | **지원 워크플로우**| 콜드 이메일에 국한 | 텍스트 생성에 국한 | 복잡한 노드 그래프 코딩 필요 | **78개 전문 스킬 & 11대 패키지** (영상, 덱, 게시물, SDR) |
-| **데이터 주권과 보안**| 서드파티 클라우드 벤더 종속 | 데이터가 모델 학습에 활용될 우려 | 사용자 구축 환경에 따라 상이함 | **100% 로컬 환경 / Gitignore** (데이터가 내 컴퓨터를 벗어나지 않음) |
+| **데이터 주권과 보안**| 벤더 클라우드에 보관 | 매번 채팅에 붙여넣기 | 사용자 구축 환경에 따라 상이함 | **로컬 파일, Gitignore 처리** (데이터는 연결한 도구를 통해서만 밖으로 나갑니다) |
 
 ---
 
@@ -74,9 +73,9 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. 선호하는 AI 워크스페이스(Claude Desktop, Google Antigravity, Cursor, Codex)에서 이 폴더 열기
 
 # 3. 대화창에 한 줄 입력:
-"set me up" --site yourcompany.com
+"set me up — here's our site: yourcompany.com"
 ```
-*첫 실행에는 Docker, 백그라운드 서버, 서드파티 API 키가 전혀 필요하지 않습니다.*
+*첫 결과물까지는 Docker, 백그라운드 서버, API 키가 필요 없습니다. 실제로 발송 가능한 아웃리치에는 연락처 데이터 제공자 연결이 추가로 필요합니다.*
 
 ---
 

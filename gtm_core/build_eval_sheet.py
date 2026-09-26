@@ -58,11 +58,11 @@ if str(_LINTER_DIR) not in sys.path:  # pragma: no cover - import plumbing
 
 from merge_render_linter import (  # noqa: E402
     Touch,
-    _figures,
     lint_merge_render,
     parse_spec,
     render,
 )
+from outreach.rules_derivation import _figures  # noqa: E402
 from outreach_pack_linter import seat_of  # noqa: E402
 
 from .adjudication import collapsed_axes  # noqa: E402

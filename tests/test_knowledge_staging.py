@@ -319,3 +319,63 @@ def test_cli_stage_stages_file_and_diff_sees_it(tmp_path):
     diff_out = ks.diff(profiles_root, content_root, "acme", "01-pricing")
     assert "-Old price: $10" in diff_out
     assert "+New price: $20" in diff_out
+
+
+def test_promote_writes_via_atomic_replace(tmp_path, monkeypatch):
+    import os
+
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "company")
+    _write(live, _fm("2026-01-01", "90d", body="old facts\n"))
+
+    candidate = _fm("2026-01-01", "90d", body="NEW facts\n")
+    ks.stage(content_root, "acme", "company", candidate)
+
+    replaced = []
+    real_replace = os.replace
+
+    def mock_replace(src, dst):
+        replaced.append((str(src), str(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", mock_replace)
+    ks.promote(profiles_root, content_root, "acme", "company", today=TODAY)
+    assert len(replaced) > 0
+    assert any(dst == str(live) for _, dst in replaced)
+
+
+def test_promote_idempotent_staged_unlink(tmp_path, monkeypatch):
+    profiles_root, content_root = _profile(tmp_path)
+    live = ks.live_path(profiles_root, "acme", "company")
+    _write(live, _fm("2026-01-01", "90d", body="old facts\n"))
+
+    candidate = _fm("2026-01-01", "90d", body="NEW facts\n")
+    ks.stage(content_root, "acme", "company", candidate)
+
+    staged = ks.staged_path(content_root, "acme", "company")
+    real_unlink = type(staged).unlink
+
+    def concurrent_unlink(self, *args, **kwargs):
+        if self == staged and self.exists():
+            real_unlink(self)
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(staged), "unlink", concurrent_unlink)
+    ks.promote(profiles_root, content_root, "acme", "company", today=TODAY)
+
+
+def test_restore_disambiguates_topic_extension(tmp_path):
+    profiles_root, content_root = _profile(tmp_path)
+    snap_dir = ks.snapshot_dir(content_root, "acme")
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    stamp_md = "20260601T120000-000000Z"
+    stamp_toml = "20260601T130000-000000Z"  # newer
+
+    (snap_dir / f"foo.md.{stamp_md}").write_text("# Markdown topic\n", encoding="utf-8")
+    (snap_dir / f"foo.toml.{stamp_toml}").write_text('key = "value"\n', encoding="utf-8")
+
+    restored_src = ks.restore(profiles_root, content_root, "acme", "foo")
+    assert restored_src.name.startswith("foo.md.")
+    live_md = ks.live_path(profiles_root, "acme", "foo")
+    assert live_md.name == "foo.md"
+    assert "Markdown topic" in live_md.read_text(encoding="utf-8")

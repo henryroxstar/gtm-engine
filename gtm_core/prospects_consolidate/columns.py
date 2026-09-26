@@ -106,6 +106,13 @@ MASTER_COLS = [
     # stamp is newer than this one. Not in `RECORD_COLUMNS`, for the reason `signal_column`
     # is not: that tuple decides whether a list carries the record at all.
     "verdict_on",
+    # W7 / W4 / W5 pool columns (2026-09-25, R7.8).
+    "contact_level",
+    "premise_evidence",
+    "firmo_source",
+    "firmo_on",
+    "researched_for_wave",
+    "hook_cell",
 ]
 
 # Canonical field -> header variants seen across hubspot exports + the flat
@@ -149,6 +156,7 @@ _ALIASES = {
     "verdict": ("GTM_Verdict", "Verdict", "verdict"),
     "verdict_reason": ("GTM_Verdict_Reason", "Verdict Reason", "verdict_reason"),
     SIGNAL_COLUMN: ("GTM_Signal_Column", "Signal Column", SIGNAL_COLUMN),
+    "hook_cell": ("GTM_Hook_Cell", "Hook Cell", "hook_cell"),
 }
 
 
@@ -215,6 +223,11 @@ _ASSIGNED_COLUMNS = {
     "pool_row_id": "stamped once by consolidate; never supplied",
     ACCOUNT_ID_FIELD: "stamped by latest.json, joined here; never supplied",
     "verdict_on": "the account's research date for its verdict, carried with it; never supplied",
+    "contact_level": "derived from title by level_of; never supplied",
+    "premise_evidence": "the terms that attested the row's premise; stamped by the pipeline",
+    "firmo_source": "the provider or technique that filled firmographics; stamped by firmographics writer",
+    "firmo_on": "ISO date firmographics were last filled; stamped by firmographics writer",
+    "researched_for_wave": "wave identifier this row was researched for; stamped by research queue",
 }
 
 #: One-line meaning per column, for the generated map. A column with no entry still
@@ -281,6 +294,12 @@ _COLUMN_NOTES = {
         "pooled CSVs are rebuilt, so a hand-written value is discarded on the next sweep"
     ),
     "lane_reason": "why this lane; required for anything but `personalised`",
+    "contact_level": "one of champion, economic-buyer, evaluator, unknown derived by level_of",
+    "premise_evidence": "the terms that attested the row's premise; stamped by the pipeline",
+    "firmo_source": "the provider or technique that filled firmographics; stamped by firmographics writer",
+    "firmo_on": "ISO date firmographics were last filled; stamped by firmographics writer",
+    "researched_for_wave": "wave identifier this row was researched for; stamped by research queue",
+    "hook_cell": "the messaging matrix cell coordinate (segment|signal) derived at research time",
 }
 
 

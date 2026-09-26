@@ -15,17 +15,23 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import tomllib
 from typing import Any
 
 from gtm_core.merge_hygiene import clean_company
+from gtm_core.paths import PathConfig, resolve_knowledge_file
+from gtm_core.role_vocabulary import DEFAULT_SEGMENTS
 from gtm_core.web_sweep_urls import is_valid_source_url
+
+from .merge_hygiene.signal_dates import signal_age_limit
 
 # Freshness thresholds in days
 ENTERPRISE_MAX_AGE_DAYS = 90
 STARTUP_FUNDING_MAX_AGE_DAYS = 540  # 18 months — visibility window for context only
 GENERAL_MAX_AGE_DAYS = 210  # the universal ceiling the load gate enforces on signal_observed
 
-_VALID_SEGMENTS = ("enterprise", "startup")
+VALID_SEGMENTS: tuple[str, ...] = DEFAULT_SEGMENTS
+_VALID_SEGMENTS = VALID_SEGMENTS
 
 _SHAPE_REJECT_REASONS = frozenset(
     {"not-an-object", "missing-url", "missing-date", "missing-evidence"}
@@ -57,28 +63,76 @@ def _check_freshness(hit_type: str, segment: str, age_days: int) -> bool:
     seg = _validate_segment(segment)
     if age_days < 0:
         return False
-    if hit_type == "funding" and seg == "startup":
-        return age_days <= STARTUP_FUNDING_MAX_AGE_DAYS
-    if seg == "enterprise":
-        return age_days <= ENTERPRISE_MAX_AGE_DAYS
-    return age_days <= GENERAL_MAX_AGE_DAYS
+    kind = (
+        hit_type
+        if hit_type in ("funding", "event", "structural")
+        else ("funding" if hit_type == "funding" else "event")
+    )
+    return age_days <= signal_age_limit(seg, kind)
 
 
-def _within_why_now_window(age_days: int) -> bool:
+def _within_why_now_window(segment: str, hit_type: str, age_days: int) -> bool:
     """The universal ceiling the downstream load gate enforces on `signal_observed`
     (PSK-021) — independent of type/segment. A hit can be legacy-fresh yet still fail
     this: exactly the startup-funding carve-out, which is visible as context only."""
-    return age_days <= GENERAL_MAX_AGE_DAYS
+    seg = _validate_segment(segment)
+    # Actually, the load gate ceiling shouldn't let funding > event through for why-now.
+    # The requirement says: startup/builder funding 540 "context only, never the why-now".
+    # So for why_now, the limit is the event limit!
+    return age_days <= signal_age_limit(seg, "event")
 
 
 # --- agent-kind classification (PSK-016: word-bounded, not a substring test) ---------------
 
-_AI_VOCAB_RE = re.compile(
-    r"\bai\b|\bllm\b|\bmcp\b|\bagentic\b|\bcopilot\b|"
-    r"\bmachine learning\b|\bml platforms?\b|"
-    r"\bagent platforms?\b|\bagent marketplaces?\b|\bautonomous agents?\b",
-    re.IGNORECASE,
-)
+_regex_cache: dict[tuple[str, float, float], re.Pattern] = {}
+
+
+def get_ai_vocab_regex(profile: str) -> re.Pattern:
+    config = PathConfig.from_env()
+    ws_path = resolve_knowledge_file(config.profiles_root, profile, "web-sweep.toml")
+    rv_path = resolve_knowledge_file(config.profiles_root, profile, "role-vocabulary.toml")
+
+    if not ws_path.is_file():
+        raise FileNotFoundError(f"Missing required config file: {ws_path}")
+    if not rv_path.is_file():
+        raise FileNotFoundError(f"Missing required config file: {rv_path}")
+
+    ws_mtime = ws_path.stat().st_mtime
+    rv_mtime = rv_path.stat().st_mtime
+
+    cache_key = (profile, ws_mtime, rv_mtime)
+    if cache_key in _regex_cache:
+        return _regex_cache[cache_key]
+
+    with open(ws_path, "rb") as f:
+        try:
+            ws_data = tomllib.load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to read {ws_path}: {e}") from e
+
+    with open(rv_path, "rb") as f:
+        try:
+            rv_data = tomllib.load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to read {rv_path}: {e}") from e
+
+    if "ai_vocabulary" not in ws_data:
+        raise ValueError("web-sweep.toml missing 'ai_vocabulary' key")
+
+    terms = list(ws_data["ai_vocabulary"])
+
+    if "persona" in rv_data:
+        for persona in rv_data["persona"]:
+            if persona.get("name") == "ai-platform":
+                terms.extend(persona.get("cues", []))
+
+    pattern = "|".join(rf"\b{t}\b" for t in terms)
+    regex = re.compile(pattern, re.IGNORECASE)
+
+    _regex_cache[cache_key] = regex
+    return regex
+
+
 _AGENT_WORD_RE = re.compile(r"\bagents?\b", re.IGNORECASE)
 _HUMAN_AGENT_CONTEXT_RE = re.compile(
     r"\binsurance\b|\breal[- ]estate\b|\bproperty\b|\bcall (?:center|centre)\b|"
@@ -88,11 +142,14 @@ _HUMAN_AGENT_CONTEXT_RE = re.compile(
 )
 
 
-def _determine_agent_kind(text: str) -> str:
+def _determine_agent_kind(text: str, profile: str | None = None) -> str:
     """Classify agent kind: ai, human, unclear, or none — word-bounded matching only, so
     'ai' never matches inside 'said'/'retail'/'raised'/'maintain'/'email' and 'agent' inside
     an insurer's or staffing firm's own vocabulary is 'human', not 'ai'."""
-    if _AI_VOCAB_RE.search(text):
+    if profile is None:
+        profile = PathConfig.from_env().default_profile
+    ai_vocab_re = get_ai_vocab_regex(profile)
+    if ai_vocab_re.search(text):
         return "ai"
     if not _AGENT_WORD_RE.search(text):
         return "none"
@@ -164,12 +221,17 @@ def _resolve_subject(
     return None, True
 
 
-def _resolve_strength(raw: dict[str, Any], hit_type: str, evidence: str) -> str:
+def _resolve_strength(
+    raw: dict[str, Any], hit_type: str, evidence: str, profile: str | None = None
+) -> str:
     strength = str(raw.get("strength") or "").upper()
     if strength in ("H", "M", "L"):
         return strength
     # Heuristic default: newsroom / eng / incident with genuine AI-agent content -> H, else M.
-    if hit_type in ("newsroom", "eng", "incident") and _determine_agent_kind(evidence) == "ai":
+    if (
+        hit_type in ("newsroom", "eng", "incident")
+        and _determine_agent_kind(evidence, profile=profile) == "ai"
+    ):
         return "H"
     return "M"
 
@@ -236,6 +298,7 @@ def _evaluate_hit(
     cleaned_co: str,
     segment: str,
     ref_date: dt.date | None,
+    profile: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None, str | None]:
     """Validate and normalize one raw hit (PSK-018/017/021/020's shared core).
 
@@ -262,12 +325,12 @@ def _evaluate_hit(
         return None, "subject-mismatch", None, subject
 
     hit_type = str(raw.get("type") or "newsroom").lower()
-    strength = _resolve_strength(raw, hit_type, fields["evidence"])
+    strength = _resolve_strength(raw, hit_type, fields["evidence"], profile=profile)
 
     if not _check_freshness(hit_type, segment, age_days):
         return None, "stale", None, None
 
-    if not _within_why_now_window(age_days):
+    if not _within_why_now_window(segment, hit_type, age_days):
         # Legacy-fresh (startup funding, <=540d) but past the load gate's 210-day ceiling:
         # visible as context, never selectable as the why-now signal.
         context_hit = _build_hit(
@@ -298,6 +361,7 @@ def normalize_hit(
     company: str,
     segment: str = "startup",
     ref_date: dt.date | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any] | None:
     """Normalize and validate a single hit. Returns None if invalid, stale, or off-subject.
 
@@ -307,5 +371,7 @@ def normalize_hit(
     expose.
     """
     cleaned_co = clean_company(company)
-    hit, _reason, _context, _stranger = _evaluate_hit(raw, cleaned_co, segment, ref_date)
+    hit, _reason, _context, _stranger = _evaluate_hit(
+        raw, cleaned_co, segment, ref_date, profile=profile
+    )
     return hit

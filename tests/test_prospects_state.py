@@ -1402,3 +1402,115 @@ def test_mutate_cli_stamps_the_date_a_verdict_is_set(tmp_path, monkeypatch, caps
     assert items["a-1"]["verdict_on"] == datetime.date.today().isoformat()
     assert items["a-2"]["verdict_on"] == "2026-09-20"
     assert "verdict_on" not in items["a-3"]
+
+
+def test_fill_accounts_one_snapshot_per_call(tmp_path):
+    _write_latest(tmp_path, "acme", [{"id": "a", "company": "Alpha", "industry": ""}])
+    snaps_before = (
+        list((tmp_path / "acme/prospects/.snapshots").glob("latest-*.json"))
+        if (tmp_path / "acme/prospects/.snapshots").exists()
+        else []
+    )
+
+    summary = ps.fill_accounts(
+        "acme", [{"id": "a", "industry": "Software"}], source="vibe", content_root=tmp_path
+    )
+
+    snaps_after = list((tmp_path / "acme/prospects/.snapshots").glob("latest-*.json"))
+    assert len(snaps_after) == len(snaps_before) + 1
+    assert summary["snapshot"] is not None
+
+
+def test_fill_accounts_populated_field_is_unchanged(tmp_path):
+    _write_latest(tmp_path, "acme", [{"id": "a", "company": "Alpha", "industry": "Hardware"}])
+
+    summary = ps.fill_accounts(
+        "acme",
+        [{"id": "a", "industry": "Software", "city": "SF"}],
+        source="vibe",
+        content_root=tmp_path,
+    )
+
+    data = ps.load_latest("acme", content_root=tmp_path)
+    item = data["items"][0]
+    assert item["industry"] == "Hardware"
+    assert item["city"] == "SF"
+    assert len(summary["conflicts"]) == 1
+    assert summary["conflicts"][0]["field"] == "industry"
+
+
+def test_fill_accounts_zero_or_two_matches_refuses_row(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {"id": "a", "domain": "dup.example", "industry": ""},
+            {"id": "b", "domain": "dup.example", "industry": ""},
+        ],
+    )
+
+    summary = ps.fill_accounts(
+        "acme",
+        [
+            {"domain": "dup.example", "industry": "Software"},  # two matches
+            {"domain": "none.example", "industry": "Software"},  # zero matches
+        ],
+        source="vibe",
+        content_root=tmp_path,
+    )
+
+    data = ps.load_latest("acme", content_root=tmp_path)
+    assert data["items"][0]["industry"] == ""
+    assert data["items"][1]["industry"] == ""
+
+    assert len(summary["refused"]) == 2
+
+
+import threading
+
+
+def test_fill_accounts_runs_under_lock(tmp_path):
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {"id": "a", "company": "Alpha", "industry": ""},
+            {"id": "b", "company": "Beta", "industry": ""},
+        ],
+    )
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def worker_a():
+        try:
+            barrier.wait()
+            ps.fill_accounts(
+                "acme",
+                [{"id": "a", "industry": "Aerospace"}],
+                source="test_a",
+                content_root=tmp_path,
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    def worker_b():
+        try:
+            barrier.wait()
+            ps.fill_accounts(
+                "acme", [{"id": "b", "industry": "Biotech"}], source="test_b", content_root=tmp_path
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    t1 = threading.Thread(target=worker_a)
+    t2 = threading.Thread(target=worker_b)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert not errors, f"Concurrent workers encountered errors: {errors}"
+    data = ps.load_latest("acme", content_root=tmp_path)
+    by_id = {item["id"]: item["industry"] for item in data.get("items", [])}
+    assert by_id.get("a") == "Aerospace", "Thread 1 update lost"
+    assert by_id.get("b") == "Biotech", "Thread 2 update lost"

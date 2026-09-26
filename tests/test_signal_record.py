@@ -14,6 +14,7 @@ and were only caught by reading — which is the argument for making them type e
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -38,12 +39,29 @@ _EVIDENCE = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _setup_test_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    from gtm_core.signal_sources import store_capture
+
+    full_page = (
+        "Halden Systems raised a $40M Series B led by Fernway Ventures to expand its agent "
+        "orchestration platform across Europe. The round brings total funding to $60M."
+    )
+    store_capture(
+        "https://halden.example/news/series-b",
+        full_page,
+        sources_dir=tmp_path / "sources",
+    )
+
+
 def _row(**kw):
     base = {
         "first": "Rae",
         "email": "rae.okafor@halden.example",
         "company": "Halden Systems",
         "company_domain": "halden.example",
+        "lane": "personalised",
         "signal_clause": "raised a Series B to expand its agent orchestration platform",
         "signal_source_url": "https://halden.example/news/series-b",
         "signal_observed": "2026-07-02",
@@ -484,3 +502,114 @@ def test_a_prospect_relation_is_still_silent():
     """Negative control — the new branch must not have caught the ordinary case."""
     findings = check_record(_row(category_relation="prospect"))
     assert not [f for f in findings if f.rule.startswith("relation-")]
+
+
+# --- captured sources & evidence check (W6 R6.2, R6.3) -----------------------
+
+
+def test_evidence_under_20_chars_fails():
+    row = _row(signal_evidence="Raised Series B.")  # 16 chars < 20
+    findings = check_record(row, as_of=AS_OF)
+    rules = {f.rule: f for f in findings}
+    assert "evidence-too-short" in rules
+    assert rules["evidence-too-short"].level == "block"
+
+
+def test_agent_supplied_text_with_no_capture_fails(tmp_path):
+    row = _row(signal_evidence=_EVIDENCE)
+    findings = check_record(row, as_of=AS_OF, lane="personalised", sources_dir=tmp_path)
+    rules = {f.rule: f for f in findings}
+    assert "no-source-capture" in rules
+    assert rules["no-source-capture"].level == "block"
+
+
+def test_normalised_substring_of_latest_capture_passes(tmp_path):
+    from gtm_core.signal_sources import store_capture
+
+    full_page = (
+        "Headline: European Expansion\n\n"
+        "Halden Systems raised a $40M Series B led by Fernway Ventures to expand its agent "
+        "orchestration platform across Europe. The round brings total funding to $60M."
+    )
+    store_capture("https://halden.example/news/series-b", full_page, sources_dir=tmp_path)
+
+    row = _row(signal_evidence=_EVIDENCE)
+    findings = check_record(row, as_of=AS_OF, lane="personalised", sources_dir=tmp_path)
+    rules = {f.rule for f in findings}
+    assert "no-source-capture" not in rules
+    assert "signal-evidence-not-in-source" not in rules
+
+
+def test_one_changed_word_fails(tmp_path):
+    from gtm_core.signal_sources import store_capture
+
+    full_page = (
+        "Halden Systems raised a $40M Series B led by Fernway Ventures to expand its agent "
+        "orchestration platform across Europe."
+    )
+    store_capture("https://halden.example/news/series-b", full_page, sources_dir=tmp_path)
+
+    # Changed "Series B" to "Series C"
+    changed_evidence = (
+        "Halden Systems raised a $40M Series C led by Fernway Ventures to expand its agent "
+        "orchestration platform across Europe."
+    )
+    row = _row(
+        signal_clause="raised a Series C to expand its agent orchestration platform",
+        signal_evidence=changed_evidence,
+    )
+    findings = check_record(row, as_of=AS_OF, lane="personalised", sources_dir=tmp_path)
+    rules = {f.rule: f for f in findings}
+    assert "signal-evidence-not-in-source" in rules
+    assert rules["signal-evidence-not-in-source"].level == "block"
+
+
+def test_smart_quotes_and_whitespace_differences_pass(tmp_path):
+    from gtm_core.signal_sources import store_capture
+
+    full_page = (
+        'Halden Systems   announced   "breakthrough"   capabilities\n\n'
+        "for enterprise agents in London."
+    )
+    store_capture("https://halden.example/news/series-b", full_page, sources_dir=tmp_path)
+
+    evidence = "Halden Systems announced “breakthrough” capabilities for enterprise agents"
+    row = _row(
+        signal_clause="announced breakthrough capabilities for enterprise agents",
+        signal_evidence=evidence,
+    )
+    findings = check_record(row, as_of=AS_OF, lane="personalised", sources_dir=tmp_path)
+    rules = {f.rule for f in findings}
+    assert "signal-evidence-not-in-source" not in rules
+    assert "no-source-capture" not in rules
+
+
+def test_lane_personalised_missing_or_unmatched_capture_is_error(tmp_path):
+    row = _row(signal_evidence=_EVIDENCE)
+    findings = check_record(row, as_of=AS_OF, lane="personalised", sources_dir=tmp_path)
+    hit = [f for f in findings if f.rule == "no-source-capture"]
+    assert len(hit) == 1
+    assert hit[0].level == "block"
+
+
+def test_unknown_lane_is_error(tmp_path):
+    row = _row(signal_evidence=_EVIDENCE)
+    findings = check_record(row, as_of=AS_OF, lane="mystery-lane", sources_dir=tmp_path)
+    rules = {f.rule: f for f in findings}
+    assert "lane-unknown" in rules
+    assert rules["lane-unknown"].level == "block"
+    assert "no-source-capture" in rules
+    assert rules["no-source-capture"].level == "block"
+
+
+def test_generic_premise_only_is_warn(tmp_path):
+    row = _row(signal_evidence=_EVIDENCE)
+    findings = check_record(row, as_of=AS_OF, lane="generic", sources_dir=tmp_path)
+    hit = [f for f in findings if f.rule == "no-source-capture"]
+    assert len(hit) == 1
+    assert hit[0].level == "warn"
+
+    findings_premise = check_record(row, as_of=AS_OF, lane="premise-only", sources_dir=tmp_path)
+    hit_premise = [f for f in findings_premise if f.rule == "no-source-capture"]
+    assert len(hit_premise) == 1
+    assert hit_premise[0].level == "warn"

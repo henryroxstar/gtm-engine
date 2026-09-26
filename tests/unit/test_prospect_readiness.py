@@ -55,6 +55,16 @@ def _stage(root: Path, rows: list[dict], *, state: bool = True, header=_HEADER_L
     """
     seq = root / PROFILE / "prospects" / "sequences"
     seq.mkdir(parents=True, exist_ok=True)
+    from gtm_core.signal_sources import store_capture
+
+    for r in rows:
+        url = r.get("signal_source_url")
+        ev = r.get("signal_evidence")
+        if url and ev:
+            store_capture(url, ev, sources_dir=root / "sources", profile=PROFILE, tool="test")
+            store_capture(
+                url, ev, sources_dir=root / PROFILE / "sources", profile=PROFILE, tool="test"
+            )
     out = seq / "ready-to-load.csv"
     with out.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=header)

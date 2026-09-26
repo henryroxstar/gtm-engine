@@ -242,6 +242,14 @@ It returns the discovery target, per-stage expected counts, and lookups required
 
 **Step 5 — Cold discovery.** One enterprise pass + one startup pass + one **in-market pass** (topic-intent filter) **per market**, plus the credit-free **RocketReach signal pre-flag pass** when signal search is available (paste-ready filters in `discovery-and-budget.md`). **Apollo's company search (`apollo_company_search` in-repo / `apollo_mixed_companies_search` hosted) is an OPTIONAL extra in-market pass** — it is metered per page — the rate is stated on the `apollo_company_search` tool itself, so read it there rather than assuming one (unlike RocketReach's free signal search), so gate it behind the Step 3 budget check and only run it when Vibe/RocketReach intent is absent, stale, or the profile explicitly wants Apollo's buying-intent topics cross-checked; it never replaces Vibe as the primary discovery engine. On the web path, build the candidate list by searching for ICP-matching companies per segment + market + the website keywords. Aim for a healthy candidate pool (≈2–3× the target) to survive gating. **Bulk mode:** skip this step's per-pass intake — follow `discovery-and-budget.md` §"Bulk mode" steps 1–6 instead (size → in-query filter passes → cost gate → export → `python -m gtm_core.prospects_import ingest`), which produces `candidates-<run-id>.json` in place of a Step 5 candidate list.
 
+
+**Step 5.5 — Firmographics before research.** Before searching for signals, ensure every candidate account has complete firmographics. A missing industry or employee count blocks segment checks and routing.
+1. Run `uv run python -m gtm_core.firmographics queue --profile <active>` to list accounts with missing firmographics.
+2. If the queue is empty, proceed to Step 6.
+3. For accounts missing data, use free company searches (e.g. RocketReach `company_search` or Vibe) to resolve missing `industry`, `country`, `city`, `employees_range`, or `description`.
+4. Create a JSON payload with the resolved rows and run `uv run python -m gtm_core.firmographics apply --profile <active> --json <payload.json>`.
+5. If there are conflicts, it writes `firmographics-review-<ts>.csv`. Review the conflicts, mark `accept=yes` for the correct rows, and run `uv run python -m gtm_core.firmographics accept --profile <active> --review <csv>`.
+
 **Step 6 — "Why now" signal hunt (0 credits).**
 
 **Before you sweep, check whether the research already exists.** Step 4's "work the backlog before
@@ -250,7 +258,7 @@ An account whose dossier is already on disk usually carries the source, date, an
 six fields want — that is a **backfill**, not a research pass:
 
 ```bash
-python -m gtm_core.prospects_consolidate accounts-needing-dossier --profile <active>
+python -m gtm_core.prospects_consolidate accounts-needing-dossier --profile <active> --eligible-only --limit 50
 ```
 An account **absent** from that list already has a dossier: open it and promote what it carries onto
 the row via `gtm_core.signal_backfill --promote` (Step 10) instead of re-researching it. Measured
@@ -267,7 +275,10 @@ uv run python -m gtm_core.web_sweep queries --company "<company>" --profile <act
   [--product <slug>] [--domain <domain>] --segment <enterprise|startup>
 ```
 
-Execute these queries using your available search tools. Save the raw hits to a JSON **file** — an array of objects with `url`, `date` (`YYYY-MM-DD`), `type` (`newsroom|hiring|eng|regulatory|funding|incident`), `evidence`, and optionally `title`, `strength` (`H|M|L`), `subject` — then pass the file's **path** (or `-` for stdin, never inline JSON) to the normalizer, which validates HTTPS URLs, rejects search engines, enforces the freshness window (≤90d enterprise, ≤210d otherwise) and extracts the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
+
+Execute these queries using your available search tools. **Crucially, you MUST fetch the actual page text** (e.g. using Firecrawl's `scrape` or `search` tools) for any URL you intend to use as evidence. Do not rely solely on web search snippets. The engine's PostToolUse hook captures the page text at the tool boundary. If you skip fetching the page, the hook won't fire, and the downstream `signal_record` check will refuse your evidence with `no-source-capture` or `evidence-not-in-source`.
+
+Save the raw hits to a JSON **file** — an array of objects with `url`, `date` (`YYYY-MM-DD`), `type` (`newsroom|hiring|eng|regulatory|funding|incident`), `evidence`, and optionally `title`, `strength` (`H|M|L`), `subject` — then pass the file's **path** (or `-` for stdin, never inline JSON) to the normalizer, which validates HTTPS URLs, rejects search engines, enforces the freshness window (≤90d enterprise, ≤210d otherwise) and extracts the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
 ```bash
 uv run python -m gtm_core.web_sweep normalize --company "<company>" --hits <hits.json> \
   --segment <enterprise|startup>
@@ -433,8 +444,8 @@ axis checkable the way the persona axis already is:
 
 | field | what goes in it |
 |---|---|
-| `signal_column` | the matrix's **signal column label**, written verbatim, for this account's own **segment** grid — e.g. `Compliance event (audit, breach)` or `Partner / third-party agents entering the estate`. This is the one non-derivable fact: the account's persona already comes from its title and its segment is already a column, so this is the only atom worth writing by hand. `gtm_core.hook_coverage.derive_row_cell` combines it with the row's own title and segment to compute the full cell — record this and `hook_cell` below is optional. |
-| `hook_cell` | the full matrix cell (**segment × observed signal**), written verbatim in the matrix's labels — a shortcut if you already know it, but `signal_column` is what actually needs writing down. Recording either is what turns `cell-segment-fit` / `cell-signal-fit` from heuristics into an equality test at drafting time — today the spec declares a cell and nothing says which cell the *row* belongs to, so the check has to infer the row's half from free text. (The outreach linter's own cell rules retired on 2026-09-24: a spec's cell is now derived from its declared `angle:`.) This skill already picks a hook per account and then throws away which one; stop throwing it away. |
+| `signal_column` | the matrix's **signal column label**, written verbatim, for this account's own **segment** grid — e.g. `Compliance event (audit, breach)` or `Partner / third-party agents entering the estate`. This is the one non-derivable fact: the account's persona already comes from its title and its segment is already a column, so this is the only atom worth writing by hand. |
+| `hook_cell` | the deterministic matrix cell coordinate (**segment\|signal**, e.g. `enterprise|security`), derived via `gtm_core.hook_cell.derive_hook_cell` from the row's `segment` and observed `signal_column`. If the signal is not found in the matrix for that segment, it gracefully falls back to `segment|generic`. If unresolvable or missing, the row routes to `hold` (`missing-hook-cell`). Recording this coordinate eliminates LLM hallucination and guesswork during drafting. |
 
 Resolve the matrix through `python -m gtm_core.resolve_knowledge hook-matrix.md --profile <active>
 [--product <slug>]` (product-first, profile-fallback per CLAUDE.md) rather than reading
@@ -686,7 +697,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
     "signal_agent_kind": "ai|human|none|unclear",
     "category_relation": "prospect|competitor|regulator|partner|adjacent|unclear",
     "signal_column": "<the matrix's signal column label for this account's own segment, verbatim>",
-    "hook_cell": "<optional — the full matrix cell, verbatim; derivable from signal_column>",
+    "hook_cell": "<deterministic segment|signal coordinate derived via gtm_core.hook_cell.derive_hook_cell, e.g. enterprise|security>",
     "verdict": "send|re-angle|drop",
     "verdict_reason": "<required unless verdict is send>",
     "lane": "personalised|repair|generic|hold|excluded",
@@ -709,9 +720,12 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
   ```
   Pass `--records` only with the explicit file(s) the current `email-quality` pass wrote — **never
   a glob**, which aborts in zsh when nothing matches and mixes in stale judge records when something
-  does. Routing a subset CSV carries every other row's record forward (it prints `carried forward N
+  does.  Routing a subset CSV carries every other row's record forward (it prints `carried forward N
   record(s)`); `--replace-all` is the explicit wholesale rewrite.
-  Then report where the list stands with the status block (Step 12). Never hand-write a `lane` value into a pooled CSV — those files
+  
+  If the `lanes route` command flags any enterprise rows for `champion-missing` (because the account lacks a champion in a wedge seat), the operator must resolve this on the generated hold sheet (choices: `send anyway`, `find a champion`, `skip this contact`).
+
+  Then report where the list stands with the status block (Step 13). Never hand-write a `lane` value into a pooled CSV — those files
   are rebuilt, so the edit is discarded on the next consolidate, exactly as with a corrected `why_now`
   (Step 10's `signal_backfill --promote` note). The account is the durable home; the router is the
   only thing that stamps the row.
@@ -753,7 +767,7 @@ Tier-A; on 2026-08-12 a 496-contact bulk sequence staged and reached 439 account
 sourced) with **zero** research behind their Why Now clause — Tier-A coverage alone does not protect a
 bulk load, so this now checks every tier by default:
 ```bash
-python -m gtm_core.prospects_consolidate accounts-needing-dossier --profile <active>
+python -m gtm_core.prospects_consolidate accounts-needing-dossier --profile <active> --eligible-only --limit 50
 ```
 Pass `--tier A` to restrict to the old Tier-A-only scope (rarely needed — the wider check is cheap to
 run and idempotent, see below). This returns accounts (across the **whole cumulative** `master-list.csv`,
@@ -853,6 +867,19 @@ is wrong: report them, never trim them. The lede's `Yours (N)` always equals `Wa
 Only `Not a fit / excluded` and `Not emailing` are closed; every other line is work queued, not
 work rejected — say so, or the next reader re-derives "we have no prospects" from a number that
 never meant that.
+
+
+**Step 12 — Send cards (Gate-2 Review Surface).** After routes are assigned, operator approval is required per cell.
+1. Render the send cards page for the operator:
+   ```bash
+   uv run python -m gtm_core.send_cards generate --profile <active> --wave <run-id>
+   ```
+2. Present the link to the local HTML file so the operator can review the cells and pick a decision (`send this cell`, `not this wave`, or `rewrite`).
+3. Once the operator finishes, apply their decisions to generate `.pending` enroll drafts:
+   ```bash
+   uv run python -m gtm_core.send_cards apply --profile <active> --export <path-to-decisions-export.csv>
+   ```
+4. Only approved cells ("send this cell") are written to the draft, which is bound to Gate-2 interactively.
 
 **Step 13 — Always last: render the status page AT THIS RUN'S SCOPE, then prove it is fresh.** **Every run of this skill — any mode, including re-score/refresh-heat and enrichment-only passes that skip consolidation — ends with this. Never skip it.** It is cheap and read-only. Two commands, not one:
 ```bash

@@ -407,6 +407,22 @@ def _setup(tmp_path: Path, monkeypatch, rows: list[dict], *, lanes: str | None =
     folder = content_root / PROFILE / "accounts" / "vertex-systems"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "account-dossier-vertex-systems-2026-08-12.docx").write_text("x", encoding="utf-8")
+    from gtm_core.signal_sources import store_capture
+
+    for r in rows:
+        url = r.get("signal_source_url")
+        ev = r.get("signal_evidence")
+        if url and ev:
+            store_capture(
+                url, ev, sources_dir=content_root / "sources", profile=PROFILE, tool="test"
+            )
+            store_capture(
+                url,
+                ev,
+                sources_dir=content_root / PROFILE / "sources",
+                profile=PROFILE,
+                tool="test",
+            )
     if lanes is not None:
         state = evals_dir(PROFILE, content_root)
         state.mkdir(parents=True, exist_ok=True)

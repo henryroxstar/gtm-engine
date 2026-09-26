@@ -34,6 +34,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .finding_budget import WARN_BUDGET, BudgetVerdict, budget_verdict, render_budget
 from .merge_hygiene import SIGNAL_MAX_AGE_DAYS, signal_is_fresh, signal_latest_date
@@ -225,6 +226,7 @@ class ListAudit:
     findings: list[str] = field(default_factory=list)
     acked: tuple[str, ...] = ()
     budget: int = WARN_BUDGET
+    level_mix: Any = None
 
     @property
     def signal_usable(self) -> int:
@@ -328,6 +330,16 @@ def audit_rows(
             f"{SIGNAL_MAX_AGE_DAYS} days. Opening on it advertises a stale list -- re-research or "
             f"switch the row to a structural hook."
         )
+
+    try:
+        from .role_vocabulary import load as load_vocab
+        from .role_vocabulary.level_mix import level_mix_report
+
+        vocab = load_vocab()
+        a.level_mix = level_mix_report(rows, vocab)
+    except Exception:
+        a.level_mix = None
+
     return a
 
 
@@ -354,6 +366,9 @@ def render(a: ListAudit) -> str:
     lines.append("  source hit rate:")
     for s, v in a.sources.items():
         lines.append(f"    {s[:38]:<40} n={v['rows']:<5} in-ICP {v['hit_rate']:.0%}")
+    if getattr(a, "level_mix", None) is not None:
+        lines.append("")
+        lines.append(a.level_mix.render())
     lines.append("")
     if a.findings:
         lines.append(f"  FAIL — {len(a.findings)} finding(s):")

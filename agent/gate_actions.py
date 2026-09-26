@@ -235,7 +235,13 @@ def parse_enroll_draft(raw: str, source: str) -> dict:
     return draft
 
 
-def promote_enroll_draft(draft_path: Path | None, *, edited_content: str | None = None) -> dict:
+def promote_enroll_draft(
+    draft_path: Path | None,
+    *,
+    edited_content: str | None = None,
+    profile: str | None = None,
+    content_root: Path | None = None,
+) -> dict:
     """Approve the `sequence` gate: validate and return the approved enrollment request.
 
     Does **not** call Saleshandy — promotion only means "this is the plan the operator
@@ -253,7 +259,24 @@ def promote_enroll_draft(draft_path: Path | None, *, edited_content: str | None 
     if draft_path is None or not draft_path.is_file():
         raise EnrollDraftError("no pending enroll draft found for this run")
     raw = edited_content if edited_content is not None else draft_path.read_text(encoding="utf-8")
-    return parse_enroll_draft(raw, source=draft_path.name)
+    draft = parse_enroll_draft(raw, source=draft_path.name)
+
+    eff_profile = profile or draft.get("profile")
+    eff_root = content_root
+    if not eff_profile and draft_path is not None:
+        for parent in draft_path.resolve().parents:
+            if (parent / "settings.json").is_file():
+                eff_profile = parent.name
+                eff_root = parent.parent
+                break
+    if eff_profile:
+        from gtm_core.send_cards import check_gate2_preview
+
+        ok, reason = check_gate2_preview(draft, eff_profile, content_root=eff_root)
+        if not ok:
+            raise EnrollDraftError(reason or "Gate 2 refused: send-cards review required")
+
+    return draft
 
 
 def discard_enroll_draft(cfg, profile: str, *, path: Path) -> bool:
@@ -383,7 +406,12 @@ def promote_gate_draft(
         return None, None
     if draft_kind == "enroll":
         try:
-            enroll_draft = promote_enroll_draft(draft_path, edited_content=edited_content)
+            enroll_draft = promote_enroll_draft(
+                draft_path,
+                edited_content=edited_content,
+                profile=profile,
+                content_root=getattr(cfg, "content_root", None),
+            )
         except EnrollDraftError as exc:
             return None, str(exc)
         return enroll_draft, None

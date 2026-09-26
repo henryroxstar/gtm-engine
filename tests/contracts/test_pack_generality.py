@@ -36,7 +36,12 @@ def cfg(tmp_path):
     from agent.config import Config
 
     base = Config.from_env(repo_root=REPO)
-    return dataclasses.replace(base, content_root=tmp_path / "content")
+    (tmp_path / "profiles" / PROFILE).mkdir(parents=True, exist_ok=True)
+    return dataclasses.replace(
+        base,
+        content_root=tmp_path / "content",
+        profiles_root=tmp_path / "profiles",
+    )
 
 
 # ── two more real pack graphs load on the unmodified engine ──────────────────

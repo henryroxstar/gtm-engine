@@ -61,6 +61,8 @@ from ..paths import clean_env_var, resolve_knowledge_file, resolve_profiles_root
 from .defaults import (  # noqa: F401 — re-exported as this package's public surface
     DEFAULT_ANTI_CUES,
     DEFAULT_CEO_TITLE_CUES,
+    DEFAULT_LEVEL_CUES,
+    DEFAULT_LEVEL_MIX,
     DEFAULT_NON_BUYER_CUES,
     DEFAULT_PERSONA_RULES,
     DEFAULT_SEAT_FORBIDDEN_PAINS,
@@ -72,9 +74,11 @@ from .defaults import (  # noqa: F401 — re-exported as this package's public s
     DEFAULT_SECURITY_ONLY,
     DEFAULT_SEGMENT_PERSONA,
     DEFAULT_SEGMENTS,
+    DEFAULT_WEDGE_SEATS,
     SEAT_REGISTERS,
     UNSPECIFIED_SEGMENT,
 )
+from .level_mix import LevelMixReport, level_mix_report  # noqa: F401
 
 #: The tenant file this module reads. Resolved product-first, profile-fallback.
 VOCABULARY_FILE = "role-vocabulary.toml"
@@ -118,6 +122,9 @@ class RoleVocabulary:
     forbidden_pains: dict[str, tuple[str, ...]] = field(default_factory=dict)
     register: dict[str, str] = field(default_factory=dict)
     seat_segments: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    level_cues: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    level_mix: dict[str, dict[str, int]] = field(default_factory=dict)
+    wedge_seats: dict[str, tuple[str, ...]] = field(default_factory=dict)
     source: str = "built-in default"
 
     @property
@@ -209,6 +216,9 @@ DEFAULT_VOCABULARY = RoleVocabulary(
     forbidden_pains=DEFAULT_SEAT_FORBIDDEN_PAINS,
     register=DEFAULT_SEAT_REGISTER,
     seat_segments=DEFAULT_SEAT_SEGMENTS,
+    level_cues=DEFAULT_LEVEL_CUES,
+    level_mix=DEFAULT_LEVEL_MIX,
+    wedge_seats=DEFAULT_WEDGE_SEATS,
 )
 
 
@@ -422,6 +432,23 @@ def parse(raw: dict, source: str) -> RoleVocabulary:
                     f"as covered while none of its copy is ever sent"
                 )
 
+    level_cues = {}
+    if "level" in raw and isinstance(raw["level"], dict):
+        for k, v in raw["level"].items():
+            level_cues[k.strip().lower()] = _str_tuple(v, f"level.{k}", source)
+
+    level_mix = {}
+    if "level_mix" in raw and isinstance(raw["level_mix"], dict):
+        for k, v in raw["level_mix"].items():
+            if not isinstance(v, dict):
+                raise VocabularyError(f"{source}: `level_mix.{k}` must be a dict")
+            level_mix[k.strip().lower()] = {ik.strip().lower(): int(iv) for ik, iv in v.items()}
+
+    wedge_seats = {}
+    if "wedge_seats" in raw and isinstance(raw["wedge_seats"], dict):
+        for k, v in raw["wedge_seats"].items():
+            wedge_seats[k.strip().lower()] = _str_tuple(v, f"wedge_seats.{k}", source)
+
     return RoleVocabulary(
         anti_cues=anti,
         ceo_title_cues=_str_tuple(raw.get("ceo_title_cues"), "ceo_title_cues", source),
@@ -436,6 +463,9 @@ def parse(raw: dict, source: str) -> RoleVocabulary:
         forbidden_pains=seat_copy.forbidden_pains,
         register=seat_copy.register,
         seat_segments=seat_copy.segments,
+        level_cues=level_cues,
+        level_mix=level_mix,
+        wedge_seats=wedge_seats,
         source=source,
     )
 
@@ -519,6 +549,38 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--check", action="store_true", help="validate only; exit 2 on a bad vocabulary"
     )
+
+    if argv is None:
+        import sys
+
+        argv = sys.argv[1:]
+
+    if argv and argv[0] == "level_mix_report":
+        parsed, _ = ap.parse_known_args(argv[1:])
+        root = Path(parsed.profiles_root) if parsed.profiles_root else resolve_profiles_root()
+
+        TARGET = {
+            "enterprise": {"champion": 50, "evaluator": 25, "economic-buyer": 25},
+            "startup": {"economic-buyer": 100},
+            "builder": {"economic-buyer": 100},
+        }
+
+        matches = []
+        if root and root.exists():
+            for p in root.iterdir():
+                if not p.is_dir() or p.name.startswith("."):
+                    continue
+                try:
+                    vocab = load(p.name, root)
+                    if vocab.level_mix == TARGET:
+                        matches.append(p.name)
+                except (OSError, ValueError, KeyError):
+                    pass
+
+            for m in sorted(matches):
+                print(m)
+        return 0
+
     args = ap.parse_args(argv)
 
     root = Path(args.profiles_root) if args.profiles_root else None

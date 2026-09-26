@@ -23,6 +23,7 @@ columns, which are one run stale on the live pool.
 from __future__ import annotations
 
 import csv
+import os
 import re
 import shutil
 import tomllib
@@ -32,11 +33,11 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import eval_calibration
 from ..adjudication import REPAIR_ATTEMPT_CAP, Adjudication, worst_verdict
 from ..adjudication.defects import defect_scope, normalize_defect_class
 from ..merge_hygiene import row_signal_freshness
 from ..prospects_consolidate.columns import MASTER_COLS
-from ..prospects_consolidate.confidence import org_token
 from ..prospects_consolidate.paths import _pool_subdir
 from .context import RouterContext
 from .model import (
@@ -48,6 +49,20 @@ from .model import (
     Routed,
 )
 from .triggers import first_exclude, first_hold
+
+
+def _is_calibrated(profile: str) -> bool:
+    """Whether the profile's judge is calibrated (R1.1), gated by the kill switch (R1.2).
+
+    Kill switch: GTM_JUDGE_REPAIR_REQUIRES_CALIBRATION, default on.
+    Only the literal "0" turns it off, restoring today's routing: repair on any stamped
+    verdict regardless of calibration. Unset, "1", or any other value means calibration
+    check applies.
+    """
+    if os.environ.get("GTM_JUDGE_REPAIR_REQUIRES_CALIBRATION") == "0":
+        return True
+    return eval_calibration.is_calibrated(profile)
+
 
 #: Lanes a prior decision or policy may route a held row INTO. ``suppress`` is deliberately
 #: not a lane: a suppressed account is written to the ledger by ``hold-apply`` and then lands
@@ -112,7 +127,12 @@ def _attach_judge(
 
 
 def _verdict_lane(
-    row: dict, judge: Adjudication | None, ctx: RouterContext, cap: int
+    row: dict,
+    judge: Adjudication | None,
+    ctx: RouterContext,
+    cap: int,
+    *,
+    calibrated: bool = True,
 ) -> tuple[str, str, str]:
     """The lane a row earns on verdicts alone (no hold/exclude fired).
 
@@ -123,13 +143,17 @@ def _verdict_lane(
     verdict = (row.get("verdict") or "").strip().lower()
     clause, fresh = row_signal_freshness(row, as_of=ctx.as_of)
     if judge is not None and judge.verdict in ("re-angle", "drop"):
-        if judge.repair_attempt is not None and judge.repair_attempt >= cap:
-            return "generic", f"repair cap reached ({judge.repair_attempt})", "repair-cap"
-        return (
-            "repair",
-            f"judge {judge.verdict} ({normalize_defect_class(judge.defect_class) or 'unclassed'})",
-            "judge-verdict",
-        )
+        if calibrated:
+            if judge.repair_attempt is not None and judge.repair_attempt >= cap:
+                return "generic", f"repair cap reached ({judge.repair_attempt})", "repair-cap"
+            return (
+                "repair",
+                f"judge {judge.verdict} ({normalize_defect_class(judge.defect_class) or 'unclassed'})",
+                "judge-verdict",
+            )
+        # Uncalibrated (R1.1): judge re-angle or drop is advisory and does NOT route to repair.
+        # The row takes the lane its research verdict earns (independent route without judge).
+        return _verdict_lane(row, None, ctx, cap, calibrated=calibrated)
     if judge is not None and (judge.grounding or "").startswith("research="):
         return "repair", f"grounding {judge.grounding}", "grounding"
     if verdict == "send" and clause and fresh and judge is not None and judge.verdict == "send":
@@ -137,9 +161,11 @@ def _verdict_lane(
     if verdict == "send" and clause and fresh:
         return "generic", "researcher send but NO judge verdict on file", "no-judge-verdict"
     if verdict == "send":
-        if clause:
-            return "generic", "stale or unusable clause", "stale-clause"
-        return "generic", "no signal clause", "no-signal-clause"
+        return (
+            "generic",
+            "stale or unusable clause" if clause else "no signal clause",
+            "stale-clause" if clause else "no-signal-clause",
+        )
     return "generic", f"research verdict {verdict or '(empty)'}", "research-verdict"
 
 
@@ -156,6 +182,9 @@ def _apply_decision(
     if rec and rec.get("decision") == "suppress":
         routed.lane = "excluded"
         routed.decided = f"decided:suppress:{trigger}"
+        return True
+    if rec and rec.get("decision") == "send":
+        routed.decided = f"decided:send:{trigger}"
         return True
     choice = ctx.policy_auto.get(trigger)
     if choice:
@@ -174,7 +203,8 @@ def account_key(row: dict) -> str:
     dom = (row.get("company_domain") or "").strip().lower()
     if dom:
         return f"d:{dom}"
-    return f"c:{(row.get('company') or '').strip().lower()}"
+    company = (row.get("company") or "").strip().lower()
+    return f"c:{company}" if company else ""
 
 
 def route_row(
@@ -187,6 +217,7 @@ def route_row(
     decisions: dict | None = None,
     previous: dict | None = None,
     unattended: bool = False,
+    calibrated: bool = True,
 ) -> Routed:
     routed = Routed(row=row, lane="generic")
     judge = _attach_judge(routed, recs, source)
@@ -199,8 +230,15 @@ def route_row(
         routed.trigger, routed.detail = hit
         if not _apply_decision(routed, hit[0], hit[1], ctx, decisions or {}):
             routed.lane = "hold"
+            return routed
+        if getattr(routed, "decided", "").startswith("decided:send:"):
+            routed.lane, routed.detail, routed.reason_code = _verdict_lane(
+                row, judge, ctx, cap, calibrated=calibrated
+            )
         return routed
-    routed.lane, routed.detail, routed.reason_code = _verdict_lane(row, judge, ctx, cap)
+    routed.lane, routed.detail, routed.reason_code = _verdict_lane(
+        row, judge, ctx, cap, calibrated=calibrated
+    )
     _apply_stickiness(routed, previous or {})
 
     if unattended and routed.lane in UNATTENDED_TRIGGERS:
@@ -225,22 +263,67 @@ def _apply_stickiness(routed: Routed, previous: dict) -> None:
             routed.reason_code = "contested-judge"
 
 
+def _find_champion_accounts(routed: list, vocab: object, profile: str) -> set[str]:
+    from ..hook_coverage.config import seat_of
+    from ..role_vocabulary.level import level_of
+
+    has_champ = set()
+    for r in routed:
+        if r.lane not in ("hold", "excluded"):
+            tok = account_key(r.row) or r.email
+            seg = (r.row.get("segment") or "").strip().lower()
+            seat = seat_of(str(r.row.get("title") or ""), profile) or ""
+            lvl = level_of(str(r.row.get("title") or ""), seat, vocab)
+            if lvl == "champion" and seat in getattr(vocab, "wedge_seats", {}).get(seg, ()):
+                has_champ.add(tok)
+    return has_champ
+
+
 def _second_pass(result: RoutingResult, decisions: dict, ctx: RouterContext) -> None:
     """Holds that depend on the provisional lane or on the batch as a whole."""
+    try:
+        from ..role_vocabulary import load as load_vocab
+
+        vocab = load_vocab(ctx.profile)
+    except Exception:
+        vocab = None
+
     seen_accounts: dict[str, str] = {}
-    #: Every row at the account already routed to a send lane — what a second contact's seat
-    #: is compared against (PH18), not only the first one ``seen_accounts`` names.
     colleagues: dict[str, list[dict]] = {}
+    has_champion = (
+        _find_champion_accounts(result.routed, vocab, ctx.profile)
+        if vocab and getattr(vocab, "wedge_seats", None)
+        else set()
+    )
+
     for r in result.routed:
         if r.lane not in ("hold", "excluded") and r.trigger in PROTECTIVE_HOLD_TRIGGERS:
-            tok = org_token(r.row.get("company_domain", ""), r.row.get("company", "")) or r.email
+            tok = account_key(r.row) or r.email
             seen_accounts.setdefault(tok, r.lane)
             colleagues.setdefault(tok, []).append(r.row)
 
     for r in result.routed:
+        tok = account_key(r.row) or r.email
+        seg = (r.row.get("segment") or "").strip().lower()
+        if (
+            r.lane not in ("hold", "excluded")
+            and seg == "enterprise"
+            and vocab
+            and getattr(vocab, "wedge_seats", None)
+            and tok not in has_champion
+        ):
+            w_seats = vocab.wedge_seats.get(seg, ())
+            if w_seats:
+                _hold_or_decide(
+                    r,
+                    "champion-missing",
+                    f"account has no champion in wedge seats {w_seats}",
+                    ctx,
+                    decisions,
+                )
         if r.lane in ("hold", "excluded"):
             continue
-        tok = org_token(r.row.get("company_domain", ""), r.row.get("company", "")) or r.email
+        tok = account_key(r.row) or r.email
         if r.trigger in PROTECTIVE_HOLD_TRIGGERS:
             continue
         if r.lane == "generic" and (r.row.get("tier") or "").strip().upper() == "A":
@@ -302,7 +385,10 @@ def route(
     decisions: dict | None = None,
     previous: dict | None = None,
     unattended: bool = False,
+    calibrated: bool | None = None,
 ) -> RoutingResult:
+    if calibrated is None:
+        calibrated = _is_calibrated(ctx.profile)
     index = judge_index(records)
     result = RoutingResult(notes=list(ctx.notes))
     ordered = sorted(rows, key=lambda r: (-_score(r), (r.get("email") or "").lower()))
@@ -318,6 +404,7 @@ def route(
                 decisions=decisions,
                 previous=previous,
                 unattended=unattended,
+                calibrated=calibrated,
             )
         )
     _second_pass(result, decisions or {}, ctx)
@@ -331,7 +418,7 @@ def route(
         result.contested += "contested" in r.flags
         result.decided += bool(r.decided)
         result.judged += bool(r.judge_verdict)
-        result.unjudged_sendable += "NO judge verdict" in r.detail
+        result.unjudged_sendable += "NO judge verdict" in r.detail and not r.judge_verdict
     if sum(result.counts.values()) != len(rows):
         raise AssertionError("lanes must partition the input")
     if not all(r.stable_reason for r in result.routed):

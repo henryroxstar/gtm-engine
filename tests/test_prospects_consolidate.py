@@ -577,7 +577,7 @@ def test_split_by_signal_separates_usable_triggers_from_the_rest(tmp_path):
         pdir / "prospects-20260101-a-hubspot.csv",
         ["First Name", "Email", "Company Name", "Email Status", "GTM_Why_Now"],
         [
-            ["Ann", "a@x.com", "Rain", "RocketReach A", "Agent Control Layer launch (2026-06-09)"],
+            ["Ann", "a@x.com", "Rain", "RocketReach A", "Agent Control Layer launch (2026-08-15)"],
             # An intent-topic score is a targeting input, not an event to quote back.
             ["Ben", "b@y.com", "Yco", "RocketReach A", "machine learning (intent score 81)"],
             # Research recording that NO signal was found must never open an email.

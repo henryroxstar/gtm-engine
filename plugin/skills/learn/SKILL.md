@@ -17,8 +17,9 @@ This skill ingests customer decks, whitepapers, call notes, or website copy, det
 ## The procedure (execute in order)
 
 **Step 1 — Ingest and prepare the document.**
-If the user pasted raw text, save it as a Markdown file in the intake directory. If the user provided a file:
+If the user pasted raw text, save it as a Markdown file (e.g. `notes.md`) in the intake directory. If the user provided a file:
 - Markdown (`.md`): use directly.
+- Raw text or notes (`.txt`): save or rename as `.md` (e.g. `notes.md`) in the intake directory before calling `classify` to avoid `MaterialUnreadable` exceptions.
 - PDF or Word document (`.pdf`, `.docx`): the intake CLI automatically converts it using `docling convert` if available. If `docling` is missing, ask the user to provide text or install `docling`.
 
 <details>

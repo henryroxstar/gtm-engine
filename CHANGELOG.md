@@ -16,6 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-26
+
+### Added
+- **Send cards for prospect validation.** Introduces structured send cards (`gtm_core/send_cards.py`) providing CRO-grade per-contact validation, rationale, and proof points prior to outreach dispatch.
+- **Hook cell derivation and coverage.** Implements automated derivation of hook cells (`gtm_core/hook_cell.py`) and coverage tracking to dynamically map campaign hooks to prospect personas.
+- **Seniority level classification and mix reporting.** Adds role seniority level detection (`level_of`) distinguishing champions, evaluators, and economic buyers, along with seniority mix reporting across account cohorts (`gtm_core/role_vocabulary/level_mix.py`).
+- **`vocabulary-refresh` skill.** Adds automated scanning and clustering of unmapped web sweep signals and role titles to suggest updates for web sweeps and role vocabularies.
+- **Flexible firmographics ingestion.** `firmographics.apply_cmd` now supports file-based payloads (`@path` or bare file paths) alongside inline JSON payloads.
+
+### Changed
+- **Campaign dashboard seat coverage.** Resolves custom persona shadowing when displaying seat coverage, preserving custom persona titles in the dashboard instead of falling back to generic defaults.
+- **Role level cue precision.** Refined economic buyer cue matching to prevent "Vice President" titles from inappropriately triggering the president cue.
+- **Hardened send guards and secret protections.** Updated `.claude/hooks/send-guard.sh` and `secret-paste-guard.sh` with generated leaf and prefix lists for rigorous egress gating.
+
+### Fixed
+- **Carve test suite hook resolution.** Tests dynamically resolve hook paths across private and public cut layouts.
+- **Hold apply detail matching.** Restored proper matching for prior decision records without explicit `detail` keys.
+- **Account integrity rule derivation.** Kept category relation finding rules directly extractable by gate analysis.
+
 ## [0.23.0] - 2026-09-25
 
 ### Added

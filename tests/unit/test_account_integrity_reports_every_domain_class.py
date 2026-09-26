@@ -22,6 +22,7 @@ from gtm_core.account_integrity import (
     classify_dossier_folder,
     render,
 )
+from gtm_core.signal_sources import store_capture
 
 PROFILE = "acme"
 AS_OF = date(2026, 8, 19)
@@ -61,11 +62,27 @@ def _row(**kw) -> dict:
     return base
 
 
+_CAPTURE_TEXT = (
+    "Quarry Systems opened an AI agent governance program covering autonomous "
+    "agents across its claims and underwriting workflows."
+)
+
+
 def _covered(tmp_path: Path) -> tuple[Path, Path]:
     content = tmp_path / "content"
     folder = content / PROFILE / "accounts" / "quarry-systems"
     folder.mkdir(parents=True)
     (folder / "account-dossier-quarry-systems-2026-08-12.md").write_text("x", encoding="utf-8")
+    store_capture(
+        "https://quarrysystems.example/news/ai-governance",
+        _CAPTURE_TEXT,
+        sources_dir=content / "sources",
+    )
+    store_capture(
+        "https://quarrysystems.example/news/ai-governance",
+        _CAPTURE_TEXT,
+        sources_dir=content / PROFILE / "sources",
+    )
     profiles = tmp_path / "profiles"
     return content, profiles
 
@@ -141,7 +158,13 @@ def test_the_report_prints_every_counter_it_took_and_the_verdict_line(tmp_path):
     assert render(clean, pass_text="PASS (2 rows kept)").endswith("\nPASS (2 rows kept)")
 
     # No dossier behind the row: one error, counted in the block AND listed under the tally.
-    bad = _audit([_row()], tmp_path / "empty", profiles)
+    empty_content = tmp_path / "empty"
+    store_capture(
+        "https://quarrysystems.example/news/ai-governance",
+        _CAPTURE_TEXT,
+        sources_dir=empty_content / "sources",
+    )
+    bad = _audit([_row()], empty_content, profiles)
     text = render(bad)
     assert "  no-dossier:            1\n" in text
     assert "  ERRORS — 1 finding(s). Do not load until resolved:\n" in text

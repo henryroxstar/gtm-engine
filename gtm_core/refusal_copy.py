@@ -18,6 +18,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+def _format_sentence(text: str) -> str:
+    s = text.strip()
+    if not s:
+        return ""
+    s = s.rstrip(".")
+    if s.endswith(("!", "?")):
+        return s
+    return s + "."
+
+
 @dataclass(frozen=True)
 class Refusal:
     what: str
@@ -32,20 +42,26 @@ class Refusal:
             parts: list[str] = []
             what_str = str(self.what or "").strip()
             if what_str:
-                parts.append(what_str.rstrip(".") + ".")
+                parts.append(_format_sentence(what_str))
             why_str = str(self.why or "").strip()
             if why_str:
-                parts.append(f"That's because {why_str.rstrip('.')}.")
+                why_clause = why_str.rstrip(".!?")
+                parts.append(_format_sentence(f"That's because {why_clause}"))
             next_str = str(self.next_step or "").strip()
-            if next_str:
-                if self.alternative and str(self.alternative).strip():
-                    alt_str = str(self.alternative).strip().rstrip(".")
-                    parts.append(f"You can {next_str.rstrip('.')}, or {alt_str}.")
-                else:
-                    parts.append(f"You can {next_str.rstrip('.')}.")
+            alt_str = str(self.alternative or "").strip() if self.alternative else ""
+            if next_str and alt_str:
+                next_clause = next_str.rstrip(".!?")
+                alt_clause = alt_str.rstrip(".!?")
+                parts.append(_format_sentence(f"You can {next_clause}, or {alt_clause}"))
+            elif next_str:
+                next_clause = next_str.rstrip(".!?")
+                parts.append(_format_sentence(f"You can {next_clause}"))
+            elif alt_str:
+                alt_clause = alt_str.rstrip(".!?")
+                parts.append(_format_sentence(f"You can {alt_clause}"))
             cost_str = str(self.cost or "").strip()
             if cost_str:
-                parts.append(cost_str.rstrip(".") + ".")
+                parts.append(_format_sentence(cost_str))
             out = " ".join(parts).strip()
             return out or "I stopped. Nothing was spent."
         except Exception:

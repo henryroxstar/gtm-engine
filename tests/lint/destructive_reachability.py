@@ -46,7 +46,9 @@ DESTRUCTIVE_MODULES: frozenset[str] = frozenset({"gtm_core.retention_sweep", "gt
 
 #: Destructive modules an operator invokes directly. These are roots we expect to be destructive,
 #: so they are exempt as roots — they are never exempt as a *destination* from another root.
-OPERATOR_OWNED: frozenset[str] = frozenset({"gtm_core.retention_sweep", "gtm_core.snapshots"})
+OPERATOR_OWNED: frozenset[str] = frozenset(
+    {"gtm_core.retention_sweep", "gtm_core.snapshots", "gtm_core.signal_sources"}
+)
 
 #: Modules that are NAMED like a read and must stay one. ``violations()`` already checks every
 #: skill-cited root, so this set adds one thing: it asserts the module is *still cited*, which is

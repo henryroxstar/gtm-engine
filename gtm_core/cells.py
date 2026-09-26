@@ -264,17 +264,126 @@ def email_index(profile: str, content_root: Path | None = None) -> dict[str, str
         variant = variant_of(src["spec"])
         with csv_path.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
-                email = (row.get("email") or "").strip().lower()
+                email = (row.get("email") or row.get("Email") or "").strip().lower()
                 if not email or email in index:
                     continue
                 segment = (row.get("segment") or UNKNOWN).strip().lower() or UNKNOWN
+                resolved_seat = (
+                    seat_of(row.get("title") or "", profile)
+                    or (row.get("seat") or UNKNOWN).strip().lower()
+                )
                 index[email] = cell_id(
                     segment,
-                    seat_of(row.get("title") or "", profile),
+                    resolved_seat,
                     variant,
                     src.get("overlay") or BASE_OVERLAY,
                 )
     return index
+
+
+def resolve_reply_cell(
+    reply_email: str | None,
+    profile: str,
+    content_root: Path | None = None,
+) -> str | None:
+    """Resolve a reply email back to its expected ``cell_id``.
+
+    Uses ``cells.toml`` to find registered enrolment CSVs (such as
+    ``<sequence>-enrolled.csv``) and specs, mapping the replying address
+    to the (overlay, segment, seat, variant) learning cell it was sent from.
+
+    Returns ``None`` if the email is not enrolled in any registered sequence,
+    or if ``cells.toml`` is absent / empty.
+    """
+    clean_email = (reply_email or "").strip().lower()
+    if not clean_email:
+        return None
+    index = email_index(profile, content_root)
+    return index.get(clean_email)
+
+
+def register_sequence(
+    profile: str,
+    sequence_id: str,
+    csv: str,
+    spec: str,
+    *,
+    title: str = "",
+    campaign: str = "",
+    lane: str = "",
+    overlay: str | None = None,
+    content_root: Path | None = None,
+) -> Path:
+    """Register an approved sequence in ``cells.toml``.
+
+    Points ``sequence_id`` at its enrolment CSV (e.g. an ``-enrolled.csv`` holding
+    approved members) and spec file. If ``sequence_id`` already exists in ``cells.toml``,
+    its entry is updated idempotently; otherwise a new entry is appended.
+
+    Returns the path to ``cells.toml``.
+    """
+    path = cells_map_path(profile, content_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    entries: list[dict] = []
+    if path.is_file():
+        try:
+            with path.open("rb") as fh:
+                doc = tomllib.load(fh)
+                entries = doc.get("sequence", [])
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"Corrupt cells.toml at {path}: {exc}") from exc
+        except OSError as exc:
+            raise ValueError(f"Unreadable cells.toml at {path}: {exc}") from exc
+
+    clean_csv = _safe_segment(csv, "csv")
+    new_entry = {
+        "id": str(sequence_id).strip(),
+        "csv": clean_csv,
+        "spec": str(spec).strip(),
+    }
+    if title:
+        new_entry["title"] = str(title).strip()
+    if campaign:
+        new_entry["campaign"] = str(campaign).strip()
+    if lane:
+        new_entry["lane"] = str(lane).strip().lower()
+    if overlay and overlay.strip().lower() != BASE_OVERLAY:
+        new_entry["overlay"] = overlay.strip().lower()
+
+    updated = False
+    for i, entry in enumerate(entries):
+        if entry.get("id") == str(sequence_id).strip():
+            entries[i] = {**entry, **new_entry}
+            updated = True
+            break
+    if not updated:
+        entries.append(new_entry)
+
+    blocks = []
+    for entry in entries:
+        lines = [
+            "[[sequence]]",
+            f"id = {json.dumps(str(entry['id']))}",
+            f"csv = {json.dumps(str(entry['csv']))}",
+            f"spec = {json.dumps(str(entry['spec']))}",
+        ]
+        if entry.get("title"):
+            lines.append(f"title = {json.dumps(str(entry['title']))}")
+        if entry.get("campaign"):
+            lines.append(f"campaign = {json.dumps(str(entry['campaign']))}")
+        if entry.get("lane"):
+            lines.append(f"lane = {json.dumps(str(entry['lane']))}")
+        if entry.get("overlay") and entry["overlay"] != BASE_OVERLAY:
+            lines.append(f"overlay = {json.dumps(str(entry['overlay']))}")
+        blocks.append("\n".join(lines))
+
+    content = "\n\n".join(blocks) + "\n"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+register_enrolled_sequence = register_sequence
 
 
 def build_cells(

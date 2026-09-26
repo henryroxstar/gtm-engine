@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.permissions import _EXTERNAL_EFFECT_LEAVES
+from agent.permissions import _ENROLL_PREFIXES, _EXTERNAL_EFFECT_LEAVES, _SEND_STATE_PREFIXES
 
 ROOT = Path(__file__).resolve().parents[2]
 IS_CARVE = not (ROOT / "oss").is_dir()
@@ -31,6 +31,7 @@ OVERLAY_SETTINGS = OVERLAY_CLAUDE / "settings.json"
 SECRET_GUARD = OVERLAY_CLAUDE / "hooks" / "secret-paste-guard.sh"
 SEND_GUARD = OVERLAY_CLAUDE / "hooks" / "send-guard.sh"
 SEND_LEAVES = OVERLAY_CLAUDE / "hooks" / "send-leaves.txt"
+SEND_PREFIXES = OVERLAY_CLAUDE / "hooks" / "send-prefixes.txt"
 EXPORT_SCRIPT = ROOT / "scripts" / "oss-export.sh"
 
 
@@ -96,6 +97,20 @@ def test_send_leaves_file_matches_code_set():
     ]
     assert set(lines) == _EXTERNAL_EFFECT_LEAVES
     assert lines == sorted(_EXTERNAL_EFFECT_LEAVES)
+
+
+def test_send_prefixes_file_matches_code_prefixes():
+    """The hook's prefix families are generated from agent.permissions; a hand edit to either
+    side would let the interactive path and the headless path disagree about a hosted verb."""
+    assert SEND_PREFIXES.is_file(), f"{SEND_PREFIXES} must exist"
+    pairs = [
+        tuple(line.split())
+        for line in SEND_PREFIXES.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert {p for d, p in pairs if d == "deny"} == set(_SEND_STATE_PREFIXES)
+    assert {p for d, p in pairs if d == "ask"} == set(_ENROLL_PREFIXES)
+    assert {d for d, _ in pairs} == {"deny", "ask"}
 
 
 def test_hook_scripts_executable():

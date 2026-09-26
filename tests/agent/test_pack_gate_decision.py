@@ -26,6 +26,8 @@ _ENROLL_DRAFT = {
     "step_id": "step-1",
     "steps": [{"step_id": "step-1", "variants": [{"subject": "Hello", "content": "<p>Hi</p>"}]}],
     "lead_ids": [111, 222],
+    "source": "send-cards",
+    "card_ids": ["card-1"],
 }
 
 

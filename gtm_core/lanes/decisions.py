@@ -297,6 +297,7 @@ class ApplyPlan:
     suppress: list[DecisionEntry] = field(default_factory=list)
     generic: list[DecisionEntry] = field(default_factory=list)
     salvage: list[DecisionEntry] = field(default_factory=list)
+    send: list[DecisionEntry] = field(default_factory=list)
     held: list[DecisionEntry] = field(default_factory=list)
     already: list[DecisionEntry] = field(default_factory=list)
     #: Same decision as the ledger's, recorded against a different ``detail``. The router
@@ -311,7 +312,7 @@ class ApplyPlan:
             f"suppress {len(self.suppress)} contact(s), retiring "
             f"{sum(1 for e in self.suppress if retires_account(e))} account(s) "
             "(reversible, eval-disqualified) · "
-            f"generic {len(self.generic)} · salvage {len(self.salvage)} · still held {len(self.held)}"
+            f"generic {len(self.generic)} · salvage {len(self.salvage)} · send {len(self.send)} · still held {len(self.held)}"
             + (f" · detail updated {len(self.detail_updated)}" if self.detail_updated else "")
             + (f" · already recorded {len(self.already)}" if self.already else "")
         ]
@@ -407,8 +408,6 @@ def plan_apply(entries: list[DecisionEntry], prior: dict[tuple[str, str], dict])
             continue
         old = prior.get((e.trigger, e.account_key))
         if old and old.get("decision") == e.decision:
-            # Same test as `router._apply_decision`: a record with no `detail` key answers
-            # every detail, so re-recording it would change nothing.
             if "detail" in old and old["detail"] != e.detail:
                 plan.detail_updated.append(e)
             else:
@@ -506,7 +505,7 @@ def apply(plan: ApplyPlan, profile: str, stamp: str, content_root: Path | None =
             unmatched = list(summary["unmatched"])
     recorded = []
     # `detail_updated` is recorded only: its suppression (if any) is already on the ledger.
-    for kind in ("suppress", "generic", "salvage", "detail_updated"):
+    for kind in ("suppress", "generic", "salvage", "send", "detail_updated"):
         for e in getattr(plan, kind):
             recorded.append(
                 {

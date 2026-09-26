@@ -47,6 +47,7 @@ an older export keeps importing; the first spelling is the one to write today.
 | `lane` | — | one of `personalised` / `repair` / `generic` / `hold` / `excluded` — which BODY this row can carry. Read by the enrollment gate (`account_integrity --lane`), which refuses a list whose column disagrees. Stamped by `gtm_core.lanes route`, never by hand: pooled CSVs are rebuilt, so a hand-written value is discarded on the next sweep |
 | `lane_reason` | — | why this lane; required for anything but `personalised` |
 | `GTM_Industry` | `Industry`, `industry` | the account's industry classification from `latest.json`, a firmographic fact `premise-vocab.toml` may attest a premise from (`industry_terms`); blank when the ledger has none |
+| `GTM_Hook_Cell` | `Hook Cell`, `hook_cell` | the messaging matrix cell coordinate (segment|signal) derived at research time |
 
 ## Columns the pipeline assigns
 
@@ -66,6 +67,11 @@ columns an input that claimed to be judged would be believed by nothing.
 | `pool_row_id` | stamped once by consolidate; never supplied |
 | `account_id` | stamped by latest.json, joined here; never supplied |
 | `verdict_on` | the account's research date for its verdict, carried with it; never supplied |
+| `contact_level` | derived from title by level_of; never supplied |
+| `premise_evidence` | the terms that attested the row's premise; stamped by the pipeline |
+| `firmo_source` | the provider or technique that filled firmographics; stamped by firmographics writer |
+| `firmo_on` | ISO date firmographics were last filled; stamped by firmographics writer |
+| `researched_for_wave` | wave identifier this row was researched for; stamped by research queue |
 
 ## The record is not optional
 

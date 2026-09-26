@@ -108,6 +108,8 @@ _HOLD_TRIGGERS: frozenset[str] = frozenset(
         "untraceable-number",
         "tier-a-generic",
         "duplicate-contact",
+        "champion-missing",
+        "missing-hook-cell",
         "unattended-generic",
         "unattended-repair",
     }

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import os
 import shutil
 import sys
 import tomllib
@@ -88,11 +89,22 @@ def live_path(profiles_root: Path, profile: str, topic: str) -> Path:
     return profiles_root / profile / "knowledge" / rel
 
 
+def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Write text to path atomically via a sibling temp file and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.parent / f".{path.name}.tmp.{_utc_stamp()}"
+    try:
+        tmp_path.write_text(text, encoding=encoding)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
 def stage(content_root: Path, profile: str, topic: str, candidate_text: str) -> Path:
     """Write a refreshed candidate to the profile's staging area. Returns the staged path."""
     target = staged_path(content_root, profile, topic)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(candidate_text, encoding="utf-8")
+    _atomic_write_text(target, candidate_text, encoding="utf-8")
     return target
 
 
@@ -218,9 +230,16 @@ def restore(
         topic_name = Path(topic).name
         topic_parent = Path(topic).parent
         search_dir = snap_dir / topic_parent
-        snaps = sorted(p for p in search_dir.glob(f"{topic_name}.*") if p.is_file())
-        if not snaps and not topic_name.endswith(".md"):
-            snaps = sorted(p for p in search_dir.glob(f"{topic_name}.md.*") if p.is_file())
+        if Path(topic).suffix:
+            snaps = sorted(p for p in search_dir.glob(f"{topic_name}.*") if p.is_file())
+        else:
+            # Bare topic (defaults to .md): match .md.<stamp> or bare .<digit><stamp>, never .toml.<stamp>
+            snaps = sorted(
+                p
+                for p in list(search_dir.glob(f"{topic_name}.md.*"))
+                + list(search_dir.glob(f"{topic_name}.[0-9]*"))
+                if p.is_file()
+            )
         if not snaps:
             raise FileNotFoundError(f"no snapshots for {topic} in {snap_dir}")
         src = snaps[-1]
@@ -229,7 +248,13 @@ def restore(
     # Snapshot current file first so restore is reversible
     snapshot_topic(profiles_root, content_root, profile, topic, now=now)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, target)
+    tmp_target = target.parent / f".{target.name}.tmp.{_utc_stamp(now)}"
+    try:
+        shutil.copy2(src, tmp_target)
+        os.replace(tmp_target, target)
+    finally:
+        if tmp_target.exists():
+            tmp_target.unlink(missing_ok=True)
     return src
 
 
@@ -276,10 +301,9 @@ def promote(
     target = live_path(profiles_root, profile, topic)
     # Snapshot the live file before overwriting (R-14)
     snapshot_topic(profiles_root, content_root, profile, topic, now=now)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(stamped, encoding="utf-8")
+    _atomic_write_text(target, stamped, encoding="utf-8")
     if remove_staged:
-        staged.unlink()
+        staged.unlink(missing_ok=True)
     return target
 
 

@@ -47,7 +47,12 @@ PLANNING_GRAPH = REPO / "packs" / "planning" / "graphs" / "planning.toml"
 @pytest.fixture()
 def cfg(tmp_path):
     base = Config.from_env(repo_root=REPO)
-    return dataclasses.replace(base, content_root=tmp_path / "content")
+    (tmp_path / "profiles" / PROFILE).mkdir(parents=True, exist_ok=True)
+    return dataclasses.replace(
+        base,
+        content_root=tmp_path / "content",
+        profiles_root=tmp_path / "profiles",
+    )
 
 
 def run_pack(

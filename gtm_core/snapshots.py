@@ -28,12 +28,13 @@ def group_snapshots_by_topic(snap_dir: Path) -> dict[str, list[Path]]:
     if not snap_dir.is_dir():
         return {}
     groups: dict[str, list[Path]] = defaultdict(list)
-    for p in sorted(snap_dir.glob("*.*")):
+    for p in sorted(snap_dir.rglob("*.*")):
         if not p.is_file():
             continue
-        # Format is <topic>.<timestamp>
-        # e.g., company.20260601T120000-000100Z
-        topic = p.name.rsplit(".", 1)[0]
+        # Format is <topic>.<timestamp>, possibly nested in subdirectories
+        rel = p.relative_to(snap_dir)
+        topic_stem = rel.name.rsplit(".", 1)[0]
+        topic = (rel.parent / topic_stem).as_posix()
         groups[topic].append(p)
     return dict(groups)
 

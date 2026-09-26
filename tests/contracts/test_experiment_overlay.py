@@ -455,3 +455,73 @@ def test_a_merged_rubric_is_the_overlays_not_the_profiles(tmp_path) -> None:
         "the lint would have validated the tenant's rubric while the run used the overlay's"
     )
     assert set(rubric("w38")["geo_bonus"]) == {"singapore"}
+
+
+def test_gate_keys_refusal(tmp_path, monkeypatch):
+    monkeypatch.setenv("GTM_EXPERIMENT_OVERLAY_ENABLED", "1")
+    import gtm_core.experiments as experiments
+    from gtm_core.experiments import GATE_KEYS, OverlayError, admit
+
+    assert {
+        "level",
+        "wedge_seats",
+        "on_topic_by_terms",
+        "min_distinct",
+        "attests_boundary",
+    }.issubset(GATE_KEYS)
+
+    base = tmp_path / "tenant"
+    (base / "knowledge").mkdir(parents=True)
+    (base / "experiments" / "w38").mkdir(parents=True)
+
+    manifest = 'slug = "w38"\nowner = "x"\nquestion = "y"\nexpires = "2099-01-01"\n'
+    (base / "experiments" / "w38" / "EXPERIMENT.toml").write_text(manifest)
+
+    # base
+    (base / "knowledge" / "role-vocabulary.toml").write_text(
+        'lead_pain = "foo"\nwedge_seats = ["a"]\n[level]\ncto = "champion"\n'
+    )
+
+    # overlay changing level
+    (base / "experiments" / "w38" / "role-vocabulary.toml").write_text(
+        'lead_pain = "foo"\nwedge_seats = ["a"]\n[level]\ncto = "evaluator"\n'
+    )
+    with pytest.raises(OverlayError, match="level"):
+        admit("tenant", "w38", tmp_path)
+
+    # overlay changing wedge_seats
+    (base / "experiments" / "w38" / "role-vocabulary.toml").write_text(
+        'lead_pain = "foo"\nwedge_seats = ["b"]\n[level]\ncto = "champion"\n'
+    )
+    with pytest.raises(OverlayError, match="wedge_seats"):
+        admit("tenant", "w38", tmp_path)
+
+    # premise-vocab gate keys refusal
+    base_pv = 'on_topic_by_terms = ["ai"]\nmin_distinct = 2\nattests_boundary = true\n'
+    (base / "knowledge" / "premise-vocab.toml").write_text(base_pv)
+    for pkey, old_v, new_v in [
+        ("on_topic_by_terms", '["ai"]', '["automation"]'),
+        ("min_distinct", "2", "5"),
+        ("attests_boundary", "true", "false"),
+    ]:
+        (base / "experiments" / "w38" / "premise-vocab.toml").write_text(
+            base_pv.replace(f"{pkey} = {old_v}", f"{pkey} = {new_v}")
+        )
+        with pytest.raises(OverlayError, match=pkey):
+            admit("tenant", "w38", tmp_path)
+    (base / "experiments" / "w38" / "premise-vocab.toml").unlink()
+
+    # overlay changing non-gate key (lead_pain)
+    (base / "experiments" / "w38" / "role-vocabulary.toml").write_text(
+        'lead_pain = "bar"\nwedge_seats = ["a"]\n[level]\ncto = "champion"\n'
+    )
+    exp = admit("tenant", "w38", tmp_path)
+    assert "role-vocabulary.toml" in exp.files
+
+    # negative control: remove level from GATE_KEYS -> changing level is admitted
+    monkeypatch.setattr(experiments, "GATE_KEYS", GATE_KEYS - {"level"})
+    (base / "experiments" / "w38" / "role-vocabulary.toml").write_text(
+        'lead_pain = "bar"\nwedge_seats = ["a"]\n[level]\ncto = "evaluator"\n'
+    )
+    exp_neg = admit("tenant", "w38", tmp_path)
+    assert "role-vocabulary.toml" in exp_neg.files

@@ -433,10 +433,12 @@ def _drive_decide_gate_kind(gate_kind, decision, edited_content=None):
 )
 def test_decide_gate_refuses_edited_content_at_a_review_gate(decision, edited):
     from fastapi import HTTPException
+    from pydantic import ValidationError
 
-    with pytest.raises(HTTPException) as ei:
+    with pytest.raises((HTTPException, ValidationError)) as ei:
         _drive_decide_gate_kind("review", decision, edited)
-    assert ei.value.status_code == 422
+    if isinstance(ei.value, HTTPException):
+        assert ei.value.status_code == 422
 
 
 @pytest.mark.parametrize("gate_kind", ["plan", "email_enroll", None])

@@ -15,6 +15,10 @@ import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..hook_coverage.matrix import Matrix
 
 from ..account_integrity import CompetitorHit, load_competitors
 from ..cells import load_cell_map
@@ -75,6 +79,7 @@ class RouterContext:
     strategic: set[str] = field(default_factory=set)  # org tokens
     policy_auto: dict[str, str] = field(default_factory=dict)  # trigger -> generic|salvage
     notes: list[str] = field(default_factory=list)
+    matrix: Matrix | None = None
 
 
 def _knowledge_path(profile: str, name: str, profiles_root: Path | None) -> Path:
@@ -279,4 +284,14 @@ def load_context(
     _load_statuses(ctx, profile, root)
     _load_policy(ctx, _knowledge_path(profile, POLICY_FILE, profiles_root))
     _load_strategic(ctx, _knowledge_path(profile, STRATEGIC_FILE, profiles_root))
+
+    # Load hook matrix
+    matrix_path = _knowledge_path(profile, "hook-matrix.md", profiles_root)
+    if matrix_path.is_file():
+        from ..hook_coverage.matrix import parse_matrix
+
+        ctx.matrix = parse_matrix(matrix_path, profile=profile)
+    else:
+        ctx.notes.append("no hook-matrix.md: missing-hook-cell will only check coordinate format")
+
     return ctx

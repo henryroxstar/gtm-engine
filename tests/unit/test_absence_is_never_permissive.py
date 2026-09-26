@@ -434,3 +434,22 @@ def test_the_emails_bounce_source_is_the_one_granting_value() -> None:
         _seq_bounce_rate({"bounce_source": "emails", "bounced": 31, "delivered": 969})
         == "<span class='pill risk' data-risk='bounce-rate'>3.1%</span>"
     )
+
+
+# R1.2 Missing File Degradation for AI Vocab
+def test_missing_ai_vocabulary_file_refuses_to_initialize(monkeypatch):
+    import pytest
+
+    from gtm_core.web_sweep_hits import _determine_agent_kind
+
+    def mock_resolve(profiles_root, p, filename, **kwargs):
+        from pathlib import Path
+
+        return Path("/does/not/exist")
+
+    import gtm_core.web_sweep_hits as module
+
+    monkeypatch.setattr(module, "resolve_knowledge_file", mock_resolve)
+
+    with pytest.raises(FileNotFoundError):
+        _determine_agent_kind("We are building agentic finance solutions.", profile="test")

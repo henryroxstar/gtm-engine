@@ -67,7 +67,7 @@ __all__ = [
 #: it were writable by this path: a research pass is exactly where the row's own signal is
 #: first known, and ``load_records`` rejects anything not in this tuple by design -- so a
 #: typo'd or renamed field is a load-time error, never a silently dropped one.
-RECORD_INPUT_FIELDS = ("email", "signal_clause", SIGNAL_COLUMN, *RECORD_COLUMNS)
+RECORD_INPUT_FIELDS = ("email", "signal_clause", SIGNAL_COLUMN, "hook_cell", *RECORD_COLUMNS)
 
 
 @dataclass(frozen=True)
@@ -122,6 +122,40 @@ def load_records(path: Path) -> dict[str, dict]:
     return out
 
 
+def _validate_candidate_hook(
+    candidate: dict, matrix: object | None, fieldnames: list[str], email: str, company: str
+) -> Refusal | None:
+    if matrix is None or not getattr(matrix, "ok", False):
+        return None
+    from .hook_cell import derive_hook_cell, validate_hook_cell
+    from .hook_coverage import signal_columns_for_segment
+
+    coord, _ = derive_hook_cell(
+        candidate.get("segment") or "",
+        candidate.get(SIGNAL_COLUMN) or "",
+        matrix=matrix,
+    )
+    if coord:
+        candidate["hook_cell"] = coord
+        if "hook_cell" not in fieldnames:
+            fieldnames.append("hook_cell")
+
+    signal_value = (candidate.get(SIGNAL_COLUMN) or "").strip()
+    if signal_value:
+        is_valid, _ = validate_hook_cell(candidate.get("hook_cell") or "", matrix=matrix)
+        if not is_valid:
+            valid = signal_columns_for_segment(matrix, candidate.get("segment") or "")
+            if not any(signal_value.lower() == s.lower() for s in valid):
+                return Refusal(
+                    email,
+                    company,
+                    "signal-column-unknown",
+                    f"{SIGNAL_COLUMN} {signal_value!r} is not a valid signal for this "
+                    f"row's segment grid ({len(valid)} valid: {', '.join(sorted(valid)) or 'none'})",
+                )
+    return None
+
+
 def apply_records(
     rows: list[dict],
     fieldnames: list[str],
@@ -157,6 +191,8 @@ def apply_records(
         SIGNAL_COLUMN in rec for rec in records.values()
     ):
         res.fieldnames.append(SIGNAL_COLUMN)
+    if "hook_cell" not in res.fieldnames and any("hook_cell" in rec for rec in records.values()):
+        res.fieldnames.append("hook_cell")
     mirror_to_why_now = "signal_clause" not in fieldnames and "why_now" in fieldnames
     seen: set[str] = set()
 
@@ -181,24 +217,14 @@ def apply_records(
         if mirror_to_why_now:
             candidate["why_now"] = candidate.get("signal_clause") or ""
 
-        findings = [f for f in check_record(candidate, as_of=as_of) if f.level == "block"]
-        signal_value = (candidate.get(SIGNAL_COLUMN) or "").strip()
-        if signal_value and matrix is not None and getattr(matrix, "ok", False):
-            from .hook_coverage import signal_columns_for_segment
+        company = (row.get("company") or "").strip()
+        matrix_refusal = _validate_candidate_hook(candidate, matrix, res.fieldnames, email, company)
+        if matrix_refusal is not None:
+            res.refusals.append(matrix_refusal)
+            res.rows.append(out)
+            continue
 
-            valid = signal_columns_for_segment(matrix, candidate.get("segment") or "")
-            if not any(signal_value.lower() == s.lower() for s in valid):
-                res.refusals.append(
-                    Refusal(
-                        email,
-                        (row.get("company") or "").strip(),
-                        "signal-column-unknown",
-                        f"{SIGNAL_COLUMN} {signal_value!r} is not a valid signal for this "
-                        f"row's segment grid ({len(valid)} valid: {', '.join(sorted(valid)) or 'none'})",
-                    )
-                )
-                res.rows.append(out)
-                continue
+        findings = [f for f in check_record(candidate, as_of=as_of) if f.level == "block"]
         if findings:
             for f in findings:
                 res.refusals.append(
@@ -235,9 +261,12 @@ def write_list(res: BackfillResult, out_path: Path) -> None:
     if len(back) != len(res.rows):
         tmp.unlink(missing_ok=True)
         raise ValueError(f"{out_path}: round-trip lost rows ({len(back)} != {len(res.rows)})")
-    check_cols = (
-        (*RECORD_COLUMNS, SIGNAL_COLUMN) if SIGNAL_COLUMN in res.fieldnames else RECORD_COLUMNS
-    )
+    check_cols = list(RECORD_COLUMNS)
+    if SIGNAL_COLUMN in res.fieldnames:
+        check_cols.append(SIGNAL_COLUMN)
+    if "hook_cell" in res.fieldnames:
+        check_cols.append("hook_cell")
+
     for before, after in zip(res.rows, back, strict=True):
         for col in check_cols:
             if (before.get(col) or "") != (after.get(col) or ""):

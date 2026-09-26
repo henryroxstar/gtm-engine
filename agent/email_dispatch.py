@@ -25,6 +25,7 @@ Invariants this module preserves:
 
 from __future__ import annotations
 
+import datetime
 import html
 import json
 import logging
@@ -345,8 +346,19 @@ async def dispatch_approved_enrollment(
     )
 
     rows = None
+    refusal = None
+    expires_on = draft.get("expires_on")
+    if expires_on:
+        try:
+            exp_date = datetime.date.fromisoformat(str(expires_on).strip())
+            if datetime.date.today() > exp_date:
+                refusal = f"draft expired on {expires_on}"
+        except ValueError:
+            refusal = f"draft has invalid expires_on {expires_on!r}"
+
     try:
-        refusal = _lane_refusal(draft, ledgers, cfg)
+        if refusal is None:
+            refusal = _lane_refusal(draft, ledgers, cfg)
         if refusal is None:
             refusal = await _live_copy_refusal(api_key, draft)
         if refusal is None and tool == "import_prospects_to_sequence":

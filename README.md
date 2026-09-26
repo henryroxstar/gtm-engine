@@ -12,64 +12,59 @@
 
 <p align="center">
   <a href="https://github.com/henryroxstar/gtm-engine/stargazers"><img src="https://img.shields.io/github/stars/henryroxstar/gtm-engine?style=flat&label=Stars" alt="Stars" /></a>
-  <a href="https://twitter.com/intent/tweet?text=The%20open-source%20GTM%20agent%20harness%20for%20startups%3A%2082%20skills%2C%20zero%20auto-spam%2C%20runs%20locally%20in%20Claude%20Code%20or%20Antigravity.&url=https%3A%2F%2Fgithub.com%2Fhenryroxstar%2Fgtm-engine"><img src="https://img.shields.io/badge/Share%20on-X-black?style=flat&logo=x" alt="Share on X" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+" /></a>
   <a href="https://docs.anthropic.com/en/api/agent-sdk/overview"><img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-d97757.svg" alt="Built with Claude Agent SDK" /></a>
-  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/connectivity-MCP--first-6E56CF.svg" alt="MCP-first" /></a>
   <a href="#why-its-built-this-way"><img src="https://img.shields.io/badge/human%20gates-non--bypassable-2ea44f.svg" alt="Human Gates" /></a>
-  <a href="#profiles-multi-company"><img src="https://img.shields.io/badge/tenants-isolated%20profiles-blueviolet.svg" alt="Tenant Isolation" /></a>
-  <a href="#workspace--harness-support"><img src="https://img.shields.io/badge/workspaces-Claude%20%7C%20Antigravity%20%7C%20Cursor%20%7C%20Codex-orange.svg" alt="Harness Support" /></a>
 </p>
 
 ![How a run works: signal → plan → human gate → studio → human gate → out](docs/assets/gtm-pipeline-flow.png)
 
 *The open-source Go-To-Market agent harness for B2B software startups. Built to 10x early-stage startups across their sales, pre-sales, and field-marketing activities.*
 
+> **Not technical?** Start at [`END-USER-ONBOARDING.md`](END-USER-ONBOARDING.md) — install to first
+> output with no terminal and no commands. Running outbound? [`PROSPECTING.md`](PROSPECTING.md)
+> shows what you get and which calls are yours. This page is for the reader who wants the
+> mechanics.
+
 <p align="center">
   <img src="docs/assets/hero-demo.gif" alt="GTM Engine Demo" width="750" />
 </p>
-<p align="center"><em>From zero setup to staged outbound in 30 seconds — you approve every reach</em></p>
+<p align="center"><em>From your website to a first drafted output — you approve every reach</em></p>
 
-### You're the founder. You're also the entire Go-To-Market (GTM) team.
+### You're the founder. You're also the entire GTM team.
 
-You wear every hat, you're running lean, and you're still hunting for product-market fit. So closing
-deals was never the whole job. You also have to *build* the pipeline that feeds those deals. You have
-to carry the voice of the customer back into the building so the product actually bends toward PMF.
-You have to sound fluent about a product that isn't fully built and whose docs went stale two sprints
-ago — without dragging an engineer into every call. And every week the market moves, so every week
-you're testing new messaging, reading the signals, and shipping content to pull the right buyers
-toward you.
+You close the deals, and you build the pipeline that feeds them. You carry the customer's voice back
+to the product. You pitch a product whose docs went stale two sprints ago. And every week the market
+moves, so you test new messaging and ship new content.
 
-That's five jobs. The playbook says hire five people. You have a laptop, your existing AI workspace
-(Claude, Google Antigravity, Cursor, or Codex), and this week.
+That's five jobs. You have a laptop, your AI workspace, and this week.
 
-**GTM Engine is the harness that runs those five jobs with you.** Cold prospecting, call prep, account
-plans, decks, market scans, and on-brand multi-platform content (LinkedIn posts, blog articles,
-podcasts, images) — all driven from a sentence you type, all in your voice, off your real company
-knowledge. And it runs as an AI agent that _structurally cannot_ publish, send, or leak on its own.
-It doesn't ask for your trust; it's built so it can't overreach.
+**GTM Engine runs those five jobs with you.** Prospecting, call prep, account plans, decks, market
+scans and on-brand content — each started from one sentence, written in your voice, from your real
+company knowledge.
 
-Three things never change: nothing sends or publishes without your exact sign-off, each company's
-data stays isolated in its own profile, and on the self-hosted server and the API, sending and publishing tools are denied in code and shell egress is blocked. In the desktop app, every outside action asks you first, the engine is instructed never to send, and the shipped settings file denies the send tools and shell downloads outright. Most agent
-frameworks ask you to trust broad permissions; this one is built so there's nothing broad to trust.
-(The [how and why](#why-its-built-this-way) is spelled out further down.)
+**And it can't overreach.** Nothing sends or publishes until you approve the exact words. Each
+company's data stays in its own profile. On the server and the API, send and publish tools are
+denied in code; in the desktop app, every outside action asks you first and the shipped settings
+deny the send tools outright. ([How and why](#why-its-built-this-way).)
 
 ### Why GTM Engine? (The Architectural Contrast)
 
 | Capability | Black-Box "AI SDR" Platforms | Raw Prompts (ChatGPT / Claude) | Generic Agent Frameworks | **GTM Engine** |
 |---|---|---|---|---|
-| **Cost** | \$500–\$3,000 / mo | \$20 / mo (heavy manual copy-paste) | Token spend + hosting fees | **\$0 base** (runs on your existing workspace — Claude, Antigravity, Cursor, or Codex) |
+| **Cost** | Per-seat or per-contact subscription | Your AI plan (heavy manual copy-paste) | Token spend + hosting fees | **Your existing AI plan**, plus any data provider you choose to connect — metered calls are capped before they run |
 | **Outbound Safety** | Auto-sends cold emails (reputation risk) | Manual review | Broad tool permissions | **Non-bypassable human gates** (cannot auto-send) |
-| **Company Context** | Rigid scraping | Re-pasting context every prompt | Custom vector DB plumbing | **Profile Second Brain** (onboard once, inherits everywhere) |
-| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **82 skills & 11 packs** (video, decks, posts, SDR) |
-| **Data Privacy** | Third-party cloud vendor lock-in | Shared training data | Varies | **100% Local / Gitignored** (data stays on your machine) |
+| **Company Context** | Rigid scraping | Re-pasting context every prompt | Custom vector DB plumbing | **Profile Second Brain** — onboard once and every skill reads it: company and products, ICP and buyer personas, voice and banned phrases, competitors, case studies, and a fact sheet of product claims and proof. Each claim is marked verified, conditional or roadmap, and each figure measured or disputed, so a draft cannot overstate. Research never writes to it; refreshes are staged for your approval, and stale knowledge is flagged before a run relies on it |
+| **Content Craft** | Template merge fields (`Hi {first_name}`) | The model's default voice, and its tells | Whatever your prompts enforce | **Enforced, not just prompted** — openings drawn from 10 hook archetypes and tied to a real researched fact, written in your voice, then two hard gates: an anti-AI-prose linter and per-platform format rules a draft must pass before you see it ([detail](#content-craft--what-makes-the-output-land)) |
+| **Workflow Variety** | Cold email only | Plain text only | Requires coding custom graphs | **Prospecting, content, video, decks and pre-sales** as ready-made workflows |
+| **Data Privacy** | Held in the vendor's cloud | Pasted into each chat | Varies | **Local files, gitignored** — data leaves only through the tools you connect |
 
 **You onboard once.** Say `"set me up"` and point it at your website; it reads your site and drafts
 your whole company profile (brand, ICP, voice, competitors, products), so every skill after that
 already knows who you are and you never paste your company into a prompt again.
 
-### 30-Second Quickstart
+### Quickstart
 
 ```bash
 # 1. Clone the repository
@@ -78,9 +73,11 @@ git clone https://github.com/henryroxstar/gtm-engine.git && cd gtm-engine
 # 2. Open this folder in your AI workspace (Claude Desktop, Google Antigravity, Cursor, or Codex)
 
 # 3. Type in chat:
-"set me up" --site yourcompany.com
+"set me up — here's our site: yourcompany.com"
 ```
-*Zero Docker, zero background servers, zero API keys required for your first run.*
+*No Docker, no background servers, and no API keys for your first output. The setup run takes about
+two minutes; reviewing the profile it drafts is the longer part. Sendable outreach additionally
+needs a data enrichment tool (RocketReach or Apollo) — see [Tools & keys](#tools--keys).*
 
 ---
 
@@ -146,6 +143,7 @@ every run gets.
 ## Four ways to run and integrate
 
 One shared core engine (`gtm_core`), four integration surfaces. **Pick one — do not mix them.**
+Most people want mode 1 and can skip the rest of this table.
 
 | Mode | Who it's for | How you run it | What NOT to do |
 |---|---|---|---|
@@ -158,7 +156,7 @@ One shared core engine (`gtm_core`), four integration surfaces. **Pick one — d
 
 | Workspace / Harness | Support Level | How skills load | Notes |
 |---|---|---|---|
-| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for all 82 skills, MCPs, and interactive gates |
+| **Claude Desktop / Code** | Native | Plugin (`plugin/`) | Full support for every skill, MCP, and interactive gate |
 | **Google Antigravity** | Native | Auto-discovered via `.agents/` | Multi-agent workflows, native `run_command` and file tools |
 | **Cursor / Codex** | Supported | `.agents/AGENTS.md` + `.cursor/` rules | Interactive chat mode; skills invoke via prompt conventions |
 | **Headless VPS (Agent SDK)** | Dedicated Runtime | Containerized agent loop | 24/7 autonomous graph execution behind Telegram human gates |
@@ -203,9 +201,10 @@ real interpreter is reachable rather than the Store-alias stub that shadows it o
 surface (self-hosted Telegram, or the API)? See
 [`docs/onboarding-surfaces.md`](docs/onboarding-surfaces.md) for what's identical and what differs.
 
-**Step 2 — Configure your tools and keys (required — don't skip).**
+**Step 2 — Configure your tools and keys (required for sendable outbound; optional otherwise).**
 `"set me up"` scaffolds your profile but it **does not add your API keys for you** — that's a manual
-step, and it's where most of the value comes from. Decide which tools your work needs (see
+step, and it's where most of the value comes from. Every skill runs without keys; a data
+enrichment tool is what turns a scored prospect list into one you can send to. Decide which tools your work needs (see
 [Tools & keys](#tools--keys) for what each one powers and why), then connect them:
 
 - **Metered data connectors** (Vibe Prospecting, RocketReach, Apollo) — connect the OAuth connector or
@@ -217,20 +216,20 @@ step, and it's where most of the value comes from. Decide which tools your work 
 - **Set your budget caps.** `setup` records a monthly and per-run cap so a metered tool can never
   quietly overspend — every paid call is checked against the cap *before* it runs.
 
-#### Environment Doctor (`check_env`)
+#### Check what is set up
 
-Run the built-in diagnostic doctor check to verify that your active profile, connectors, keys, and spend caps are resolved before running skills:
+Three read-only checks, each answering one question:
 
 ```bash
-uv run python -m gtm_core.check_env
+uv run python -m gtm_core.check_env                           # which keys are set, and what each unlocks
+uv run python -m gtm_core.profile status                      # which profile is active
+uv run python -m gtm_core.budget_status --profile <you>       # your monthly cap and what is spent
 ```
 
-| Doctor Check | What it validates | If unconfigured |
-|---|---|---|
-| **Active Profile** | Confirms `profiles/<active>/` bundle, knowledge corpus, and `PROFILE.md` syntax | Warns if profile is missing; prompts to run `"set me up"` |
-| **Metered Connectors** | Checks Vibe, RocketReach, and Apollo connector readiness | Gracefully falls back to keyless web search |
-| **Spend Caps** | Verifies monthly and per-run ceilings are recorded in profile | Protects budget; blocks paid API calls until declared |
-| **Model Registry** | Validates `gtm_core/models.toml` role mappings and endpoint availability | Defaults to workspace native model |
+`check_env` reads environment variables only, grouped in three tiers: the brain (satisfied
+automatically when you are signed in through the Claude app), the optional content and research
+keys, and self-hosting. It does not probe OAuth connectors. For those, say *"check my prospecting
+connectors before we spend anything"*, which tests each provider live before a run spends.
 
 **Step 3 — Use the skills.**
 `"run my prospecting"` · `"prep me for my call with [company]"` · `"run a market scan"` ·
@@ -252,22 +251,22 @@ uv run python -m gtm_core.check_env
 Every external tool is optional and falls back to keyless web search — but connecting the ones your
 work depends on is what makes the output strong. Setup handles the connection; nothing is hardcoded.
 
-| Tool | Powers | What it needs | Needed for | If you skip it |
+| Tool | Powers | What it needs | Needed in | If you skip it |
 |---|---|---|---|---|
-| **Workspace AI plan** (Claude, Antigravity, Cursor, Codex) | the brain — orchestration, judgement, review, all skills | your workspace subscription / native model (workspace auth) | **Mode 1** (Chat) | required for Mode 1 |
-| `ANTHROPIC_API_KEY` | the self-hosted agent's headless pipeline runs | API key in `.env` | **Mode 2** (advanced) | not needed for Chat mode |
-| **Vibe Prospecting** | cold ICP company discovery, firmographics, company-level buyer-intent + events (`prospect`, `market-scan`, `events-tracker`) | OAuth connector (credit packs) — no key stored | Both | web search discovers instead |
-| **RocketReach** | verified contact email/phone, news & hiring triggers, job-change timing, company intent (`prospect`, `call-prep`, `draft-outreach`) | `ROCKETREACH_API_KEY` (Doppler-injected; never in a file) | Both | Vibe enrichment → Apollo → public web (unverified) |
-| **Apollo** | last-resort contact backstop (verified email, never phone), company buying-intent, job-posting signals (`prospect`) | OAuth connector (or `APOLLO_API_KEY` for the local tool). **Needs a PAID Apollo plan** — you can connect on free, but Apollo returns `API_INACCESSIBLE` for every data endpoint until you upgrade (verified 2026-07-27) | Both | falls back to public web (unverified) |
-| **Firecrawl** | structured, JS-rendered web scraping (`content-radar`, `deck-research`, `events-tracker`) | `FIRECRAWL_API_KEY` | Both | built-in web tools |
-| **DeepSeek** | cheap bulk first drafts (Claude always reviews) | `DEEPSEEK_API_KEY` | **Mode 2** (advanced) | a Claude worker drafts instead |
-| **Media connectors** (Higgsfield · HeyGen) | carousel and infographic visuals, short-form video renders, the synthetic presenter (`carousel-visuals`, `video-render`, `video-avatar`) | OAuth connector in Claude — no key stored. **HeyGen is connector-only**: there is no headless HeyGen path, so the presenter lane needs Mode 1 | Both (HeyGen: Mode 1) | nothing is generated — the run routes to the live-action lane, which writes a phone-readable shoot list you film yourself |
-| **Media API keys** (Gemini · Higgsfield · ElevenLabs) | the same renders on the *headless* path, plus podcast/voice TTS | keys in `.env` | **Mode 2** (advanced) | Mode 1 uses the connectors above instead |
-| **Saleshandy** | the email sequencer — where `email-sequence` stages a multi-step sequence **paused**, and where the prospecting pack's `sequence-enroll` node pushes leads after you approve. Also the Do-Not-Contact list an opt-out is mirrored to | `SALESHANDY_API_KEY`, `SALESHANDY_DNC_LIST_ID` | Both | sequences are drafted as files; nothing is staged in a sender |
-| **Syften** | community and social listening (`community-signal-analysis`, the Engagement pack, inbound signals) | `SYFTEN_API_KEY` | Both | keyless web search covers far less of the long tail |
-| **Telegram** | **where you approve the gates in Mode 2.** Effectively required for the self-hosted agent — an unattended run with nowhere to ask simply stops at its gate | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` | **Mode 2** (advanced) | not needed for Chat mode — you are the gate |
-| **Google Workspace** | reading and writing Docs/Drive deliverables | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | **Mode 2** (advanced) | files stay on local disk |
-| **Your own deck renderer** *(optional)* | automatic PDF/PNG export for `build-deck` / `carousel-pdf` / `carousel-auto`. The skills always write the deck as **[Slidev](https://sli.dev) markdown** — an open format you own. Pointing `DECK_RENDERER_URL` at a renderer you run lets the agent export it without you leaving the chat | `DECK_RENDERER_URL` → a small HTTP service you host that accepts `POST /export` and shells out to Slidev's CLI. The host must be on the SSRF allowlist (localhost and a `deck-renderer` service name are allowed by default) | Both | **you still get the whole deck** — just export it yourself with `npx slidev export` (add `--format png` for images). Nothing about the deck's content depends on this |
+| **Workspace AI plan** (Claude, Antigravity, Cursor, Codex) | the brain — orchestration, judgement, review, all skills | your workspace subscription / native model (workspace auth) | Chat mode | required for Mode 1 |
+| `ANTHROPIC_API_KEY` | the self-hosted agent's headless pipeline runs | API key in `.env` | Self-hosted only | not needed for Chat mode |
+| **Vibe Prospecting** | cold ICP company discovery, firmographics, company-level buyer-intent + events (`prospect`, `market-scan`, `events-tracker`) | OAuth connector (credit packs) — no key stored | Chat and self-hosted | web search discovers instead |
+| **RocketReach** | verified contact email/phone, news & hiring triggers, job-change timing, company intent (`prospect`, `call-prep`, `draft-outreach`) | `ROCKETREACH_API_KEY` (Doppler-injected; never in a file) | Chat and self-hosted | Vibe enrichment → Apollo → public web (unverified) |
+| **Apollo** | last-resort contact backstop (verified email, never phone), company buying-intent, job-posting signals (`prospect`) | OAuth connector (or `APOLLO_API_KEY` for the local tool). **Needs a PAID Apollo plan** — you can connect on free, but Apollo returns `API_INACCESSIBLE` for every data endpoint until you upgrade (verified 2026-07-27) | Chat and self-hosted | falls back to public web (unverified) |
+| **Firecrawl** | structured, JS-rendered web scraping (`content-radar`, `deck-research`, `events-tracker`) | `FIRECRAWL_API_KEY` | Chat and self-hosted | built-in web tools |
+| **DeepSeek** | cheap bulk first drafts (Claude always reviews) | `DEEPSEEK_API_KEY` | Self-hosted only | a Claude worker drafts instead |
+| **Media connectors** (Higgsfield · HeyGen) | carousel and infographic visuals, short-form video renders, the synthetic presenter (`carousel-visuals`, `video-render`, `video-avatar`) | OAuth connector in Claude — no key stored. **HeyGen is connector-only**: there is no headless HeyGen path, so the presenter lane needs Mode 1 | Chat and self-hosted (HeyGen: Chat only) | nothing is generated — the run routes to the live-action lane, which writes a phone-readable shoot list you film yourself |
+| **Media API keys** (Gemini · Higgsfield · ElevenLabs) | the same renders on the *headless* path, plus podcast/voice TTS | keys in `.env` | Self-hosted only | Mode 1 uses the connectors above instead |
+| **Saleshandy** | the email sequencer (Apollo or GMass can stand in — your profile's `email_tool` picks) — where `email-sequence` stages a multi-step sequence **paused**, and where the prospecting pack's `sequence-enroll` node pushes leads after you approve. Also the Do-Not-Contact list an opt-out is mirrored to | `SALESHANDY_API_KEY`, `SALESHANDY_DNC_LIST_ID` | Chat and self-hosted | sequences are drafted as files; nothing is staged in a sender |
+| **Syften** | community and social listening (`community-signal-analysis`, the Engagement pack, inbound signals) | `SYFTEN_API_KEY` | Chat and self-hosted | keyless web search covers far less of the long tail |
+| **Telegram** | **where you approve the gates in Mode 2.** Effectively required for the self-hosted agent — an unattended run with nowhere to ask simply stops at its gate | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` | Self-hosted only | not needed for Chat mode — you are the gate |
+| **Google Workspace** | reading and writing Docs/Drive deliverables | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | Self-hosted only | files stay on local disk |
+| **Your own deck renderer** *(optional)* | automatic PDF/PNG export for `build-deck` / `carousel-pdf` / `carousel-auto`. The skills always write the deck as **[Slidev](https://sli.dev) markdown** — an open format you own. Pointing `DECK_RENDERER_URL` at a renderer you run lets the agent export it without you leaving the chat | `DECK_RENDERER_URL` → a small HTTP service you host that accepts `POST /export` and shells out to Slidev's CLI. The host must be on the SSRF allowlist (localhost and a `deck-renderer` service name are allowed by default) | Chat and self-hosted | **you still get the whole deck** — just export it yourself with `npx slidev export` (add `--format png` for images). Nothing about the deck's content depends on this |
 
 **Two notes on the Claude key.** `ANTHROPIC_API_KEY` also powers the **email judge**, which scores
 every staged outreach row before enrollment. It is **key-first with an OAuth fallback**, chosen
@@ -350,12 +349,13 @@ pause that guards something.
 
 | **Prospecting** | Reach the right prospect, at the right time, with the right message |
 |---|---|
+| **Operator guide** | [`PROSPECTING.md`](PROSPECTING.md) — a sample email, what the status report says, which decisions are yours, and what is not live yet |
 | **What it does** | Sources, enriches, and scores leads so your outreach lands where it should. Every account scored against **your** ideal customer profile, not a generic list |
 | **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** → **sequence-enroll** — one approval: you review the finished emails and the lead list together before anything reaches your sender. `sequence` drafts the enrolment plan and stops; `sequence-enroll` is the node that actually pushes the leads, and the agent never runs it — a Python-only dispatcher does, after you approve, because enrolling leads sends prospect details to a third-party processor |
 | **Data sources** | **Vibe Prospecting** — discovery, firmographics, company-level buyer-intent. **RocketReach** — verified contact email/phone, news & hiring triggers, job-change timing. **Apollo** — last-resort contact backstop (email only), company buying-intent, job-posting signals. Fused into a "why now" heat signal. Free web search is the fallback when none are connected |
 | **Output** | Scored brief · contact-ready outreach packs · HubSpot-ready CSV. Email drafts follow best-practice sequence structure (a real signal as the hook, a matched case study, one clear ask) and cite only public signals — intent times the touch, it never appears in the copy |
 | **After a reply lands** | The `inbound` pack reads it (read-only), classifies intent (P0–P3), and drafts a reply behind the same human gate. Nothing auto-sends |
-| **If they ask to be left alone** | The `optout-suppress` variant mirrors a detected opt-out onto your sender's Do Not Contact list. It is **add-only** — no removal effect exists, and none may be added, because nothing here may un-suppress a person who asked to be left alone |
+| **If they ask to be left alone** | A clear typed "stop" is added to your sender's Do Not Contact list automatically, with no model involved; anything less clear goes through the `optout-suppress` variant, which waits for your approval. Both are **add-only** — no removal effect exists, and none may be added, because nothing here may un-suppress a person who asked to be left alone |
 | **Scheduling** | Bring-your-own Calendly: paste your booking link and drafts propose a time, the prospect books themselves. Optional CRM sync is your own Calendly upgrade, not a credential this system holds |
 | **Output & gates** | The sequence is staged **PAUSED** in your sender. There is no resume tool on the connector — a human activates it |
 
@@ -387,19 +387,22 @@ Start with your immediate task rather than memorizing the catalog:
 |---|---|---|---|
 | **Find ICP accounts & buyers** | `"find prospects in [market/vertical]"` | `prospect`, `draft-outreach` | Scored brief, HubSpot CSV, verified contact emails |
 | **Prep for a high-stakes call** | `"prep me for my call with [company]"` | `call-prep`, `account-dossier` | 5-min briefing doc, SPIN discovery questions, matched case study |
-| **Post something timely on LinkedIn** | `"draft my LinkedIn post about [news/topic]"` | `content-radar`, `content-studio` | 3 hook archetypes (Gate 1) $\rightarrow$ on-brand copy (Gate 2) |
+| **Post something timely on LinkedIn** | `"draft my LinkedIn post about [news/topic]"` | `content-radar`, `content-studio` | 3 hook archetypes (Gate 1) → on-brand copy (Gate 2) |
 | **Engage on Reddit or LinkedIn** | `"reply to this post: [URL]"` | `linkedin-reply`, `reddit-reply` | Value-first, non-promotional response staged for review |
-| **Design an enterprise solution** | `"design the solution for [company]"` | `solution-discovery`, `solution-design` | Architecture SAD doc, problem $\rightarrow$ target diagrams, lint-gated before delivery |
+| **Design an enterprise solution** | `"design the solution for [company]"` | `solution-discovery`, `solution-design` | Architecture SAD doc, problem → target diagrams, lint-gated before delivery |
 | **Answer a security questionnaire** | `"answer this security questionnaire"` | `security-review` | Answers drawn only from your evidence pack — anything unbacked is refused with a named owner |
-| **Quantify and prove the deal** | `"build the value case for [company]"` / `"plan a POC"` | `value-case`, `poc-plan`, `demo-narrative` | Baseline $\rightarrow$ modelled delta with an assumption register, a time-boxed POC with named verifiers, and a demo flow |
+| **Quantify and prove the deal** | `"build the value case for [company]"` / `"plan a POC"` | `value-case`, `poc-plan`, `demo-narrative` | Baseline → modelled delta with an assumption register, a time-boxed POC with named verifiers, and a demo flow |
 | **Compete honestly** | `"battlecard for [competitor]"` | `battlecard` | Where they win, where we win, the trap questions, and what we must not claim |
 | **Design architecture diagrams** | `"design an architecture diagram for [product]"` | `diagram-design` | Publication-ready SVG/Mermaid diagrams and companion specs |
 | **Audit SEO & research keywords** | `"audit our SEO for [domain]"` | `seo-audit`, `seo-keyword-research` | Technical SEO audit, keyword clusters, competitor analysis |
 | **Govern sales pipeline & hygiene** | `"check CRM hygiene"` / `"review team pipeline"` | `crm-hygiene-check`, `team-pipeline` | **Needs a CRM connector, which this repo does not ship** — the skills preflight the category and refuse by name rather than reporting over nothing (`python -m gtm_core.connector_categories crm`) |
 | **Build a strategic account plan** | `"build an account plan for [company]"` | `account-plan` | Buying influence map, MEDDPICC scorecard, 5-step action plan |
-| **Check environment health** | `"run environment check"` | `check_env` CLI | Readiness audit of keys, profile, and spend caps |
+| **Check environment health** | `"run environment check"` | `check_env` CLI | Which keys are set, and what each one unlocks |
 
-> The full, always-current inventory is generated at [`docs/SKILLS.md`](docs/SKILLS.md) (one row per skill; CI fails if it drifts). The table below is a curated, categorized view.
+> The full, always-current inventory is generated at [`docs/SKILLS.md`](docs/SKILLS.md) (one row per skill; CI fails if it drifts).
+
+<details>
+<summary><strong>Every skill, by category</strong></summary>
 
 | Category | Skills |
 |---|---|
@@ -419,6 +422,8 @@ Start with your immediate task rather than memorizing the catalog:
 | **Founder journey** | `builder-radar`, `builder-evidence`, `builder-studio` |
 | **Operations** | `setup`, `profile-onboard`, `identity-kit`, `knowledge-refresh`, `outcomes-sync`, `content-outcomes-sync` |
 
+</details>
+
 Switch profiles to run any skill for a different company: `"switch to <profile>"` → all skills now
 target that profile's brand, ICP, and product.
 
@@ -436,6 +441,9 @@ Two of those steps are **hard gates**. A draft that fails the format linter neve
 all — that is not a style suggestion the model might follow, it is a check a malformed draft fails
 before you see it. So "looks fine" is a floor, not a hope.
 
+<details>
+<summary><strong>The nine techniques — what each enforces, and why most tools skip it</strong></summary>
+
 | Technique | What it enforces | Why most tools skip it |
 |---|---|---|
 | **Virality engineering** | Six emotional triggers (identity, status, tribal belonging, productive discomfort, curiosity, aspiration), **stacked not checklisted** — one fires mild, two or three compound. Every draft passes a *felt test*; "useful but not felt" gets rewritten. B2B-recalibrated: tribal lines drawn on how well you do the work, never against a named competitor | Most tools optimise for *informative*, which is exactly why it scrolls past. Engineering the feeling on a B2B buyer without sounding like a hype-merchant is the hard part |
@@ -447,6 +455,8 @@ before you see it. So "looks fine" is a floor, not a hope.
 | **True storytelling** | A theory-derived **9-beat story graph** for founder/builder narratives: a core value paired against its seductive counterfeit, a first decision that was wrong for sound reasons, conflict escalating inward (room → face → hands). Automated checks catch story-washing and unearned bragging | Generic accomplishment formulas read as bragging, which is the opposite of the intended effect |
 | **Performance lexicon** | A prompt grammar for human expression in generated video: active facial regions capped at 1–2, micro-magnitude qualifiers mandated (*a fraction, a beat too long, barely*), positive stillness prescribed, expression kept distinct from body motion and vocal delivery | AI video fails in both directions at once — under-directed faces look numb, over-directed ones grimace in stock-photo melodrama |
 | **Direct-response frameworks** | When the goal is conversion rather than brand affinity, drafts follow 5 B2B-calibrated desire frameworks that diagnose structural bottlenecks | The consumer-influencer version of this is comment-bait, which reads as cheap to a B2B buyer |
+
+</details>
 
 
 ---
@@ -575,7 +585,9 @@ connector exposes no resume tool. A prompt injection cannot reach a capability t
 contain.
 
 The worst case for a bad model turn is a draft you reject. Every path to an external effect ends at a
-human approving exact bytes, and no tool exists that skips that step.
+human approving exact bytes, with one deliberate exception that no model is on: a clear typed
+"stop" reply is added to the sender's Do Not Contact list by Python, for that reply's own sender
+only. It can only suppress, never send, and nothing here can remove a Do Not Contact entry.
 
 Not done yet:
 output-side DLP/PII moderation is a tracked gap, not a shipped control; and in advanced mode the
@@ -648,12 +660,6 @@ To run the local backend server for client application development:
 ./scripts/stack.sh stop        # shutdown cleanly (data preserved)
 ```
 Zero external credentials needed (runs hermetically with fake run execution and local dev secrets).
-
----
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=henryroxstar/gtm-engine&type=Date)](https://star-history.com/#henryroxstar/gtm-engine&Date)
 
 ---
 

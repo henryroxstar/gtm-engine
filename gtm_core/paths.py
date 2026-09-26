@@ -153,7 +153,14 @@ def resolve_knowledge_file(
     skills reach it via ``python -m gtm_core.resolve_knowledge`` and Python callers
     import it directly.
     """
-    base = profiles_root / _safe_segment(profile, "profile")
+    prof_seg = _safe_segment(profile, "profile")
+    if (
+        prof_seg == "template"
+        and not (profiles_root / prof_seg).is_dir()
+        and (profiles_root / "_template").is_dir()
+    ):
+        prof_seg = "_template"
+    base = profiles_root / prof_seg
     name = _safe_segment(filename, "filename")
     if overlay is not None:
         staged = base / EXPERIMENTS_DIRNAME / _safe_segment(overlay, "overlay") / name

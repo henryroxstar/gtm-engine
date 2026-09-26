@@ -186,5 +186,5 @@ def _row_to_record(row: dict, src: str) -> dict:
         # `prospect` skill writes. Judge columns and the stamped ids are deliberately
         # NOT here: those are assigned downstream, and letting a source export set them
         # would let an input claim it had already been judged.
-        **{col: _get(row, col) for col in (*RECORD_COLUMNS, SIGNAL_COLUMN)},
+        **{col: _get(row, col) for col in (*RECORD_COLUMNS, SIGNAL_COLUMN, "hook_cell")},
     }

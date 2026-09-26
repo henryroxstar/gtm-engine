@@ -63,6 +63,9 @@ def _cli(argv: list[str] | None = None) -> int:
     root = Path(args.content_root) if args.content_root else None
     try:
         return _run(args, root)
+    except FileNotFoundError as err:
+        print(f"ABORTED: {err}", file=sys.stderr)
+        return 1
     except LaneStateUnreadable as err:
         # Every lane-derived figure on the page reads that one file. A page rendered without it
         # is a page of numbers that are quietly short, which is worse than no page.

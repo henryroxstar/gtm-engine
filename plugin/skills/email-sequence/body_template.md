@@ -258,11 +258,14 @@ multi-step arc:
    angle collapse into one argument.
 
    **One campaign carries several distinct arguments, not one argument in several costumes.**
-   Where a campaign plan declares a message portfolio, implement the cell it assigns this list;
-   where none exists, pick a cell no sibling spec has taken and give each populated persona its
-   own argument. Two specs are *the same argument* when they restate one claim in different
-   nouns — differing vocabulary does not make them different arguments, and a shared sentence is
-   the tell. Check before staging:
+   Where a campaign plan declares a message portfolio, implement the cell it assigns this list.
+   **Never guess or choose an argument on your own:** strictly consume the exact `hook_cell`
+   coordinate provided on each prospect CSV row (e.g. `enterprise|security`). If `hook_cell` is
+   missing, empty, or unresolvable in the matrix, refuse to draft and route the row to the
+   `missing-hook-cell` hold. The drafting agent is structurally blocked from selecting an
+   argument not specified in the row's `hook_cell` column. Two specs are *the same argument*
+   when they restate one claim in different nouns — differing vocabulary does not make them
+   different arguments, and a shared sentence is the tell. Check before staging:
 
    ```bash
    uv run python -m gtm_core.hook_coverage --profile <active> --campaign <campaign-slug>
@@ -1469,6 +1472,13 @@ the logical flow is:
    prospects that pass the **Enrollment hygiene gate** above (verified email, not on DNC / a manual
    pack) **and only after the Compliance preflight has been run and confirmed** — address, opt-out,
    market — then write the plan to the enroll-draft file (Step 6a) and stop.
+
+   When send-cards review is enabled (`send_cards_required` in `settings.json`, default true),
+   enroll drafts come from `send-cards apply`:
+   ```bash
+   uv run python -m gtm_core.send_cards apply --export <file>
+   ```
+   which writes the approved sequence draft carrying `source: "send-cards"` and `card_ids`.
 
 ### 6a. Write the enrollment plan and stop
 

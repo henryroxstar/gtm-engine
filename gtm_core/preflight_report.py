@@ -262,7 +262,6 @@ def _run_account_integrity(i: _Inputs) -> CheckResult:
         # `audit_rows` runs `audit_records` inside itself, so the record tier arrives here
         # a second time. `signal_record` owns those findings; this entry keeps only what
         # is genuinely account-level (no-dossier, domain-*, competitor, leadership).
-        #
         # `_across_groups` is what stops the NUMERATOR repeating the mistake the account
         # count made below. `audit_rows` dedupes its account tier per CALL, so an account
         # whose rows sit in two lanes is audited twice and reports `no-dossier` (and the
@@ -285,7 +284,9 @@ def _run_account_integrity(i: _Inputs) -> CheckResult:
     # That number is not just printed: it is the `denominators` base every WARN-tier rate
     # is measured against, so the inflation quietly understated all of them. `account_key` is
     # the identity `audit_rows` itself dedupes on, so the two cannot drift apart.
-    accounts = len({tok for r in i.rows if (tok := account_integrity.account_key(r))})
+    from .lanes.router import account_key
+
+    accounts = len({tok for r in i.rows if (tok := account_key(r))})
     return CheckResult(
         name="account_integrity",
         status=FAIL if errors else OK,
@@ -419,7 +420,14 @@ def _run_signal_record(i: _Inputs) -> CheckResult:
     checked = rows = 0
     missing: list[str] = []
     for lane, group in groups:
-        a = signal_record.audit_records(group, i.fieldnames, as_of=i.as_of)
+        a = signal_record.audit_records(
+            group,
+            i.fieldnames,
+            as_of=i.as_of,
+            lane=lane,
+            sources_dir=i.content_root / "sources" if i.content_root else None,
+            profile=i.profile,
+        )
         errs, warns = list(a.errors), list(a.warnings)
         if lane == "generic":
             # The gate's own rule for this lane (`audit_rows(..., lane="generic")`), applied

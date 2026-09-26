@@ -259,7 +259,18 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--profile", required=True)
     sp.add_argument("--threshold", type=int, default=RULE_THRESHOLD)
 
+    sub.add_parser("send-cards", help="render or apply Gate 2 send cards review")
+
+    if argv and argv[0] == "send-cards":
+        from ..send_cards import main as send_cards_main
+
+        return send_cards_main(argv[1:])
+
     args = p.parse_args(argv)
+    if args.cmd == "send-cards":
+        from ..send_cards import main as send_cards_main
+
+        return send_cards_main(argv[1:] if argv else [])
     if args.cmd == "route":
         return _cli_route(args)
     if args.cmd == "hold-apply":

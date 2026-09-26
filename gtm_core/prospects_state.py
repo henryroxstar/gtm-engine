@@ -511,6 +511,115 @@ def mutate_account(
     }
 
 
+_PROTECTED_ACCOUNT_FIELDS = frozenset(
+    {
+        "id",
+        "domain",
+        "company",
+        ACCOUNT_ID_FIELD,
+        "status",
+        "notes",
+        "owner",
+        "priority",
+        "created_at",
+        "updated_at",
+        "suppression",
+        "suppressed",
+    }
+)
+
+
+@serialised(latest_path)
+def fill_accounts(
+    profile: str,
+    rows: list[dict],
+    *,
+    source: str,
+    overwrite: bool = False,
+    content_root: Path | None = None,
+) -> dict:
+    """Batch fill-only writer for firmographics.
+
+    * one snapshot, whose path is printed as the rollback point;
+    * match count evaluated inside the lock: zero or more than one match refuses that row;
+    * fill-only: a populated field is never changed;
+    * a differing value is a conflict.
+    """
+    current = load_latest(profile, content_root)
+    existing_items = current.get("items", [])
+
+    result_items = [dict(it) for it in existing_items]
+
+    # We need to map identity keys to lists of positions to check for multiple matches
+    by_key: dict[str, list[int]] = {}
+    for pos, item in enumerate(result_items):
+        for key in _identity_keys(item):
+            by_key.setdefault(key, []).append(pos)
+
+    refused = []
+    conflicts = []
+    changed_any = False
+
+    for row in rows:
+        row_keys = _identity_keys(row)
+        if not row_keys:
+            refused.append(row)
+            continue
+
+        # find matching positions
+        matches = set()
+        for key in row_keys:
+            matches.update(by_key.get(key, []))
+
+        if len(matches) != 1:
+            refused.append(row)
+            continue
+
+        pos = matches.pop()
+        item = result_items[pos]
+
+        updates = {}
+        for k, v in row.items():
+            if k in _PROTECTED_ACCOUNT_FIELDS:
+                continue
+
+            # fill-only: populated field is never changed unless overwrite=True
+            existing_val = str(item.get(k) or "").strip()
+            incoming_val = str(v or "").strip()
+            if not incoming_val:
+                continue
+
+            if existing_val and not overwrite:
+                if existing_val != incoming_val:
+                    conflicts.append(
+                        {"row": row, "field": k, "existing": existing_val, "incoming": incoming_val}
+                    )
+            else:
+                updates[k] = incoming_val
+
+        if updates:
+            for k, v in updates.items():
+                item[k] = v
+            changed_any = True
+
+    if changed_any:
+        snap = snapshot(profile, content_root)
+        out = dict(current)
+        out["items"] = result_items
+        out["generated_at"] = datetime.now(UTC).isoformat()
+        _atomic_write(latest_path(profile, content_root), out)
+    else:
+        snap = None
+
+    return {
+        "profile": profile,
+        "source": source,
+        "refused": refused,
+        "conflicts": conflicts,
+        "snapshot": str(snap) if snap else None,
+    }
+
+
 def restore(
     profile: str, snapshot_file: str | None = None, content_root: Path | None = None
 ) -> Path:

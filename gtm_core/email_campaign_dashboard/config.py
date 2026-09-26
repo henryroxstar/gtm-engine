@@ -148,9 +148,11 @@ def resolve_seat_coverage(
     """Derive seat coverage from the tenant's resolved role vocabulary.
 
     When the tenant defines custom seats, returns those seats and their display labels
-    derived from the seat's personas. Falls back to SEAT_COVERAGE for default seats.
+    derived from the seat's personas. Falls back to SEAT_COVERAGE for default seats
+    unless the tenant overrides their personas.
     """
     from .. import role_vocabulary
+    from ..role_vocabulary.defaults import DEFAULT_SEAT_RULES
 
     p_root = profiles_root
     if p_root is None and content_root is not None:
@@ -163,9 +165,14 @@ def resolve_seat_coverage(
     except Exception:
         return dict(SEAT_COVERAGE)
 
+    if getattr(vocab, "source", None) == "built-in default":
+        return dict(SEAT_COVERAGE)
+
+    default_personas = {s: p for s, p, _ in DEFAULT_SEAT_RULES}
     out: dict[str, str] = {}
+
     for seat, personas, _ in vocab.seat_rules:
-        if seat in SEAT_COVERAGE:
+        if seat in SEAT_COVERAGE and personas == default_personas.get(seat):
             out[seat] = SEAT_COVERAGE[seat]
         elif personas:
             out[seat] = " / ".join(p.replace("-", " ").title() for p in personas)

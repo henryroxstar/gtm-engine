@@ -98,6 +98,35 @@ def _cli(argv: list[str] | None = None) -> int:
         default="",
         help="restrict to one tier (e.g. A); default is every tier",
     )
+    an.add_argument(
+        "--eligible-only",
+        dest="eligible_only",
+        action="store_true",
+        default=True,
+        help="exclude accounts with no sendable row (default: True)",
+    )
+    an.add_argument(
+        "--all",
+        dest="eligible_only",
+        action="store_false",
+        help="include all candidate accounts without eligibility filtering",
+    )
+    an.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="limit number of candidate accounts returned (ordered by heat, score, id)",
+    )
+    an.add_argument(
+        "--wave",
+        default="",
+        help="wave identifier to stamp on research records",
+    )
+    an.add_argument(
+        "--counts",
+        action="store_true",
+        help="output exclusion counts per reason in JSON",
+    )
 
     args = ap.parse_args(argv)
     if args.cmd == "consolidate":
@@ -125,7 +154,33 @@ def _cli(argv: list[str] | None = None) -> int:
     elif args.cmd == "tier-a-needing-dossier":
         result = tier_a_needing_dossier(args.profile)
     elif args.cmd == "accounts-needing-dossier":
-        result = accounts_needing_dossier(args.profile, tier=args.tier or None)
+        result = accounts_needing_dossier(
+            args.profile,
+            tier=args.tier or None,
+            eligible_only=args.eligible_only,
+            limit=args.limit,
+            wave=args.wave or None,
+        )
+        if hasattr(result, "counts") and args.eligible_only:
+            reasons_summary = " · ".join(
+                f"{count} {reason}" for reason, count in result.counts.items() if count > 0
+            )
+            if reasons_summary:
+                sys.stderr.write(
+                    f"research queue: {len(result)} eligible · {reasons_summary} ({result.total_input} total)\n"
+                )
+            else:
+                sys.stderr.write(
+                    f"research queue: {len(result)} eligible (0 excluded, {result.total_input} total)\n"
+                )
+        if getattr(args, "counts", False):
+            result = {
+                "accounts": list(result),
+                "counts": result.counts,
+                "total_input": result.total_input,
+                "included": len(result),
+                "excluded": sum(result.counts.values()),
+            }
     else:
         result = pool_status(args.profile)
     json.dump(result, sys.stdout, indent=2)

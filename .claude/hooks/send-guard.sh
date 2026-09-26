@@ -32,8 +32,10 @@ LEAF="${TOOL_NAME##*__}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEAVES_FILE="$SCRIPT_DIR/send-leaves.txt"
+PREFIXES_FILE="$SCRIPT_DIR/send-prefixes.txt"
 
 DENIED=0
+ASK=0
 MISSING_LIST=0
 
 if [ -f "$LEAVES_FILE" ] && [ -s "$LEAVES_FILE" ]; then
@@ -49,6 +51,28 @@ else
   esac
 fi
 
+# Prefix families (generated from agent.permissions). Exact leaves above win, so the two
+# exact enrolment verbs stay denied; `deny` = activation/status verbs (sending is a person in
+# the provider UI); `ask` = enrolment variants a hosted connector adds, which the operator
+# may run on purpose but must approve each time. Missing file: fail closed on both families.
+if [ "$DENIED" -eq 0 ]; then
+  if [ -f "$PREFIXES_FILE" ] && [ -s "$PREFIXES_FILE" ]; then
+    while read -r decision prefix; do
+      [ -z "$prefix" ] && continue
+      case "$LEAF" in
+        "$prefix"*)
+          if [ "$decision" = "ask" ]; then ASK=1; else DENIED=1; fi
+          break
+          ;;
+      esac
+    done < "$PREFIXES_FILE"
+  else
+    case "$LEAF" in
+      activate_*|resume_*|update_sequence_status*|add_leads_*|import_prospects_*) DENIED=1 ;;
+    esac
+  fi
+fi
+
 if [ "$DENIED" -eq 1 ]; then
   if [ "$MISSING_LIST" -eq 1 ]; then
     >&2 echo "The engine never sends, enrolls or posts from here. Draft it; the person sends it. (send-leaves.txt is missing or empty)"
@@ -56,6 +80,11 @@ if [ "$DENIED" -eq 1 ]; then
     >&2 echo "The engine never sends, enrolls or posts from here. Draft it; the person sends it."
   fi
   exit 2
+fi
+
+if [ "$ASK" -eq 1 ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"This enrolls people into an email sequence (their details go to the sequencer). Approve only if you asked for this import."}}'
+  exit 0
 fi
 
 exit 0

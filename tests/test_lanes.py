@@ -43,6 +43,7 @@ def _row(**kw) -> dict:
         "verdict_reason": "",
         "account_id": "",
         "suppression": "",
+        "hook_cell": "enterprise|generic",
     }
     base.update(kw)
     return base
@@ -117,7 +118,7 @@ def test_lane_csvs_are_disjoint_and_cover_the_input(tmp_path):
         _rec("a@x.example", "send"),
         _rec("b@y.example", "re-angle", defect_class="fact-creates-problem"),
     ]
-    result = lanes.route(rows, recs, _ctx())
+    result = lanes.route(rows, recs, _ctx(), calibrated=True)
     paths = lanes.write_lanes(result, tmp_path, "2026-09-03")
     seen: dict[str, str] = {}
     for lane, path in paths.items():
@@ -603,7 +604,13 @@ def test_unknown_decision_or_chip_is_refused_not_guessed():
 
 
 def test_conflicting_decisions_are_reported_not_resolved():
-    prior = {("prior-contact", "d:x.example"): {"decision": "generic", "stamp": "2026-08-27"}}
+    prior = {
+        ("prior-contact", "d:x.example"): {
+            "decision": "generic",
+            "stamp": "2026-08-27",
+            "detail": "d",
+        }
+    }
     plan = dec.plan_apply([_entry(decision="suppress")], prior)
     assert plan.conflicts and "generic" in plan.conflicts[0]
     same = dec.plan_apply([_entry(decision="generic")], prior)
@@ -1240,9 +1247,51 @@ def test_hold_groups_key_on_question_and_seat_and_are_risk_ordered():
 
 
 def test_every_hold_trigger_maps_to_a_documented_question():
+    assert "send" in lanes.DECISIONS
     for trigger in lanes.HOLD_ORDER:
         question = lanes.HOLD_QUESTION[trigger]
-        assert lanes.QUESTION_COPY[question][1].keys() == {"suppress", "generic", "salvage"}
+        if question == "champion-missing":
+            assert lanes.QUESTION_COPY[question][1].keys() == {"send", "salvage", "suppress"}
+        else:
+            assert lanes.QUESTION_COPY[question][1].keys() == {"suppress", "generic", "salvage"}
+
+
+def test_r7_6_send_decision_releases_hold_and_takes_earned_lane(tmp_path, monkeypatch):
+    """R7.6: `send` decision releases hold and row takes its earned lane; suppress drops contact only."""
+    from dataclasses import replace
+    from unittest.mock import patch
+
+    from gtm_core.lanes import decisions as dec
+    from gtm_core.lanes.model import ACCOUNT_SCOPED_SUPPRESS
+    from gtm_core.role_vocabulary import DEFAULT_VOCABULARY
+
+    assert "champion-missing" not in ACCOUNT_SCOPED_SUPPRESS
+
+    row = _row(
+        title="Software Engineer",
+        segment="enterprise",
+        company="Acme Corp",
+        domain="acme.example",
+        email="eng@acme.example",
+    )
+    vocab = replace(DEFAULT_VOCABULARY, wedge_seats={"enterprise": ("security",)})
+    ctx = _ctx()
+    key = ("champion-missing", lanes.account_key(row))
+    send_dec = {
+        key: {"decision": "send", "detail": "account has no champion in wedge seats ('security',)"}
+    }
+    with patch("gtm_core.role_vocabulary.load", return_value=vocab):
+        result = lanes.route([row], [], ctx, decisions=send_dec)
+        r = result.routed[0]
+        assert r.lane in ("generic", "personalised")
+        assert r.decided == "decided:send:champion-missing"
+
+    # Test hold-apply accepts send
+    plan = dec.plan_apply(
+        [_entry(email="eng@acme.example", trigger="champion-missing", decision="send")], {}
+    )
+    assert len(plan.send) == 1
+    assert not plan.refused
 
 
 def test_hold_sheet_groups_by_the_tenant_seat_when_a_profile_is_passed(tmp_path, monkeypatch):
@@ -1370,7 +1419,10 @@ def test_group_decide_writes_every_row_and_per_reason_meanings_are_present():
     assert '"data-group-decide": d' in html and '["suppress", "Suppress all"]' in html
     assert "for (const r of rows) { const s = st(r.row_id); s.decision = d;" in html
     for trigger in lanes.HOLD_ORDER:
-        assert lanes.HOLD_COPY[trigger][1].keys() == {"suppress", "generic", "salvage"}, trigger
+        if trigger == "champion-missing":
+            assert lanes.HOLD_COPY[trigger][1].keys() == {"send", "salvage", "suppress"}, trigger
+        else:
+            assert lanes.HOLD_COPY[trigger][1].keys() == {"suppress", "generic", "salvage"}, trigger
 
 
 def test_salvage_chips_are_the_canonical_kinds_and_keys_are_inert_in_fields():

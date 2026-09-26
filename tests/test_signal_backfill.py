@@ -28,6 +28,22 @@ AS_OF = datetime.date(2026, 8, 20)
 FIELDNAMES = ["first", "last", "email", "title", "company", "signal_clause", "why_now"]
 
 
+@pytest.fixture(autouse=True)
+def _setup_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    from gtm_core.signal_sources import store_capture
+
+    text = (
+        "Cascade Systems today published a runtime policy engine that evaluates agent "
+        "actions before they execute."
+    )
+    store_capture(
+        "https://cascade.example/news/policy-engine",
+        text,
+        sources_dir=tmp_path / "sources",
+    )
+
+
 def _p(name: str) -> Path:
     return Path(name)
 
@@ -332,7 +348,13 @@ def test_records_accepts_both_a_bare_list_and_a_wrapped_object(tmp_path):
 
 
 def test_every_record_input_field_is_a_real_column_or_the_join_key():
-    assert set(RECORD_INPUT_FIELDS) == {"email", "signal_clause", SIGNAL_COLUMN, *RECORD_COLUMNS}
+    assert set(RECORD_INPUT_FIELDS) == {
+        "email",
+        "signal_clause",
+        SIGNAL_COLUMN,
+        "hook_cell",
+        *RECORD_COLUMNS,
+    }
 
 
 def test_a_record_matching_no_row_fails_rather_than_disappearing(tmp_path):

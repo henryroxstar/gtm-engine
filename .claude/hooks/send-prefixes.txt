@@ -1,0 +1,5 @@
+deny activate_
+deny resume_
+deny update_sequence_status
+ask add_leads_
+ask import_prospects_

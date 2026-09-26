@@ -93,7 +93,6 @@ from .prospects_consolidate import (
     DOSSIER_GLOB_FULL,
     DOSSIER_GLOB_ONEPAGER,
     dossier_folder,
-    org_token,
 )
 from .signal_record import audit_records
 from .suppression import load_index as load_suppression_index
@@ -120,7 +119,6 @@ __all__ = [
     "load_competitors",
     "competitor_match",
     "filter_by_verdict",
-    "account_key",
     "audit_rows",
     "render",
     "main",
@@ -579,6 +577,7 @@ GENERIC_LANE_ADVISORY = frozenset(
 GENERIC_LANE_STAYS_ERROR = frozenset(
     {
         # the record is present and wrong
+        "evidence-too-short",
         "signal-source-malformed",
         "signal-source-is-search",
         "signal-observed-future",
@@ -725,19 +724,6 @@ def _competitor_finding(
         a.warnings.append(f"competitor-flag: {company!r} — {hit.summary}")
 
 
-def account_key(r: dict) -> str:
-    """The one identity every per-account count and dedupe in this gate keys on.
-
-    ``account_id`` when the row carries one; the org token otherwise. The org token is the
-    domain when present and the name when not, so an account whose rows disagree on
-    ``company_domain`` got two tokens and every per-account finding twice.
-    """
-    account_id = (r.get("account_id") or "").strip()
-    if account_id:
-        return f"id:{account_id}"
-    return org_token(r.get("company_domain", ""), r.get("company", ""))
-
-
 def audit_rows(
     rows: list[dict],
     profile: str,
@@ -764,7 +750,12 @@ def audit_rows(
     # it runs — the same arrangement as check_row above, and for the same reason: the
     # finding existed and nothing re-read it before a batch loaded.
     rec = audit_records(
-        rows, fieldnames if fieldnames is not None else (list(rows[0]) if rows else []), as_of=as_of
+        rows,
+        fieldnames if fieldnames is not None else (list(rows[0]) if rows else []),
+        as_of=as_of,
+        lane=lane,
+        sources_dir=content_root / "sources" if content_root else None,
+        profile=profile,
     )
     if rec.missing_columns:
         a.record_missing_columns = rec.missing_columns
@@ -781,6 +772,8 @@ def audit_rows(
         )
 
     # Row-level checks: every contact carries its own email, so these run per row.
+    from .lanes.router import account_key
+
     for r in rows:
         company = r.get("company", "")
         issue, detail = domain_issue(r, domain_aliases)

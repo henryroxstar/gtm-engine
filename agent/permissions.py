@@ -260,8 +260,31 @@ _EXTERNAL_EFFECT_LEAVES: frozenset[str] = frozenset(
         "slack_send_message",
         "slack_schedule_message",
         "reply_to_email",
+        # ── Hosted Saleshandy: account verbs with no automated caller (2026-09-25) ─────────
+        # The claude.ai connector exposes these; the in-repo one does not. Buying a domain
+        # spends money, the deletes cannot be undone, and re-pointing a sequence's mailboxes
+        # changes who it sends as. Denied with no admitting context.
+        "purchase_domain",
+        "delete_sequence",
+        "delete_domain",
+        "revoke_domain",
+        "add_email_accounts_to_sequence",
     }
 )
+
+#: Leaf PREFIXES that change whether a sequence SENDS. Activating a sequence is sending, and a
+#: person does that in the provider's own UI — so these are denied on every connector, in
+#: every context, before any category rule runs. Prefixes, not names, because the hosted
+#: connector named its verb `update_sequence_status` while our category rule only knew
+#: `activate_`/`resume_`, and it was class-allowed for exactly that reason.
+_SEND_STATE_PREFIXES: tuple[str, ...] = ("activate_", "resume_", "update_sequence_status")
+
+#: Leaf PREFIXES of the enrolment families. Only the two exact names in
+#: ``_SALESHANDY_ENROLL_LEAVES`` are ever admitted (inside ``email_context()``); every other
+#: member — the hosted connector's `import_prospects_to_sequence_step`, and whatever variant
+#: ships next — is denied by construction. No variant needs admitting: the enrolment
+#: dispatcher calls the in-repo HTTP helpers directly, never an MCP tool.
+_ENROLL_PREFIXES: tuple[str, ...] = ("add_leads_", "import_prospects_")
 
 #: Reap verbs that publish, schedule, or edit a live post. Denied everywhere EXCEPT inside
 #: an approved publish dispatch (``agent/publish.py`` / ``agent/publish_dispatch.py``), so the
@@ -407,6 +430,9 @@ def _classify_mcp(tool_name: str) -> Decision:
     ``tool_name`` is ``mcp__<server>__<leaf>``; ``<server>`` may itself contain ``__``, so the leaf
     is taken from the **last** separator. Precedence:
 
+    0. A send-state (``_SEND_STATE_PREFIXES``) or enrolment-family (``_ENROLL_PREFIXES``) leaf is
+       decided first, on every connector, categorised or not: denied, except the two exact
+       enrolment names inside an approved email context.
     1. An external-effect leaf is **denied** outright, on any connector (§R7 publish gate /
        A11 enrollment gate), unless it is a Reap publish verb and we are inside an approved
        publish context, or a Saleshandy enrollment verb and we are inside an approved email
@@ -423,6 +449,13 @@ def _classify_mcp(tool_name: str) -> Decision:
     else:
         connector_name = ""
         leaf = server_and_leaf
+
+    # Decided before the category branch, which returns early: a hosted connector has no
+    # category (its server segment is an opaque UUID), and a categorised one admitted every
+    # `import_prospects_*` in email_context while matching `update_sequence_status` to nothing.
+    # A send-state verb is never in `_SALESHANDY_ENROLL_LEAVES`, so it is denied in every context.
+    if leaf.startswith(_SEND_STATE_PREFIXES + _ENROLL_PREFIXES):
+        return "allow" if (leaf in _SALESHANDY_ENROLL_LEAVES and in_email_context()) else "deny"
 
     cat = get_category_for_connector(connector_name)
     if cat and cat in CATEGORY_RULES:
@@ -793,6 +826,32 @@ def _segment_redirects_from_secret(segment: str) -> bool:
     return False
 
 
+def _is_arbitrary_python_args(tokens: list[str]) -> bool:
+    """Return True if tokens represent arbitrary python execution (-c or -)."""
+    i = 0
+    opt_takes_arg = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "-c" or tok.startswith("-c"):
+            return True
+        if tok == "-":
+            return True
+        if tok == "-m" or tok.startswith("-m"):
+            return False
+        if tok == "--":
+            if i + 1 < len(tokens) and tokens[i + 1] == "-":
+                return True
+            return False
+        if not tok.startswith("-"):
+            # A script file name/path
+            return False
+        if tok in opt_takes_arg:
+            i += 2
+        else:
+            i += 1
+    return False
+
+
 def _is_uv_run_arbitrary_python(segment: str) -> bool:
     """Return True if segment is `uv run ... python -c/-` arbitrary execution."""
     try:
@@ -823,8 +882,7 @@ def _is_uv_run_arbitrary_python(segment: str) -> bool:
         or rest[idx].endswith("/python")
         or rest[idx].endswith("/python3")
     ):
-        py_args = " ".join(rest[idx + 1 :])
-        return bool(re.match(r"^(-c(\s|$|[\"'\w])|\s*-c|-\s|-$)", py_args))
+        return _is_arbitrary_python_args(rest[idx + 1 :])
     return False
 
 
@@ -873,11 +931,16 @@ def _classify_bash(command: str) -> Decision:
             #   python - <<'HD'   — stdin heredoc (semantically identical to -c; the `-` arg means
             #                       "read from stdin", which is whatever the shell pipes in)
             # Script paths, module calls (-m), and all other invocation forms are allowed.
-            args = segment.split(None, 1)[1].strip() if " " in segment else ""
-            # `-c` binds its argument with or without whitespace (`python -c'x'`). This
-            # branch required a space while the `uv run python` branch above did not, so the
-            # cheaper spelling walked through the narrower check.
-            seg_decision = "deny" if re.match(r"^(-c(\s|$|[\"\'\w])|-\s|-$)", args) else "allow"
+            toks = _segment_tokens(segment)
+            py_idx = -1
+            for j, t in enumerate(toks):
+                if _ASSIGNMENT_RE.fullmatch(t):
+                    continue
+                if t.rsplit("/", 1)[-1] in ("python", "python3"):
+                    py_idx = j
+                    break
+            args_tokens = toks[py_idx + 1 :] if py_idx != -1 else toks[1:]
+            seg_decision = "deny" if _is_arbitrary_python_args(args_tokens) else "allow"
         elif program == "uv":
             # Block `uv run python -c '...'` and `uv run python -`; everything else (uv run
             # script.py, uv add, uv sync, etc.) is allowed — the dangerous-program check on

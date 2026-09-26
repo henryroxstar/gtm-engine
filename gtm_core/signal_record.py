@@ -51,9 +51,12 @@ from __future__ import annotations
 import datetime
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
-from .merge_hygiene import SIGNAL_MAX_AGE_DAYS, Finding, clean_company
+from .merge_hygiene import Finding, clean_company
 from .merge_hygiene.signal_clean import signal_clause
+from .merge_hygiene.signal_dates import signal_age_limit
+from .signal_sources import validate_source_evidence
 
 __all__ = [
     "AgentKind",
@@ -252,19 +255,15 @@ def normalise_company(name: str) -> str:
 #: applied to the rendered name (``clean_company`` owns that, and stays legal-suffix-only).
 #: Kept small and explicit: every word added here widens what counts as "the same company".
 _DESCRIPTOR_WORDS = frozenset(
-    """
-    ai card center centre clinical communications companies financial group health
-    healthcare holdings insurance system systems technologies technology
-    """.split()
+    "ai card center centre clinical communications companies financial group health "
+    "healthcare holdings insurance system systems technologies technology".split()
 )
 #: Legal forms. After the FULL name they are that name's own filing form ("Halden Inc." —
 #: ``normalise_company`` already equates the two); after a shortened core they are a
 #: namesake's ("Acme plc" is not "Acme Financial").
 _LEGAL_FORMS = frozenset(
-    """
-    ag bv co company corp corporation gmbh inc incorporated limited llc llp lp ltd nv plc
-    pte pty sa
-    """.split()
+    "ag bv co company corp corporation gmbh inc incorporated limited llc llp lp ltd nv plc "
+    "pte pty sa".split()
 )
 #: A word that, written straight after a name, makes it a DIFFERENT entity's name unless the
 #: subject carries it too: "Acme Insurance" is not "Acme Health", "Acme Capital" not "Acme".
@@ -356,14 +355,12 @@ def _named_in(name: str, evidence: str) -> bool:
 # --- evidence support ----------------------------------------------------
 
 _STOPWORDS = frozenset(
-    """
-    about after also been before being between both came come could does done down
-    each even ever from give goes going have here into just like made make many
-    more most much must near need next only other over said same seen shall since
-    some such take than that their them then there these they this those through
-    time upon used uses using very want ways well were what when where which while
-    with would your
-    """.split()
+    "about after also been before being between both came come could does done down "
+    "each even ever from give goes going have here into just like made make many "
+    "more most much must near need next only other over said same seen shall since "
+    "some such take than that their them then there these they this those through "
+    "time upon used uses using very want ways well were what when where which while "
+    "with would your".split()
 )
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 #: Below this, the clause is asserting things the quoted source does not say.
@@ -445,23 +442,7 @@ _AGENT_WORD_RE = re.compile(r"\bagent(?:s|ic)?\b", re.IGNORECASE)
 # --- the per-row check ---------------------------------------------------
 
 
-def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]:
-    """Validate one row's research record. Empty list means the record checks out.
-
-    Reuses :class:`gtm_core.merge_hygiene.Finding` so a caller can merge these with
-    ``check_row``'s output and treat both as one stream — there is no second finding
-    type to teach every downstream gate about.
-
-    A row with no clause and no why_now is a generic-arc row: it makes no dated claim, so
-    provenance fields have nothing to be provenance for, and only the verdict is required.
-    `signal_clause` is derived from `why_now` when the row carries no stored clause.
-    """
-    out: list[Finding] = []
-    today = as_of or datetime.date.today()
-    why_now = (row.get("why_now") or "").strip()
-    clause = (row.get("signal_clause") or signal_clause(why_now)).strip()
-    company = (row.get("company") or "").strip()
-
+def _check_verdict_and_relation(row: dict, company: str, out: list[Finding]) -> None:
     verdict = (row.get("verdict") or "").strip().lower()
     if not verdict:
         out.append(
@@ -479,8 +460,8 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
 
-    relation = (row.get("category_relation") or "").strip().lower()
-    if not relation or relation == CategoryRelation.UNCLEAR:
+    rel = (row.get("category_relation") or "").strip().lower()
+    if not rel or rel == CategoryRelation.UNCLEAR:
         out.append(
             Finding(
                 "block",
@@ -489,7 +470,7 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
                 f"{company!r} has no resolved relation (prospect/competitor/partner/adjacent)",
             )
         )
-    elif relation == CategoryRelation.COMPETITOR:
+    elif rel == CategoryRelation.COMPETITOR:
         out.append(
             Finding(
                 "block",
@@ -498,17 +479,16 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
                 f"{company!r} is recorded as a competitor — never a cold-pitch target",
             )
         )
-    elif relation == CategoryRelation.REGULATOR:
+    elif rel == CategoryRelation.REGULATOR:
         out.append(
             Finding(
                 "block",
                 "category_relation",
                 "relation-regulator",
-                f"{company!r} is a supervisory/standards body — it writes the rules this "
-                f"pitch appeals to; a commercial cold pitch misreads its role",
+                f"{company!r} is a supervisory/standards body — it writes the rules this pitch appeals to; a commercial cold pitch misreads its role",
             )
         )
-    elif relation == CategoryRelation.PARTNER:
+    elif rel == CategoryRelation.PARTNER:
         out.append(
             Finding(
                 "warn",
@@ -517,16 +497,94 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
                 f"{company!r} is a partner — a cold outbound pitch is the wrong motion",
             )
         )
-    elif relation == CategoryRelation.ADJACENT:
+    elif rel == CategoryRelation.ADJACENT:
         out.append(
             Finding(
                 "warn",
                 "category_relation",
                 "relation-adjacent",
-                f"{company!r} ships something neighbouring — say so, or the pitch reads as "
-                f"not having looked",
+                f"{company!r} ships something neighbouring — say so, or the pitch reads as not having looked",
             )
         )
+
+
+def _check_observed_date(
+    row: dict, today: datetime.date, clause: str, why_now: str, out: list[Finding]
+) -> None:
+    observed = _parse_observed(row.get("signal_observed") or "")
+    if observed is None:
+        out.append(
+            Finding(
+                "block",
+                "signal_observed",
+                "signal-observed-missing",
+                f"{(row.get('signal_observed') or '')!r} is not an ISO date (YYYY-MM-DD)",
+            )
+        )
+        return
+    age = (today - observed).days
+    segment = str(row.get("segment") or "unknown").strip().lower()
+    raw_type = (
+        str(row.get("signal_kind") or row.get("signal_type") or row.get("type") or "")
+        .strip()
+        .lower()
+    )
+    if raw_type in ("funding", "event", "structural"):
+        kind = raw_type
+    elif "raised" in (clause or why_now).lower() or "funding" in (clause or why_now).lower():
+        kind = "funding"
+    elif any(
+        w in (clause or why_now).lower()
+        for w in ("partner", "integration", "compliance", "standard", "stack", "regulator")
+    ):
+        kind = "structural"
+    else:
+        kind = "event"
+    limit = signal_age_limit(segment, kind)
+    if age < 0:
+        out.append(
+            Finding(
+                "block", "signal_observed", "signal-observed-future", f"{observed} is in the future"
+            )
+        )
+    elif age > limit:
+        out.append(
+            Finding(
+                "block",
+                "signal_observed",
+                "signal-stale",
+                f"observed {observed} — {age} days old, past the {limit}-day limit",
+            )
+        )
+
+
+def check_record(
+    row: dict,
+    as_of: datetime.date | None = None,
+    lane: str | None = None,
+    sources_dir: Path | str | None = None,
+    profile: str | None = None,
+) -> list[Finding]:
+    """Validate one row's research record. Empty list means the record checks out.
+
+    Reuses :class:`gtm_core.merge_hygiene.Finding` so a caller can merge these with
+    ``check_row``'s output and treat both as one stream — there is no second finding
+    type to teach every downstream gate about.
+
+    A row with no clause and no why_now is a generic-arc row: it makes no dated claim, so
+    provenance fields have nothing to be provenance for, and only the verdict is required.
+    `signal_clause` is derived from `why_now` when the row carries no stored clause.
+    """
+    out: list[Finding] = []
+    today = as_of or datetime.date.today()
+    why_now = (row.get("why_now") or "").strip()
+    clause = (row.get("signal_clause") or signal_clause(why_now)).strip()
+    company = (row.get("company") or "").strip()
+    eff_lane = (lane if lane is not None else row.get("lane") or "").strip() or None
+    eff_sources_dir = sources_dir
+    eff_profile = profile if profile is not None else row.get("profile")
+
+    _check_verdict_and_relation(row, company, out)
 
     if not clause and not why_now:
         return out  # generic arc: no claim, nothing to source
@@ -565,36 +623,7 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
 
-    observed = _parse_observed(row.get("signal_observed") or "")
-    if observed is None:
-        out.append(
-            Finding(
-                "block",
-                "signal_observed",
-                "signal-observed-missing",
-                f"{(row.get('signal_observed') or '')!r} is not an ISO date (YYYY-MM-DD)",
-            )
-        )
-    else:
-        age = (today - observed).days
-        if age < 0:
-            out.append(
-                Finding(
-                    "block",
-                    "signal_observed",
-                    "signal-observed-future",
-                    f"{observed} is in the future",
-                )
-            )
-        elif age > SIGNAL_MAX_AGE_DAYS:
-            out.append(
-                Finding(
-                    "block",
-                    "signal_observed",
-                    "signal-stale",
-                    f"observed {observed} — {age} days old, past the {SIGNAL_MAX_AGE_DAYS}-day limit",
-                )
-            )
+    _check_observed_date(row, today, clause, why_now, out)
 
     evidence = (row.get("signal_evidence") or "").strip()
     if not evidence:
@@ -607,6 +636,25 @@ def check_record(row: dict, as_of: datetime.date | None = None) -> list[Finding]
             )
         )
     else:
+        if len(evidence) < 20:
+            out.append(
+                Finding(
+                    "block",
+                    "signal_evidence",
+                    "evidence-too-short",
+                    f"evidence is {len(evidence)} characters — under the 20-character minimum",
+                )
+            )
+        else:
+            out.extend(
+                validate_source_evidence(
+                    evidence,
+                    url,
+                    lane=eff_lane,
+                    sources_dir=eff_sources_dir,
+                    profile=eff_profile,
+                )
+            )
         ok, unsupported, unsourced = evidence_supports(clause or why_now, evidence)
         if unsourced:
             out.append(
@@ -743,6 +791,9 @@ def audit_records(
     rows: list[dict],
     fieldnames: list[str] | tuple[str, ...] | None = None,
     as_of: datetime.date | None = None,
+    lane: str | None = None,
+    sources_dir: Path | str | None = None,
+    profile: str | None = None,
 ) -> RecordAudit:
     """Audit a whole list's research records.
 
@@ -759,7 +810,7 @@ def audit_records(
     for r in rows:
         a.checked += 1
         who = (r.get("email") or r.get("company") or "?").strip()
-        for f in check_record(r, as_of=as_of):
+        for f in check_record(r, as_of=as_of, lane=lane, sources_dir=sources_dir, profile=profile):
             line = f"{f.rule}: {who} — {f.detail}"
             (a.errors if f.level == "block" else a.warnings).append(line)
     return a

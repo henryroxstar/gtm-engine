@@ -7,6 +7,27 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def mock_get_ai_vocab_regex(monkeypatch):
+    import re
+
+    from gtm_core import web_sweep_hits
+
+    regex = re.compile(
+        r"\bai\b|\bllm\b|\bmcp\b|\bagentic\b|\bcopilot\b|"
+        r"\bmachine learning\b|\bml platforms?\b|"
+        r"\bagent platforms?\b|\bagent marketplaces?\b|\bautonomous agents?\b|"
+        r"\bvirtual agents?\b|\bdigital agents?\b|\bai[-  ]powered\b|"
+        r"\bthird-party agents?\b|\bcross-org agents?\b|\bagent authentication\b|"
+        r"\bagent delegation\b|\bagent identity\b|\bx402\b|\bap2\b|\ba2a\b|"
+        r"\bpride framework\b|\bai impact\b|\bagentic finance\b|\bagent breakouts?\b|"
+        r"\bunattended agents?\b|\bconfused deputy\b|\bshadow ai\b",
+        re.IGNORECASE,
+    )
+    monkeypatch.setattr(web_sweep_hits, "get_ai_vocab_regex", lambda profile: regex)
+
+
 from gtm_core.web_sweep import (
     generate_queries,
     is_valid_source_url,
@@ -472,3 +493,135 @@ def test_cli_normalize_bytes_that_are_not_text_are_one_clear_line(
     assert captured.out == "" and not out_file.exists()
     assert captured.err.startswith("Error: ") and "UTF-8" in captured.err
     assert len(captured.err.strip().splitlines()) == 1
+
+
+# --- W3a / R3.1, R3.2, R3.4 tests -------------------------------------------
+
+
+def test_r3_1_valid_segments_equal_role_vocabulary_segments():
+    """R3.1: the sweep's valid segments are derived from role_vocabulary segments."""
+    from gtm_core.role_vocabulary import DEFAULT_SEGMENTS
+    from gtm_core.web_sweep import _VALID_SEGMENTS, VALID_SEGMENTS
+
+    assert VALID_SEGMENTS == DEFAULT_SEGMENTS
+    assert _VALID_SEGMENTS == DEFAULT_SEGMENTS
+    assert "builder" in VALID_SEGMENTS
+
+
+def test_r3_1_builder_segment_accepted_and_unknown_refused(tmp_path: Path):
+    """R3.1: --segment builder is accepted; an unknown segment is refused."""
+    hits = [
+        {
+            "type": "newsroom",
+            "date": "2026-09-15",
+            "url": "https://builder.example/launch",
+            "evidence": "Builder Co released an agentic developer SDK for building agents.",
+            "strength": "H",
+        }
+    ]
+    res = normalize_sweep("Builder Co", raw_hits=hits, segment="builder", as_of="2026-09-20")
+    assert res["verdict"] == ""
+    assert res["why_now"] != ""
+
+    with pytest.raises(ValueError):
+        normalize_sweep("Builder Co", raw_hits=hits, segment="unknown-seg", as_of="2026-09-20")
+
+    hits_file = tmp_path / "hits_builder.json"
+    hits_file.write_text(json.dumps(hits), encoding="utf-8")
+    code = main(
+        [
+            "normalize",
+            "--company",
+            "Builder Co",
+            "--hits",
+            str(hits_file),
+            "--segment",
+            "builder",
+            "--as-of",
+            "2026-09-20",
+        ]
+    )
+    assert code == 0
+
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "normalize",
+                "--company",
+                "Builder Co",
+                "--hits",
+                str(hits_file),
+                "--segment",
+                "unknown-seg",
+                "--as-of",
+                "2026-09-20",
+            ]
+        )
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("virtual agent", "ai"),
+        ("digital agents", "ai"),
+        ("AI-powered", "ai"),
+        ("AI powered", "ai"),
+        ("AI\u00a0powered", "ai"),
+        ("appointed 40 new insurance agents", "human"),
+        ("third-party agents", "ai"),
+        ("cross-org agents", "ai"),
+        ("agent authentication", "ai"),
+        ("x402 protocol", "ai"),
+        ("AI IMPACT framework", "ai"),
+        ("agentic finance", "ai"),
+    ],
+)
+def test_r3_2_ai_vocabulary(text: str, expected: str):
+    """R3.2: _AI_VOCAB_RE gains virtual agents?, digital agents?, ai[- \u00a0]powered."""
+    from gtm_core.web_sweep import _determine_agent_kind
+
+    assert _determine_agent_kind(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected_rule"),
+    [
+        ("machine learning & artificial intelligence (intent score 81)", "intent label"),
+        (
+            "No dated funding round or launch event confirmed in research, Summitline still appears bootstrapped",
+            "no signal",
+        ),
+        (
+            "AI-powered clinical Care Pathways coordinating agents across hospital networks in real time. *(Dated launch/funding signal to confirm at outreach.)*",
+            "unverified",
+        ),
+        ("short", "too short"),
+        (
+            "oversubscribed customer-led round (2025-11-05, Riverbend FCU / Members First / "
+            "Summitline / Halyard Ventures) earmarked for full-borrower-journey automation + scaling Lila",
+            "too long",
+        ),
+        ("Launch of the thing — with detail (2026-01-01)", "banned em-dash"),
+        ("Acme launched its agent platform (unclosed bracket", "unbalanced parentheses"),
+        ("12345 67890 12345 67890", "no letters"),
+        ("Acme launched its agent platform:", "incomplete sentence"),
+    ],
+)
+def test_r3_4_normalize_rejection_reason_names_actual_rule(evidence: str, expected_rule: str):
+    """R3.4: The normalize rejection reason states the actual rejecting rule for each rule in the corpus, not 'e.g. contains digits'."""
+    hits = [
+        {
+            "type": "newsroom",
+            "date": "2026-09-15",
+            "url": "https://news.example/acme",
+            "subject": "Acme",
+            "evidence": evidence,
+            "strength": "H",
+        }
+    ]
+    res = normalize_sweep("Acme", raw_hits=hits, segment="startup", as_of="2026-09-20")
+    assert res["why_now"] == ""
+    assert res["verdict"] == "re-angle"
+    assert "e.g. contains digits" not in res["verdict_reason"]
+    assert res["verdict_reason"] == f"evidence rejected by signal_clause ({expected_rule})"

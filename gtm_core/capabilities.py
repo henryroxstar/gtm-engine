@@ -527,3 +527,9 @@ def resolve_effective(
         return "denied"
     # VPS/BACKEND: require compute connectors; no PRODUCTION fallback.
     return "allowed" if ctx.connectors.has_compute_connector() else "denied"
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

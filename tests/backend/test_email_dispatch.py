@@ -594,3 +594,53 @@ def test_lead_id_drafts_have_no_rows_to_lane_check(tmp_path):
     ):
         outcome = asyncio.run(dispatch_approved_enrollment(cfg, FakeLedgers(), draft=DRAFT))
     assert outcome.ok is True and outcome.status == "enrolled"
+
+
+# ── R8.5: Expiry check at dispatch ──────────────────────────────────────────
+
+
+def test_dispatch_refuses_draft_past_expires_on_zero_enroll_calls():
+    """R8.5: a draft past expires_on is refused with zero enrol calls."""
+    draft_past = {**DRAFT, "expires_on": "2020-01-01"}
+    with patch(
+        "agent.mcp.saleshandy.server._add_leads_to_sequence_request",
+        return_value='{"success": true}',
+    ) as mock_add:
+        outcome = asyncio.run(
+            dispatch_approved_enrollment(_agent_cfg(), FakeLedgers(), draft=draft_past)
+        )
+    assert outcome.ok is False
+    assert outcome.status == "enroll_failed"
+    assert "expired" in outcome.detail
+    assert mock_add.call_count == 0
+
+
+def test_dispatch_enrolls_draft_before_expires_on_one_call():
+    """R8.5: a draft before expires_on enrolls with exactly one call."""
+    draft_future = {**DRAFT, "expires_on": "2099-01-01"}
+    with patch(
+        "agent.mcp.saleshandy.server._add_leads_to_sequence_request",
+        return_value='{"success": true}',
+    ) as mock_add:
+        outcome = asyncio.run(
+            dispatch_approved_enrollment(_agent_cfg(), FakeLedgers(), draft=draft_future)
+        )
+    assert outcome.ok is True
+    assert outcome.status == "enrolled"
+    assert mock_add.call_count == 1
+
+
+def test_dispatch_draft_without_expires_on_maintains_existing_behavior():
+    """R8.5: a draft without expires_on enrolls normally."""
+    draft_no_expiry = dict(DRAFT)
+    draft_no_expiry.pop("expires_on", None)
+    with patch(
+        "agent.mcp.saleshandy.server._add_leads_to_sequence_request",
+        return_value='{"success": true}',
+    ) as mock_add:
+        outcome = asyncio.run(
+            dispatch_approved_enrollment(_agent_cfg(), FakeLedgers(), draft=draft_no_expiry)
+        )
+    assert outcome.ok is True
+    assert outcome.status == "enrolled"
+    assert mock_add.call_count == 1

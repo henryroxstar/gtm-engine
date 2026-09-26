@@ -56,6 +56,18 @@ from .paths import EXPERIMENTS_DIRNAME, _safe_segment, clean_env_var, resolve_pr
 #: The manifest every overlay must carry.
 MANIFEST_NAME = "EXPERIMENT.toml"
 
+#: Keys that cannot be overridden by an overlay, even if the file is OVERLAYABLE.
+GATE_KEYS: frozenset[str] = frozenset(
+    {
+        "level",
+        "wedge_seats",
+        "on_topic_by_terms",
+        "min_distinct",
+        "attests_boundary",
+    }
+)
+
+
 #: Environment flag that enables overlays at all. **Closed by default**, matching
 #: ``HERMES_SCHEDULE_ENABLED``: a capability that can redirect real spend and real recipients
 #: should be opened deliberately on a box, not inherited by every checkout.
@@ -189,12 +201,30 @@ def _parse_date(value: object, field: str, source: Path) -> _dt.date:
         raise OverlayError(f"{source}: `{field}` is not a YYYY-MM-DD date: {value!r}") from exc
 
 
-def _check_contents(root: Path) -> tuple[str, ...]:
+def _extract_gate_keys(data: object, path: str = "") -> dict[str, object]:
+    found = {}
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k in GATE_KEYS:
+                found[f"{path}{k}"] = v
+            else:
+                found.update(_extract_gate_keys(v, f"{path}{k}."))
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            found.update(_extract_gate_keys(item, f"{path}[{i}]."))
+    return found
+
+
+def _check_contents(root: Path, profile: str, profiles_root: Path | None) -> tuple[str, ...]:
     """Every file in the directory must be one the overlay may override.
 
     Walks the tree rather than the top level: a refused file hidden one directory down is
     still a refused file, and an overlay is small enough that a full walk costs nothing.
     """
+    base_knowledge = (
+        (profiles_root or resolve_profiles_root()) / _safe_segment(profile, "profile") / "knowledge"
+    )
+
     present: list[str] = []
     for path in sorted(root.rglob("*")):
         if path.is_dir():
@@ -209,24 +239,51 @@ def _check_contents(root: Path) -> tuple[str, ...]:
             top = rel.parts[0]
             if top in OVERLAYABLE_DIRS:
                 present.append(rel.as_posix())
-                continue
-            raise OverlayError(
-                f"{path}: an overlay may not carry the directory `{top}/`. Overlayable "
-                f"directories: {', '.join(sorted(OVERLAYABLE_DIRS))}"
-            )
-        if name in REFUSED:
-            raise OverlayError(
-                f"{path}: `{name}` may not be overridden — {REFUSED[name]}. Remove it from the "
-                f"overlay; an experiment changes what we argue, never what we are not allowed to do"
-            )
-        if name not in OVERLAYABLE:
-            raise OverlayError(
-                f"{path}: `{name}` is not an overridable file. Allowed: "
-                f"{', '.join(sorted(OVERLAYABLE))} (plus the {', '.join(sorted(OVERLAYABLE_DIRS))}/ "
-                f"directory). A file here that nothing reads is worse than absent — it reads as "
-                f"a change that is not happening"
-            )
-        present.append(name)
+            else:
+                raise OverlayError(
+                    f"{path}: an overlay may not carry the directory `{top}/`. Overlayable "
+                    f"directories: {', '.join(sorted(OVERLAYABLE_DIRS))}"
+                )
+        else:
+            if name in REFUSED:
+                raise OverlayError(
+                    f"{path}: `{name}` may not be overridden — {REFUSED[name]}. Remove it from the "
+                    f"overlay; an experiment changes what we argue, never what we are not allowed to do"
+                )
+            if name not in OVERLAYABLE:
+                raise OverlayError(
+                    f"{path}: `{name}` is not an overridable file. Allowed: "
+                    f"{', '.join(sorted(OVERLAYABLE))} (plus the {', '.join(sorted(OVERLAYABLE_DIRS))}/ "
+                    f"directory). A file here that nothing reads is worse than absent — it reads as "
+                    f"a change that is not happening"
+                )
+            present.append(name)
+
+        if path.suffix == ".toml":
+            try:
+                overlay_data = tomllib.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                overlay_data = {}
+
+            base_file = base_knowledge / rel
+            base_data = {}
+            if base_file.is_file():
+                try:
+                    base_data = tomllib.loads(base_file.read_text(encoding="utf-8"))
+                except Exception:
+                    base_data = {}
+
+            overlay_keys = _extract_gate_keys(overlay_data)
+            base_keys = _extract_gate_keys(base_data)
+
+            all_keys = set(overlay_keys) | set(base_keys)
+            for k in all_keys:
+                if overlay_keys.get(k) != base_keys.get(k):
+                    key_name = k.split(".")[-1]
+                    raise OverlayError(
+                        f"{path}: overlay changes gate key `{key_name}` (at `{k}`). An overlay may not set or change gate keys."
+                    )
+
     return tuple(present)
 
 
@@ -297,7 +354,7 @@ def admit(
             f"editing `expires`, or retire the directory — the run was NOT started"
         )
 
-    files = _check_contents(root)
+    files = _check_contents(root, profile, profiles_root)
     if not files:
         raise OverlayError(
             f"{root}: the overlay overrides nothing — it has a manifest and no knowledge files. "

@@ -71,6 +71,7 @@ build/
 !.claude/hooks/secret-paste-guard.sh
 !.claude/hooks/send-guard.sh
 !.claude/hooks/send-leaves.txt
+!.claude/hooks/send-prefixes.txt
 # playwright browser state and artifacts
 .playwright-mcp/
 # Strix pentest run output (SARIF/CSV/JSON/logs) — local security-scan artifacts
