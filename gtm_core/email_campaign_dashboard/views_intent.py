@@ -59,7 +59,7 @@ def _intent_block(m: dict) -> str:
     )
 
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>How well they fit the ideal customer</h2>
         <p class="note"><strong>We can only answer this for {matched:,} of {total:,} people
         ({cov}).</strong> The other {it["unmatched"]:,} were loaded into the sending list without a
@@ -71,7 +71,7 @@ def _intent_block(m: dict) -> str:
         {_barlist([("traceable to a scored record", matched), ("no score on file", it["unmatched"])], total)}
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What buying-intent signals we actually hold</h2>
         <p class="note">The full roster of signals this pipeline can source, and which of them
         reached this list. Showing the absent ones matters: otherwise there is no way to tell
@@ -84,7 +84,7 @@ def _intent_block(m: dict) -> str:
         {nir["false"]:,} are marked as not, {nir["unknown"]:,} are unrecorded.{never}</p>
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Which topics they are researching</h2>
         <p class="note">Topic surge across the traceable group. The score is the third party's own
         intensity reading, not ours.</p>

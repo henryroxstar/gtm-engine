@@ -72,6 +72,16 @@ def test_classify_confidence_apollo_tiers():
     assert pc.classify_confidence("unverified", "") != "high"
 
 
+def test_classify_confidence_vibe_tiers():
+    """Vibe (Explorium) email status classification test."""
+    assert pc.classify_confidence("vibe valid", "") == "high"
+    assert pc.classify_confidence("valid", "") == "high"
+    assert pc.classify_confidence("Vibe Valid", "") == "high"
+    assert pc.classify_confidence("vibe catch_all", "") == "medium"
+    assert pc.classify_confidence("catch_all", "") == "medium"
+    assert pc.classify_confidence("vibe invalid", "") == "blocked"
+
+
 def test_classify_confidence_site_published():
     """A generic inbox scraped off the company's own official site — Builder/Startup
     only, and only when the address is actually on the company's own domain.

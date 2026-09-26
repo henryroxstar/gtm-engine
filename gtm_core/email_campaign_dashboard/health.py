@@ -162,6 +162,23 @@ def page_go_live(campaigns: dict, status: dict, contacted: dict | None) -> str:
     return go_live([r.get("status") for r in rows], live, on_record, readable=readable)
 
 
+def resolve_brand_palette(profile: str) -> dict[str, str]:
+    """Resolve brandkit palette tokens for the profile, or empty dict if none."""
+    if not profile:
+        return {}
+    try:
+        from ..brandkit import load_brand_kit
+        from ..paths import resolve_profiles_root
+
+        p_root = resolve_profiles_root()
+        bkit = load_brand_kit(p_root, profile)
+        if isinstance(bkit, dict) and isinstance(bkit.get("palette"), dict):
+            return {str(k): str(v) for k, v in bkit["palette"].items()}
+    except Exception:  # nosec
+        pass
+    return {}
+
+
 def page_extras(
     profile: str,
     content_root: Path | None,
@@ -180,6 +197,7 @@ def page_extras(
         "warnings": page_warnings(status, reconciliation, sum_ok, now),
         "eval_labeler": eval_labeler(profile, content_root),
         "review_sheet": review_sheet(profile, content_root),
+        "brand_palette": resolve_brand_palette(profile),
     }
 
 
@@ -214,7 +232,7 @@ def capability_rows_for(cap: dict | None) -> list:
     provider = str((cap or {}).get("provider") or "")
     try:
         return capability_rows(provider) if provider else []
-    except Exception:  # noqa: BLE001 — a page must render even if the registry cannot load
+    except Exception:  # nosec  # noqa: BLE001 — a page must render even if the registry cannot load
         return []
 
 

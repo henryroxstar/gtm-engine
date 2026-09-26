@@ -14,11 +14,16 @@ from .columns import column_value
 # three of Apollo's four statuses fell through to `unknown` and every such contact was
 # silently routed to the hidden hold queue instead of ready-to-load.csv — the same failure
 # this regex set exists to prevent.
-_HIGH_STATUS = re.compile(r"rocketreach a|^(apollo )?verified$|account-folder-verified", re.I)
-_MEDIUM_STATUS = re.compile(
-    r"rocketreach b|likely to engage|^(apollo )?unverified$|^found$|^likely$", re.I
+_HIGH_STATUS = re.compile(
+    r"rocketreach a|^(apollo )?verified$|^(vibe )?valid$|account-folder-verified", re.I
 )
-_BLOCKED_STATUS = re.compile(r"rocketreach f|^(apollo )?unavailable$|pattern|^invalid$", re.I)
+_MEDIUM_STATUS = re.compile(
+    r"rocketreach b|likely to engage|^(apollo )?unverified$|^(vibe )?catch_all$|^found$|^likely$",
+    re.I,
+)
+_BLOCKED_STATUS = re.compile(
+    r"rocketreach f|^(apollo )?unavailable$|^(vibe )?invalid$|pattern|^invalid$", re.I
+)
 
 # A generic inbox (hello@, enquiries@, info@) pulled directly off the company's own
 # official site — not RocketReach/Apollo-graded, because there is no person to grade.

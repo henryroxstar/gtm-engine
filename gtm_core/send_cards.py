@@ -1,4 +1,4 @@
-"""Send cards review surface for Gate 2 (W8, R8.1 - R8.4).
+"""Outreach campaign review surface for Gate 2 (W8, R8.1 - R8.4).
 
 R8.1: Card generator: HTML/JSON review cards, exactly one per cell_id (cohort x seat x variant).
       Card title in plain words, emails hidden by default, example member named with rendered email.
@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from gtm_core.email_campaign_dashboard.i18n import map_term
 from gtm_core.htmlpage import script_json
 from gtm_core.merge_hygiene.signal_dates import signal_age_limit
 from gtm_core.paths import resolve_content_root
@@ -173,10 +174,125 @@ def generate_cards(cells: list[dict[str, Any]]) -> list[Card]:
     return cards
 
 
+def _render_card_block(c: Card, profile: str, voice_content_html: str) -> str:
+    # Example member section
+    ex = c.example_member or {}
+    ex_name = html.escape(ex.get("name", "Named Member"))
+    ex_company = html.escape(ex.get("company", ""))
+    ex_subject = html.escape(ex.get("subject", ""))
+    ex_body = html.escape(ex.get("body", "")).replace("\n", "<br>")
+
+    # Receipts
+    r_parts = [
+        f'<span class="receipt-badge">{html.escape(k)}: {html.escape(v)}</span>'
+        for k, v in c.gate_receipt.items()
+    ]
+    receipts_html = " ".join(r_parts)
+
+    # Members table
+    rows_html = []
+    for m in c.members:
+        tick_box = (
+            f'<input type="checkbox" {"checked" if m.ticked else ""} '
+            f'data-cell="{html.escape(c.cell_id)}" '
+            f'data-email="{html.escape(m.email)}" '
+            f'onchange="onTickChange(this)">'
+        )
+        email_td = (
+            f"<td>{tick_box}</td>"
+            f"<td>{html.escape(m.company)}</td>"
+            f"<td>{html.escape(m.industry)}</td>"
+            f"<td>{html.escape(m.country)}</td>"
+            f"<td>{html.escape(map_term(m.level))}</td>"
+            f"<td>{html.escape(m.seat)}</td>"
+            f"<td><span class=\"email-hidden\">{html.escape(m.email)}</span><button class=\"reveal-btn\" onclick=\"this.previousElementSibling.classList.toggle('email-hidden'); this.textContent = this.textContent === 'Expand' ? 'Collapse' : 'Expand';\">Expand</button></td>"
+        )
+        if c.is_personalised:
+            src_link = (
+                f'<a href="{html.escape(m.source_url)}" target="_blank">source</a>'
+                if m.source_url
+                else ""
+            )
+            email_td += f"<td>{html.escape(m.opener)}</td><td>{src_link}</td><td>{html.escape(m.capture_date)}</td>"
+        rows_html.append(f"<tr>{email_td}</tr>")
+
+    extra_cols = "<th>Opener</th><th>Source</th><th>Capture Date</th>" if c.is_personalised else ""
+    table_html = f"""<table class="members-table">
+<thead><tr><th>Tick</th><th>Company</th><th>Industry</th><th>Country</th><th>Level</th><th>Seat</th><th>Email</th>{extra_cols}</tr></thead>
+<tbody>{"".join(rows_html)}</tbody>
+</table>"""
+
+    # Decision options: send this cell, not this wave, rewrite
+    decision_html = f"""<div class="decision-box">
+  <b>Decision:</b>
+  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="send this cell"> Approve Audience</label>
+  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="not this wave"> Skip for now</label>
+  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="rewrite"> Request rewrite</label>
+  <input type="text" placeholder="One-time tweak... (For permanent rules, edit voice.md)" style="width:380px; margin-left:10px;">
+  <span style="margin-left: 10px; font-size: 11px;"><a href="#" onclick="alert('To permanently change tone, run: open profiles/{html.escape(profile)}/voice.md'); return false;">Edit Voice Rules</a></span>
+</div>"""
+
+    # Notice: initial DOM has empty container for verdicts (panel verdict absent initially)
+    verdicts_html = (
+        f'<div class="panel-verdicts-container" id="verdicts-{html.escape(c.cell_id)}"></div>'
+    )
+
+    # Explainer block
+    explainer_parts = []
+    if c.cohort:
+        explainer_parts.append(f"<b>Cohort:</b> {html.escape(c.cohort)}")
+    if c.seat:
+        explainer_parts.append(f"<b>Seat:</b> {html.escape(c.seat)}")
+    if c.segment:
+        explainer_parts.append(f"<b>Segment:</b> {html.escape(c.segment)}")
+    if c.angle:
+        explainer_parts.append(f"<b>Angle:</b> {html.escape(c.angle)}")
+    if c.spec:
+        explainer_parts.append(f"<b>Template:</b> {html.escape(c.spec)}")
+    if c.premise_ids:
+        explainer_parts.append(f"<b>Premises:</b> {html.escape(', '.join(c.premise_ids))}")
+    if c.proof_ids:
+        explainer_parts.append(f"<b>Proofs:</b> {html.escape(', '.join(c.proof_ids))}")
+
+    voice_details = ""
+    if voice_content_html:
+        voice_details = (
+            f'<details style="margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px;">'
+            f'<summary style="cursor: pointer; font-weight: 600;">Active Voice Rules (voice.md)</summary>'
+            f'<div style="margin-top: 8px; font-family: monospace; white-space: pre-wrap; max-height: 150px; '
+            f"overflow-y: auto; background: var(--card); border: 1px solid var(--line); padding: 8px; "
+            f'border-radius: 4px;">{voice_content_html}</div></details>'
+        )
+
+    explainer_html = (
+        f'<div class="explainer" style="font-size:12px; color:var(--muted); margin-bottom:14px; '
+        f'padding:10px; background:var(--bg); border:1px solid var(--line); border-radius:6px;">'
+        f"{' | '.join(explainer_parts)}{voice_details}</div>"
+        if explainer_parts
+        else ""
+    )
+
+    return f"""<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;" id="card-{html.escape(c.cell_id)}">
+  <div class="card-title">{html.escape(c.title)}</div>
+  <div class="receipts">{receipts_html}</div>
+  {explainer_html}
+  <div class="example-member">
+    <div class="example-title">Example: {ex_name} ({ex_company})</div>
+    <div class="rendered-email">
+      <b>Subject:</b> {ex_subject}<br><br>
+      {ex_body}
+    </div>
+  </div>
+  {table_html}
+  {decision_html}
+  {verdicts_html}
+</div>"""
+
+
 def generate_cards_page(
     cells: list[dict[str, Any]] | list[Card], stamp: str = "", profile: str = ""
 ) -> str:
-    """Renders the HTML review sheet for send cards.
+    """Renders the HTML review sheet for the outreach campaign.
 
     Emails hidden by default in initial DOM.
     Panel verdict elements absent from initial DOM state, present only after a decision event.
@@ -193,15 +309,29 @@ def generate_cards_page(
         if vocab and getattr(vocab, "level_mix", None):
             members = [m.to_dict() for c in card_objs for m in c.members]
             _mix_report = level_mix_report(members, vocab, profile=profile)
-    except Exception:
+    except Exception:  # nosec
         _mix_report = None
+
+    voice_content_html = ""
+    if profile:
+        try:
+            from .paths import resolve_knowledge_file
+
+            vpath = resolve_knowledge_file("voice.md", profile=profile)
+            if vpath.exists():
+                vtext = vpath.read_text(encoding="utf-8")
+                # Very basic markdown list to HTML conversion for the panel
+                vlines = [html.escape(ln.strip()) for ln in vtext.splitlines() if ln.strip()]
+                voice_content_html = "<br>".join(vlines)
+        except Exception:  # nosec
+            pass
 
     html_template = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Send Cards Review · __STAMP__</title>
+<title>Outreach Campaign Review · __STAMP__</title>
 <style>
   :root { --ink:#1b1f24; --muted:#5b6470; --line:#e2e6ea; --bg:#fafbfc; --card:#fff; --accent:#1f6feb; --warn:#b54708; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,sans-serif; }
@@ -225,9 +355,10 @@ def generate_cards_page(
 </style>
 </head>
 <body>
-<header>
-  <h1>Send Cards Review</h1>
+<header style="flex-wrap: wrap;">
+  <h1>Outreach Campaign Review</h1>
   <span style="color:var(--muted)">Profile: __PROFILE__ · Wave: __STAMP__</span>
+  <p style="width: 100%; margin: 0; font-size: 13px; color: var(--muted);">Review the email template and recipient list below, then select your decision at the bottom to approve or skip.</p>
 </header>
 <main id="cards-container">
 __CARDS_HTML__
@@ -243,6 +374,18 @@ for (const c of CARDS) {
     panel_verdict_rendered: false,
     unticked: []
   };
+}
+
+function onTickChange(checkbox, cellId, email) {
+  const cid = cellId || (checkbox && checkbox.dataset ? checkbox.dataset.cell : "");
+  const em = email || (checkbox && checkbox.dataset ? checkbox.dataset.email : "");
+  const s = clientState[cid];
+  if (!s) return;
+  if (!checkbox.checked) {
+    if (!s.unticked.includes(em)) s.unticked.push(em);
+  } else {
+    s.unticked = s.unticked.filter(e => e !== em);
+  }
 }
 
 function onRevealVerdicts(cellId) {
@@ -283,80 +426,7 @@ function renderVerdicts(cellId) {
 </body>
 </html>"""
 
-    cards_html_parts = []
-    for c in card_objs:
-        # Example member section
-        ex = c.example_member or {}
-        ex_name = html.escape(ex.get("name", "Named Member"))
-        ex_company = html.escape(ex.get("company", ""))
-        ex_subject = html.escape(ex.get("subject", ""))
-        ex_body = html.escape(ex.get("body", "")).replace("\n", "<br>")
-
-        # Receipts
-        r_parts = []
-        for k, v in c.gate_receipt.items():
-            r_parts.append(f'<span class="receipt-badge">{html.escape(k)}: {html.escape(v)}</span>')
-        receipts_html = " ".join(r_parts)
-
-        # Members table
-        rows_html = []
-        for m in c.members:
-            tick_box = f'<input type="checkbox" {"checked" if m.ticked else ""} disabled>'
-            email_td = (
-                f"<td>{tick_box}</td>"
-                f"<td>{html.escape(m.company)}</td>"
-                f"<td>{html.escape(m.industry)}</td>"
-                f"<td>{html.escape(m.country)}</td>"
-                f"<td>{html.escape(m.level)}</td>"
-                f"<td>{html.escape(m.seat)}</td>"
-                f'<td><span class="email-hidden">{html.escape(m.email)}</span><button class="reveal-btn" disabled>Expand</button></td>'
-            )
-            if c.is_personalised:
-                src_link = (
-                    f'<a href="{html.escape(m.source_url)}" target="_blank">source</a>'
-                    if m.source_url
-                    else ""
-                )
-                email_td += f"<td>{html.escape(m.opener)}</td><td>{src_link}</td><td>{html.escape(m.capture_date)}</td>"
-            rows_html.append(f"<tr>{email_td}</tr>")
-
-        extra_cols = (
-            "<th>Opener</th><th>Source</th><th>Capture Date</th>" if c.is_personalised else ""
-        )
-        table_html = f"""<table class="members-table">
-<thead><tr><th>Tick</th><th>Company</th><th>Industry</th><th>Country</th><th>Level</th><th>Seat</th><th>Email</th>{extra_cols}</tr></thead>
-<tbody>{"".join(rows_html)}</tbody>
-</table>"""
-
-        # Decision options: send this cell, not this wave, rewrite
-        decision_html = f"""<div class="decision-box">
-  <b>Decision:</b>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="send this cell"> Send this cell</label>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="not this wave"> Not this wave</label>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="rewrite"> Rewrite</label>
-  <input type="text" placeholder="Rewrite note..." style="width:250px; margin-left:10px;">
-</div>"""
-
-        # Notice: initial DOM has empty container for verdicts (panel verdict absent initially)
-        verdicts_html = (
-            f'<div class="panel-verdicts-container" id="verdicts-{html.escape(c.cell_id)}"></div>'
-        )
-
-        card_block = f"""<div class="card" id="card-{html.escape(c.cell_id)}">
-  <div class="card-title">{html.escape(c.title)}</div>
-  <div class="receipts">{receipts_html}</div>
-  <div class="example-member">
-    <div class="example-title">Example: {ex_name} ({ex_company})</div>
-    <div class="rendered-email">
-      <b>Subject:</b> {ex_subject}<br><br>
-      {ex_body}
-    </div>
-  </div>
-  {table_html}
-  {decision_html}
-  {verdicts_html}
-</div>"""
-        cards_html_parts.append(card_block)
+    cards_html_parts = [_render_card_block(c, profile, voice_content_html) for c in card_objs]
 
     page = html_template.replace(
         "__STAMP__", html.escape(stamp or datetime.date.today().isoformat())
@@ -722,7 +792,7 @@ def is_send_cards_required(profile: str, content_root: Path | None = None) -> bo
         if not isinstance(data, dict):
             return True
         return bool(data.get("send_cards_required", True))
-    except Exception:
+    except Exception:  # nosec
         return True
 
 
@@ -766,18 +836,33 @@ def render_gate2_preview(
     }
 
 
+def list_send_cards_accounts(
+    profile: str,
+    content_root: Path | None = None,
+    cells: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Return sorted unique list of company/account names ready to send."""
+    from .email_campaign_dashboard.frontier import list_ready_to_send_accounts
+
+    return list_ready_to_send_accounts(cells, profile, content_root)
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="gtm_core.send_cards",
-        description="Send cards review surface for Gate 2.",
+        description="Outreach campaign review surface for Gate 2.",
     )
     sub = parser.add_subparsers(dest="cmd")
 
+    # list subcommand
+    list_p = sub.add_parser("list", help="list accounts in the approval queue")
+    list_p.add_argument("--profile", required=True)
+
     # generate subcommand
-    gen_p = sub.add_parser("generate", help="generate send cards HTML review page")
+    gen_p = sub.add_parser("generate", help="generate outreach campaign HTML review page")
     gen_p.add_argument("--profile", required=True)
     gen_p.add_argument("--wave", required=True)
     gen_p.add_argument("--out", type=Path, default=None)
@@ -797,12 +882,17 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if args.cmd == "list":
+        for a in list_send_cards_accounts(args.profile):
+            print(a)
+        return 0
+
     if args.cmd == "apply":
         profile = args.profile or "default"
         try:
             res = send_cards_apply(args.export, profile=profile, run_id=args.run_id)
             print(
-                f"send-cards apply: wrote {len(res.draft_paths)} draft(s), {len(res.repair_rows)} repair row(s)"
+                f"outreach-campaign apply: wrote {len(res.draft_paths)} draft(s), {len(res.repair_rows)} repair row(s)"
             )
             return 0
         except Exception as exc:
@@ -812,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
     # default / generate
     profile = args.profile or "default"
     wave = args.wave or ""
-    print(f"Send cards for profile {profile}, wave {wave}")
+    print(f"Outreach campaign review for profile {profile}, wave {wave}")
     return 0
 
 

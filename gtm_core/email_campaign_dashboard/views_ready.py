@@ -104,7 +104,7 @@ def _readiness_blocks(m: dict) -> dict[str, str]:
                 f"<td class='muted'>{_e(what)}</td></tr>"
             )
         blocks["re-push"] = f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Re-push before anyone starts a sequence
         <span class="pill risk" data-risk="re-push">not cleared to start</span></h2>
         <p><strong>{len(drifted_seqs)} of {len(distinct_seqs)} sequences</strong> were revised
@@ -126,7 +126,7 @@ def _readiness_blocks(m: dict) -> dict[str, str]:
         blocker = blocker or ((c.get("window") or {}).get("capacity_blocker") or "")
     if blocker:
         blocks["holding-up"] = (
-            '<div class="card"><h2>What is holding it up</h2>'
+            '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>What is holding it up</h2>'
             f'<p class="note">{_e(blocker)}</p></div>'
         )
 
@@ -136,7 +136,7 @@ def _readiness_blocks(m: dict) -> dict[str, str]:
     # when both render as silence.
     if not drifted and not blocker:
         blocks["nothing-outstanding"] = (
-            '<div class="card"><h2>Nothing outstanding</h2>'
+            '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Nothing outstanding</h2>'
             "<p class='note'>Every sequence in the sending tool matches the copy and the "
             "recipient list that were checked. Whether to start one is a decision, not a "
             "missing step.</p></div>"

@@ -322,7 +322,7 @@ def _cadence_split(m: dict, camps: list[dict], why: str) -> str:
         for c in camps
     )
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>How long it runs, once it starts</h2>
         <p class="note"><strong>Not shown as one figure for {_e(scope_label(m))}</strong> —
         {_e(why)}. Every duration is a division by one of those, so a single "done by" date

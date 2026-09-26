@@ -66,15 +66,17 @@ def test_five_tabs_overview_first(tmp_path):
         "Accounts",
         "Emails",
         "Results",
+        "Insights",
         "Operator notes",
     ]
     assert [k for _on, k, _l in nav] == [t for t, _ in TABS]
-    assert [on for on, _k, _l in nav] == [" on", "", "", "", ""]
+    assert [on for on, _k, _l in nav] == [" on", "", "", "", "", ""]
     assert re.findall(r'<section id="p-(\w+)" class="panel( on)?">', page) == [
         ("overview", " on"),
         ("accounts", ""),
         ("emails", ""),
         ("results", ""),
+        ("insights", ""),
         ("ops", ""),
     ]
 
@@ -135,7 +137,7 @@ def test_only_the_strip_sits_above_the_tabs(tmp_path, mode):
 def test_panels_are_hidden_by_class_only(tmp_path):
     page = _page(tmp_path, _seed(tmp_path))
     panels = [a for _p, t, a, _anc in elements(page) if t == "section"]
-    assert len(panels) == 5 and not any("hidden" in a for a in panels)
+    assert len(panels) == 6 and not any("hidden" in a for a in panels)
 
 
 @pytest.mark.parametrize("mode", SCOPES)

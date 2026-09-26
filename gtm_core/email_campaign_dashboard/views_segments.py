@@ -64,7 +64,7 @@ def segment_mix(m: dict) -> str:
             f'<div class="note">{_e(", ".join(where))}</div></td>{cells}</tr>'
         )
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Customer type across {_e(scope_label(m))}</h2>
         {_barlist(segments, r.get("accounts") or 0)}
         <p class="note">Every figure is distinct accounts, so an account two campaigns both

@@ -12,6 +12,7 @@ def test_the_five_tabs_in_reading_order():
         ("accounts", "Accounts"),
         ("emails", "Emails"),
         ("results", "Results"),
+        ("insights", "Insights"),
         ("ops", "Operator notes"),
     )
     assert config.TAB_LABELS == dict(config.TABS)

@@ -62,15 +62,12 @@ def _contacts_block(m: dict) -> str:
             for s, label, step, n in shown
         )
         everyone = (
-            "every person in the current list"
+            "every person in the active pool"
             if not unmapped
-            else f"with the {unmapped:,} unrecognised, <strong>{total + unmapped:,}</strong> "
-            "people in the current list"
+            else f"with {unmapped:,} unmapped, <strong>{total + unmapped:,}</strong> "
+            "people in the active pool"
         )
-        total_line = (
-            f'<p class="note">These {len(_LANE_STATUSES)} sum to <strong>{total:,}</strong> — '
-            f"{everyone}.</p>"
-        )
+        total_line = f'<p class="note">Total active pool: <strong>{total:,}</strong> prospects across these {len(_LANE_STATUSES)} workflow stages ({everyone}).</p>'
     else:
         tiles = "".join(
             _stat(
@@ -97,14 +94,13 @@ def _contacts_block(m: dict) -> str:
         src="readiness:admitted",
     )
     return f"""
-      <div class="card">
-        <h2>Contacts — by status (people, not companies)</h2>
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
+        <h2>Contacts by Status</h2>
         {scope_note}
         <div class="stats">{tiles}</div>
         {total_line}
         <div class="stats">{checked_tile}</div>
-        <p class="note"><strong>{_e(CHECKED_LABEL)}</strong> counts the same people after the
-        checks, so it is never added into the {len(_LANE_STATUSES)} above.</p>
+        <p class="note"><strong>{_e(CHECKED_LABEL)}</strong> reflects prospects approved after passing deliverability, compliance, and domain verification checks.</p>
       </div>"""
 
 
@@ -125,12 +121,10 @@ def _needs_address_block(m: dict) -> str:
     )
     diff_note = f"not part of the {total:,} above" if available else "not part of the routed list"
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Needs an address</h2>
         <div class="stats">{needs_tile}</div>
-        <p class="note"><strong>A different population — {diff_note}.</strong>
-        This counts named contacts in the account ledger with no reachable address at all,
-        which includes accounts that have never reached the current routed list.</p>
+        <p class="note">Identified contacts at target accounts where direct email addresses are currently being researched and verified before enrollment ({diff_note}).</p>
       </div>"""
 
 
@@ -179,9 +173,9 @@ def _campaign_lines(m: dict) -> str:
     if not items:
         return ""
     return (
-        '<div class="card"><h2>Campaigns</h2><p class="note">One line per campaign in '
-        f"{_e(scope_label(m))}: its go-live word, the people it has contacted and their "
-        f'replies.</p><ul class="steps">{"".join(items)}</ul></div>'
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Campaigns</h2><p class="note">Targeted outbound initiatives testing specific value propositions across '
+        f"{_e(scope_label(m))} — tracking launch status, prospects contacted, and replies.</p>"
+        f'<ul class="steps">{"".join(items)}</ul></div>'
     )
 
 

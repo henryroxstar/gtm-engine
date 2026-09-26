@@ -72,7 +72,7 @@ def _varies_block(m: dict) -> str:
         for name, n, detail in params
     )
 
-    varies_full = f"""      <div class="card">
+    varies_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What varies, and by how much</h2>
         <p class="note">{varying} of the {len(params)} parameters below
         {"takes" if varying == 1 else "take"} more than one level. Multiplied out that is
@@ -118,7 +118,7 @@ def _grid_block(m: dict) -> str:
                 tds += '<td class="gcell empty">·</td>'
         grid_rows += f"<tr><th>{_e(_seat_label(seat))}</th>{tds}</tr>"
 
-    grid_full = f"""<div class="card">
+    grid_full = f"""<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>The experiment, drawn</h2>
         <p class="note">Rows are buyer seats, columns are message bodies ({len(variants)} of them).
         A filled square is a real group of people; darker means larger.</p>
@@ -164,7 +164,7 @@ def _can_answer_block(m: dict) -> str:
     seat_readable = [c for c in cells if any(e.startswith("seat") for e in c["comparable_on"])]
     var_readable = [c for c in cells if any(e.startswith("variant") for e in c["comparable_on"])]
 
-    readable_full = f"""      <div class="card">
+    readable_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What this run can and cannot answer</h2>
         <div class="verdicts">
           <div class="v ok"><div class="vn">{len(seat_readable)}</div>
@@ -211,7 +211,7 @@ def _lift_block(m: dict) -> str:
     )
     fig = _scope_figures(m)
 
-    lift_full = f"""      <div class="card">
+    lift_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>How big a difference each group could even show</h2>
         <p class="note">At the number of people planned per group, a difference smaller than this
         would be indistinguishable from chance. Shorter is better.</p>

@@ -111,7 +111,7 @@ def _benchmarks_block(m: dict) -> str:
         for bm in BENCHMARKS
     )
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Reply rate</h2>
         <div class="bars">{rows}</div>
         {_bench_verdict(m, fig, target_rate, target_txt)}
@@ -188,7 +188,7 @@ def _runs_block(m: dict) -> str:
         </tr></thead><tbody>{run_rows}</tbody></table>"""
     else:
         runs_html = "<p class='note'>No discovery or enrichment runs recorded.</p>"
-    return f"""      <div class="card">
+    return f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Finding new people</h2>
         {runs_html}
       </div>"""
@@ -210,7 +210,7 @@ def _roster_notes(m: dict) -> str:
     verdicts = ", ".join(f"{n} {_e(k)}" for k, n in r.get("verdicts", []))
     seat_fit = _seat_fit_note(m) if len(m["campaigns"]["campaigns"]) == 1 else ""
     return (
-        '<div class="card"><h2>About these accounts</h2>'
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>About these accounts</h2>'
         f'<p class="note">Tiers: {tiers or "—"}. Research verdicts: {verdicts or "—"}.</p>'
         + _verdicts_note(m, rows)
         + _judge_split(m, rows)
@@ -241,7 +241,11 @@ def _group(gid: str, title: str, blocks: dict[str, str], *, open_: bool) -> str:
 
 
 def _card(title: str, body: str) -> str:
-    return f'<div class="card"><h2>{_e(title)}</h2>{body}</div>' if body else ""
+    return (
+        f'<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>{_e(title)}</h2>{body}</div>'
+        if body
+        else ""
+    )
 
 
 def _names(names: list[str]) -> str:
@@ -349,7 +353,7 @@ def _sending_setup(m: dict) -> dict[str, str]:
         else ""
     )
     table = f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Email sequences</h2>
         <table><thead><tr><th>Sequence</th><th>People loaded</th>
         <th>People contacted</th><th>Replies</th><th>Progress</th></tr></thead>
@@ -439,4 +443,8 @@ def _ops_view(m: dict) -> str:
 
 
 def _card_lines(lines: str) -> str:
-    return f'<div class="card">{lines}</div>' if lines else ""
+    return (
+        f'<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">{lines}</div>'
+        if lines
+        else ""
+    )

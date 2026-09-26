@@ -124,7 +124,7 @@ def test_the_small_numbers_line_is_the_readable_difference(tmp_path, checked):
     assert bool(lifts) is (checked == 3), (
         "the fixture must take both branches (cf. tenant_prose :350-366)"
     )
-    line = section(vr._results_view(m), "small-numbers")
+    line = section(vr._insights_view(m), "small-numbers")
     if lifts:
         assert _fig(line, "smallest-lift") == f"{min(lifts):g}×"
     else:
@@ -234,7 +234,8 @@ def test_manifest_text_on_results_renders_escaped(tmp_path):
         f"how = {json.dumps('H' + X)}\n",
         encoding="utf-8",
     )
-    html = vr._results_view(gd.build_model(profile, tmp_path))
+    model = gd.build_model(profile, tmp_path)
+    html = vr._results_view(model) + vr._insights_view(model)
     assert "<script>" not in html
     for tag in "TWCQH":
         assert f"{tag}&lt;script&gt;alert(1)" in html, tag
@@ -300,9 +301,12 @@ def test_every_results_section_renders_and_the_questions_open(tmp_path):
             '\n[experiment]\n[[experiment.will_learn]]\nquestion = "Does the seat answer"\n'
             'how = "count replies"\n'
         )
-    html = vr._results_view(gd.build_model(profile, tmp_path))
+    model = gd.build_model(profile, tmp_path)
+    html = vr._results_view(model)
+    insights = vr._insights_view(model)
     assert sorted(section_ids(html)) == sorted(SECTIONS["results"])
-    assert "Does the seat answer" in visible_text(section(html, "learnings"))
+    assert sorted(section_ids(insights)) == sorted(SECTIONS["insights"])
+    assert "Does the seat answer" in visible_text(section(insights, "learnings"))
 
 
 def test_t3_2_optouts_are_people(tmp_path):

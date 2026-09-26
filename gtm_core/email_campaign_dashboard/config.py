@@ -11,6 +11,7 @@ TABS: tuple[tuple[str, str], ...] = (
     ("accounts", "Accounts"),
     ("emails", "Emails"),
     ("results", "Results"),
+    ("insights", "Insights"),
     ("ops", "Operator notes"),
 )
 #: A tab's label by id — how an in-page sentence names a tab, so a rename cannot strand it.
@@ -66,14 +67,15 @@ SECTIONS: dict[str, frozenset[str]] = {
     "overview": frozenset({"lede", "campaign-lines", "accounts-funnel", "contacts-by-status"}),
     "accounts": frozenset({"filter", "account-tiles", "account-table"}),
     "emails": frozenset({"email-table", "hand-sent", "packs-list"}),
-    "results": frozenset(
+    "results": frozenset({"results-figures", "campaign-results", "when-we-know"}),
+    "insights": frozenset(
         {
-            "results-figures",
-            "campaign-results",
-            "when-we-know",
             "small-numbers",
             "learnings",
             "can-answer",
+            "angle-heatmap",
+            "sentiment-triage",
+            "ready-to-send",
         }
     ),
     "ops": frozenset(

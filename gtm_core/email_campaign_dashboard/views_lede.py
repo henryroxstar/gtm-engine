@@ -30,6 +30,8 @@ def _lede_block(m: dict) -> str:
     sheet = m.get("review_sheet") or {}
     body = []
     for ln in lines:
+        if ln.startswith("As of "):
+            continue
         text = _e(ln.strip())
         cls = (
             "lede-reason"
@@ -38,7 +40,7 @@ def _lede_block(m: dict) -> str:
             if ln.startswith("  ")
             else "lede-line"
         )
-        if ln.startswith("Yours ("):
+        if ln.startswith("For You (") or ln.startswith("Yours ("):
             cls += " yours"  # the operator's move: the lede's one accent line
             if sheet.get("href"):
                 text += f' <a href="{_e(sheet["href"])}" class="review-sheet-link">open it</a>'
@@ -47,14 +49,14 @@ def _lede_block(m: dict) -> str:
     # the whole profile's answer — its go-live word included — and says so (PS20 P1.10). Not
     # `_pool_scope_note`: that one points the reader at this very tab for the scoped figures.
     scope_note = (
-        f'<p class="note"><strong>Profile-wide, not {_e(scope_label(m))}.</strong> Every line '
-        "of this summary is about the whole profile.</p>"
+        f'<p class="note"><strong>Profile-wide, not {_e(scope_label(m))}.</strong> '
+        "Summary covers all active campaigns across the workspace.</p>"
         if m.get("campaign_scope")
         else ""
     )
     return f"""
       <div {card}>
-        <h2>Where you stand</h2>
+        <h2>Status</h2>
         {scope_note}{"".join(body)}
       </div>"""
 
@@ -68,7 +70,6 @@ def _maintainer_block(m: dict) -> str:
         return ""
     items = "".join(f"<li>{_e(p)}</li>" for p in problems)
     return (
-        '<div class="card"><h2>Counts that do not add up</h2>'
-        "<p class='note'>For whoever maintains your setup. None of these stops a send on its "
-        f"own; each line says what it affects.</p><ul>{items}</ul></div>"
+        '<div class="card"><h2>Data Reconciliation Notices</h2>'
+        f"<p class='note'>Technical system checks for workspace data alignment. None of these block active sending.</p><ul>{items}</ul></div>"
     )

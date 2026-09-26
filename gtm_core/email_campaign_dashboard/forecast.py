@@ -374,7 +374,7 @@ def _forecast_block(m: dict) -> str:
     caveat = window.get("caveat") or ""
 
     return f"""
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>How long it runs, once it starts</h2>
         <table><thead><tr><th>Audience</th><th>People</th><th>Emails</th>
         <th>Each person gets</th><th>Sending + tail</th><th>Total</th><th>Done by</th>
@@ -387,7 +387,7 @@ def _forecast_block(m: dict) -> str:
         {f'<p class="note">{unloaded_note}</p>' if unloaded_note else ""}
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>The ceiling, and why it is where it is</h2>
         <p>{why}{constraint}
         At {touches} emails a person that ceiling absorbs about <strong>{people_day} new people a working day</strong>,

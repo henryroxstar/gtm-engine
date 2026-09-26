@@ -165,7 +165,7 @@ def test_samples_no_registered_sequence_uses_are_hand_sent(tmp_path):
     html = ve._emails_view(_scoped_full(tmp_path))
     hand = section(html, "hand-sent")
     assert "riley@summitline.example" in hand and "<strong>Subject:</strong>" in hand
-    assert "a second renderer is how a page starts showing copy nobody sends" in hand
+    assert "Templates are displayed with dynamic merge tags" in hand
     # S1's drawer holds S1's own samples only; the unclaimed ones are not repeated there.
     more = block(html, 'data-more="S1"')
     assert "riley@summitline.example" not in more and "{{First Name}}" not in more

@@ -278,9 +278,9 @@ def _reconcile(m: dict, staged: list[dict], candidates: dict[str, dict]) -> str:
     if not lines:
         return ""
     return (
-        '<p class="note"><strong>List vs provider.</strong> A recipient CSV says who was '
-        "proposed; the provider says who was loaded. They are different questions and this "
-        f'page does not merge them.</p><ul class="note">{"".join(lines)}</ul>'
+        '<p class="note"><strong>Audience Reconciliation:</strong> '
+        "Comparison of planned target recipients against prospects active in the sending platform.</p>"
+        f'<ul class="note">{"".join(lines)}</ul>'
     )
 
 
@@ -310,7 +310,7 @@ def _account_tiles(m: dict) -> str:
     # PARTIAL COVERAGE IS THE FAILURE HERE, not disagreement — see `format.roster_gap`.
     if gap := roster_gap(m):
         return (
-            '<div class="card"><h2>Accounts in scope</h2><p class="note">Not shown for '
+            '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Accounts in scope</h2><p class="note">Not shown for '
             f"{_e(scope_label(m))} — {_e(gap)}</p></div>"
         )
     camps = m["campaigns"]["campaigns"]
@@ -394,7 +394,7 @@ def _account_table(m: dict) -> str:
     roster = (m.get("roster") or {}).get("rows") or []
     if not roster:
         return (
-            '<div class="card"><h2>Accounts</h2><p class="note">Not shown: this scope has '
+            '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Accounts</h2><p class="note">Not shown: this scope has '
             "no campaign roster. This list is a per-campaign view — it needs a manifest "
             "declaring which run exports its accounts came from, or it would list the whole "
             "shared prospect pool, which is a different question.</p></div>"
@@ -432,10 +432,10 @@ def _account_table(m: dict) -> str:
         else ""
     )
     return f"""
-    <div class="card">
+    <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
       <h2>Every account, and what is left to do with it</h2>
       <p class="note">All <span data-group-count="*">{placed}</span> accounts in
-      {_e(scope_label(m))}, each in exactly one group, ordered closest-to-sending first.
+      {_e(scope_label(m))}, prioritized by pipeline readiness.
       {counts}. {_e(shared)} {_e(roster_partial(m))}</p>
       <table>
         <thead><tr>

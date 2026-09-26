@@ -22,6 +22,7 @@ from .aggregate import (
 from .config import BOUNCE_RISK_PCT, TAB_LABELS
 from .forecast import _lanes, when_done
 from .format import _e, _stat, figure_span, section
+from .frontier import render_next_frontier_sections
 from .views_learn import _can_answer_block
 
 
@@ -34,17 +35,31 @@ def _headline_learnings(m: dict) -> str:
     """
     blocks = ""
     for c in m["campaigns"]["campaigns"]:
+        camp_title = c.get("title") or c.get("slug") or "Campaign"
         for i, w in enumerate((c.get("experiment") or {}).get("will_learn") or [], 1):
+            q_text = _e(str(w.get("question", "")))
+            how_text = _e(str(w.get("how", "")))
+            parts = how_text.split(". ", 1)
+            takeaway = parts[0] + "." if len(parts) > 1 else how_text
+            deep_dive = parts[1] if len(parts) > 1 else ""
+            deep_html = (
+                f'<details class="hyp-deep"><summary>Diagnostic methodology & findings</summary>'
+                f'<div class="hyp-deep-body">{deep_dive}</div></details>'
+                if deep_dive
+                else ""
+            )
             blocks += (
-                '<div class="hyp"><div class="hyphead"><span class="claim">'
-                f"<b>{i}. {_e(str(w.get('question', '')))}</b></span></div>"
-                f'<div class="hypbody">{_e(str(w.get("how", "")))}</div></div>'
+                '<div class="hyp"><div class="hyphead">'
+                f'<span class="claim"><b>{i}. {q_text}</b></span>'
+                f'<span class="pill" style="font-size:11px;">{_e(camp_title)}</span></div>'
+                f'<div class="hypbody"><strong>Core takeaway:</strong> {takeaway}</div>'
+                f"{deep_html}</div>"
             )
     if not blocks:
         return ""
     return (
         '<div class="card"><h2>What this run is actually for</h2>'
-        "<p class='note'>The campaign's own questions, in the order its manifest lists them."
+        "<p class='note'>Key validation questions and methodology defined in the campaign manifest."
         "</p>" + blocks + "</div>"
     )
 
@@ -128,10 +143,20 @@ def _before_block(c: dict) -> str:
     out = (
         _hypotheses_html(x) or "<p class='note'>This campaign's manifest states no hypotheses.</p>"
     )
-    if x.get("what_it_tells_us"):
-        out += f"<p><strong>What it can tell us:</strong> {_e(x['what_it_tells_us'])}</p>"
-    if x.get("what_it_cant_tell_us"):
-        out += f"<p><strong>What it will not tell us:</strong> {_e(x['what_it_cant_tell_us'])}</p>"
+    if x.get("what_it_tells_us") or x.get("what_it_cant_tell_us"):
+        tells = (
+            f'<div class="scope-col ok"><strong>What this run will tell us</strong>'
+            f"<p>{_e(x['what_it_tells_us'])}</p></div>"
+            if x.get("what_it_tells_us")
+            else ""
+        )
+        cant = (
+            f'<div class="scope-col risk"><strong>What it will NOT tell us</strong>'
+            f"<p>{_e(x['what_it_cant_tell_us'])}</p></div>"
+            if x.get("what_it_cant_tell_us")
+            else ""
+        )
+        out += f'<div class="scope-box">{tells}{cant}</div>'
     return out
 
 
@@ -317,7 +342,13 @@ def _results_view(m: dict) -> str:
         section("results-figures", _outcome_tiles(m, fig))
         + section("campaign-results", cards)
         + section("when-we-know", _when_we_know(m, before, unknown if contacted is None else None))
-        + section("small-numbers", _small_numbers(m))
+    )
+
+
+def _insights_view(m: dict) -> str:
+    return (
+        section("small-numbers", _small_numbers(m))
         + section("learnings", _headline_learnings(m))
         + section("can-answer", _can_answer_block(m))
+        + render_next_frontier_sections(m)
     )

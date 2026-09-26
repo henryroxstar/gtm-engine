@@ -881,8 +881,8 @@ work rejected — say so, or the next reader re-derives "we have no prospects" f
 never meant that.
 
 
-**Step 12 — Send cards (Gate-2 Review Surface).** After routes are assigned, operator approval is required per cell.
-1. Render the send cards page for the operator:
+**Step 12 — Outreach Campaign Review (Gate-2).** After routes are assigned, operator approval is required per cell.
+1. Render the review page for the operator:
    ```bash
    uv run python -m gtm_core.send_cards generate --profile <active> --wave <run-id>
    ```

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections import Counter
 from datetime import UTC, datetime
@@ -14,9 +15,7 @@ from ..paths import resolve_content_root
 from ..prospect_lede import compose_lede
 from ..prospect_paths import evals_dir
 from ..prospect_readiness import load_readiness
-from ..prospect_status import (
-    compute_attrition_receipt,
-)
+from ..prospect_status import compute_attrition_receipt
 from ..prospect_status_receipt import cross_check
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
@@ -24,6 +23,7 @@ from ..prospects_state import load_latest
 from .aggregate import _scope_figures
 from .config import resolve_seat_coverage
 from .format import _rate_of
+from .frontier import list_ready_to_send_accounts, parse_campaign_history
 from .health import capability_rows_for, list_rows, page_extras, page_go_live, scoped_trust
 from .lane_state import (
     LaneStateUnreadable as LaneStateUnreadable,
@@ -40,6 +40,8 @@ from .sources import (  # noqa: F401  (re-exported: model is the package's assem
     samples_model,
     seat_fit,
 )
+
+log = logging.getLogger(__name__)
 
 # --- model ----------------------------------------------------------------------
 
@@ -432,15 +434,24 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
     now = datetime.now(UTC)
     generated_at = now.strftime("%Y-%m-%d %H:%M UTC")
     # Computed once for `reconciliation`/`warnings` below — skipped when unreadable, so an
-    # empty snapshot reads as unreadable rather than "every sequence vanished".
-    reconciliation = {"ok": True, "in_ledger_only": [], "in_snapshot_only": []}
-    if not status["snapshot"]["unreadable"]:
-        reconciliation = reconcile_snapshot(campaigns, status)
+    reconciliation = (
+        reconcile_snapshot(campaigns, status)
+        if not status["snapshot"]["unreadable"]
+        else {"ok": True, "in_ledger_only": [], "in_snapshot_only": []}
+    )
+    try:
+        frontier_events = parse_campaign_history(profile, content_root)
+    except (ValueError, Exception) as exc:
+        log.warning("frontier history parse failed for profile %s: %s", profile, exc)
+        frontier_events = []
+    ready_accounts = list_ready_to_send_accounts(cellmodel.get("cells"), profile, content_root)
     return {
         "profile": profile,
         "generated_at": generated_at,
         "status": status,
         "campaigns": campaigns,
+        "frontier_events": frontier_events,
+        "ready_accounts": ready_accounts,
         # The rollup gets a roster too, built from every campaign that declares one. Before
         # 2026-09-10 only `scope_to_campaign` set this, so the profile page's worklist read
         # "this scope has no campaign roster" — true, and fixable. Campaigns declaring no

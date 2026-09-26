@@ -102,7 +102,10 @@ def test_the_campaign_lines_name_their_scope(tmp_path):
     assert scope_label(rollup) != scope_label(scoped)
     for m in (rollup, scoped):
         text = visible_text(section(vo._overview_view(m), "campaign-lines"))
-        assert f"One line per campaign in {scope_label(m)}:" in text
+        assert (
+            f"Targeted outbound initiatives testing specific value propositions across {scope_label(m)}"
+            in text
+        )
 
 
 def test_no_campaigns_and_nothing_unlinked_renders_no_campaign_card(tmp_path):
@@ -123,6 +126,7 @@ def test_a_scoped_overview_has_one_line_and_labels_the_profile_wide_blocks(tmp_p
 
 
 def test_needs_an_address_is_split_out_for_operator_notes(tmp_path, monkeypatch):
+    from gtm_core import prospect_status
     from tests.test_dashboard_operator_truth import (
         MIXED_ACCOUNTS,
         MIXED_STATE,
@@ -135,6 +139,8 @@ def test_needs_an_address_is_split_out_for_operator_notes(tmp_path, monkeypatch)
     _tenant(tmp_path, MIXED_ACCOUNTS, MIXED_STATE)
     m = gd.build_model(PROFILE, content_root=tmp_path)
     html = vo._overview_view(m)
-    assert page_numbers(html)["Waiting on you"] == 2 and page_numbers(html)["All accounts"] == 7
-    assert "Still finding the right person" not in section(html, "contacts-by-status")
-    assert page_numbers(vo._needs_address_block(m))["Still finding the right person"] == 1
+    waiting_lbl = prospect_status.LABELS["waiting_on_you"]
+    needs_lbl = prospect_status.LABELS["needs_address"]
+    assert page_numbers(html)[waiting_lbl] == 2 and page_numbers(html)["All accounts"] == 7
+    assert needs_lbl not in section(html, "contacts-by-status")
+    assert page_numbers(vo._needs_address_block(m))[needs_lbl] == 1

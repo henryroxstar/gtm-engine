@@ -244,7 +244,7 @@ def _pool_block(m: dict) -> str:
         {_stat(f["excluded_dnc_or_sent"], "off limits", "already contacted or opted out")}
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>How many actually count</h2>
         <p class="note">Between "loaded" and "will receive an email" sit the opening-line check
         and the job-title check.
@@ -269,21 +269,21 @@ def _pool_block(m: dict) -> str:
     }
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What each group means</h2>
         <p class="note">These are the {len(FUNNEL_GLOSS)} states a person can be in. The only one
         we can email today is the first.</p>
         <table><tbody>{gloss_rows}</tbody></table>
       </div>
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Where they are</h2>
         {_barlist([(c["name"], c["n"]) for c in sup["countries"]], sup["total"])}
         <p class="note">{_markets_note(sup)}</p>
       </div>
 
 
-      <div class="card">
+      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What job they do</h2>
         {_barlist([(_seat_label(s["name"]), s["n"]) for s in sup["seats"]], sup["total"], tone="b")}
         <h3>Why {unplaced:,} say "other"</h3>

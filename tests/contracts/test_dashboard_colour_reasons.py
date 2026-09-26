@@ -312,6 +312,10 @@ TOKENS = {
     "--wash",
     "--bar-b",
     "--bar-c",
+    "--teal",
+    "--panel-glass",
+    "--glow-blue",
+    "--glow-teal",
 }
 
 

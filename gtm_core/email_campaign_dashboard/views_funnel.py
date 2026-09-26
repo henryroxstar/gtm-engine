@@ -52,8 +52,7 @@ def _attrition_funnel_block(m: dict) -> str:
     return f"""
       <div class="card funnel-card">
         <h2>{_e(ACCOUNTS_HEADING)}</h2>
-        <p class="muted">Companies, not people. Every company in the ledger is in exactly one
-        of these, so they add up to the total.</p>
+        <p class="muted">Breakdown of target accounts currently progressing through research, qualification, and outreach.</p>
         <div class="funnel-waterfall" style="display:flex;align-items:center;flex-wrap:wrap;margin:12px 0;">{"".join(parts)}</div>
         {unsorted}
       </div>"""

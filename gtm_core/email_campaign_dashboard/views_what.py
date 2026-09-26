@@ -14,22 +14,19 @@ def _pack_notes(pm: dict, m: dict) -> str:
     where = ""
     legacy_word = "pack" if pm.get("legacy") == 1 else "packs"
     legacy = (
-        f'<p class="muted">{pm["legacy"]:,} earlier {legacy_word}{where} are not listed: they predate '
-        f"the <code>capability:</code> field (added {_e(pm['since'])}), so they are not "
-        "undeclared — the field did not exist when they were written.</p>"
+        f'<p class="muted">{pm["legacy"]:,} legacy {legacy_word}{where} predate capability classification.</p>'
         if pm.get("legacy")
         else ""
     )
     if pm.get("other_campaigns"):
         other_word = "pack" if pm["other_campaigns"] == 1 else "packs"
         legacy += (
-            f'<p class="muted">{pm["other_campaigns"]:,} further {other_word} belong to another '
+            f'<p class="muted">{pm["other_campaigns"]:,} additional {other_word} belong to another '
             "campaign and are listed on its own page.</p>"
         )
     undec_word = "pack" if pm.get("undeclared") == 1 else "packs"
     warn = (
-        f'<p class="muted">{pm["undeclared"]} {undec_word} declare no <code>capability:</code> — '
-        "the argument-monotone cap cannot see them.</p>"
+        f'<p class="muted">{pm["undeclared"]} {undec_word} do not declare a <code>capability:</code> tag.</p>'
         if pm.get("undeclared")
         else ""
     )
@@ -81,7 +78,7 @@ def _opening_block(m: dict) -> str:
         for s in sup["signals"]
     )
 
-    opening_full = f"""<div class="card">
+    opening_full = f"""<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What the opening line is about</h2>
         <p class="note">{every}An opening sentence claims either an <strong>event</strong>,
         something that happened on a date and decays, or a <strong>capability</strong>, what
@@ -160,7 +157,7 @@ def _subjects_block(m: dict) -> str:
     shared_note = _shared_last_subject(m["messages"])
     reuse = slots - len(subjects)
 
-    subjects_full = f"""      <div class="card">
+    subjects_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>Every subject line in the campaign</h2>
         <p class="note"><strong>{len(subjects)} different subject line{
         "" if len(subjects) == 1 else "s"
@@ -264,7 +261,7 @@ def _judge_notes(m: dict) -> str:
     if not _tally(m).get("rows"):
         return ""
     return (
-        '<div class="card"><h2>How the email judge read the drafts</h2>'
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>How the email judge read the drafts</h2>'
         + _judged_note(m)
         + _ranking_note(m)
         + "</div>"

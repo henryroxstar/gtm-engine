@@ -271,7 +271,7 @@ def test_t3_3_replied_account_shows_waiting_on_you_they_replied(tmp_path, monkey
     """PS20 Phase 3 T3.3: an account with status 'replied' in latest.json routed to hold
     under engaged-account shows 'Waiting on you' with reason 'they replied'.
     An engaged-account hold from any other status shows no such reason."""
-    from gtm_core import lanes
+    from gtm_core import lanes, prospect_status
     from gtm_core.lanes import decisions as dec
     from gtm_core.prospect_paths import evals_dir
 
@@ -323,10 +323,10 @@ def test_t3_3_replied_account_shows_waiting_on_you_they_replied(tmp_path, monkey
     html = va._accounts_view(m)
     rows_by_co = _rows(html)
 
-    # Riverbend Logistics was "replied" -> routed to hold: engaged-account -> Waiting on you
+    # Riverbend Logistics was "replied" -> routed to hold: engaged-account -> Waiting on you (Needs Review)
     assert "Riverbend Logistics" in rows_by_co
     rl_row = rows_by_co["Riverbend Logistics"]
-    assert "Waiting on you" in rl_row
+    assert prospect_status.LABELS["waiting_on_you"] in rl_row
     assert "they replied" in rl_row
 
     # Acme was "customer" -> shows no "they replied"

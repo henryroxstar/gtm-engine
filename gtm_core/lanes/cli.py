@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--profile", required=True)
     sp.add_argument("--threshold", type=int, default=RULE_THRESHOLD)
 
-    sub.add_parser("send-cards", help="render or apply Gate 2 send cards review")
+    sub.add_parser("send-cards", help="render or apply Gate 2 outreach campaign review")
 
     if argv and argv[0] == "send-cards":
         from ..send_cards import main as send_cards_main

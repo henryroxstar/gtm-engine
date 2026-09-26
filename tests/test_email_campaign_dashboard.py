@@ -119,14 +119,14 @@ def test_title_falls_back_to_the_profile_without_a_product(tmp_path):
     assert f"Email Campaign Status — {profile}" in _page(tmp_path, profile)
 
 
-def test_page_carries_the_five_tab_labels(tmp_path):
+def test_page_carries_the_six_tab_labels(tmp_path):
     profile = _seed(tmp_path)
     out = gd.render_dashboard(profile, tmp_path, stubs=False)
     page = out.read_text(encoding="utf-8")
     assert out.name == "email_campaign_status.html"
     import html as _h
 
-    expected = ("Overview", "Accounts", "Emails", "Results", "Operator notes")
+    expected = ("Overview", "Accounts", "Emails", "Results", "Insights", "Operator notes")
     assert tuple(label for _tid, label in gd.TABS) == expected
     for _tid, label in gd.TABS:
         assert f">{_h.escape(label)}</button>" in page
@@ -333,7 +333,7 @@ def test_status_tiles_render_a_dash_when_the_router_has_never_run(tmp_path):
         [{"email": "ada@analytical.example", "lane": "personalised", "reason": "researcher-send"}],
     )
     page_with_state = _page(tmp_path, profile)
-    assert "These 5 sum to" in page_with_state
+    assert "Total active pool:" in page_with_state
     assert page_with_state.count('<div class="stat-value">—</div>') < 5
 
 
@@ -358,12 +358,12 @@ def test_status_tiles_sum_to_the_derived_total_and_hold_out_the_unmapped(tmp_pat
     assert model["prospect_status"]["total"] == 5
     assert model["prospect_status"]["unmapped"] == 1
     page = gd.render_html(model)
-    assert "These 5 sum to <strong>5</strong>" in page
+    assert "Total active pool: <strong>5</strong>" in page
     # The terminal prints the unmapped record as an "Unrecognised" row inside ITS total, so
     # the page names the same label and the same whole-list figure rather than a private
     # "1 more row(s)" sentence that made the two totals disagree (5 here, 6 there).
     assert '<div class="stat-value">1</div><div class="stat-label">Unrecognised</div>' in page
-    assert "with the 1 unrecognised, <strong>6</strong> people in the current list" in page
+    assert "with 1 unmapped, <strong>6</strong> people in the active pool" in page
 
 
 def test_needs_address_is_kept_out_of_the_five_tile_total(tmp_path):
@@ -403,7 +403,7 @@ def test_needs_address_is_kept_out_of_the_five_tile_total(tmp_path):
     assert model["prospect_status"]["total"] == 1
     assert model["prospect_status"]["needs_address"] == 1
     page = gd.render_html(model)
-    assert "A different population" in page
+    assert "Identified contacts at target accounts" in page
     assert "not part of the 1 above" in page
 
 
@@ -634,7 +634,8 @@ def test_m19_prospect_status_card_no_state_diff_note(tmp_path):
         "campaigns": {"campaigns": []},
     }
     html = _needs_address_block(m)
-    assert "A different population — not part of the routed list." in html
+    assert "Identified contacts at target accounts" in html
+    assert "not part of the routed list" in html
     assert "not part of the 0 above" not in html
 
 

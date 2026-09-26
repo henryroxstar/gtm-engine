@@ -198,13 +198,13 @@ def test_every_number_on_the_page_is_the_number_the_terminal_prints(
         "Held": 1,
         "Sorted": 1,
         "All accounts": 7,
-        "Waiting on you": 2,
-        "Sorted — not yet checked": 1,
-        "Being reworked": 0,
-        "In the sending tool": 0,
-        "Closed — not contacting": 1,
+        prospect_status.LABELS["waiting_on_you"]: 2,
+        prospect_status.LABELS["ready_to_send"]: 1,
+        prospect_status.LABELS["being_fixed"]: 0,
+        prospect_status.LABELS["in_sending_tool"]: 0,
+        prospect_status.LABELS["not_emailing"]: 1,
         "Unrecognised": 1,
-        "Still finding the right person": 1,
+        prospect_status.LABELS["needs_address"]: 1,
     }
     assert {k: cli.get(k) for k in expected} == expected, "fixture drifted from the terminal"
     assert {k: page.get(k) for k in expected} == expected
@@ -217,7 +217,7 @@ def test_the_account_steps_use_the_terminal_words_and_add_up(tmp_path, monkeypat
     text = "\n".join(visible_lines(html))
 
     assert ACCOUNTS_HEADING in text
-    assert "Contacts — by status (people, not companies)" in text
+    assert "Contacts by Status" in text
     for old in ("Attrition", "Failed Fit", "Failed Intent", "Enrichment Miss", "Total Intake"):
         assert old not in text
     for label in ACCOUNT_LABELS:
@@ -564,7 +564,8 @@ def test_sandbox_page_and_terminal_agree_and_scope_open_falls_back(sandbox) -> N
     cli, page = cli_numbers(status.stdout), page_numbers(html)
     labels = [*ACCOUNT_LABELS, *CONTACT_LABELS, prospect_status.LABELS["needs_address"]]
     assert {k: page.get(k) for k in labels} == {k: cli[k] for k in labels}
-    assert cli["Held"] == 3 and cli["Waiting on you"] == 3, "fixture must exercise the join"
+    waiting_lbl = prospect_status.LABELS["waiting_on_you"]
+    assert cli["Held"] == 3 and cli[waiting_lbl] == 3, "fixture must exercise the join"
 
     from tests.contracts.dashboard_page import panel
 

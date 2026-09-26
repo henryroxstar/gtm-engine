@@ -221,7 +221,7 @@ def _scoped_out(m: dict, what: str, why: str) -> str:
     if not m.get("campaign_scope"):
         return ""
     return (
-        f'<div class="card"><h2>{_e(what)}</h2><p class="note">Not shown on a '
+        f'<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>{_e(what)}</h2><p class="note">Not shown on a '
         f"scoped page. {_e(why)}</p></div>"
     )
 

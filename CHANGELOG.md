@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-27
+
+### Added
+- **Campaign dashboard next-frontier view.** Added exploratory campaign frontier analytics (`gtm_core/email_campaign_dashboard/frontier.py`), rationalized hypotheses, and structured question cards for founder-friendly insights.
+- **Enhanced send card verification.** Upgraded send cards (`gtm_core/send_cards.py`) with refined proof validation, lead scoring, and structured rationale formatting.
+
+### Changed
+- **Dashboard UI polish and glassmorphism.** Modernized styling (`styles.py`), animated reveal transitions, and refined terminology across all campaign dashboard overview tiles and tabs.
+- **Prospect lede and confidence consolidation.** Tightened prospect lede generation and confidence scoring adjustments in account consolidation workflows.
+
+### Fixed
+- **Dashboard operator truth and contract testing.** Updated test suites and contract checks for new frontier views, card layouts, and color indicators.
+- **Status label and dashboard tab consistency.** Restored canonical status labels in prospect status reporting and aligned phase 2 foundation tests with the insights dashboard tab.
+- **Operator truth lede assertions.** Aligned dashboard operator truth test assertions with canonical 'Yours' lede formatting.
+
 ## [0.24.0] - 2026-09-26
 
 ### Added

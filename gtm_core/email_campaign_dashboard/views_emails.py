@@ -209,7 +209,7 @@ def _email_table(m: dict) -> str:
     later = _later_touches(m)
     head = "".join(f"<th>{_e(h)}</th>" for h in _HEAD)
     return (
-        '<div class="card"><h2>What each sequence says</h2>'
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>What each sequence says</h2>'
         '<p class="note">Each row is a sequence as it is registered. A row opens to its emails.'
         + (f" {_e(later)}" if later else "")
         + "</p>"
@@ -231,10 +231,8 @@ def _hand_sent(m: dict) -> str:
     if not (rendered or touches):
         return ""
     return (
-        '<div class="card"><h2>Emails sent by hand from a template</h2>'
-        '<p class="note">The templates are shown with their merge tags intact: filling them in '
-        "here would be a second renderer beside the merge-render gate, and a second renderer "
-        "is how a page starts showing copy nobody sends.</p>"
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Emails sent by hand from a template</h2>'
+        '<p class="note">Templates are displayed with dynamic merge tags to preview personalization variables.</p>'
         f"{_rendered_mails(rendered)}{_template_mails(touches)}</div>"
     )
 
@@ -259,7 +257,7 @@ def _packs_list(m: dict) -> str:
         )
         items.append(f"<li>{' · '.join(bits)}{body}</li>")
     return (
-        f'<div class="card"><h2>1:1 emails, written by hand ({len(packs)})</h2>'
+        f'<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>1:1 emails, written by hand ({len(packs)})</h2>'
         f"<ul>{''.join(items)}</ul></div>"
     )
 

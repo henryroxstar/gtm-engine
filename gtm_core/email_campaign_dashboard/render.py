@@ -21,12 +21,12 @@ from .format import _e, _tiles_reset
 from .health import disagree_names, figures_date
 from .model import build_model, scope_to_campaign
 from .scope import Scope, resolve
-from .styles import STYLESHEET
+from .styles import render_stylesheet
 from .views_accounts import _accounts_view
 from .views_emails import _emails_view
 from .views_ops import _ops_view
 from .views_overview import _overview_view
-from .views_results import _results_view
+from .views_results import _insights_view, _results_view
 
 
 def _warnings_strip(m: dict) -> str:
@@ -87,6 +87,7 @@ def render_html(m: dict) -> str:
         "accounts": _accounts_view(m),
         "emails": _emails_view(m),
         "results": _results_view(m),
+        "insights": _insights_view(m),
         "ops": _ops_view(m),
     }
     nav = "".join(
@@ -102,7 +103,7 @@ def render_html(m: dict) -> str:
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
-<style>{STYLESHEET}</style></head>
+<style>{render_stylesheet(m.get("brand_palette"))}</style></head>
 <body><div class="wrap">
   <h1>{title}</h1>
   <p class="muted" style="margin:0">refreshed {_e(m["generated_at"])}</p>
@@ -126,6 +127,52 @@ if (techToggle) {{
   }};
   techToggle.addEventListener('change', syncTech);
   syncTech();
+}}
+function copyPrompt(btn) {{
+  var targetEl = null;
+  var row = btn.closest('.action-prompt-row') || btn.closest('.action-prompt-card') || btn.parentElement;
+  if (row) {{
+    targetEl = row.querySelector('.action-prompt-text');
+  }}
+  if (!targetEl) {{
+    var targetId = btn.getAttribute('data-target');
+    if (targetId) {{
+      targetEl = document.getElementById(targetId);
+    }}
+  }}
+  if (!targetEl) return;
+  var text = targetEl.textContent.trim();
+  var origText = btn.textContent;
+  var onSuccess = function () {{
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(function () {{
+      btn.textContent = origText;
+      btn.classList.remove('copied');
+    }}, 2000);
+  }};
+  if (navigator.clipboard && navigator.clipboard.writeText) {{
+    navigator.clipboard.writeText(text).then(onSuccess).catch(function () {{
+      fallbackCopy(text, onSuccess);
+    }});
+  }} else {{
+    fallbackCopy(text, onSuccess);
+  }}
+}}
+function fallbackCopy(text, cb) {{
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {{
+    document.execCommand('copy');
+    if (cb) cb();
+  }} catch (e) {{
+    console.error('Copy failed', e);
+  }}
+  document.body.removeChild(ta);
 }}
 </script>
 {script_block(m)}

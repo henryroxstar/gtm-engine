@@ -19,3 +19,9 @@
 gtm_core/email_campaign_dashboard/views_segments.py:69  # 2026-09-25 "an account two campaigns both work counts once" states the de-duplication rule with a hypothetical account; it counts nothing.
 gtm_core/email_campaign_dashboard/views_who.py:99  # 2026-09-25 "two different queues, not two shades of the same one": the judge routes to a closed set of two destinations (roster._DESTINATION_GLOSS), re-target and re-argue — the vocabulary, not a count of rows — and the sentence renders only when both are present.
 
+gtm_core/email_campaign_dashboard/frontier.py:272  # 2026-09-26 empty state copy, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:423  # 2026-09-26 terminology, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:309  # 2026-09-26 SVG coordinate, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:319  # 2026-09-26 CSS font weight, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:327  # 2026-09-26 CSS font weight, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:340  # 2026-09-26 SVG coordinate, not a metric
