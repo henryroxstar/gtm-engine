@@ -173,8 +173,10 @@ def _apply_decision(
     routed: Routed, trigger: str, detail: str, ctx: RouterContext, decisions: dict
 ) -> bool:
     """A recorded decision or a policy line for (trigger, account) answers the hold."""
-    key = (trigger, account_key(routed.row))
-    rec = decisions.get(key)
+    dom = (routed.row.get("company_domain") or "").strip().lower()
+    comp = (routed.row.get("company") or "").strip().lower()
+    cand = ((trigger, k) for k in (account_key(routed.row), f"d:{dom}", f"c:{comp}") if k)
+    rec = next((decisions[k] for k in cand if k in decisions), None)
     if rec and rec.get("detail", detail) == detail and rec.get("decision") in _DECISION_LANE:
         routed.lane = _DECISION_LANE[rec["decision"]]
         routed.decided = f"decided:{rec['decision']}:{trigger}"

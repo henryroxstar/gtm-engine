@@ -24,7 +24,15 @@ def _with_c2(tmp_path, profile):
 
 def test_the_lede_then_the_campaigns_then_the_terminals_two_blocks(tmp_path):
     html = vo._overview_view(gd.build_model(_fixture_10_24_1(tmp_path), tmp_path))
-    assert section_ids(html) == ["lede", "campaign-lines", "accounts-funnel", "contacts-by-status"]
+    # `actions-required` moved to the bottom of the tab (2026-09-28): the lede/campaigns/
+    # accounts/contacts blocks are what the reader needs first, the founder action list last.
+    assert section_ids(html) == [
+        "lede",
+        "campaign-lines",
+        "accounts-funnel",
+        "contacts-by-status",
+        "actions-required",
+    ]
     assert set(section_ids(html)) <= SECTIONS["overview"]
     first_card = next(a for _p, _t, a, _anc in elements(html) if "card" in classes(a))
     assert "lede" in classes(first_card)

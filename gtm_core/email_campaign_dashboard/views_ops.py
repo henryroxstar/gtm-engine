@@ -22,7 +22,13 @@ from .health import disagree_names, reconciliation_detail, repeated_rows, shared
 from .views_accounts import _list_vs_provider
 from .views_funnel import _safe_downloads_block
 from .views_inbound import _capability_card, _inbound_card
-from .views_learn import _experiment_notes, _grid_block, _lift_block, _varies_block
+from .views_learn import (
+    _can_answer_block,
+    _experiment_notes,
+    _grid_block,
+    _lift_block,
+    _varies_block,
+)
 from .views_lede import _maintainer_block
 from .views_overview import _needs_address_block
 from .views_ready import _maintenance_lines, _readiness_blocks
@@ -430,6 +436,7 @@ def _ops_view(m: dict) -> str:
             "readable-difference": _lift_block(m),
             "benchmarks": _benchmarks_block(m),
             "experiment-notes": _experiment_notes(m),
+            "can-answer": _can_answer_block(m),
         },
         "replies": lambda m: {"inbound-health": _inbound_card(m)},
         "maintenance": lambda m: {"maintenance-lines": _card_lines(_maintenance_lines(m))},

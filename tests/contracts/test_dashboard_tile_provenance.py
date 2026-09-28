@@ -111,7 +111,7 @@ def _resolve_rows(m: dict, arg: str) -> int:
     return len(by_pred[arg])
 
 
-def resolve_src(m: dict, token: str):  # noqa: C901, PLR0911 — one return per provenance op, by design
+def resolve_src(m: dict, token: str):  # noqa: C901, PLR0911, PLR0912 — one return per provenance op, by design
     """Recompute one provenance claim. Unknown ops are an error, never a pass."""
     op, _, arg = token.partition(":")
     if op == "sum":
@@ -131,6 +131,29 @@ def resolve_src(m: dict, token: str):  # noqa: C901, PLR0911 — one return per 
         _, head, tail = arg.split(".")
         vals = [(c.get(head) or {}).get(tail) for c in m["campaigns"]["campaigns"]]
         return int(sum(_num(v) for v in vals)) if vals and all(vals) else None
+    if op == "campaign":
+        # One campaign's OWN field, never pooled with its siblings — the Overview tab's
+        # per-campaign tiles (PS20 follow-up). `targets.emails` is None when undeclared (an
+        # undeclared goal is an absence, not a zero); actuals fields default to 0, matching
+        # `campaign_contacted`'s own `_i(actuals.get(...))`.
+        slug, _, field = arg.partition(".")
+        head, tail = field.split(".", 1)
+        c = next((c for c in m["campaigns"]["campaigns"] if c.get("slug") == slug), None)
+        if c is None:
+            return None
+        val = (c.get(head) or {}).get(tail)
+        if head == "targets" and tail == "emails":
+            return int(_num(val)) if val else None
+        return int(_num(val))
+    if op == "campaign-pooled":
+        # `campaign:<slug>.<num>/<den>` split by "|" from the slug — one campaign's own
+        # replied/sent pair, the per-campaign analogue of `pooled:`.
+        slug, _, rate = arg.partition("|")
+        num, _, den = rate.partition("/")
+        return {
+            "replied": resolve_src(m, f"campaign:{slug}.{num}"),
+            "sent": resolve_src(m, f"campaign:{slug}.{den}"),
+        }
     if op == "distinct":
         # A UNION over addresses, not a sum: one recipient can appear in two collections (a
         # merge row and a 1:1 pack written to the same inbox), and adding them double-counts.

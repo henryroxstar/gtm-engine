@@ -21,6 +21,7 @@ never dropped.
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 
 from ..cells import seat_of
@@ -31,6 +32,56 @@ from .model import HOLD_ORDER, HOLD_QUESTION, QUESTION_COPY, SALVAGE_KINDS
 TEMPLATE = Path(__file__).with_name("template_hold.html")
 
 
+def load_default_bodies(profile: str | None, content_root: Path | None = None) -> dict[str, str]:
+    """Load latest generic sequence spec email bodies for the profile, keyed by seat."""
+    if not profile:
+        return {}
+    try:
+        from ..prospect_paths import sequences_dir
+
+        seq_dir = sequences_dir(profile, content_root)
+        if not seq_dir.exists():
+            return {}
+        specs = sorted(seq_dir.glob("spec-generic-*.md"))
+        by_seat: dict[str, Path] = {}
+        for p in specs:
+            m = re.search(r"spec-generic-([a-z0-9_-]+)-\d{4}-\d{2}-\d{2}\.md", p.name)
+            if m:
+                by_seat[m.group(1)] = p
+
+        seat_bodies: dict[str, str] = {}
+        for seat_key, path in by_seat.items():
+            text = path.read_text(encoding="utf-8")
+            m = re.search(r"(\*\*Step 1.*)", text, re.DOTALL)
+            raw = m.group(1).strip() if m else text.strip()
+            lines = [
+                line[2:] if line.startswith("> ") else (line[1:] if line.startswith(">") else line)
+                for line in raw.splitlines()
+            ]
+            seat_bodies[seat_key] = "\n".join(lines).strip()
+
+        aliases = {
+            "security": ["security", "risk-compliance", "compliance"],
+            "technical": ["technical", "architect", "ai-platform", "engineering"],
+            "exec": ["exec", "cto", "ceo", "product"],
+            "builder": ["builder", "developer", "innovation"],
+        }
+        out: dict[str, str] = {}
+        for base_seat, target_seats in aliases.items():
+            if base_seat in seat_bodies:
+                for s in target_seats:
+                    out[s] = seat_bodies[base_seat]
+        for k, v in seat_bodies.items():
+            out.setdefault(k, v)
+        if "technical" in seat_bodies:
+            out["*"] = seat_bodies["technical"]
+        elif seat_bodies:
+            out["*"] = next(iter(seat_bodies.values()))
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _seat(title: str, profile: str | None = None) -> str:
     try:
         return seat_of(title or "", profile) or "unresolved"
@@ -39,7 +90,11 @@ def _seat(title: str, profile: str | None = None) -> str:
 
 
 def build_sheet_payload(
-    hold_rows: list[dict], *, bodies: dict[str, str] | None = None, profile: str | None = None
+    hold_rows: list[dict],
+    *,
+    bodies: dict[str, str] | None = None,
+    profile: str | None = None,
+    content_root: Path | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """``(groups, rows)`` from hold-CSV rows (the columns ``decisions.HOLD_COLUMNS`` writes).
 
@@ -47,6 +102,8 @@ def build_sheet_payload(
     ``profile`` resolves seats against the tenant's own ``role-vocabulary.toml`` rather than
     the built-in default vocabulary; omitted, it falls back exactly as before.
     """
+    if bodies is None and profile:
+        bodies = load_default_bodies(profile, content_root)
     bodies = bodies or {}
     groups: dict[tuple[str, str], list[dict]] = {}
     for i, r in enumerate(hold_rows):
@@ -116,8 +173,11 @@ def render_sheet(
     bodies: dict[str, str] | None = None,
     export_name: str | None = None,
     profile: str | None = None,
+    content_root: Path | None = None,
 ) -> str:
-    groups, rows = build_sheet_payload(hold_rows, bodies=bodies, profile=profile)
+    groups, rows = build_sheet_payload(
+        hold_rows, bodies=bodies, profile=profile, content_root=content_root
+    )
     export = export_name or f"hold-decisions-{stamp}.jsonl"
     html = TEMPLATE.read_text(encoding="utf-8")
     for token, value in (
@@ -140,12 +200,20 @@ def write_sheet(
     auto: list[dict] | None = None,
     bodies: dict[str, str] | None = None,
     profile: str | None = None,
+    content_root: Path | None = None,
 ) -> Path:
     with hold_csv.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        render_sheet(rows, stamp=stamp, auto=auto, bodies=bodies, profile=profile),
+        render_sheet(
+            rows,
+            stamp=stamp,
+            auto=auto,
+            bodies=bodies,
+            profile=profile,
+            content_root=content_root,
+        ),
         encoding="utf-8",
     )
     return out

@@ -13,6 +13,7 @@ from gtm_core.run_state import (
     load_run_state,
     save_run_state,
 )
+from gtm_core.run_state import main as run_state_main
 
 
 def test_new_run_state_initialization() -> None:
@@ -150,3 +151,57 @@ def test_get_or_create_run_state_expiration(tmp_path: Path) -> None:
     resumed_state, was_resumed = get_or_create_run_state(profile_recent, content_root=tmp_path)
     assert was_resumed is True
     assert resumed_state.run_id == "run-recent"
+
+
+def test_cli_start_stage_and_complete_stage_are_the_skills_real_entry_point(tmp_path, monkeypatch):
+    """PRD-2026-09-28 Phase 3: run_state.start_stage/complete_stage had ZERO production
+    callers — a markdown skill an agent follows cannot call a Python instance method
+    directly, only run a CLI command. This is that command."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    profile = "acme-cli"
+
+    assert run_state_main(["--profile", profile, "start-stage", "--stage", "init"]) == 0
+    state = load_run_state(tmp_path / profile / "prospects" / "run_state.json")
+    assert state.stages["init"].status == "running"
+    assert state.stages["init"].completed_at is None
+
+    assert (
+        run_state_main(
+            ["--profile", profile, "complete-stage", "--stage", "init", "--metrics", '{"n": 3}']
+        )
+        == 0
+    )
+    state = load_run_state(tmp_path / profile / "prospects" / "run_state.json")
+    assert state.stages["init"].status == "completed"
+    assert state.stages["init"].metrics == {"n": 3}
+
+
+def test_cli_stage_action_requires_stage_flag(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    rc = run_state_main(["--profile", "acme-cli", "start-stage"])
+    assert rc == 2
+    assert "ERROR: --stage is required" in capsys.readouterr().err
+
+
+def test_cli_start_stage_rejects_an_unknown_stage_name(tmp_path):
+    """argparse's own `choices=STAGES` refuses an unrecognized stage before it ever reaches
+    RunState._check_stage — exactly the class of guard Gap 4's incident needed."""
+    with pytest.raises(SystemExit):
+        run_state_main(["--profile", "acme-cli", "start-stage", "--stage", "not-a-real-stage"])
+
+
+def test_a_run_that_dies_mid_stage_is_visible_via_the_cli(tmp_path, monkeypatch):
+    """The direct test of Gap 4's fix: a process that starts a stage and then dies (no
+    complete-stage call ever runs) must leave that stage `running` with no `completed_at` —
+    not silently absent, not falsely `completed`."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    profile = "acme-died-midway"
+    for stage in ("init", "discovery"):
+        assert run_state_main(["--profile", profile, "start-stage", "--stage", stage]) == 0
+        assert run_state_main(["--profile", profile, "complete-stage", "--stage", stage]) == 0
+    assert run_state_main(["--profile", profile, "start-stage", "--stage", "signal_hunt"]) == 0
+    # ... the process crashes here; complete-stage never runs ...
+    state = load_run_state(tmp_path / profile / "prospects" / "run_state.json")
+    assert state.stages["signal_hunt"].status == "running"
+    assert state.stages["signal_hunt"].completed_at is None
+    assert state.resume_from() == "signal_hunt"

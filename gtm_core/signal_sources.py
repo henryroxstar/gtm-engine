@@ -75,20 +75,106 @@ def url_norm(url: str) -> str:
     return urllib.parse.urlunsplit((scheme, netloc, path, query, ""))
 
 
+def sources_dir_for(profile: str, content_root: Path | None = None) -> Path:
+    """The one place a profile's capture folder is spelled: ``<content>/<profile>/sources``.
+
+    ``content_root`` is the top-level content root (the one holding every profile), not a
+    profile's own folder — passing it as ``content_root / "sources"`` is what once made the
+    daily preflight read a tenant-less folder the hook never wrote to.
+    """
+    root = content_root if content_root is not None else resolve_content_root()
+    return root / _safe_segment(profile, "profile") / "sources"
+
+
 def _resolve_sources_dir(sources_dir: Path | str | None = None, profile: str | None = None) -> Path:
+    """Explicit dir, else the named profile, else the active one, else the flat root.
+
+    The flat-root fallback (``<content>/sources``, no profile segment) stays — plenty of
+    callers (tests, a single-tenant flat content root) legitimately never bind a profile,
+    and both sides of a read/write pair land there consistently. What must NOT happen is a
+    malformed active-profile marker being swallowed into this same fallback: that bare
+    ``except Exception`` is gone, so ``_safe_segment``'s ``ValueError`` on a bad marker now
+    propagates instead of silently writing a tenant-less capture nobody warned about.
+    """
     if sources_dir is not None:
         return Path(sources_dir)
     if profile:
-        return resolve_content_root() / _safe_segment(profile, "profile") / "sources"
-    try:
-        from .active_profile import show
+        return sources_dir_for(profile)
+    from .active_profile import show
 
-        act = show()
-        if act:
-            return resolve_content_root() / _safe_segment(act, "profile") / "sources"
-    except Exception:
-        return resolve_content_root() / "sources"
+    act = show()
+    if act:
+        return sources_dir_for(act)
     return resolve_content_root() / "sources"
+
+
+#: Firecrawl response fields that are the page itself. `summary`, `json` and `query` are
+#: Firecrawl's own LLM output about the page — a clause quoting them is a paraphrase of the
+#: source, so they are never page text.
+_PAGE_TEXT_KEYS = ("markdown", "content", "text")
+
+
+def page_text(raw: object) -> str:
+    """The page text inside a Firecrawl tool response or a stored capture.
+
+    Accepts the shapes the tool boundary actually delivers: the response as a JSON *string*
+    (how Claude Code hands an MCP result to a PostToolUse hook), MCP content blocks, or a
+    parsed dict. Returns ``""`` for an HTTP error page and for a response that carries no
+    page text. A plain-text capture comes back unchanged.
+    """
+    if isinstance(raw, str):
+        s = raw.strip()
+        parsed = None
+        if s[:1] in "{[":
+            try:
+                parsed = json.loads(s)
+            except ValueError:
+                parsed = None
+        return page_text(parsed) if parsed is not None else s
+    if isinstance(raw, list):
+        parts = [page_text(b) for b in raw if isinstance(b, dict | str)]
+        return "\n\n".join(p for p in parts if p)
+    if not isinstance(raw, dict):
+        return ""
+    meta = raw.get("metadata")
+    status = meta.get("statusCode") if isinstance(meta, dict) else None
+    if isinstance(status, int) and status >= 400:
+        return ""
+    data = raw.get("data")
+    if isinstance(data, dict):
+        return page_text(data)
+    for key in _PAGE_TEXT_KEYS:
+        val = raw.get(key)
+        if isinstance(val, str) and val.strip():
+            return page_text(val)
+        if isinstance(val, list):
+            return page_text(val)
+    return ""
+
+
+_MD_IMAGE = re.compile(r"!\[[^\]]*\]\((?:[^()\s]|\([^()]*\))*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^()\s]|\([^()]*\))*(?:\s+\"[^\"]*\")?\)")
+_MD_HARD_BREAK = re.compile(r"\\\n")
+_MD_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>~])")
+_MD_STRONG = re.compile(r"\*\*|__")
+_MD_EM = re.compile(r"(?<![\w*_])([*_])(?=\S)([^*_\n]+?)(?<=\S)\1(?![\w*_])")
+_MD_LINE_MARK = re.compile(r"^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)", re.MULTILINE)
+
+
+def _markdown_to_text(text: str) -> str:
+    """Delete markdown *syntax* so a quote of the rendered page can match its markdown.
+
+    Every rule removes markup characters only — link targets, image lines, emphasis
+    markers, backslash escapes, heading/list/quote markers. None adds, reorders, case-folds
+    or drops a word or a punctuation mark of the prose, so a paraphrase stays a paraphrase.
+    """
+    t = _MD_IMAGE.sub(" ", text)
+    t = _MD_LINK.sub(r"\1", t)
+    t = _MD_HARD_BREAK.sub("\n", t)
+    t = _MD_ESCAPE.sub(r"\1", t)
+    t = _MD_STRONG.sub("", t)
+    t = _MD_EM.sub(r"\2", t)
+    return _MD_LINE_MARK.sub("", t)
 
 
 def store_capture(
@@ -234,7 +320,11 @@ def validate_source_evidence(
         else:
             severity = "block"
 
-    capture = get_latest_capture(url, sources_dir=sources_dir, profile=profile)
+    try:
+        capture = get_latest_capture(url, sources_dir=sources_dir, profile=profile)
+    except ValueError as exc:
+        out.append(Finding(severity, "signal_evidence", "source-folder-unresolved", str(exc)))
+        return out
     if capture is None:
         out.append(
             Finding(
@@ -246,8 +336,10 @@ def validate_source_evidence(
         )
         return out
 
-    norm_ev = normalise_quote_whitespace(stripped_ev)
-    norm_cap = normalise_quote_whitespace(capture.text)
+    # page_text unwraps a capture stored as the raw response envelope (every capture the
+    # hook made before it parsed one), so its `\n` and `\"` are real characters again.
+    norm_ev = normalise_quote_whitespace(_markdown_to_text(stripped_ev))
+    norm_cap = normalise_quote_whitespace(_markdown_to_text(page_text(capture.text)))
     if norm_ev not in norm_cap:
         out.append(
             Finding(

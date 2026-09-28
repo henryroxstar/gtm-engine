@@ -238,11 +238,16 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
                 # only CURRENT sequences: a sequence can reach seq_ids via its staged-event
                 # campaign tag even after the manifest archives it, so seq_ids alone would
                 # call an archived-only campaign "staged".
-                "state": go_live(
-                    statuses,
-                    totals["sent"],
-                    bool(seq_ids - archived_ids),
-                    readable=not snap["unreadable"],
+                "state": (
+                    str(m.get("status") or "").strip().lower()
+                    if str(m.get("status") or "").strip().lower()
+                    in ("completed", "closed", "finished", "done", "archived")
+                    else go_live(
+                        statuses,
+                        totals["sent"],
+                        bool(seq_ids - archived_ids),
+                        readable=not snap["unreadable"],
+                    )
                 ),
                 "actuals": totals,
                 "promised_vs_actual": _promised_vs_actual(m.get("targets", {}), totals),

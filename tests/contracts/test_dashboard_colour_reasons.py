@@ -275,10 +275,12 @@ def _render(tmp_path, profile, mode):
 SCOPES = ("all", "open", "campaign")
 
 #: What the fixture must make render in every scope — so the reason check below can never
-#: pass by rendering nothing.
+#: pass by rendering nothing. ``figures-old`` is deliberately absent: it carries no sentence
+#: of its own (render.py:_warnings_strip), so alone it renders no card at all — there is no
+#: standalone site for it to color-check. It still shows up folded into another reason's
+#: card (see test_dashboard_ps20_trust.py::test_two_reasons_render_as_one_strip).
 EVERY_SITE = {
     ("card lede warn", "warn", "checks-untrusted"),
-    ("card warn", "warn", "figures-old"),
     ("card warn", "warn", "tripwire"),
     ("pill warn", "warn", "unmapped"),
     ("warn", "warn", "records-disagree"),
@@ -420,7 +422,9 @@ def test_known_sites_carry_their_mapped_colour(tmp_path):
     assert re.search(r"\.yours\s*\{[^}]*var\(--accent\)", _css(page))
     # The old banners that carried no untrusted number are plain cards now.
     assert '<div class="card"><h2 data-figure="ops-heading">' in page
-    assert '<div class="card"><h2>What this run is actually for</h2>' in page
+    # data-lens="gtm" (not a bare card) since the lens filter now keys off the attribute
+    # rather than matching this h2's text (render.py:initInsightsControls).
+    assert '<div class="card" data-lens="gtm"><h2>What this run is actually for</h2>' in page
     # Muted, never warn: filter.js hides `.stat-why` on load, so a warning cannot live there.
     assert re.search(r"\.stat-why, \.why\s*\{[^}]*color:var\(--muted\)", _css(page))
 

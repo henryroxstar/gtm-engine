@@ -10,6 +10,8 @@ from .. import prospect_paths
 from ..lane_verdicts import LANE_VERDICTS
 from ..merge_hygiene import blocks as mh_blocks
 from ..merge_hygiene import check_row as mh_check_row
+from ..page_inputs import write_inventory
+from ..prospects_item import VocabularyRefusal, check_vocabulary
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_keys
 from ..suppression import load_index as load_suppression_index
 from .accounts import (
@@ -150,6 +152,37 @@ def restamp_ready_to_load(profile: str, content_root: Path | None = None) -> int
     return stamped
 
 
+def _sanitize_record_vocabulary(rec: dict) -> int:
+    """Blank a closed-vocabulary field (``verdict``, ``signal_agent_kind``, ``category_relation``
+    — the three of the four ``_VOCABULARIES`` fields that ``_row_to_record`` copies straight from
+    the raw HubSpot CSV export) whose value is outside its allowed set, rather than carry it
+    through as ground truth.
+
+    This is the real 2026-09-27 incident's entry point: a HubSpot-export bug wrote the
+    ``category_relation`` value ``"prospect"`` into the CSV's verdict column, and it flowed
+    unchecked from ``_row_to_record`` into ``ready-to-load.csv``/``master-list.csv``. Phase 2's
+    three ``latest.json`` writers (``merge``/``mutate``/``signal_freshness``) never see this
+    path — the bad value never reaches ``latest.json`` through them, because it enters here,
+    from a raw CSV column, not from any of those three functions.
+
+    Blanks rather than refuses: a bulk CSV sweep over hundreds of rows must not abort the whole
+    consolidate() run over one bad cell — the same "refuse the field, not the batch" principle
+    Phase 2's own writers apply (a blank verdict/signal_agent_kind/category_relation is always a
+    legal, "no opinion" value; a claimed-but-garbage one is not).
+    """
+    dropped = 0
+    for field in ("verdict", "signal_agent_kind", "category_relation"):
+        value = rec.get(field)
+        if not value:
+            continue
+        try:
+            check_vocabulary(field, value, where=f"consolidate row src={rec.get('src')!r}")
+        except VocabularyRefusal:
+            rec[field] = ""
+            dropped += 1
+    return dropped
+
+
 def consolidate(
     profile: str,
     *,
@@ -163,6 +196,7 @@ def consolidate(
     allow_downgrade: bool = False,
     rebuild_master: bool = False,
     unattended: bool = False,
+    dry_run: bool = False,
 ) -> dict:
     """Sweep every ``prospects-*-hubspot.csv`` export, fold net-new emails into
     the canonical ``sequences/master-list.csv``, gate by deliverability
@@ -228,6 +262,7 @@ def consolidate(
     existing_emails = {r["email"] for r in existing}
 
     net_new, dup_rows, already_present, dnc_hits, reclassified = 0, 0, 0, 0, 0
+    vocab_dropped = 0
     for path in sorted(_prospects_dir(profile, content_root).glob("prospects-*-hubspot.csv")):
         with path.open(newline="", encoding="utf-8", errors="ignore") as f:
             for row in csv.DictReader(f):
@@ -235,6 +270,10 @@ def consolidate(
                 if not email or "@" not in email:
                     continue
                 rec = _row_to_record(row, path.name)
+                # A raw CSV export is external data — a bad export (or a hallucinated column)
+                # can carry any string in a vocabulary-closed column. This is the actual
+                # 2026-09-27 incident's entry point (see _sanitize_record_vocabulary).
+                vocab_dropped += _sanitize_record_vocabulary(rec)
                 # Suppression is checked against the record (not the bare address) so a
                 # domain-typed DNC entry can match on company_domain too.
                 if dnc.blocks(email, rec["company_domain"]):
@@ -326,18 +365,54 @@ def consolidate(
             # most 11 of 1,171 rows per column.
             filled = False
             promote = _verdict_promotes(row, record)
-            if promote:
-                verdicts_promoted += 1
-                row["verdict_reason"] = record.get("verdict_reason", "")
-            for col, value in record.items():
-                if col == "verdict_on":
-                    continue  # dates the verdict beside it; set below, never on its own
-                if col in ("verdict", "verdict_reason"):
-                    authoritative = promote or _verdict_at_least_as_strict(
-                        row.get("verdict", ""), record.get("verdict", "")
+            # `verdict` + `verdict_reason` move together, as a unit, ahead of the generic
+            # per-column loop below — never through it. The index only carries NON-EMPTY
+            # fields (`_account_record_index`'s own contract), so a legitimate blank
+            # `verdict_reason` (a `send` needs none) is never a key in `record`, and the
+            # generic loop's `authoritative or not row[col]` test can then never fire for
+            # it: there is no `value` to write. That left a garbage `verdict_reason` stuck
+            # beside a freshly-corrected `verdict` forever (2026-09-27, alongside the
+            # `_verdict_at_least_as_strict` fix below) — the reason must be applied
+            # whenever the verdict it explains is, blank included, exactly as the
+            # `promote` branch already did for its one case.
+            verdict_authoritative = promote or _verdict_at_least_as_strict(
+                row.get("verdict", ""), record.get("verdict", "")
+            )
+            verdict_blank = not str(row.get("verdict") or "").strip()
+            if verdict_authoritative or verdict_blank:
+                new_verdict = record.get("verdict", "")
+                # A verification-audit finding (2026-09-28, round 2): this account-record
+                # fill is a SECOND propagation path into ready-to-load.csv, entirely separate
+                # from the raw-CSV sanitizer above — a garbage value already sitting in
+                # latest.json (written before Phase 2 shipped, or by a writer this PRD
+                # hasn't found) would otherwise flow straight through unchecked.
+                try:
+                    check_vocabulary(
+                        "verdict", new_verdict, where=f"account record for {row.get('company')!r}"
                     )
-                else:
-                    authoritative = _account_record_wins(col, record)
+                except VocabularyRefusal:
+                    vocab_dropped += 1
+                    new_verdict = ""
+                new_reason = record.get("verdict_reason", "")
+                if (
+                    row.get("verdict", "") != new_verdict
+                    or row.get("verdict_reason", "") != new_reason
+                ):
+                    filled = True
+                row["verdict"] = new_verdict
+                row["verdict_reason"] = new_reason
+                if promote:
+                    verdicts_promoted += 1
+            for col, value in record.items():
+                if col in ("verdict_on", "verdict", "verdict_reason"):
+                    continue  # verdict + verdict_reason handled as a unit above;
+                    # verdict_on dates them, set below, never on its own
+                try:
+                    check_vocabulary(col, value, where=f"account record for {row.get('company')!r}")
+                except VocabularyRefusal:
+                    vocab_dropped += 1
+                    continue  # do not propagate a garbage account-record value onto the row
+                authoritative = _account_record_wins(col, record)
                 if authoritative or not str(row.get(col) or "").strip():
                     if str(row.get(col) or "") != value:
                         filled = True
@@ -375,11 +450,13 @@ def consolidate(
 
     pool = _pool_dir(profile, content_root)
     master_canonical = pool / "master-list.csv"
-    _snapshot(master_canonical, pool / ".snapshots")
-    _atomic_write_csv(master_canonical, all_rows)
+    if not dry_run:
+        _snapshot(master_canonical, pool / ".snapshots")
+        _atomic_write_csv(master_canonical, all_rows)
 
     blocked = [r for r in all_rows if r["conf_tier"] == "blocked"]
-    _append_blocked_log(profile, content_root, blocked)
+    if not dry_run:
+        _append_blocked_log(profile, content_root, blocked)
 
     # Accounts an operator or an eval writeback has retired. Until 2026-08-27 the build
     # read no lifecycle status at all, so `status: disqualified` was decoration: the row
@@ -410,7 +487,7 @@ def consolidate(
             continue
         loadable.append(r)
 
-    if ready_blocked:
+    if ready_blocked and not dry_run:
         _append_blocked_log(profile, content_root, ready_blocked)
 
     # Jurisdiction pass: a lead outside target_markets is dropped from BOTH the ready list and the
@@ -462,7 +539,7 @@ def consolidate(
     # left needs a human — guessing someone's name is not a repair this code will make up.
     # Excluded, logged, and counted; never silently dropped.
     merge_blocked = [r for r in person_unique if r["conf_tier"] == "high" and mh_blocks(r)]
-    if merge_blocked:
+    if merge_blocked and not dry_run:
         _append_blocked_log(
             profile,
             content_root,
@@ -492,12 +569,36 @@ def consolidate(
     hand_send = [r for r in merge_blocked if (r.get("verdict") or "").strip() in _HAND_SEND_OK]
     hand_send_refused = len(merge_blocked) - len(hand_send)
 
-    _atomic_write_csv(ready_to_load_path(profile, content_root), ready)
-    _atomic_write_csv(hand_send_path(profile, content_root), hand_send)
-    _atomic_write_csv(needs_verification_path(profile, content_root), needs_verification)
+    if not dry_run:
+        _atomic_write_csv(ready_to_load_path(profile, content_root), ready)
+        _atomic_write_csv(hand_send_path(profile, content_root), hand_send)
+        _atomic_write_csv(needs_verification_path(profile, content_root), needs_verification)
+        write_inventory(
+            master_canonical,
+            (_prospects_dir(profile, content_root), ["prospects-*-hubspot.csv"]),
+            scope="prospects_consolidate",
+        )
+
+    diff = None
+    if dry_run:
+        # "recompute outputs, diff against what's on disk, write nothing" — PRD §3.B.
+        current_ready = _load_master(ready_to_load_path(profile, content_root))
+        current_hand_send = _load_master(hand_send_path(profile, content_root))
+        current_needs_verification = _load_master(needs_verification_path(profile, content_root))
+        diff = {
+            "master_list": {"on_disk": len(existing), "would_write": len(all_rows)},
+            "ready_to_load": {"on_disk": len(current_ready), "would_write": len(ready)},
+            "hand_send": {"on_disk": len(current_hand_send), "would_write": len(hand_send)},
+            "needs_verification": {
+                "on_disk": len(current_needs_verification),
+                "would_write": len(needs_verification),
+            },
+        }
 
     result = {
         "profile": profile,
+        "dry_run": dry_run,
+        "diff": diff,
         "master_total": len(all_rows),
         "master_dups_collapsed": master_dups,
         "net_new_folded": net_new,
@@ -506,6 +607,7 @@ def consolidate(
         "reclassified_from_source": reclassified,
         "rebuilt_master_tier_changes": rebuilt_tier_changes,
         "dnc_hits_blocked": dnc_hits,
+        "vocab_dropped": vocab_dropped,
         "pool_row_ids_stamped": rows_stamped,
         "accounts_joined": accounts_joined,
         "records_joined": records_joined,
@@ -539,11 +641,12 @@ def consolidate(
     # exclusion, so a do-not-contact account came back as a new prospect next pass (PSK-015).
     # Retention is the operator's explicit `python -m gtm_core.retention_sweep`, never a build step.
     try:
-        # Every page that exists, not only the rollup: the scoped pages have no other
-        # automatic trigger, and a stale one is indistinguishable from a current one.
-        from ..email_campaign_dashboard.render import refresh_all as _refresh_gtm
+        if not dry_run:
+            # Every page that exists, not only the rollup: the scoped pages have no other
+            # automatic trigger, and a stale one is indistinguishable from a current one.
+            from ..email_campaign_dashboard.render import refresh_all as _refresh_gtm
 
-        _refresh_gtm(profile, content_root)
+            _refresh_gtm(profile, content_root)
     except Exception as exc:  # noqa: BLE001
         print(f"dashboard refresh skipped: {exc}", file=sys.stderr)
     return result

@@ -326,9 +326,15 @@ def test_the_varies_card_derives_its_values_and_its_row_count(tmp_path):
     card = gd.render_html(m).split("<h2>What varies, and by how much</h2>", 1)[1]
     card = card.split("</table>", 1)[0]
     rows = re.findall(r"<tr><td><strong>([^<]+)</strong></td><td[^>]*>(\d+)</td>", card)
-    varying = sum(1 for _name, n in rows if int(n) > 1)
-    assert 0 < varying < len(rows), rows  # some parameters sit on one level
-    said = f"{varying} of the {len(rows)} parameters below take more than one level"
+    # "Email in sequence" is shown for context but assigns no level per person — every
+    # recipient gets every touch — so the sentence counts only the assigning rows.
+    assigning = [(name, n) for name, n in rows if name != "Email in sequence"]
+    varying = sum(1 for _name, n in assigning if int(n) > 1)
+    assert 0 < varying < len(assigning), rows  # some parameters sit on one level
+    said = (
+        f"{varying} of the {len(assigning)} parameters below that assign one level per person "
+        f"{'takes' if varying == 1 else 'take'} more than one level"
+    )
     assert said in _visible(card)
     assert "1 different bodies" not in card  # count-1 grammar
     segments = sorted({c["segment"] for c in m["cells"]["cells"]})

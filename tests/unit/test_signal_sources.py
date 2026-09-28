@@ -25,9 +25,12 @@ import pytest
 
 from gtm_core.signal_sources import (
     get_latest_capture,
+    page_text,
     prune,
+    sources_dir_for,
     store_capture,
     url_norm,
+    validate_source_evidence,
 )
 
 
@@ -246,3 +249,241 @@ def test_firecrawl_capture_hook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     cap = get_latest_capture("https://example.com/scraped-page", sources_dir=sources_dir)
     assert cap is not None
     assert "This is markdown returned" in cap.text
+
+
+def _load_hook_module():
+    import importlib.util
+
+    hook_file = Path(__file__).resolve().parents[2] / ".claude" / "hooks" / "firecrawl_capture.py"
+    if not hook_file.is_file():
+        pytest.skip("firecrawl_capture.py only exists in private tree")
+    spec = importlib.util.spec_from_file_location("firecrawl_capture", str(hook_file))
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_firecrawl_capture_hook_refuses_with_no_profile_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-27: with no profile bound, the hook silently wrote to a tenant-less
+    `content/sources/` that the enrollment gate — reading `content/<profile>/sources/` —
+    never saw. It now writes nothing and exits 2 so Claude sees why."""
+    import io
+    import sys
+
+    mod = _load_hook_module()
+    event = {
+        "tool_name": "mcp__firecrawl__scrape",
+        "tool_input": {"url": "https://example.com/scraped-page"},
+        "tool_result": {"markdown": "Page text."},
+    }
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))  # no .active-profile written
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
+
+    ret = mod.main()
+
+    assert ret == 2
+    assert not (tmp_path / "sources").exists()
+    assert not any(tmp_path.rglob("index.jsonl"))
+
+
+def test_firecrawl_capture_hook_unwraps_a_string_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The response shape observed in ~76 of 122 real captures: `tool_result` arrives as a
+    JSON *string*. The hook must store the page text, not that string."""
+    import io
+    import sys
+
+    mod = _load_hook_module()
+    envelope = json.dumps({"markdown": "First paragraph.\n\nSecond paragraph.", "metadata": {}})
+    event = {
+        "tool_name": "mcp__firecrawl__scrape",
+        "tool_input": {"url": "https://example.com/scraped-page"},
+        "tool_result": envelope,
+    }
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    from gtm_core.active_profile import set_active
+
+    set_active("demo", content_root=tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
+
+    ret = mod.main()
+
+    assert ret == 0
+    cap = get_latest_capture("https://example.com/scraped-page", profile="demo")
+    assert cap is not None
+    assert cap.text == "First paragraph.\n\nSecond paragraph."
+
+
+# --- page_text: unwrapping the raw MCP response (2026-09-27 defect 1) ---------------
+
+
+def test_page_text_unwraps_a_json_string_envelope() -> None:
+    """The shape observed in ~76 of 122 real captures: the hook stored `tool_result` as a
+    JSON *string* verbatim, so a paragraph break was the two characters `\\n`, not a real
+    newline, and a verbatim quote spanning it could never match."""
+    envelope = json.dumps({"markdown": "First paragraph.\n\nSecond paragraph.", "metadata": {}})
+    assert page_text(envelope) == "First paragraph.\n\nSecond paragraph."
+
+
+def test_page_text_unwraps_mcp_content_blocks() -> None:
+    raw = {"content": [{"type": "text", "text": "Page body here."}]}
+    assert page_text(raw) == "Page body here."
+
+
+def test_page_text_prefers_data_markdown() -> None:
+    raw = {"data": {"markdown": "# Title\n\nBody."}}
+    assert page_text(raw) == "# Title\n\nBody."
+
+
+def test_page_text_blank_on_http_error() -> None:
+    raw = json.dumps({"markdown": "Not Found", "metadata": {"statusCode": 404}})
+    assert page_text(raw) == ""
+
+
+def test_page_text_never_reads_the_ai_summary() -> None:
+    """`summary`/`json`/`query` are Firecrawl's own generated output about the page, not
+    the page — a clause quoting one is a paraphrase of the source, never verbatim."""
+    raw = json.dumps({"summary": "The company raised money.", "metadata": {"statusCode": 200}})
+    assert page_text(raw) == ""
+
+
+def test_page_text_plain_string_passes_through() -> None:
+    assert page_text("Plain page text, not JSON.") == "Plain page text, not JSON."
+
+
+# --- validate_source_evidence: verbatim check survives real capture shapes ----------
+
+
+PARA_1 = "Halden Systems closed a Series B round on 3 March."
+PARA_2 = "The round will fund an identity programme across its two regional banks."
+QUOTE = 'Halden Systems opened by saying, "we plan to double headcount next year."'
+
+
+def _envelope_capture(tmp_path: Path, markdown: str) -> Path:
+    sources_dir = tmp_path / "sources"
+    store_capture(
+        "https://halden.example/news/series-b",
+        json.dumps({"markdown": markdown, "metadata": {"statusCode": 200}}),
+        sources_dir=sources_dir,
+    )
+    return sources_dir
+
+
+def test_evidence_spanning_a_json_escaped_paragraph_break_now_passes(tmp_path: Path) -> None:
+    sources_dir = _envelope_capture(tmp_path, f"{PARA_1}\n\n{PARA_2}")
+    evidence = f"{PARA_1[-20:]} {PARA_2[:20]}"
+    findings = validate_source_evidence(
+        evidence,
+        "https://halden.example/news/series-b",
+        lane="personalised",
+        sources_dir=sources_dir,
+    )
+    assert findings == []
+
+
+def test_evidence_containing_a_double_quote_now_passes(tmp_path: Path) -> None:
+    sources_dir = _envelope_capture(tmp_path, f"# Halden\n\n{QUOTE}")
+    findings = validate_source_evidence(
+        QUOTE, "https://halden.example/news/series-b", lane="personalised", sources_dir=sources_dir
+    )
+    assert findings == []
+
+
+def test_evidence_across_a_markdown_link_now_passes(tmp_path: Path) -> None:
+    md = "Halden Systems, per [its filing](https://sec.example/x), raised a Series B."
+    sources_dir = _envelope_capture(tmp_path, md)
+    evidence = "Halden Systems, per its filing, raised a Series B."
+    findings = validate_source_evidence(
+        evidence,
+        "https://halden.example/news/series-b",
+        lane="personalised",
+        sources_dir=sources_dir,
+    )
+    assert findings == []
+
+
+def test_a_paraphrase_still_fails_after_unwrapping() -> None:
+    """Loosening the comparison for markup must never admit a clause that is not actually
+    a verbatim reduction of the source — the whole point of the check."""
+
+    def _run(tmp_path: Path) -> list:
+        sources_dir = _envelope_capture(tmp_path, f"{PARA_1}\n\n{PARA_2}")
+        paraphrase = "Halden Systems announced new funding to grow across two banks."
+        return validate_source_evidence(
+            paraphrase,
+            "https://halden.example/news/series-b",
+            lane="personalised",
+            sources_dir=sources_dir,
+        )
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        findings = _run(Path(td))
+    assert [f.rule for f in findings] == ["signal-evidence-not-in-source"]
+
+
+def test_changed_closing_punctuation_still_fails(tmp_path: Path) -> None:
+    """A real near-miss on the live pool: the source closes the quote with `,\"` and the
+    drafted evidence closed it with `.\"` instead — a one-character drift that must still
+    block, not a case the markdown-syntax fix should paper over."""
+    sources_dir = _envelope_capture(
+        tmp_path, 'The company said, "we expect broad adoption by next year," in the release.'
+    )
+    evidence = '"we expect broad adoption by next year."'
+    findings = validate_source_evidence(
+        evidence,
+        "https://halden.example/news/series-b",
+        lane="personalised",
+        sources_dir=sources_dir,
+    )
+    assert [f.rule for f in findings] == ["signal-evidence-not-in-source"]
+
+
+# --- sources_dir_for / tenant-folder divergence (2026-09-27 defect 2) ---------------
+
+
+def test_sources_dir_for_includes_the_profile_segment(tmp_path: Path) -> None:
+    assert sources_dir_for("acme", tmp_path) == tmp_path / "acme" / "sources"
+
+
+def test_gate_style_lookup_now_finds_what_the_hook_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Writer = the hook, which resolves the active profile and writes under
+    `<content>/<profile>/sources` (here: an explicit ``profile=`` kwarg, standing in for the
+    hook's own profile resolution). Reader = ``sources_dir_for(profile, content_root)``, the
+    helper `account_integrity.audit_rows` and `preflight_report` now call instead of the
+    tenant-less `content_root / "sources"` that once found nothing. The end-to-end version
+    of this — through the real gate call site — is `tests/test_account_integrity.py`.
+    """
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    store_capture(
+        "https://halden.example/news/series-b",
+        "Halden Systems closed a Series B round.",
+        profile="acme",
+    )
+
+    findings = validate_source_evidence(
+        "Halden Systems closed a Series B round.",
+        "https://halden.example/news/series-b",
+        lane="personalised",
+        sources_dir=sources_dir_for("acme", tmp_path),
+    )
+    assert findings == []
+
+
+def test_malformed_active_profile_marker_is_not_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bare `except Exception` this replaced turned a malformed marker into the SAME
+    silent tenant-less fallback as having no profile at all — hiding a real error."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    (tmp_path / ".active-profile").write_text("../escape", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        get_latest_capture("https://halden.example/news/series-b")

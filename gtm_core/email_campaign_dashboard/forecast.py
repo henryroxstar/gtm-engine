@@ -262,6 +262,11 @@ def _schedule(m: dict) -> dict:
         "cap": cap,
         "boxes": boxes,
         "touches": touches,
+        # Carried even on a normal (non-refused) return: `_forecast_block`'s per-person
+        # ceiling sentence used `touches` (a max-across-lanes fallback) whenever lanes
+        # existed, regardless of whether the campaigns actually agree on a touch count —
+        # the refusal above only fired when there was NO single lane to fall back to.
+        "touches_why": touches_why,
         "rows": rows,
         "emails_all": emails_all,
         "span_all": span_all,
@@ -307,6 +312,7 @@ def _forecast_block(m: dict) -> str:
         return ""
     window: dict = next((c["window"] for c in camps if c.get("window")), {})
     lanes, cap, boxes, touches = s["lanes"], s["cap"], s["boxes"], s["touches"]
+    touches_why = s.get("touches_why")
     emails_all, span_all, total_all = s["emails_all"], s["span_all"], s["total_all"]
     send_days, tail = s["send_days"], s["tail"]
     arc_binds = send_days <= tail
@@ -346,7 +352,8 @@ def _forecast_block(m: dict) -> str:
         All {emails_all:,} emails fit in {send_days} sending day{"" if send_days == 1 else "s"}
         at a {cap}/day ceiling; what takes {total_all} working days is that the last person
         enrolled still has their own {span_all}-day ladder to live through after the final send
-        starts. That is the "+ {tail}" column, and the longest row is the one that decides it."""
+        starts. That is the "+ {tail}" column ({span_all} calendar days converted to working
+        days, weekends excluded), and the longest row is the one that decides it."""
         if arc_binds
         else f"""<strong>The mailboxes set the finish date.</strong> Sending {emails_all:,}
         emails at {cap} a day takes {_wd(send_days)}, longer than the {span_all}-day
@@ -363,12 +370,30 @@ def _forecast_block(m: dict) -> str:
 
     per_box = (cap // boxes) if boxes else 0
     people_day = cap // touches if touches else 0
-    month = people_day * 21
+    # Working-days-per-month assumption behind "a month" here — never stated before, so a
+    # reader had no way to tell this from a measured monthly rate. Named so the prose below
+    # derives from the same value it uses to compute `month`, instead of restating it.
+    working_days_per_month = 21
+    month = people_day * working_days_per_month
     why = (
         f"<strong>{cap} emails a day is the ceiling, and it is {boxes} mailboxes at "
         f"{per_box} a day each.</strong> "
         if boxes and per_box
         else f"<strong>{cap} emails a day is the ceiling.</strong> "
+    )
+    # When the in-scope campaigns don't agree on a touch count, `touches` above is the
+    # LARGEST of them (a fallback, not a fact), and a single "at N emails a person" line
+    # would state someone else's cadence as this scope's own. The per-lane table above
+    # already carries each lane's real touch count; this sentence just stops claiming one.
+    per_person = (
+        f"At {touches} emails a person that ceiling absorbs about "
+        f"<strong>{people_day} new people a working day</strong>, or "
+        f"<strong>{month:,} a month</strong> "
+        f"(assuming {working_days_per_month} working days in a month). "
+        if not touches_why
+        else f"Cadence varies by lane ({_e(touches_why)}), so a single "
+        "\"emails per person\" figure would misstate someone's. See each lane's "
+        "own touch count in the table above. "
     )
     cap_note = window.get("capacity_note") or ""
     caveat = window.get("caveat") or ""
@@ -390,8 +415,7 @@ def _forecast_block(m: dict) -> str:
       <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>The ceiling, and why it is where it is</h2>
         <p>{why}{constraint}
-        At {touches} emails a person that ceiling absorbs about <strong>{people_day} new people a working day</strong>,
-        or <strong>{month:,} a month</strong>. Going faster means more mailboxes,
+        {per_person}Going faster means more mailboxes,
         not a setting: the per-mailbox rate is the number deliberately held down, because
         volume out of a single mailbox is what costs a sending domain its reputation.</p>
         {f'<p class="note">{_e(cap_note)}.</p>' if cap_note else ""}

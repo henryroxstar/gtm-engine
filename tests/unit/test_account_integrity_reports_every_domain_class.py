@@ -162,7 +162,7 @@ def test_the_report_prints_every_counter_it_took_and_the_verdict_line(tmp_path):
     store_capture(
         "https://quarrysystems.example/news/ai-governance",
         _CAPTURE_TEXT,
-        sources_dir=empty_content / "sources",
+        sources_dir=empty_content / PROFILE / "sources",
     )
     bad = _audit([_row()], empty_content, profiles)
     text = render(bad)

@@ -204,7 +204,7 @@ def test_one_row_of_tiles_and_the_filter_reaches_every_one(tmp_path):
     assert [t["label"] for t in tiles] == [
         "accounts researched",
         "have a verified address",
-        "resolve to a named seat",
+        "resolve to a named persona",
         "carry a dated why-now",
         "have a drafted email",
     ]

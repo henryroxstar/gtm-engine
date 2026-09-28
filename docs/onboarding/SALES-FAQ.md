@@ -53,6 +53,18 @@ It's grounded in your profile and cites sources for time-sensitive facts (fundin
 **How does it decide what to say about our product?**
 From a fact sheet in your profile — never from the prospect research. Each claim about your product is marked *verified*, *conditional* (true only under a condition), or *design-target* (roadmap), and each number as *measured*, *illustrative*, or *disputed*. Research decides who to write to and why now; it can't change what an email says about you. A checker refuses any draft that quotes a *disputed* number or uses a phrase you've listed as an overclaim — so when a figure is retracted, you change it once and every draft relying on it is caught. The fact sheet is yours to edit; nothing rewrites it for you.
 
+**How do we revamp our messaging or update our email hooks?**
+Every profile includes a plain-English template called `knowledge/MESSAGING-INTAKE.md`. It has 4 simple sections:
+1. *Target Seats & Pains* (who we write to and what bottleneck keeps them up at night)
+2. *Capabilities & Claims* (what our product actually does, and links proving it)
+3. *Proof Points & Benchmarks* (hard metrics or regulatory frameworks that back your claims)
+4. *Narrative Angles & Hooks* (the specific conversation openers that tie a pain to your product)
+
+To update messaging: fill it in (or paste your notes in chat) and tell the assistant: *"Update my messaging from this intake."* The engine compiles it into your profile, creates an automatic backup, and shows you the exact diffs to approve. To see what's currently active on file, inspect `knowledge/messaging-intake-golden-source.md` (or ask: *"Show me our current messaging on file"*).
+
+**Can we undo or revert a messaging update?**
+Yes. Every time messaging is updated, a timestamped markdown backup is saved in your profile's `knowledge-backups/` folder. If you ever want to revert, just drop that backup file back into chat and say *"revert to this messaging"*.
+
 **Can my whole team use it?**
 Yes. Each person installs the desktop app and runs "set me up." If your team shares one company copy of the engine, you share the same profile and knowledge.
 

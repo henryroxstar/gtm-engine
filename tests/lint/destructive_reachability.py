@@ -58,7 +58,7 @@ OPERATOR_OWNED: frozenset[str] = frozenset(
 #: ``gtm_core.scorecard`` scores accounts. It deletes, archives, moves and truncates nothing, and
 #: it will be called from ``score``-shaped steps, which is exactly the shape the 2026-09-20
 #: incident wore: a build step that had quietly grown a purge.
-ASSERTED_CLEAN: frozenset[str] = frozenset({"gtm_core.scorecard"})
+ASSERTED_CLEAN: frozenset[str] = frozenset({"gtm_core.scorecard", "gtm_core.prospects_verify"})
 
 _CITED = re.compile(r"-m\s+(gtm_core(?:\.[A-Za-z_]\w*)*)")
 

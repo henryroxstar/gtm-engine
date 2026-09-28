@@ -1675,3 +1675,30 @@ def test_a_list_whose_sequence_history_records_as_deleted_is_not_enrolled(tmp_pa
     history.write_text("", encoding="utf-8")
     ctx = lanes.load_context("acme", as_of=AS_OF)
     assert set(ctx.enrolled) == {"live@x.example", "gone@x.example", "swept@x.example"}
+
+
+def test_hold_sheet_loads_default_bodies_for_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path / "content"))
+    seq = tmp_path / "content" / "acme" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    spec_sec = seq / "spec-generic-security-2026-09-09.md"
+    spec_sec.write_text(
+        "# Spec\n## 4. Variant\n**Step 1 — Day 0** · Subject: `agent security`\n> Hi {{First Name}},\n> When an agent calls in...\n",
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "email": "ciso@target.example",
+            "first": "Alice",
+            "last": "Smith",
+            "title": "Chief Information Security Officer",
+            "company": "TargetCorp",
+            "company_domain": "target.example",
+            "tier": "A",
+            "trigger": "duplicate-contact",
+        }
+    ]
+    groups, out_rows = lanes.build_sheet_payload(rows, profile="acme")
+    assert len(groups) == 1
+    assert "agent security" in groups[0]["body"]
+    assert "Hi {{First Name}}" in groups[0]["body"]

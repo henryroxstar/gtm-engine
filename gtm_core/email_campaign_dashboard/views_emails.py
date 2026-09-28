@@ -16,6 +16,7 @@ from pathlib import Path
 from .aggregate import sequence_word
 from .config import TAB_LABELS
 from .format import _e, _i, _seat_label, figure_span, section
+from .portfolio import render_email_portfolio_html
 
 
 def _later_touches(m: dict) -> str:
@@ -99,7 +100,7 @@ def _touches_rows(msg: dict) -> str:
             if c["subject"]
             else "<td class='muted'>reply inside the first email's thread — no new subject</td>"
         )
-        + f"<td class='muted'>{_e(c['opener'][:200])}</td>"
+        + f"<td class='muted'><div style='white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink);'>{_e(c.get('body') or c.get('opener', ''))}</div></td>"
         + f"<td class='num-cell muted'>{c['words']}w</td></tr>"
         for c in msg["copy"]
     )
@@ -108,9 +109,9 @@ def _touches_rows(msg: dict) -> str:
 #: The table's columns. "Go-live", never "State": a default-visible "State" header is banned
 #: (`tests/test_email_campaign_dashboard.py`), and the cell holds the one go-live word.
 _HEAD = (
-    "For whom",
+    "Target Personas",
     "First subject",
-    "The argument it opens on",
+    "First Email Variant",
     "People",
     "Emails",
     "Checks",
@@ -125,6 +126,16 @@ def _for_whom(msg: dict) -> str:
     seats = sorted({_seat_label(c["seat"]) for c in audience if c.get("seat")})
     segments = sorted({c["segment"] for c in audience if c.get("segment")})
     return " · ".join(p for p in (", ".join(seats), ", ".join(segments)) if p) or "—"
+
+
+def _is_blocked(lint: dict) -> bool:
+    """The one rule for whether a row is "blocked" — read by both the table's own
+    ready/blocked tally and the row's ``data-check`` attribute, so they cannot disagree.
+    The JS filter pill used to match this by scanning the rendered cell's text for
+    "blocking", which is also a substring of "no blocking problems" — the ready cell's own
+    text — so the "Needs Review" pill matched every row, checked and clean alike.
+    """
+    return bool(lint.get("verdict") == "FAIL" or _i(lint.get("errors")) > 0 or lint.get("drift"))
 
 
 def _checks(lint: dict) -> str:
@@ -174,7 +185,7 @@ def _details(m: dict, msg: dict, sid: str) -> str:
     return (
         f'<tr class="more"><td colspan="{len(_HEAD)}"><details data-more="{_e(sid)}">'
         "<summary>The emails, and a rendered sample</summary>"
-        "<table><thead><tr><th>Email</th><th>Subject</th><th>The argument it opens on</th>"
+        "<table><thead><tr><th>Email</th><th>Subject</th><th>Email Variant</th>"
         f"<th>Length</th></tr></thead><tbody>{_touches_rows(msg)}</tbody></table>"
         f"{drift}{mails}</details></td></tr>"
     )
@@ -185,11 +196,17 @@ def _row(m: dict, msg: dict, go: tuple[dict, set, bool]) -> str:
     sid = msg["sequence_id"]
     first = next((c for c in msg.get("copy") or [] if c.get("subject")), None)
     subject = f"<code>{_e(first['subject'])}</code>" if first else '<span class="muted">—</span>'
-    opener = _e(first["opener"][:200]) if first else ""
+    body_text = first.get("body") or first.get("opener", "") if first else ""
+    opener = (
+        f'<div style="white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink);">{_e(body_text)}</div>'
+        if body_text
+        else ""
+    )
     people = sum(c["enrolled"] for c in msg.get("audience") or [])
     word = sequence_word(rows.get(sid), sid in current, readable)
+    check_state = "blocked" if _is_blocked(msg.get("lint") or {}) else "ready"
     return (
-        f'<tr data-sequence="{_e(sid)}">'
+        f'<tr data-sequence="{_e(sid)}" data-check="{check_state}">'
         f"<td>{_e(_for_whom(msg))}</td>"
         f"<td>{subject}</td>"
         f'<td class="muted">{opener}</td>'
@@ -208,12 +225,58 @@ def _email_table(m: dict) -> str:
     go = _go_live(m)
     later = _later_touches(m)
     head = "".join(f"<th>{_e(h)}</th>" for h in _HEAD)
+
+    total = len(messages)
+    ready_count = 0
+    blocked_count = 0
+    persona_counts: dict[str, int] = {}
+
+    for msg in messages:
+        if _is_blocked(msg.get("lint") or {}):
+            blocked_count += 1
+        else:
+            ready_count += 1
+
+        audience = msg.get("audience") or []
+        seats = {_seat_label(c["seat"]) for c in audience if c.get("seat")}
+        for s in seats:
+            if s:
+                persona_counts[s] = persona_counts.get(s, 0) + 1
+
+    pills = [
+        f'<button type="button" class="email-pill active" data-email-filter="all">All ({total})</button>'
+    ]
+    if ready_count > 0:
+        pills.append(
+            f'<button type="button" class="email-pill" data-email-filter="status:ready">Ready ({ready_count})</button>'
+        )
+    if blocked_count > 0:
+        pills.append(
+            f'<button type="button" class="email-pill" data-email-filter="status:blocked">Needs Review ({blocked_count})</button>'
+        )
+    for p, c in sorted(persona_counts.items(), key=lambda x: -x[1])[:5]:
+        pills.append(
+            f'<button type="button" class="email-pill" data-email-filter="persona:{_e(p)}">{_e(p)} ({c})</button>'
+        )
+
+    toolbar_html = (
+        '<div class="email-toolbar">'
+        '<div class="email-search-bar">'
+        '<span class="email-search-icon">🔍</span>'
+        '<input type="text" id="email-search" class="email-search-input" placeholder="Search personas, subjects, copy, checks..." autocomplete="off">'
+        '<button type="button" id="email-search-clear" class="email-search-clear" hidden>×</button>'
+        "</div>"
+        f'<div id="email-filters" class="email-pills">{"".join(pills)}</div>'
+        "</div>"
+    )
+
     return (
-        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>What each sequence says</h2>'
-        '<p class="note">Each row is a sequence as it is registered. A row opens to its emails.'
+        '<div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;"><h2>Email Messaging</h2>'
+        '<p class="note">Each variant tests a different message angle for a specific audience. A row opens to its emails.'
         + (f" {_e(later)}" if later else "")
         + "</p>"
-        f"<table><thead><tr>{head}</tr></thead><tbody>"
+        + toolbar_html
+        + f'<table id="emails-table"><thead><tr>{head}</tr></thead><tbody>'
         + "".join(_row(m, msg, go) for msg in messages)
         + "</tbody></table></div>"
     )
@@ -264,7 +327,8 @@ def _packs_list(m: dict) -> str:
 
 def _emails_view(m: dict) -> str:
     return (
-        section("email-table", _email_table(m))
+        section("email-portfolio", render_email_portfolio_html(m))
+        + section("email-table", _email_table(m))
         + section("hand-sent", _hand_sent(m))
         + section("packs-list", _packs_list(m))
     )

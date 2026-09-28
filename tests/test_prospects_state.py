@@ -1404,6 +1404,156 @@ def test_mutate_cli_stamps_the_date_a_verdict_is_set(tmp_path, monkeypatch, caps
     assert "verdict_on" not in items["a-3"]
 
 
+def test_mutate_account_refuses_unrecognised_verdict(tmp_path):
+    """T1a: mutate_account is the CLI's `--set verdict=...` route — the exact hole a bad
+    HubSpot import once used to write "prospect" (a category_relation word) into 41
+    verdict cells with no barrier at all. It must refuse before writing anything."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"account_id": "a-1", "company": "Northwind", "domain": "northwind.example"}],
+    )
+    with pytest.raises(ValueError, match="not in the allowed set for verdict"):
+        ps.mutate_account("acme", "a-1", {"verdict": "prospect"}, content_root=tmp_path)
+    # Nothing was written.
+    items = ps.load_latest("acme", content_root=tmp_path)["items"]
+    assert items[0].get("verdict", "") == ""
+
+
+def test_mutate_accounts_unattended_skips_one_bad_account_and_continues_the_batch(tmp_path):
+    """R7 / PRD-2026-09-28 §2.5: the required unattended-batch-continuation wrapper. One
+    account's refused write must not stop the others in the same batch."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [
+            {"account_id": "a-1", "company": "Northwind", "domain": "northwind.example"},
+            {"account_id": "a-2", "company": "Fabrikam", "domain": "fabrikam.example"},
+        ],
+    )
+    summary = ps.mutate_accounts_unattended(
+        "acme",
+        {"a-1": {"verdict": "prospect"}, "a-2": {"verdict": "send"}},
+        content_root=tmp_path,
+    )
+    assert len(summary["refused"]) == 1
+    assert summary["refused"][0]["account"] == "a-1"
+    assert len(summary["applied"]) == 1
+    items = {i["account_id"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert items["a-1"].get("verdict", "") == ""  # refused, unwritten
+    assert items["a-2"]["verdict"] == "send"  # the rest of the batch is unaffected
+
+
+def test_mutate_cli_refuses_unrecognised_verdict_with_the_prd_error_copy(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"account_id": "a-1", "company": "Northwind", "domain": "northwind.example"}],
+    )
+    rc = ps._cli(
+        [
+            "mutate",
+            "--profile",
+            "acme",
+            "--account",
+            "a-1",
+            "--set",
+            "verdict=prospect",
+        ]
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert 'refused: verdict="prospect" is not in the allowed set for verdict' in err
+    assert "gtm_core/prospects_item.py::_VOCABULARIES" in err
+
+
+def test_mutate_account_still_allows_blank_verdict_on_an_unrelated_field_set(tmp_path):
+    """Refusal is keyed to fields actually being written — mutating an unrelated field on
+    an unscored (blank-verdict) account must not be blocked by the new check."""
+    _write_latest(
+        tmp_path,
+        "acme",
+        [{"account_id": "a-1", "company": "Fabrikam", "domain": "fabrikam.example"}],
+    )
+    summary = ps.mutate_account("acme", "a-1", {"notes": "checked in"}, content_root=tmp_path)
+    assert summary["changed"] is True
+
+
+def test_upsert_latest_blanks_an_unrecognised_verdict_in_merge_items(tmp_path):
+    """T1b: upsert_latest (the `merge --items <file>` route) had zero _VOCABULARIES calls —
+    Step 10's own documented hand-assembled-items path was wide open until now.
+
+    A verification-audit finding (2026-09-28, R7): `merge --items <file>` and
+    signal_backfill.py's --promote path both call this ONE function with MANY items in ONE
+    call — a single call IS the batch, unlike mutate_account's one-account-per-call shape. An
+    all-or-nothing raise here would abort an entire unattended batch over one bad row, which
+    is exactly what R7 (PRD §2.5) forbids. So this refuses the FIELD, not the item or the
+    batch: the bad field is blanked, the rest of the item's fields and every other item in
+    the batch still merge."""
+    _write_latest(tmp_path, "acme", [])
+    summary = ps.upsert_latest(
+        "acme",
+        [
+            {"company": "Litware", "domain": "litware.example", "verdict": "prospect"},
+            {"company": "Contoso", "domain": "contoso.example", "verdict": "send"},
+        ],
+        "run-1",
+        content_root=tmp_path,
+    )
+    items = {i["domain"]: i for i in ps.load_latest("acme", content_root=tmp_path)["items"]}
+    assert items["litware.example"].get("verdict", "") == ""  # blanked, not "prospect"
+    assert items["contoso.example"]["verdict"] == "send"  # the rest of the batch is unaffected
+    assert len(summary["vocab_refused"]) == 1
+    assert summary["vocab_refused"][0]["field"] == "verdict"
+
+
+def test_upsert_latest_still_allows_a_brand_new_unscored_account(tmp_path):
+    """A freshly-discovered account legitimately has no verdict yet (`new_account_defaults`
+    never fills it) — blank must stay legal so ordinary merges of new accounts don't break."""
+    _write_latest(tmp_path, "acme", [])
+    summary = ps.upsert_latest(
+        "acme",
+        [{"company": "Contoso", "domain": "contoso.example"}],
+        "run-1",
+        content_root=tmp_path,
+    )
+    assert summary["added"] == 1
+
+
+def test_merge_cli_reports_but_does_not_abort_on_an_unrecognised_verdict(
+    tmp_path, monkeypatch, capsys
+):
+    """The merge CLI must still SUCCEED (R7 — never abort an unattended batch over one bad
+    row) while still making the refusal VISIBLE on stderr (R5's error-copy contract) — never
+    a silent drop and never a bare traceback."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    _write_latest(tmp_path, "acme", [])
+    items_file = tmp_path / "items.json"
+    items_file.write_text(
+        json.dumps([{"company": "Litware", "domain": "litware.example", "verdict": "prospect"}]),
+        encoding="utf-8",
+    )
+    rc = ps._cli(
+        [
+            "merge",
+            "--profile",
+            "acme",
+            "--items",
+            str(items_file),
+            "--source-run",
+            "run-1",
+        ]
+    )
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert 'refused: verdict="prospect" is not in the allowed set for verdict' in err
+    items = ps.load_latest("acme", content_root=tmp_path)["items"]
+    assert items[0].get("verdict", "") == ""
+
+
 def test_fill_accounts_one_snapshot_per_call(tmp_path):
     _write_latest(tmp_path, "acme", [{"id": "a", "company": "Alpha", "industry": ""}])
     snaps_before = (
@@ -1437,6 +1587,44 @@ def test_fill_accounts_populated_field_is_unchanged(tmp_path):
     assert item["city"] == "SF"
     assert len(summary["conflicts"]) == 1
     assert summary["conflicts"][0]["field"] == "industry"
+
+
+def test_fill_accounts_refuses_a_closed_vocabulary_field_with_a_bad_value(tmp_path):
+    """A verification-audit finding (2026-09-28): fill_accounts is a fourth latest.json writer
+    of verdict/lane/signal_agent_kind/category_relation, with zero vocabulary enforcement —
+    a firmographics-enrichment row could write "prospect" into verdict exactly like the
+    2026-09-27 incident, through a path Phase 2's three named writers never touched."""
+    _write_latest(tmp_path, "acme", [{"id": "a", "company": "Alpha", "domain": "alpha.example"}])
+
+    summary = ps.fill_accounts(
+        "acme",
+        [{"domain": "alpha.example", "verdict": "prospect"}],
+        source="firmographics-enrichment",
+        content_root=tmp_path,
+    )
+
+    data = ps.load_latest("acme", content_root=tmp_path)
+    item = data["items"][0]
+    assert item.get("verdict", "") == ""  # never written
+    assert len(summary["vocab_refused"]) == 1
+    assert summary["vocab_refused"][0]["field"] == "verdict"
+
+
+def test_fill_accounts_still_fills_a_legitimate_closed_vocabulary_value(tmp_path):
+    """The new check must not become a blanket ban on filling these fields — a real,
+    recognised word still fills a blank one, same as any other firmographic field."""
+    _write_latest(tmp_path, "acme", [{"id": "a", "company": "Alpha", "domain": "alpha.example"}])
+
+    summary = ps.fill_accounts(
+        "acme",
+        [{"domain": "alpha.example", "lane": "signal"}],
+        source="firmographics-enrichment",
+        content_root=tmp_path,
+    )
+
+    data = ps.load_latest("acme", content_root=tmp_path)
+    assert data["items"][0]["lane"] == "signal"
+    assert summary["vocab_refused"] == []
 
 
 def test_fill_accounts_zero_or_two_matches_refuses_row(tmp_path):

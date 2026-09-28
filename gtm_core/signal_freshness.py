@@ -18,6 +18,7 @@ from typing import Any
 
 from gtm_core.merge_hygiene import SIGNAL_MAX_AGE_DAYS
 from gtm_core.prospect_paths import latest_json
+from gtm_core.prospects_item import check_vocabulary
 
 
 @dataclass
@@ -75,6 +76,7 @@ def audit_signal_freshness(
         else:
             result.stale.append(item)
             if mutate:
+                check_vocabulary("verdict", "re-angle", where="signal_freshness re-angle")
                 item["verdict"] = "re-angle"
                 prev_reason = item.get("verdict_reason", "")
                 stale_tag = f"signal_stale_{age_days}d"

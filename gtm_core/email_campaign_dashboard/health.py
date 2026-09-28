@@ -62,6 +62,21 @@ def figures_age_days(fetched, now: datetime) -> int | None:
     return None if age < -1 else max(age, 0)
 
 
+def _figures_age_exact_days(fetched, now: datetime) -> float | None:
+    """Fractional days since ``fetched`` — same parsing and future-date rule as
+    :func:`figures_age_days`, but not truncated to a whole day. ``figures_age_days`` is a
+    whole-day count for display and stays that way (it is asserted exactly in
+    ``tests/unit/test_dashboard_health.py``); this is for the ``FIGURES_MAX_AGE_DAYS``
+    comparison, where truncation let a 2.5-day-old snapshot compare equal to a 2-day-old one
+    and pass as fresh under a ``> 2`` threshold.
+    """
+    when = _parse_fetched(fetched)
+    if when is None:
+        return None
+    age = (now - when).total_seconds() / 86400
+    return None if age < -1 else max(age, 0.0)
+
+
 def figures_date(fetched) -> str | None:
     """The calendar date (``YYYY-MM-DD``) ``fetched`` names, or None when unparseable — the
     renderer's one source of truth for what to show, so a stray word or a malformed stamp
@@ -97,8 +112,12 @@ def page_warnings(status: dict, reconciliation: dict, sum_ok: bool, now: datetim
     reasons = []
     if not reconciliation.get("ok", True) or not sum_ok:
         reasons.append("records-disagree")
-    if status.get("sequences"):
-        age = figures_age_days(snap.get("fetched"), now)
+    # Runs whenever the snapshot carries a `fetched` stamp at all — not only when it also
+    # lists sequences. A readable snapshot with an old or missing date and zero current rows
+    # (e.g. every sequence since retired) used to skip this check entirely and render as if
+    # current.
+    if snap.get("fetched") is not None or status.get("sequences"):
+        age = _figures_age_exact_days(snap.get("fetched"), now)
         if age is None or age > FIGURES_MAX_AGE_DAYS:
             reasons.append("figures-old")
     return reasons

@@ -148,6 +148,8 @@ Now ask the engine to sanity-check your materials against what it drafted. Paste
 **Read what it proposes and approve the changes you agree with.** This is your chance to catch anything it got confidently wrong before it becomes your engine's memory.
 
 > Any time you get new material later, just drop it in and say *"learn from my new material."*
+>
+> **Updating your outbound messaging or email hooks?** Open `knowledge/MESSAGING-INTAKE.md` in your profile (or say *"show me our current messaging"*). Fill it out in plain English, drop it into chat, and say *"update my messaging from this intake."* The engine checks the claims, creates an automatic backup, and shows you the diffs to approve.
 
 ---
 
@@ -228,6 +230,8 @@ Just say these in plain English:
 - *"Run my market scan"* — this week's signals in your space
 - *"What's my budget?"* — see your current month tool spend and monthly budget cap in one sentence
 - *"Learn from my new material"* — update your company profile and knowledge when documents, products, or ICP change
+- *"Update my messaging from my intake file"* — stage new email hooks, buyer pains, and verified claims behind your approval
+- *"Show me our current messaging"* — reads back your active hooks and verified claims (from your profile's golden source)
 - *"Check CRM hygiene"* · *"review team pipeline"*
 - *"Build a deck for [company]"*
 - *"Plan my quarter"*

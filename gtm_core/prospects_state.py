@@ -43,6 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gtm_core.paths import _safe_segment, resolve_content_root
+from gtm_core.prospects_item import VocabularyRefusal, check_vocabulary
 from gtm_core.prospects_lock import ledger_lock, serialised
 from gtm_core.prospects_merge import AccountMatcher, merge_onto
 
@@ -274,6 +275,29 @@ def upsert_latest(
     current = load_latest(profile, content_root)
     existing_items = current.get("items", [])
 
+    # Sanitize every incoming item's closed-vocabulary fields BEFORE merging any of them —
+    # blank the bad FIELD, never abort the whole BATCH: `merge --items <file>` (Step 10's
+    # documented hand-assembled-items route) and signal_backfill.py's --promote path both
+    # call this ONE function with many items in ONE call, so "the batch" IS this call's
+    # new_items, not something an outer loop chunks up — refusing the whole call over one
+    # bad row would abort an unattended run exactly as R7 (PRD §2.5) forbids. A bad field
+    # is dropped (blanked, the same "no opinion" state a brand-new account already has),
+    # its OTHER fields on the same item still merge, and every other item is unaffected.
+    vocab_refused: list[dict] = []
+    sanitized_items: list[dict] = []
+    for i, item in enumerate(new_items):
+        clean = dict(item)
+        for field, value in item.items():
+            try:
+                check_vocabulary(field, value, where=f"merge item {i} ({item.get('company')!r})")
+            except VocabularyRefusal as exc:
+                clean[field] = ""
+                vocab_refused.append(
+                    {"index": i, "company": item.get("company"), "field": field, "reason": str(exc)}
+                )
+        sanitized_items.append(clean)
+    new_items = sanitized_items
+
     # Start from ALL existing items — none is ever dropped, even a pre-existing duplicate
     # key (the matcher merges into the first occurrence and leaves the duplicate listed).
     result_items = [dict(it) for it in existing_items]
@@ -339,6 +363,7 @@ def upsert_latest(
         "keyless_appended": keyless_appended,
         "ids_stamped": ids_stamped,
         "total": len(result_items),
+        "vocab_refused": vocab_refused,
         "snapshot": str(snap) if snap else None,
     }
 
@@ -466,6 +491,12 @@ def mutate_account(
     current = load_latest(profile, content_root)
     items = [dict(it) for it in current.get("items", [])]
 
+    # Validate before touching anything — this is the CLI's `--set field=value` route,
+    # the closed-vocabulary hole a bad HubSpot import once used to write "prospect" into
+    # 41 verdict cells with no barrier at all.
+    for field, value in updates.items():
+        check_vocabulary(field, value, where=f"mutate {account}")
+
     changed = False
     found = False
 
@@ -511,6 +542,37 @@ def mutate_account(
     }
 
 
+def mutate_accounts_unattended(
+    profile: str,
+    updates_by_account: dict[str, dict[str, str]],
+    *,
+    content_root: Path | None = None,
+) -> dict:
+    """Apply :func:`mutate_account` to many accounts, one call each — for a daily-cron or any
+    other automated caller that must never abort a whole run over one account's bad field.
+
+    PRD-2026-09-28 §2.5: "The refusal must be scoped to the one write attempted — the calling
+    script catches it, records the refusal ..., and continues with the rest of its batch. It
+    must never abort an entire unattended run over one bad row." Unlike :func:`upsert_latest`
+    (where a single call already carries a batch of many items), ``mutate_account`` is
+    one-account-per-call by construction, so THIS is the "calling script" the PRD describes —
+    a required deliverable of Phase 2, not left to whoever eventually writes an automated
+    caller. No caller uses this yet (grepped: neither ``preflight_report.py`` nor
+    ``account_integrity.py`` calls ``mutate_account`` today); it exists so the first one that
+    does gets R7-compliant behavior for free instead of reinventing this loop.
+    """
+    applied: list[dict] = []
+    refused: list[dict] = []
+    for account, updates in updates_by_account.items():
+        try:
+            result = mutate_account(profile, account, updates, content_root=content_root)
+        except VocabularyRefusal as exc:
+            refused.append({"account": account, "updates": updates, "reason": str(exc)})
+            continue
+        applied.append(result)
+    return {"profile": profile, "applied": applied, "refused": refused}
+
+
 _PROTECTED_ACCOUNT_FIELDS = frozenset(
     {
         "id",
@@ -527,6 +589,33 @@ _PROTECTED_ACCOUNT_FIELDS = frozenset(
         "suppressed",
     }
 )
+
+
+def _fill_field(
+    item: dict, k: str, v: object, *, overwrite: bool, where: str
+) -> tuple[str, str | None]:
+    """One field of one fill_accounts row: (status, value-if-update-else-None).
+
+    status is one of "skip" (blank incoming, nothing to do), "vocab_refused" (a closed
+    vocabulary field carrying a value outside its allowed set — a firmographics-enrichment
+    row is external data, the same gate merge/mutate/signal_freshness apply, or this fill-only
+    writer becomes a fourth hole a bad export can write "prospect" through), "conflict" (a
+    populated field disagrees with a non-blank incoming value), or "update".
+    """
+    try:
+        check_vocabulary(k, v, where=where)
+    except VocabularyRefusal:
+        return "vocab_refused", None
+
+    existing_val = str(item.get(k) or "").strip()
+    incoming_val = str(v or "").strip()
+    if not incoming_val:
+        return "skip", None
+    if existing_val and not overwrite:
+        if existing_val != incoming_val:
+            return "conflict", incoming_val
+        return "skip", None
+    return "update", incoming_val
 
 
 @serialised(latest_path)
@@ -558,6 +647,7 @@ def fill_accounts(
 
     refused = []
     conflicts = []
+    vocab_refused = []
     changed_any = False
 
     for row in rows:
@@ -579,23 +669,19 @@ def fill_accounts(
         item = result_items[pos]
 
         updates = {}
+        where = f"fill_accounts {row.get('domain') or row.get('company')!r}"
         for k, v in row.items():
             if k in _PROTECTED_ACCOUNT_FIELDS:
                 continue
-
-            # fill-only: populated field is never changed unless overwrite=True
-            existing_val = str(item.get(k) or "").strip()
-            incoming_val = str(v or "").strip()
-            if not incoming_val:
-                continue
-
-            if existing_val and not overwrite:
-                if existing_val != incoming_val:
-                    conflicts.append(
-                        {"row": row, "field": k, "existing": existing_val, "incoming": incoming_val}
-                    )
-            else:
-                updates[k] = incoming_val
+            status, value = _fill_field(item, k, v, overwrite=overwrite, where=where)
+            if status == "update":
+                updates[k] = value
+            elif status == "conflict":
+                conflicts.append(
+                    {"row": row, "field": k, "existing": item.get(k), "incoming": value}
+                )
+            elif status == "vocab_refused":
+                vocab_refused.append({"row": row, "field": k, "value": v})
 
         if updates:
             for k, v in updates.items():
@@ -616,6 +702,7 @@ def fill_accounts(
         "source": source,
         "refused": refused,
         "conflicts": conflicts,
+        "vocab_refused": vocab_refused,
         "snapshot": str(snap) if snap else None,
     }
 
@@ -680,7 +767,16 @@ def _cli(argv: list[str] | None = None) -> int:
     )
 
     args = ap.parse_args(argv)
+    try:
+        return _dispatch(args)
+    except ValueError as exc:
+        # A refused write (bad vocabulary value, shrink tripwire, ...): one line naming the
+        # cause, not a traceback — matches prospects_import.py's top-level convention.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.cmd == "merge":
         items = json.loads(Path(args.items).read_text(encoding="utf-8"))
         if not isinstance(items, list):
@@ -693,6 +789,11 @@ def _cli(argv: list[str] | None = None) -> int:
             generated_at=args.generated_at,
             allow_shrink=args.allow_shrink,
         )
+        # A vocabulary refusal never aborts the merge (R7) — it must still be VISIBLE (R5's
+        # error-copy contract), so an interactive operator sees exactly which rows were
+        # blanked instead of finding out only when the send list looks short.
+        for refusal in summary.get("vocab_refused", []):
+            print(refusal["reason"], file=sys.stderr)
         print(json.dumps(summary, indent=2))
         return 0
 

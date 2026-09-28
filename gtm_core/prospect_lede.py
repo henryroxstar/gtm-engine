@@ -147,12 +147,12 @@ def refusal_copy(rule: str) -> tuple[str, str]:
 #: The go-live words the dashboard observes (``email_campaign_dashboard.model``). The
 #: terminal passes none: it cannot see the sending tool, so it never says paused or live.
 GO_LIVE_WORDS: dict[str, str] = {
-    "none": "nothing loaded yet",
-    "staged": "loaded, not started",
-    "paused": "paused",
-    "active": "live, sending",
-    "started": "started, people have been contacted",
-    "unknown": "unknown, the sending tool's figures couldn't be read",
+    "none": "Nothing loaded yet",
+    "staged": "⏸️ Loaded, not started",
+    "paused": "⏸️ Paused — sending stopped",
+    "active": "🟢 Sending now — emails going out",
+    "started": "🟢 Live — people have been contacted",
+    "unknown": "⚠️ Status unknown — check sending tool",
 }
 
 #: Snapshot statuses meaning a sequence is sending now — one set for every caller (PS20).
@@ -216,7 +216,7 @@ def _reason_lines(classes: Sequence[tuple[str, int, str]]) -> list[str]:
     return out
 
 
-def _today_lines(r: Readiness) -> list[str]:
+def _today_lines(r: Readiness, waiting_on_you: int | None = None) -> list[str]:
     if r.state == "none":
         return [
             "Today: unknown — the checks have not run on this list yet. Run them before "
@@ -238,7 +238,22 @@ def _today_lines(r: Readiness) -> list[str]:
         if admitted
         else f"Today: none of the {_count(r.rows, 'person', 'people')} on the list can go out yet."
     )
-    rest = [f"{r.fates[f]:,} {FATE_WORDS[f]}" for f in FATES[1:] if r.fates.get(f)]
+    rest = []
+    for f in FATES[1:]:
+        cnt = r.fates.get(f, 0)
+        if not cnt:
+            continue
+        if f == "set_aside" and waiting_on_you is not None:
+            if waiting_on_you > 0 and cnt > waiting_on_you:
+                rest.append(
+                    f"{waiting_on_you:,} waiting on you, {cnt - waiting_on_you:,} set aside"
+                )
+            elif waiting_on_you > 0:
+                rest.append(f"{waiting_on_you:,} waiting on you")
+            else:
+                rest.append(f"{cnt:,} set aside")
+        else:
+            rest.append(f"{cnt:,} {FATE_WORDS[f]}")
     lead = " The rest: " if admitted else " Of them: "
     lines = [head + (f"{lead}{', '.join(rest)}." if rest else "")]
     for lane, refused, classes in r.refusals:
@@ -309,9 +324,9 @@ def compose_lede(
     when = f"As of {now}."
     if readiness.state in ("ok", "stale"):
         when += f" The checks last ran {_when(readiness.ran_at)}."
-    lines = [when, *_today_lines(readiness)]
-
     waiting = counts.get("waiting_on_you", 0)
+    lines = [when, *_today_lines(readiness, waiting_on_you=waiting)]
+
     if waiting:
         where = (
             f"review sheet: {sheet}"
@@ -334,7 +349,7 @@ def compose_lede(
     fixing = counts.get("being_fixed", 0)
     if fixing:
         parts.append(f"re-drafting {_count(fixing, 'contact', 'contacts')}")
-    lines.append("The machine's: " + (", ".join(parts) + "." if parts else "nothing queued."))
+    lines.append("Automated: " + (", ".join(parts) + "." if parts else "nothing queued."))
 
     loaded = counts.get("in_sending_tool", 0)
     if go_live in GO_LIVE_WORDS:

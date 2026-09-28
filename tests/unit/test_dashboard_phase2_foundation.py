@@ -27,7 +27,14 @@ def test_every_tab_declares_its_sections_and_every_ops_block_has_one_group():
     assert (groups[0], groups[-1]) == ("numbers", "maintenance")
     # One literal pin until Task 2.7a's structure test enforces the declared blocks.
     assert config.SECTIONS["overview"] == frozenset(
-        {"lede", "campaign-lines", "accounts-funnel", "contacts-by-status"}
+        {
+            "lede",
+            "campaign-lines",
+            "accounts-funnel",
+            "contacts-by-status",
+            "ready-to-send",
+            "actions-required",
+        }
     )
 
 

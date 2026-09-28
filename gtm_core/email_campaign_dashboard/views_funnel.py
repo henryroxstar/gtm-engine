@@ -5,13 +5,7 @@ from ..prospect_status_receipt import ACCOUNTS_HEADING, BUCKET_LABELS, BUCKET_NO
 from .format import _e
 from .loadfiles import TTL_DAYS
 
-_STEP = (
-    "display:inline-block;padding:8px 14px;margin:4px;background:var(--panel);"
-    "border:1px solid var(--line);border-radius:10px;text-align:center;"
-)
-_ARROW = (
-    '<span class="funnel-arrow" style="margin:0 6px;color:var(--muted);font-weight:bold;">{}</span>'
-)
+_ARROW = '<span class="funnel-arrow" style="margin:0 8px;color:var(--muted);font-weight:400;font-size:20px;opacity:0.5;">{}</span>'
 
 
 def _attrition_funnel_block(m: dict) -> str:
@@ -28,16 +22,18 @@ def _attrition_funnel_block(m: dict) -> str:
     steps = [(b, ar.get(b, 0)) for b in BUCKETS]
     parts = []
     for i, (bucket, count) in enumerate(steps):
+        title_text = (
+            "Review in the Approval Queue below" if bucket == "held" else BUCKET_NOTES[bucket]
+        )
         parts.append(
-            f'<div class="funnel-step" data-bucket="{_e(bucket)}" title="{_e(BUCKET_NOTES[bucket])}" '
-            f'style="{_STEP}">'
+            f'<div class="funnel-step" data-bucket="{_e(bucket)}" title="{_e(title_text)}">'
             f'<div class="funnel-label" style="font-size:12px;color:var(--muted);">'
             f"{_e(BUCKET_LABELS[bucket])}</div>"
             f'<div class="funnel-count" style="font-size:20px;font-weight:700;">{count:,}</div>'
             "</div>" + _ARROW.format("+" if i < len(steps) - 1 else "=")
         )
     parts.append(
-        f'<div class="funnel-step" data-bucket="total_intake" style="{_STEP}">'
+        f'<div class="funnel-step" data-bucket="total_intake">'
         f'<div class="funnel-label" style="font-size:12px;color:var(--muted);">'
         f"{_e(BUCKET_LABELS['total_intake'])}</div>"
         f'<div class="funnel-count" style="font-size:20px;font-weight:700;">'

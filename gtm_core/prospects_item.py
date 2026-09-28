@@ -132,6 +132,46 @@ class ItemError(ValueError):
     """One item cannot be read. The message names the row and the field."""
 
 
+class VocabularyRefusal(ValueError):
+    """A write named a closed-vocabulary field with a value outside its allowed set."""
+
+
+def check_vocabulary(field: str, value: Any, where: str) -> None:
+    """Refuse ``value`` for a closed-vocabulary ``field`` — the same rule :func:`_word`
+    applies at import time, exposed for the state-layer writers (``prospects_state.merge``/
+    ``mutate``, ``signal_freshness``) that write ``latest.json`` outside the import path.
+
+    A no-op for any field outside :data:`_VOCABULARIES` — this only closes the four
+    vocabularies, never any other field. Blank passes, matching :func:`_word`/
+    :func:`new_account_defaults`: a brand-new, not-yet-scored account legitimately has no
+    verdict/lane yet, and this must not become impossible to merge. Only a *non-blank*
+    word outside the allowed set is refused — the actual shape of the incident this closes
+    (``"prospect"`` landing in 41 ``verdict`` cells), not a stricter rule invented for this PRD.
+
+    ``value`` is untrusted (an LLM/import can emit any JSON type) — a non-string, non-blank
+    value is refused with the same :class:`VocabularyRefusal` rather than crashing ``.strip()``
+    with a raw ``AttributeError``: a refusal an unattended caller can catch is the whole point
+    of this function existing outside ``_word``'s own type-checked ``_text`` pipeline.
+    """
+    allowed = _VOCABULARIES.get(field)
+    if allowed is None:
+        return
+    if value is not None and not isinstance(value, str):
+        raise VocabularyRefusal(
+            f"refused: {field}={value!r} is not in the allowed set for {field} "
+            f"({', '.join(sorted(allowed))}) — expected text, got {type(value).__name__}. "
+            "To add a new legitimate value, edit gtm_core/prospects_item.py::_VOCABULARIES "
+            "and redeploy."
+        )
+    word = (value or "").strip().lower()
+    if word and word not in allowed:
+        raise VocabularyRefusal(
+            f'refused: {field}="{value}" is not in the allowed set for {field} '
+            f"({', '.join(sorted(allowed))}). To add a new legitimate value, edit "
+            "gtm_core/prospects_item.py::_VOCABULARIES and redeploy."
+        )
+
+
 def _text(raw: dict, field: str, where: str) -> str:
     value = raw.get(field)
     if value is None:

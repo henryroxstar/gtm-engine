@@ -478,6 +478,8 @@ The active profile is whatever the agent resolves at runtime. Switch with `"swit
 `"use my <company> profile"`. Every skill reads brand, product, markets, and voice from the active
 profile — never from `plugin/`. Create your own with `"set me up"`.
 
+Outbound messaging, capability claims, and hooks are authored via a human-facing `knowledge/MESSAGING-INTAKE.md` template and compiled into machine-checked fact registries (`claims.toml`, `proof.toml`, `angles.toml`, `role-vocabulary.toml`) with automated backup snapshots and diff-gated review.
+
 To confirm which tenant is currently active (useful before running anything that writes state,
 especially when running several companies locally for demos):
 

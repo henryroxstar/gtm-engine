@@ -21,13 +21,16 @@ import pytest
 from gtm_core.email_campaign_dashboard.frontier import (
     calculate_angle_heatmap,
     derive_sentiment_triage,
+    extract_angle_title,
     generate_copiable_prompts,
     list_ready_to_send_accounts,
     normalize_persona,
     parse_campaign_history,
-    render_next_frontier_sections,
+    render_angle_heatmap_section,
     render_ready_to_send_panel,
+    render_ready_to_send_section,
     render_sentiment_triage_html,
+    render_sentiment_triage_section,
 )
 from gtm_core.email_campaign_dashboard.i18n import map_term
 from gtm_core.email_campaign_dashboard.render import render_html
@@ -249,7 +252,11 @@ def test_dom_separation_untrusted_text_vs_action_prompts() -> None:
         "cells": {"cells": mock_cells},
     }
 
-    sections_html = render_next_frontier_sections(mock_model)
+    sections_html = (
+        render_angle_heatmap_section(mock_model)
+        + render_sentiment_triage_section(mock_model)
+        + render_ready_to_send_section(mock_model)
+    )
 
     # 1. The genuine prompt must reflect the legitimate accounts count
     assert "approve sending to these 1 accounts" in sections_html
@@ -423,3 +430,81 @@ def test_render_stylesheet_custom_palette() -> None:
     assert "--panel:#223344" in css
     assert "--accent:#445566" in css
     assert "--teal:#778899" in css
+
+
+def test_extract_angle_title() -> None:
+    """Verify clean narrative opening angle title extraction."""
+    assert (
+        extract_angle_title(
+            "Generic lane · The sign-off nobody watched · CEO × seat-remit · 2026-09-25"
+        )
+        == "The sign-off nobody watched"
+    )
+    assert (
+        extract_angle_title("CEO · The Sign-Off Nobody Watched · Software Devtools Startup")
+        == "The Sign-Off Nobody Watched"
+    )
+    assert extract_angle_title("SG Builders Generic (Named Seats) · 2026-09-04") == "Named Seats"
+    assert (
+        extract_angle_title("", "enterprise::ai-platform::audit-ready")
+        == "Enterprise Ai Platform Audit Ready"
+    )
+
+
+def test_calculate_angle_heatmap_sources_and_metric_label() -> None:
+    """Verify heatmap derives angle titles from sequence sources and reports accurate metric labels."""
+    # "replied" — the key `cells.build_cells` actually sets. A prior version of this fixture
+    # used "replies", which the heatmap never read; that let the key-mismatch bug this test
+    # exists to catch pass silently.
+    cells = [
+        {"seat": "CEO", "sequence_id": "seq_1", "sendable": 10, "replied": 0},
+        {"seat": "Security", "sequence_id": "seq_2", "sendable": 5, "replied": 0},
+    ]
+    sources = [
+        {"sequence_id": "seq_1", "title": "Inbound · The sign-off nobody watched · CEO"},
+        {"sequence_id": "seq_2", "title": "Lane · Authority is not identity · Security"},
+    ]
+    heatmap = calculate_angle_heatmap(cells, sources)
+    assert heatmap["hooks"] == ["Authority is not identity", "The sign-off nobody watched"]
+    assert heatmap["metric_label"] == "Planned Prospects"
+    assert heatmap["has_replies"] is False
+
+    # When replies > 0
+    cells_with_replies = [
+        {"seat": "CEO", "sequence_id": "seq_1", "sendable": 10, "replied": 2},
+    ]
+    heatmap_replies = calculate_angle_heatmap(cells_with_replies, sources)
+    assert heatmap_replies["metric_label"] == "Replies"
+    assert heatmap_replies["has_replies"] is True
+    # A genuinely empty cell (every recipient suppressed) must stay 0, never become a
+    # phantom "1 planned prospect".
+    zeroed = calculate_angle_heatmap(
+        [{"seat": "CEO", "sequence_id": "seq_1", "sendable": 0, "replied": 0}], sources
+    )
+    assert zeroed["cells"][0]["count"] == 0
+
+
+def test_render_angle_heatmap_section_active_vs_archive_toggle() -> None:
+    """Verify heatmap section renders active campaign by default and includes archive toggle when difference exists."""
+    cells = [
+        {"seat": "CEO", "sequence_id": "seq_active", "sendable": 10},
+        {"seat": "CTO", "sequence_id": "seq_old", "sendable": 5},
+    ]
+    sources = [
+        {"sequence_id": "seq_active", "title": "Lane · Active Angle · CEO"},
+        {"sequence_id": "seq_old", "title": "Lane · Archived Angle · CTO"},
+    ]
+    campaigns = [{"campaign_id": "c1", "sequences": [{"sequence_id": "seq_active"}]}]
+    model = {
+        "cells": {"cells": cells, "sources": sources},
+        "campaigns": {"campaigns": campaigns},
+    }
+
+    html = render_angle_heatmap_section(model)
+    assert "Persona vs. Hook Allocation" in html
+    assert "Pre-send audience allocation across target personas" in html
+    assert "Active Campaign (1 Hooks)" in html
+    assert "All-Time Archive (2 Hooks)" in html
+    assert 'id="heatmap-view-active"' in html
+    assert 'id="heatmap-view-archive"' in html
+    assert "10 planned prospects" in html

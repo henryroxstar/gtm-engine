@@ -483,6 +483,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"(updated {out.get('updated', '?')}, total {out.get('total', '?')}); "
                 f"re-run consolidate to carry them onto every row"
             )
+            # This --promote path never runs items through normalise_items() first (unlike
+            # the standard import path), so a bad closed-vocabulary value here is blanked by
+            # upsert_latest rather than aborting the batch — R7 (PRD-2026-09-28 §2.5) — but
+            # must still be VISIBLE, not silently dropped.
+            for refusal in out.get("vocab_refused", []):
+                print(refusal["reason"], file=sys.stderr)
         if orphans:
             # An unpromotable record is not a partial success: it has nowhere durable to
             # live, and reporting 0 while printing warnings is how that gets missed.

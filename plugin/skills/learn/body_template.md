@@ -69,8 +69,29 @@ Report what was learned and updated:
 > "Updated your profile knowledge with N approved change(s). Skipped M change(s). Say 'undo my last change' to put any of it back."
 <!-- /operator -->
 
+### Structured Messaging & Hook Intake (MESSAGING-INTAKE.md)
+When the user provides a `MESSAGING-INTAKE.md` document, asks to "refresh messaging / hooks", or provides a previous `messaging-intake-backup-*.md` to revert:
+1. **Stage and create automated backup**:
+   ```bash
+   uv run python -m gtm_core.messaging_intake stage --profile <active> --file <path-to-document>
+   ```
+   The command prints the path of the backup it wrote; note it for the revert step.
+2. **Review diffs**:
+   Run `uv run python -m gtm_core.knowledge_staging diff --profile <active> --topic <topic>` for each staged topic (`claims.toml`, `proof.toml`, `angles.toml`, `role-vocabulary.toml`).
+3. **Promote on approval**:
+   Promote approved topics: `uv run python -m gtm_core.knowledge_staging promote --profile <active> --topic <topic>`.
+4. **Validate & Sync**:
+   ```bash
+   uv run python -m gtm_core.messaging matrix --profile <active>
+   uv run python -m gtm_core.messaging check --profile <active>
+   ```
+5. **Revert Path**:
+   To revert at any time, pass the backup file back to this workflow:
+   `uv run python -m gtm_core.messaging_intake stage --profile <active> --file <backup-path-from-step-1>` and promote.
+
 <details>
 <summary>Staging details and audit trail</summary>
-Staged candidate files and the classification report were stored in content/&lt;profile&gt;/material-intake/.
+Staged candidate files and the classification report were stored in content/&lt;profile&gt;/material-intake/ or content/&lt;profile&gt;/knowledge-staging/.
+Automated backups are stored in content/&lt;profile&gt;/knowledge-backups/.
 Audit logs are appended to content/&lt;profile&gt;/history.jsonl.
 </details>

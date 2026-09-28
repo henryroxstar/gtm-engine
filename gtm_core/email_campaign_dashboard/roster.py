@@ -21,6 +21,23 @@ from ..email_compliance import normalize_market
 from ..merge_hygiene.company import clean_segment
 from ..prospects_consolidate import _prospects_dir, column_value
 
+_EMAIL_PLACEHOLDERS = {"unverified", "none", "null", "n/a"}
+
+
+def _has_valid_email(r: dict) -> bool:
+    """Does this row carry a real, verified email — never the ``unverified`` placeholder,
+    which is a truthy string and used to outrank a row with no email at all in the
+    company fold below (2026-09-28 fix). The one place this predicate lives, read by both
+    the fold's rank and ``_co("email")`` so they can never drift onto two answers for the
+    same row.
+    """
+    email = (column_value(r, "email") or "").strip().lower()
+    status = (column_value(r, "email_status") or "").strip().lower()
+    return (
+        bool(email) and status != "unverified" and email not in _EMAIL_PLACEHOLDERS and "@" in email
+    )
+
+
 #: What each queue destination means to the person reading the page, in plain English. The
 #: destination is the FOLLOW-UP, and it is the half a bare verdict word leaves out: eleven of
 #: this campaign's twenty-four rejections are not asking for better copy at all.
@@ -219,8 +236,14 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
                             company = column_value(r, "company")
                             if not company:
                                 continue
+                            # A REAL email beats none, then a why-now, then a verdict — the
+                            # same three tiers `_co("email")` below counts by. Until now
+                            # this ranked on `bool(email)` alone, so a pre-enrichment row
+                            # carrying the literal placeholder "unverified" (truthy as a
+                            # string) outranked a row with no email at all but a real
+                            # why-now and verdict, silently discarding the richer row.
                             rank = (
-                                bool(column_value(r, "email")),
+                                _has_valid_email(r),
                                 bool(column_value(r, "why_now")),
                                 bool(column_value(r, "verdict")),
                             )
@@ -241,15 +264,7 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
     def _co(field: str) -> set[str]:
         """The companies for which ANY row carries ``field``. The unit of every tile."""
         if field == "email":
-            return {
-                column_value(r, "company")
-                for r in rows
-                if column_value(r, "email")
-                and (column_value(r, "email_status") or "").strip().lower() != "unverified"
-                and (column_value(r, "email") or "").strip().lower()
-                not in {"unverified", "none", "null", "n/a"}
-                and "@" in (column_value(r, "email") or "")
-            }
+            return {column_value(r, "company") for r in rows if _has_valid_email(r)}
         return {column_value(r, "company") for r in rows if column_value(r, field)}
 
     def _n(field: str) -> int:
@@ -304,14 +319,7 @@ def roster_model(profile: str, sources, content_root: Path | None = None) -> dic
                 {
                     "company": column_value(r, "company"),
                     "seat": column_value(r, "title"),
-                    "email": (
-                        ""
-                        if (column_value(r, "email_status") or "").strip().lower() == "unverified"
-                        or (column_value(r, "email") or "").strip().lower()
-                        in {"unverified", "none", "null", "n/a"}
-                        or "@" not in (column_value(r, "email") or "")
-                        else column_value(r, "email")
-                    ),
+                    "email": column_value(r, "email") if _has_valid_email(r) else "",
                     "email_status": column_value(r, "email_status"),
                     "named": bool(column_value(r, "first")),
                     "contact": " ".join(

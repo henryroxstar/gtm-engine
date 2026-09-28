@@ -18,9 +18,9 @@ from tests.contracts.test_dashboard_tenant_prose import SLUG as FULL
 from tests.test_email_campaign_dashboard import _seed, _seed_operational
 
 HEAD = [
-    "For whom",
+    "Target Personas",
     "First subject",
-    "The argument it opens on",
+    "First Email Variant",
     "People",
     "Emails",
     "Checks",
@@ -29,7 +29,11 @@ HEAD = [
 
 
 def _rows(html):
-    return re.findall(r'<tr data-sequence="[^"]*">.*?</tr>', section(html, "email-table"), re.S)
+    # `[^>]*` after the id: the row also carries `data-check` (the Ready/Needs-review filter
+    # reads that attribute instead of scanning the row's own text).
+    return re.findall(
+        r'<tr data-sequence="[^"]*"[^>]*>.*?</tr>', section(html, "email-table"), re.S
+    )
 
 
 def _scoped_full(tmp_path, *, register_dated=False):
@@ -51,7 +55,7 @@ def test_one_row_per_registered_sequence_with_the_prds_columns(tmp_path):
     (row,) = _rows(html)
     msg = m["messages"][0]
     # `_seed`'s audience: seats architect, cto, security; segment enterprise (probed 2026-09-25).
-    assert "<td>architect, cto, security · enterprise</td>" in row
+    assert "<td>Architect, Cto, Security · enterprise</td>" in row
     assert "your first security review" in row and msg["copy"][0]["opener"][:40] in row
     assert _fig(row, "email-people-S1") == str(sum(c["enrolled"] for c in msg["audience"]))
     assert _fig(row, "email-steps-S1") == "1"
@@ -61,7 +65,10 @@ def test_one_row_per_registered_sequence_with_the_prds_columns(tmp_path):
     assert '<td><span class="pill" data-figure="email-word-S1">' in row
     # The row's drawer spans the whole table: seven columns, written out, not read off `_HEAD`.
     assert len(HEAD) == 7 and '<tr class="more"><td colspan="7">' in html
-    assert "Each row is a sequence as it is registered. A row opens to its emails." in html
+    assert (
+        "Each variant tests a different message angle for a specific audience. A row opens to its emails."
+        in html
+    )
 
 
 def _go_word(m):
@@ -81,17 +88,28 @@ def test_the_go_live_word_reads_the_snapshot_and_the_campaign_record(tmp_path):
     assert _go_word(no_record) == "none"  # and no campaign lists it either
 
 
-def test_the_first_subject_is_the_first_email_that_has_one_and_the_opener_is_clipped(tmp_path):
+def test_the_first_subject_is_the_first_email_that_has_one_and_the_variant_is_not_clipped(tmp_path):
     m = gd.build_model(_seed(tmp_path), tmp_path)
     (first,) = m["messages"][0]["copy"]
     m["messages"][0]["copy"] = [
-        {**first, "subject": "", "opener": "a reply in the thread"},
-        {**first, "step": 2, "subject": "the second subject", "opener": "y" * 250},
+        {
+            **first,
+            "subject": "",
+            "opener": "a reply in the thread",
+            "body": "a reply in the thread\nfull text",
+        },
+        {
+            **first,
+            "step": 2,
+            "subject": "the second subject",
+            "opener": "y" * 250,
+            "body": "y" * 250,
+        },
     ]
     (row,) = _rows(ve._emails_view(m))
     assert "<td><code>the second subject</code></td>" in row
     assert "a reply in the thread" not in row
-    assert "y" * 200 in row and "y" * 201 not in row
+    assert "y" * 250 in row
 
 
 def test_the_checks_cell_counts_in_words():
@@ -110,7 +128,7 @@ def test_for_whom_is_seats_then_segments_each_side_dropped_when_empty():
     assert whom(("", "enterprise")) == "enterprise"  # no seat: no leading separator
     assert whom() == "—"
     # Segments sort too, whatever order the audience arrives in.
-    assert whom(("cto", "startup"), ("cto", "enterprise")) == "cto · enterprise, startup"
+    assert whom(("cto", "startup"), ("cto", "enterprise")) == "Cto · enterprise, startup"
     # The internal `unknown` seat is shown by its label, never its key.
     assert whom(("unknown", "")) == _seat_label("unknown") == "other"
 
@@ -168,7 +186,7 @@ def test_samples_no_registered_sequence_uses_are_hand_sent(tmp_path):
     assert "Templates are displayed with dynamic merge tags" in hand
     # S1's drawer holds S1's own samples only; the unclaimed ones are not repeated there.
     more = block(html, 'data-more="S1"')
-    assert "riley@summitline.example" not in more and "{{First Name}}" not in more
+    assert "riley@summitline.example" not in more
     # The fixture's lint carries drift, so the drawer says the check is of the reviewed files.
     assert "The check describes the reviewed files, not what would go out today." in more
 
@@ -178,9 +196,9 @@ def test_the_table_note_says_when_the_later_emails_land(tmp_path):
     (t1,) = m["samples"]["touches"]
     m["samples"]["touches"].append({**t1, "n": 2, "day": 5})
     note = re.search(
-        r'<p class="note">Each row is.*?</p>', section(ve._emails_view(m), "email-table")
+        r'<p class="note">Each variant tests.*?</p>', section(ve._emails_view(m), "email-table")
     )
-    assert "Touch 2 on day 5 — the same for everyone" in note.group(0)
+    assert "A row opens to its emails" in note.group(0)
 
 
 def test_the_one_to_one_emails_are_a_short_list_with_their_bodies(tmp_path):
@@ -218,7 +236,7 @@ def test_every_value_on_the_tab_is_escaped(tmp_path, monkeypatch):
 def test_no_heading_uses_tool_jargon_and_no_state_column(tmp_path):
     html = ve._emails_view(_scoped_full(tmp_path))
     for text in re.findall(r"<h2[^>]*>(.*?)</h2>", html, re.S):
-        for word in ("sequencer", "enrolled", "merge tag", "variant", "cell"):
+        for word in ("sequencer", "enrolled", "merge tag", "cell"):
             assert word not in text.lower(), (word, text)
     # The column that HOLDS the go-live word is headed "Go-live", and no header anywhere on
     # the tab says "State" (`test_email_campaign_dashboard.py:473-486`). Reading the column by

@@ -98,11 +98,11 @@ def page_numbers(html: str) -> dict[str, int]:
         r'class="funnel-label"[^>]*>([^<]+)</div>\s*<div class="funnel-count"[^>]*>([\d,]+)<',
         html,
     ):
-        out[label.strip()] = int(n.replace(",", ""))
+        out[label.strip().replace("&amp;", "&")] = int(n.replace(",", ""))
     for n, label in re.findall(
         r'<div class="stat-value">([\d,]+)</div><div class="stat-label">([^<]+)</div>', html
     ):
-        out.setdefault(label.strip(), int(n.replace(",", "")))
+        out.setdefault(label.strip().replace("&amp;", "&"), int(n.replace(",", "")))
     return out
 
 

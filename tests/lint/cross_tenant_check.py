@@ -83,6 +83,7 @@ NON_DISTINCTIVE = frozenset(
         "demo",
         "staging",
         "archive",
+        "sources",
     }
 )
 

@@ -138,6 +138,7 @@ Which skills read which knowledge topics, scanned from `plugin/skills/`. Profile
 
 Managed knowledge files present in the profile skeleton that **no skill reads** — either dead knowledge to retire, or a source not yet wired into any skill. (Per-profile orphans for the tail topics live behind `coverage --profile <p>`.)
 
+- `MESSAGING-INTAKE`
 - `voice-video`
 
 ## Dangling references (skills read them, `_template` doesn't provide them)

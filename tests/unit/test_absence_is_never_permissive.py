@@ -453,3 +453,77 @@ def test_missing_ai_vocabulary_file_refuses_to_initialize(monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         _determine_agent_kind("We are building agentic finance solutions.", profile="test")
+
+
+# PRD-2026-09-28 Phase 2: closed-vocabulary write refusal on all three latest.json writers.
+#
+# This registry inverts the file's usual polarity on purpose. Everywhere else, an absent
+# value must fall to the *non-granting* branch because "no opinion" was being read as
+# permission. Here, blank/whitespace IS the safe, no-op branch already (a brand-new,
+# not-yet-scored account legitimately has no verdict yet — see prospects_item.py's
+# new_account_defaults, which never fills verdict/lane) — so ABSENT[1:3] ("", "   ") must
+# pass through untouched, and only ABSENT[3] ("wharrgarbl", a word the vocabulary has never
+# heard) must refuse. Refusing blank too would make ordinary merges of new accounts
+# impossible; not refusing "wharrgarbl" is the exact 41-cell verdict-corruption incident.
+from gtm_core import prospects_state as _prospects_state  # noqa: E402
+from gtm_core.prospects_item import VocabularyRefusal, check_vocabulary  # noqa: E402
+
+
+@pytest.mark.parametrize("field", ["verdict", "lane", "signal_agent_kind", "category_relation"])
+@pytest.mark.parametrize("value", ABSENT[1:3])
+def test_check_vocabulary_treats_blank_as_a_safe_no_op_not_a_grant(field: str, value: str) -> None:
+    check_vocabulary(field, value, where="test")  # must not raise
+
+
+@pytest.mark.parametrize("field", ["verdict", "lane", "signal_agent_kind", "category_relation"])
+def test_check_vocabulary_refuses_the_unheard_of_word(field: str) -> None:
+    with pytest.raises(VocabularyRefusal):
+        check_vocabulary(field, ABSENT[3], where="test")
+
+
+def test_mutate_account_absence_registry(tmp_path) -> None:
+    """mutate_account: the CLI's `--set field=value` route into latest.json."""
+    latest = _prospects_state.latest_path("acme", content_root=tmp_path)
+    latest.parent.mkdir(parents=True, exist_ok=True)
+    latest.write_text(
+        '{"kind": "prospects", "profile": "acme", '
+        '"items": [{"account_id": "a-1", "company": "Northwind"}]}',
+        encoding="utf-8",
+    )
+    for value in ABSENT[1:3]:
+        _prospects_state.mutate_account(
+            "acme", "a-1", {"verdict": value}, content_root=tmp_path
+        )  # must not raise
+    with pytest.raises(VocabularyRefusal):
+        _prospects_state.mutate_account(
+            "acme", "a-1", {"verdict": ABSENT[3]}, content_root=tmp_path
+        )
+
+
+def test_upsert_latest_absence_registry(tmp_path) -> None:
+    """upsert_latest: the `merge --items <file>` route into latest.json.
+
+    Unlike mutate_account (one account per call), a single upsert_latest call already IS a
+    batch of many items (the real callers — `merge --items <file>`, signal_backfill.py's
+    --promote — pass many at once), so a bad field is blanked and reported in
+    `vocab_refused`, never raised: raising here would abort the whole unattended batch over
+    one bad row, which is exactly what R7 (PRD-2026-09-28 §2.5) forbids."""
+    for value in ABSENT[1:3]:
+        summary = _prospects_state.upsert_latest(
+            "acme",
+            [{"company": "Fabrikam", "domain": "fabrikam.example", "verdict": value}],
+            "run-1",
+            content_root=tmp_path,
+        )
+        assert summary["vocab_refused"] == []
+    summary = _prospects_state.upsert_latest(
+        "acme",
+        [{"company": "Litware", "domain": "litware.example", "verdict": ABSENT[3]}],
+        "run-1",
+        content_root=tmp_path,
+    )
+    assert len(summary["vocab_refused"]) == 1
+    items = {
+        i["domain"]: i for i in _prospects_state.load_latest("acme", content_root=tmp_path)["items"]
+    }
+    assert items["litware.example"].get("verdict", "") == ""

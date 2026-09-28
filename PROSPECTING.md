@@ -237,6 +237,8 @@ cannot change.
 | **Verdict** (`send` / `re-angle` / `drop`) | **The researcher's** conclusion about one row. `re-angle` = real account, wrong story. `drop` = competitor, dead, or wrong entity. Never overwritten by a machine. | Unusable. A `re-angle` row can still get a generic email. |
 | **Judge verdict** | The automated reader's column. It **ranks and never removes** until calibrated. | The researcher's verdict. |
 | **Lane** | Which *kind of email* a row can carry: `personalised`, `repair` (needs a re-write), `generic` (claims nothing about the recipient), `hold` (waiting on you), `excluded`. | A rejection. A lane is work queued. |
+| **Level (champion / economic buyer / evaluator)** | The person's role in a purchase. A champion feels the daily problem; an economic buyer signs; an evaluator tests fit. | Job title alone. A senior title does not mean they own the problem. |
+| **Send card** | A preview card grouping people who share the same role, story and offer. You approve or skip each card as one decision before anything stages. | An individual email. A card covers a whole group. |
 | **Needs verification** | An address we are not confident in. Never loaded blind. | A bad address. |
 | **Suppressed** | On the durable do-not-contact ledger. Survives every rebuild. | A held row. |
 | **Wave** | One batch of sends, measured as a unit. | A run. |
@@ -282,11 +284,14 @@ If you do not answer, work stops and the rows stay held.
    hold for research? A cap limits how much of a run may be generic.
 2. **Research spend.** The only variable-cost step, so it always asks.
 3. **Credit top-ups.** It warns you. It never buys.
-4. **Held rows.** Competitor-adjacent, partner, prior-contact, negative-reply and strategic
-   accounts wait in a review sheet. Choose **suppress**, **generic** or **salvage**. A blank keeps
+4. **Held rows.** Accounts that touch sensitive lists (competitors, partners, prior contacts) or
+   lack a clear champion wait for review. Choices depend on the reason: **suppress** (skip),
+   **generic** (send general copy), **salvage** (re-aim), or **send anyway**. A blank keeps
    the row held.
-5. **Go-live.** You start the paused sequence.
-6. **A weak criterion.** It flags ICP phrases that match nothing or everything and suggests edits.
+5. **Send cards.** Review draft emails grouped by role and story before staging. Choose **send**,
+   **skip this wave**, or **rewrite**.
+6. **Go-live.** You start the paused sequence.
+7. **A weak criterion.** It flags ICP phrases that match nothing or everything and suggests edits.
    It never edits the file and never stops the run over it.
 
 **Not yours: the data tool's download buttons.** When a panel offers **"Download N rows"** or
@@ -333,6 +338,8 @@ angle is yours to move:
 
 Telling a twice-as-good angle from luck takes a few hundred sends each, so early on most answers are
 *watch*.
+
+When you want to introduce a new angle, refresh a fatigued hook, or update what can be claimed about your product, you do not write new copy in the sending tool. You update `MESSAGING-INTAKE.md` in your profile's knowledge folder and run the intake workflow. The engine proves that every cited figure is measured and every claim is verified before any new email can argue it.
 
 ### Tripwires
 
@@ -428,6 +435,7 @@ If a phrase does not land, say what you want and add *"— which command does th
 | **Suggest ICP changes** | *"suggest changes to my ICP"* | `uv run python -m gtm_core.prospects icp propose --profile <you>` |
 | **Why is this row blocked?** | *"why is [company] blocked from the send list?"* | `uv run python -m gtm_core.prospects integrity` |
 | **What is sitting unworked?** | *"what's in the backlog that nobody has touched?"* | `uv run python -m gtm_core.prospects backlog` |
+| **Missing company facts?** | *"check missing company details"* | `uv run python -m gtm_core.prospects firmographics queue --profile <you>` |
 | **Can we start the next batch?** | *"has the last wave been measured yet?"* | `uv run python -m gtm_core.prospects wave-gate check --profile <you>` |
 | **Pull results** | *"sync outcomes"* | the `outcomes-sync` skill |
 | **Check the fact sheet** | *"check my messaging registry"* | `uv run python -m gtm_core.messaging check --profile <you>` |

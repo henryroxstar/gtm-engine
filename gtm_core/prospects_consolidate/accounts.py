@@ -240,11 +240,21 @@ _VERDICT_STRICTNESS = {"send": 0, "re-angle": 1, "drop": 2}
 
 
 def _verdict_at_least_as_strict(current: str, incoming: str) -> bool:
-    """True when ``incoming`` is a demotion (or equal) relative to ``current``."""
-    cur = _VERDICT_STRICTNESS.get((current or "").strip().lower())
+    """True when ``incoming`` is a demotion (or equal) relative to ``current``.
+
+    A non-blank ``current`` that is not itself one of ``send``/``re-angle``/``drop`` is not
+    a verdict this rule is protecting -- it is garbage on the row (seen 2026-09-27: a
+    HubSpot-export bug wrote the category-relation value ``"prospect"`` into the verdict
+    column for 27 rows). Refusing to move it, as the old ``cur is None -> False`` did,
+    left a garbage value permanently stuck beside a clean account record every later
+    consolidate pass re-read and declined to apply.
+    """
     inc = _VERDICT_STRICTNESS.get((incoming or "").strip().lower())
-    if cur is None or inc is None:
+    if inc is None:
         return False
+    cur = _VERDICT_STRICTNESS.get((current or "").strip().lower())
+    if cur is None:
+        return bool((current or "").strip())
     return inc > cur
 
 

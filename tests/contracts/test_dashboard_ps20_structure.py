@@ -7,6 +7,7 @@ import re
 import pytest
 
 from gtm_core import email_campaign_dashboard as gd
+from gtm_core import prospects_consolidate as pc
 from gtm_core.email_campaign_dashboard.config import OPS_GROUPS, SECTIONS, TABS
 from tests.contracts.dashboard_page import classes, elements, head, panel, section, visible_text
 from tests.contracts.test_dashboard_colour_reasons import SCOPES, _render, _seed_every_site
@@ -116,9 +117,24 @@ def test_the_section_check_catches_an_undeclared_a_loose_and_a_nested_card(tmp_p
     assert "results: a card inside a card" in section_violations(nested)
 
 
+def _break_the_snapshot(tmp_path, profile):
+    """An unreadable sending snapshot — a warning that still prints a sentence (so the strip
+    renders) and that survives scoping, unlike `records-disagree`, which a scoped page
+    recomputes against its own sequences."""
+    (pc._pool_dir(profile, tmp_path) / "sequence-stats.json").write_text(
+        "{broken", encoding="utf-8"
+    )
+
+
 @pytest.mark.parametrize("mode", SCOPES)
 def test_only_the_strip_sits_above_the_tabs(tmp_path, mode):
-    page = _render(tmp_path, _seed_every_site(tmp_path), mode)  # undated figures: the strip shows
+    profile = _seed_every_site(tmp_path)
+    # `figures-old` alone no longer renders a card (it carries no sentence — see
+    # test_dashboard_ps20_trust.py::test_old_figures_alone_is_detected_but_renders_no_strip),
+    # and undated figures are all this fixture warns about. Break the snapshot so the strip
+    # this test is about is actually on the page, in every scope.
+    _break_the_snapshot(tmp_path, profile)
+    page = _render(tmp_path, profile, mode)
     top = head(page)
     # Elements, not substrings: the <style> above the tabs names .filterbar and .techtoggle.
     els = [a for _p, _t, a, _anc in elements(top)]
@@ -250,8 +266,13 @@ def test_visible_text_outside_operator_notes_uses_the_operators_words(tmp_path):
     for page in _pages(tmp_path):
         for tab in NON_OPS:
             body = panel(page, tab)
-            if tab == "overview":  # the terminal's own lede, verbatim (PS15) — Q5, TP §6
+            if tab == "overview":
+                # The terminal's own lede, verbatim (PS15) — Q5, TP §6 — and the founder
+                # action cards, whose whole point is a copy-pasteable CLI command
+                # (2026-09-28: moved out of the "lede" section to the tab's bottom, so it
+                # needs its own exemption now rather than inheriting the lede's).
                 body = body.replace(section(body, "lede"), "")
+                body = body.replace(section(body, "actions-required"), "")
             shown = visible_text(body, skip=frozenset({"tech"}))
             assert [h for h in ov.findings(text=shown) if h[0] == "<text>"] == [], tab
 

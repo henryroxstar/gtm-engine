@@ -8,6 +8,7 @@ for people from `(lane, reason)`. An enrollment gate or router must never import
 - `gtm_core/email_campaign_dashboard/lane_state.py`
 - `gtm_core/email_campaign_dashboard/model.py`
 - `gtm_core/email_campaign_dashboard/views_overview.py`
+- `gtm_core/email_campaign_dashboard/views_lede.py`
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ ALLOWED_IMPORTERS: frozenset[str] = frozenset(
         "gtm_core/email_campaign_dashboard/lane_state.py",
         "gtm_core/email_campaign_dashboard/model.py",
         "gtm_core/email_campaign_dashboard/views_overview.py",
+        "gtm_core/email_campaign_dashboard/views_lede.py",
     }
 )
 

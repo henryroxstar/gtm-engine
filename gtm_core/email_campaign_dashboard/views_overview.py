@@ -17,10 +17,11 @@ from ..prospect_status import (
     UNRECOGNISED_NEXT_STEP,
 )
 from .aggregate import _scope_figures, campaign_contacted
-from .format import _e, _pool_scope_note, _stat, figure_span, scope_label, section
+from .format import _e, _i, _pool_scope_note, _rate_of, _stat, figure_span, scope_label, section
+from .frontier import render_ready_to_send_section
 from .health import figures_date
 from .views_funnel import _attrition_funnel_block
-from .views_lede import _lede_block
+from .views_lede import _actions_required_card, _lede_block
 
 #: The five statuses rendered as tiles here. `needs_address` is the sixth `STATUSES` id but
 #: gets its own card below, textually marked as a different population — see
@@ -54,7 +55,17 @@ def _contacts_block(m: dict) -> str:
     if available:
         # The terminal prints a record it cannot map as its own "Unrecognised" row, counted in
         # its total; the same label and count get a tile here, outside the five that sum.
-        shown = [(s, LABELS[s], NEXT_STEP[s], counts.get(s, 0)) for s in _LANE_STATUSES]
+        shown = [
+            (
+                s,
+                LABELS[s],
+                "Review drafted email and approve or skip"
+                if s == "waiting_on_you"
+                else NEXT_STEP[s],
+                counts.get(s, 0),
+            )
+            for s in _LANE_STATUSES
+        ]
         if unmapped:
             shown.append(("unrecognised", UNRECOGNISED_LABEL, UNRECOGNISED_NEXT_STEP, unmapped))
         tiles = "".join(
@@ -132,6 +143,101 @@ def _plural(n, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
+def _campaign_snapshot(c: dict) -> str:
+    """Scope/audience/hypothesis for one campaign, entirely from ITS OWN manifest —
+    never a slug-keyed branch. Every campaign used to route through one of two
+    hardcoded blocks of tenant prose (a third, generic branch existed for anything
+    else), which put this tenant's account descriptions and hypotheses inside the
+    de-branded engine and meant a new campaign's manifest fields were never read at
+    all. A field the manifest does not declare says so, rather than guessing."""
+    targets = c.get("targets") or {}
+    num_seqs = len(c.get("sequences") or [])
+    prospects = targets.get("prospects") or targets.get("accounts")
+    scope = (
+        f"{prospects:,} targets across {num_seqs} sequence{'s' if num_seqs != 1 else ''}"
+        if prospects
+        else f"{num_seqs} sequence{'s' if num_seqs != 1 else ''}"
+    )
+    # `audience` is an optional manifest field (`[targets] audience = "..."`) the operator
+    # writes for the humans reading this card — this engine does not infer a target
+    # audience description from targeting data.
+    accounts = targets.get("audience") or c.get("product") or "not declared in the campaign file"
+    exp = c.get("experiment") or {}
+    tests = (
+        exp.get("what_it_tells_us")
+        or exp.get("why_we_run_it")
+        or "not declared in the campaign file"
+    )
+    if len(tests) > 160:
+        tests = tests[:157] + "..."
+
+    return (
+        '<div class="campaign-snapshot">'
+        f'<div class="campaign-snapshot-line"><strong>Scope:</strong> <span>{_e(scope)}</span></div>'
+        f'<div class="campaign-snapshot-line"><strong>Target Accounts:</strong> <span>{_e(accounts)}</span></div>'
+        f'<div class="campaign-snapshot-line"><strong>What It Tests:</strong> <span>{_e(tests)}</span></div>'
+        "</div>"
+    )
+
+
+def _campaign_outcome_tiles(fig: dict, c: dict) -> str:
+    """This campaign's own three headline numbers — contacted, reply rate, replies — read
+    off ITS OWN ``actuals``/``targets`` via ``campaign_contacted``, never pooled across the
+    scope's other campaigns. Mirrors ``views_results._outcome_tiles``, one campaign at a
+    time; a refused scope figure (an unreadable snapshot) renders every value as an em
+    dash, never a zero. Labelled distinctly from that scope-wide block (``_tile_labelled``
+    in the test suite looks up "people contacted"/"reply rate"/"replies so far" by exact
+    string and expects exactly one match, on the Results tab)."""
+    slug = str(c.get("slug", "?"))
+    own = campaign_contacted(fig, c)
+    sent = None if own is None else own["current"]
+    replied = None if own is None else own["replied"]
+    targets = c.get("targets") or {}
+    planned = _i(targets["emails"]) if targets.get("emails") else None
+    target_rate = _rate_of(targets) or None
+    rate_txt = f"{replied / sent:.1%}" if sent else "—"
+    target_txt = "—" if target_rate is None else f"{target_rate:.1%}"
+    idle = "sending figures unavailable" if sent is None else "" if sent else "nothing sent yet"
+    rate_sub = (
+        (idle or "no target declared")
+        if target_rate is None
+        else f"target {target_txt}" + (f" · {idle}" if idle else "")
+    )
+    goal_sub = (
+        "no email goal declared"
+        if planned is None
+        else f"goal: {figure_span(f'campaign-goal-{slug}', planned)} emails"
+    )
+    return (
+        '<div class="stats">'
+        + _stat(
+            sent,
+            "contacted",
+            sub_html=goal_sub,
+            raw={"contacted": sent, "planned": planned},
+            src={
+                "contacted": f"campaign:{slug}.actuals.sent",
+                "planned": f"campaign:{slug}.targets.emails",
+            },
+            figure=f"campaign-tile-contacted-{slug}",
+        )
+        + _stat(
+            rate_txt,
+            "reply rate so far",
+            rate_sub,
+            raw={"replied": replied, "sent": sent},
+            src=f"campaign-pooled:{slug}|actuals.replied/actuals.sent",
+        )
+        + _stat(
+            replied,
+            "replies",
+            raw={"value": replied},
+            src=f"campaign:{slug}.actuals.replied",
+        )
+        + "</div>"
+    )
+
+
 def _campaign_lines(m: dict) -> str:
     """One line per campaign in scope: its go-live word, its current people contacted and
     their replies, read off ``_scope_figures`` via ``campaign_contacted`` — never re-summed
@@ -152,23 +258,34 @@ def _campaign_lines(m: dict) -> str:
         own = campaign_contacted(fig, c)
         contacted = None if own is None else own["current"]
         replied = None if own is None else own["replied"]
+        snapshot_html = _campaign_snapshot(c)
+        tiles_html = _campaign_outcome_tiles(fig, c)
         items.append(
-            f"<li><strong>{_e(c.get('title') or slug)}</strong> "
+            '<li class="campaign-card">'
+            '<div class="campaign-card-header">'
+            '<div class="campaign-card-title">'
+            f"<strong>{_e(c.get('title') or slug)}</strong> "
             f'<span class="pill" data-figure="{_e(f"campaign-word-{slug}")}">'
             f"{_e(c.get('state', ''))}</span>"
+            "</div>"
+            '<div class="campaign-card-metrics">'
             f" — {figure_span(f'campaign-contacted-{slug}', contacted)} "
             f"{_plural(contacted, 'person', 'people')} contacted"
             f" · {figure_span(f'campaign-replied-{slug}', replied)} "
             f"{_plural(replied, 'reply', 'replies')}"
-            f' · <span data-figure="{_e(f"campaign-date-{slug}")}">{_e(as_of)}</span></li>'
+            f' · <span data-figure="{_e(f"campaign-date-{slug}")}">{_e(as_of)}</span>'
+            "</div>"
+            "</div>"
+            f"{snapshot_html}{tiles_html}</li>"
         )
     split = fig["contacted"][0]
     if split is not None and split["not_linked"] > 0:
         n = split["not_linked"]
         items.append(
-            "<li><strong>Not in any campaign</strong> — "
+            '<li class="campaign-card"><div class="campaign-card-header"><div class="campaign-card-title">'
+            "<strong>Not in any campaign</strong> — "
             f"{figure_span('campaign-contacted-unlinked', n)} {_plural(n, 'person', 'people')} "
-            "contacted on sequences no campaign lists</li>"
+            "contacted on sequences no campaign lists</div></div></li>"
         )
     if not items:
         return ""
@@ -184,10 +301,12 @@ def _overview_view(m: dict) -> str:
         (
             section("lede", _lede_block(m)),
             section("campaign-lines", _campaign_lines(m)),
+            render_ready_to_send_section(m),
             section(
                 "accounts-funnel",
                 _pool_scope_note(m, "The account ledger") + _attrition_funnel_block(m),
             ),
             section("contacts-by-status", _contacts_block(m)),
+            section("actions-required", _actions_required_card(m)),
         )
     )

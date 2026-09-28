@@ -29,5 +29,5 @@ def test_go_live_table(readable, statuses, contacted, on_record, expected):
 def test_every_word_has_dashboard_wording():
     for word in ("none", "staged", "paused", "active", "started", "unknown"):
         assert GO_LIVE_WORDS[word]
-    assert GO_LIVE_WORDS["started"] == "started, people have been contacted"
-    assert GO_LIVE_WORDS["unknown"] == "unknown, the sending tool's figures couldn't be read"
+    assert GO_LIVE_WORDS["started"] == "🟢 Live — people have been contacted"
+    assert GO_LIVE_WORDS["unknown"] == "⚠️ Status unknown — check sending tool"

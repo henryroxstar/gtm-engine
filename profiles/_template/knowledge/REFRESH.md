@@ -19,6 +19,7 @@ nobody can reconstruct later, and it is what makes a source-driven refresh possi
 | `product.md` | *(name the brief/deck)* | product claims, solution design |
 | `icp-personas.md` | *(name the brief/deck)* | targeting, scoring, hook selection |
 | `case-studies.md` | *(delivered engagements)* | proof, outreach |
+| `MESSAGING-INTAKE.md` | *(colleague messaging intake)* | `claims.toml`, `proof.toml`, `angles.toml`, `role-vocabulary.toml` |
 
 ## Two axes: the clock and the source
 

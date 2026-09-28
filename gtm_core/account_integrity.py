@@ -95,6 +95,7 @@ from .prospects_consolidate import (
     dossier_folder,
 )
 from .signal_record import audit_records
+from .signal_sources import sources_dir_for
 from .suppression import load_index as load_suppression_index
 from .verdict_refusals import (
     flag_refusal,
@@ -754,7 +755,12 @@ def audit_rows(
         fieldnames if fieldnames is not None else (list(rows[0]) if rows else []),
         as_of=as_of,
         lane=lane,
-        sources_dir=content_root / "sources" if content_root else None,
+        # `content_root / "sources"` (no profile segment) once sent this to the SAME
+        # tenant-less folder regardless of which profile's rows were being audited — the
+        # hook writes under `<content_root>/<profile>/sources`, so a caller that passed an
+        # explicit `content_root` (every in-process caller: preflight_report,
+        # prospect_readiness) never saw a single real capture.
+        sources_dir=sources_dir_for(profile, content_root) if content_root else None,
         profile=profile,
     )
     if rec.missing_columns:

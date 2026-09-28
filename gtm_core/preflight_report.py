@@ -79,6 +79,7 @@ from .paths import resolve_content_root, resolve_profiles_root
 from .prospect_paths import ready_to_load, suppression_ledger
 from .prospect_readiness import readiness_or_error, report_path
 from .refusal_copy import Refusal
+from .signal_sources import sources_dir_for
 
 __all__ = [
     "OK",
@@ -238,14 +239,38 @@ def _lane_detail(groups: list[tuple[str, list[dict]]]) -> str:
     return ", ".join(f"{lane or 'unrouted'}={len(rows)}" for lane, rows in groups)
 
 
+#: The two lanes the router uses to structurally set a row aside rather than route it to a
+#: send lane (`gtm_core.lanes.model.LANES`). Neither is a key in `LANE_VERDICTS`, so before
+#: this module accounted for them, auditing them here for verdict admission reported EVERY
+#: verdict they carried as `verdict-inadmissible` — not because the row is wrong, but
+#: because the lookup's default admits nothing for a lane that was never a `LANE_VERDICTS`
+#: member. `enrollment_gate._refuse_parked_lanes` and `prospect_readiness._PARKED` already
+#: agree these two rows never enrol from THIS list; this module's checks now agree too.
+#:
+#: `excluded` is a settled decision (blocklist, opt-out, competitor, already-enrolled …), so
+#: its findings are dropped the same way a suppressed row is skipped by default elsewhere in
+#: this gate — auditing content nothing will ever send is moot. `hold` is a row waiting to
+#: be re-routed, so its findings stay visible, but as advisory, non-blocking warnings
+#: (`pending`) rather than an ERROR that turns the daily report red for a row this list was
+#: never going to send anyway. On a live tenant pool (2026-09-27) these two lanes carried
+#: 310 of 331 `verdict-inadmissible` findings plus most of the `signal-*` record errors.
+_LANE_SKIPPED = "excluded"
+_LANE_PENDING = "hold"
+
+
 def _run_account_integrity(i: _Inputs) -> CheckResult:
     if i.rows is None:
         return _no_list("account_integrity", i)
     groups = _lane_groups(i.rows)
     errors: list[str] = []
     warnings: list[str] = []
-    seen_errors: set[str] = set()
-    seen_warnings: set[str] = set()
+    #: One shared set for both tiers, not `seen_errors`/`seen_warnings` apart: `hold`'s
+    #: demotion below can move the SAME account-level finding string that a real lane
+    #: already reported as an ERROR into the WARN tier, and a per-tier `seen` would let
+    #: that string through twice — once per tier — for one account. `_across_groups`
+    #: dedupes across LANES; this makes it also dedupe across the tier a lane's findings
+    #: land in.
+    seen: set[str] = set()
     rows = accounts = 0
     for lane, group in groups:
         a = account_integrity.audit_rows(
@@ -270,13 +295,19 @@ def _run_account_integrity(i: _Inputs) -> CheckResult:
         # denominator is wrong in the direction that reads as precise. Within one group the
         # multiset is preserved: a CSV genuinely carrying the same person twice is a
         # finding, not a duplicate — the same rule `_minus` follows.
-        errors += _across_groups(_minus(list(a.errors), i.record_seen), seen_errors)
+        lane_errors = list(a.errors)
+        lane_warnings = list(a.warnings)
         # A header predating the research record is one file-level fact, not N row facts —
         # `signal_record` reports it that way and this must not re-expand it.
-        errors += _across_groups(
-            [f"record-columns-missing: {c}" for c in a.record_missing_columns], seen_errors
-        )
-        warnings += _across_groups(_minus(list(a.warnings), i.record_seen), seen_warnings)
+        lane_record_missing = [f"record-columns-missing: {c}" for c in a.record_missing_columns]
+        if lane == _LANE_SKIPPED:
+            lane_errors = lane_warnings = lane_record_missing = []
+        elif lane == _LANE_PENDING:
+            lane_warnings = lane_warnings + lane_errors
+            lane_errors = []
+        errors += _across_groups(_minus(lane_errors, i.record_seen), seen)
+        errors += _across_groups(lane_record_missing, seen)
+        warnings += _across_groups(_minus(lane_warnings, i.record_seen), seen)
         rows += a.rows
     # Counted across the WHOLE file, never summed over the lane groups. An account's rows
     # can sit in two lanes at once — 25 of 578 did on the first live run, mostly
@@ -425,7 +456,10 @@ def _run_signal_record(i: _Inputs) -> CheckResult:
             i.fieldnames,
             as_of=i.as_of,
             lane=lane,
-            sources_dir=i.content_root / "sources" if i.content_root else None,
+            # `content_root / "sources"` (no profile segment) is not where the hook writes
+            # captures (`content_root/<profile>/sources`) — see the matching note in
+            # `account_integrity.audit_rows`.
+            sources_dir=sources_dir_for(i.profile, i.content_root) if i.content_root else None,
             profile=i.profile,
         )
         errs, warns = list(a.errors), list(a.warnings)
@@ -434,6 +468,15 @@ def _run_signal_record(i: _Inputs) -> CheckResult:
             # by the same function so the daily unit and the gate cannot disagree.
             errs, demoted = account_integrity.demote_generic_advisory(errs)
             warns += demoted
+        elif lane == _LANE_PENDING:
+            # `hold` may still be re-routed — see `_LANE_PENDING` above — so its record
+            # findings stay visible, just never blocking a report over a row this list
+            # will not send regardless.
+            warns += errs
+            errs = []
+        elif lane == _LANE_SKIPPED:
+            # `excluded` never enrols from this list — see `_LANE_SKIPPED` above.
+            errs, warns = [], []
         errors += errs
         warnings += warns
         checked += a.checked

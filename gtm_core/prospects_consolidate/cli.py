@@ -61,6 +61,11 @@ def _cli(argv: list[str] | None = None) -> int:
         action="store_true",
         help="unattended mode: bypass warning prompts and default to safe actions",
     )
+    c.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="recompute every output and report the diff against what's on disk; write nothing",
+    )
 
     s = sub.add_parser("status", help="read-only pool status, no re-sweep")
     s.add_argument("--profile", required=True)
@@ -141,6 +146,7 @@ def _cli(argv: list[str] | None = None) -> int:
             allow_downgrade=args.allow_downgrade,
             rebuild_master=args.rebuild_master,
             unattended=args.unattended,
+            dry_run=args.dry_run,
         )
     elif args.cmd == "verify-batch":
         result = next_verification_batch(

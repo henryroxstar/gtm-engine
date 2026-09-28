@@ -18,7 +18,7 @@ from .config import (
 )
 from .filters import script_block
 from .format import _e, _tiles_reset
-from .health import disagree_names, figures_date
+from .health import disagree_names
 from .model import build_model, scope_to_campaign
 from .scope import Scope, resolve
 from .styles import render_stylesheet
@@ -48,13 +48,6 @@ def _warnings_strip(m: dict) -> str:
                 "The sending tool's figures couldn't be read, so sending numbers show as "
                 "unknown, not zero."
             )
-        elif reason == "figures-old":
-            fetched_date = figures_date((m["status"].get("snapshot") or {}).get("fetched"))
-            sentences.append(
-                f"Sending figures are from {fetched_date}; replies since then aren't counted."
-                if fetched_date
-                else "Sending figures carry no date, so treat them as old."
-            )
         elif reason == "records-disagree" and not rec["ok"]:
             who = _e(", ".join(names) or "sequences no campaign lists")
             sentences.append(
@@ -69,6 +62,8 @@ def _warnings_strip(m: dict) -> str:
                 "The sending figures and the campaign lists don't add up — a sequence may "
                 "be counted twice." + (f" It affects {_e(', '.join(names))}." if names else "")
             )
+    if not sentences:
+        return ""
     body = "".join(f"<p>{s}</p>" for s in sentences)
     return f'<div class="card warn" data-warn="{_e(" ".join(warnings))}">{body}</div>'
 
@@ -174,6 +169,255 @@ function fallbackCopy(text, cb) {{
   }}
   document.body.removeChild(ta);
 }}
+(function initRosterControls() {{
+  var table = document.getElementById('roster-table');
+  if (!table) return;
+
+  var searchInput = document.getElementById('roster-search');
+  var clearBtn = document.getElementById('roster-search-clear');
+  var pillContainer = document.getElementById('roster-group-filters');
+  var activeGroup = 'all';
+
+  function filterRoster() {{
+    var query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    var rows = table.querySelectorAll('tbody tr[data-row]');
+    var groupCounts = {{}};
+    var totalVisible = 0;
+
+    rows.forEach(function(row) {{
+      var rowGroup = row.getAttribute('data-roster-group') || '';
+      var matchesGroup = (activeGroup === 'all' || rowGroup === activeGroup);
+      var matchesQuery = true;
+      if (query) {{
+        var text = (row.textContent || '').toLowerCase();
+        matchesQuery = text.indexOf(query) !== -1;
+      }}
+      var isVisible = matchesGroup && matchesQuery;
+      row.style.display = isVisible ? '' : 'none';
+      if (isVisible) {{
+        totalVisible++;
+        groupCounts[rowGroup] = (groupCounts[rowGroup] || 0) + 1;
+      }}
+    }});
+
+    table.querySelectorAll('tbody tr.grp').forEach(function(grp) {{
+      var gid = grp.getAttribute('data-group');
+      if (activeGroup !== 'all' && gid !== activeGroup) {{
+        grp.style.display = 'none';
+      }} else {{
+        grp.style.display = (groupCounts[gid] > 0) ? '' : 'none';
+      }}
+    }});
+
+    if (clearBtn) {{
+      clearBtn.hidden = !query;
+    }}
+  }}
+
+  if (searchInput) {{
+    searchInput.addEventListener('input', filterRoster);
+  }}
+  if (clearBtn) {{
+    clearBtn.addEventListener('click', function() {{
+      searchInput.value = '';
+      filterRoster();
+      searchInput.focus();
+    }});
+  }}
+
+  if (pillContainer) {{
+    pillContainer.addEventListener('click', function(e) {{
+      var btn = e.target.closest('.roster-pill');
+      if (!btn) return;
+      pillContainer.querySelectorAll('.roster-pill').forEach(function(p) {{
+        p.classList.remove('active');
+      }});
+      btn.classList.add('active');
+      activeGroup = btn.getAttribute('data-roster-group') || 'all';
+      filterRoster();
+    }});
+  }}
+
+  var thead = table.querySelector('thead');
+  var currentSortCol = -1;
+  var currentSortAsc = true;
+  var originalRows = null;
+
+  if (thead) {{
+    var ths = thead.querySelectorAll('th');
+    ths.forEach(function(th, colIdx) {{
+      th.classList.add('sortable');
+      var indicator = document.createElement('span');
+      indicator.className = 'sort-indicator dim';
+      indicator.textContent = ' ↕';
+      th.appendChild(indicator);
+
+      th.addEventListener('click', function() {{
+        var tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        if (!originalRows) {{
+          originalRows = Array.prototype.slice.call(tbody.children);
+        }}
+
+        if (currentSortCol === colIdx) {{
+          if (currentSortAsc) {{
+            currentSortAsc = false;
+          }} else {{
+            currentSortCol = -1;
+            currentSortAsc = true;
+            ths.forEach(function(h) {{
+              var ind = h.querySelector('.sort-indicator');
+              if (ind) {{ ind.textContent = ' ↕'; ind.className = 'sort-indicator dim'; }}
+            }});
+            originalRows.forEach(function(node) {{ tbody.appendChild(node); }});
+            filterRoster();
+            return;
+          }}
+        }} else {{
+          currentSortCol = colIdx;
+          currentSortAsc = true;
+        }}
+
+        ths.forEach(function(h, idx) {{
+          var ind = h.querySelector('.sort-indicator');
+          if (!ind) return;
+          if (idx === currentSortCol) {{
+            ind.textContent = currentSortAsc ? ' ▲' : ' ▼';
+            ind.className = 'sort-indicator';
+          }} else {{
+            ind.textContent = ' ↕';
+            ind.className = 'sort-indicator dim';
+          }}
+        }});
+
+        table.querySelectorAll('tbody tr.grp').forEach(function(grp) {{
+          grp.style.display = 'none';
+        }});
+
+        var dataRows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row]'));
+        dataRows.sort(function(a, b) {{
+          var aCells = a.querySelectorAll('td');
+          var bCells = b.querySelectorAll('td');
+          var aText = (aCells[colIdx] ? aCells[colIdx].textContent : '').trim().toLowerCase();
+          var bText = (bCells[colIdx] ? bCells[colIdx].textContent : '').trim().toLowerCase();
+
+          if (aText === bText) return 0;
+          var res = aText.localeCompare(bText, undefined, {{ numeric: true, sensitivity: 'base' }});
+          return currentSortAsc ? res : -res;
+        }});
+
+        dataRows.forEach(function(r) {{ tbody.appendChild(r); }});
+        filterRoster();
+      }});
+    }});
+  }}
+}})();
+(function initEmailControls() {{
+  var table = document.getElementById('emails-table');
+  if (!table) return;
+
+  var searchInput = document.getElementById('email-search');
+  var clearBtn = document.getElementById('email-search-clear');
+  var pillContainer = document.getElementById('email-filters');
+  var activeFilter = 'all';
+
+  function filterEmails() {{
+    var query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    var rows = table.querySelectorAll('tbody tr[data-sequence]');
+
+    rows.forEach(function(row) {{
+      var moreRow = row.nextElementSibling;
+      var text = (row.textContent || '').toLowerCase();
+      var personaText = (row.children && row.children[0] ? row.children[0].textContent : '').toLowerCase();
+
+      var matchesFilter = true;
+      if (activeFilter === 'all') {{
+        matchesFilter = true;
+      }} else if (activeFilter.indexOf('persona:') === 0) {{
+        var targetPersona = activeFilter.substring(8).toLowerCase();
+        matchesFilter = personaText.indexOf(targetPersona) !== -1;
+      }} else if (activeFilter === 'status:ready') {{
+        // data-check, set by views_emails._row from the SAME _is_blocked rule the
+        // "Needs Review (N)" pill count uses — not a text scan. "blocking" is also a
+        // substring of the ready cell's own "no blocking problems", which used to make
+        // this match every row, checked and clean alike.
+        matchesFilter = row.getAttribute('data-check') === 'ready';
+      }} else if (activeFilter === 'status:blocked') {{
+        matchesFilter = row.getAttribute('data-check') === 'blocked';
+      }}
+
+      var matchesQuery = true;
+      if (query) {{
+        matchesQuery = text.indexOf(query) !== -1;
+      }}
+
+      var isVisible = matchesFilter && matchesQuery;
+      row.style.display = isVisible ? '' : 'none';
+      if (moreRow && moreRow.classList.contains('more')) {{
+        moreRow.style.display = isVisible ? '' : 'none';
+      }}
+    }});
+
+    if (clearBtn) {{
+      clearBtn.hidden = !query;
+    }}
+  }}
+
+  if (searchInput) {{
+    searchInput.addEventListener('input', filterEmails);
+  }}
+  if (clearBtn) {{
+    clearBtn.addEventListener('click', function() {{
+      searchInput.value = '';
+      filterEmails();
+      searchInput.focus();
+    }});
+  }}
+
+  if (pillContainer) {{
+    pillContainer.addEventListener('click', function(e) {{
+      var btn = e.target.closest('.email-pill');
+      if (!btn) return;
+      pillContainer.querySelectorAll('.email-pill').forEach(function(p) {{
+        p.classList.remove('active');
+      }});
+      btn.classList.add('active');
+      activeFilter = btn.getAttribute('data-email-filter') || 'all';
+      filterEmails();
+    }});
+  }}
+}})();
+(function initInsightsControls() {{
+  var pillContainer = document.getElementById('insight-lens-filters');
+  if (!pillContainer) return;
+
+  var activeLens = 'all';
+
+  function filterLens() {{
+    var insightCards = document.querySelectorAll('#p-insights .card[data-lens]');
+    insightCards.forEach(function(card) {{
+      var lens = card.getAttribute('data-lens') || '';
+      var show = (activeLens === 'all' || lens === activeLens);
+      card.style.display = show ? '' : 'none';
+      var parentSection = card.closest('[data-section]');
+      if (parentSection && parentSection.getAttribute('data-section') !== 'learnings') {{
+        parentSection.style.display = show ? '' : 'none';
+      }}
+    }});
+  }}
+
+  pillContainer.addEventListener('click', function(e) {{
+    var btn = e.target.closest('.lens-pill');
+    if (!btn) return;
+    pillContainer.querySelectorAll('.lens-pill').forEach(function(p) {{
+      p.classList.remove('active');
+    }});
+    btn.classList.add('active');
+    activeLens = btn.getAttribute('data-lens') || 'all';
+    filterLens();
+  }});
+}})();
 </script>
 {script_block(m)}
 </body></html>

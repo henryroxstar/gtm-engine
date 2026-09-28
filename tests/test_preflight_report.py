@@ -579,3 +579,89 @@ class TestTheLaneRuleReachesTheDailyUnit:
         by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
         record_tier = [w for w in by["account_integrity"].warnings if w.startswith("signal-")]
         assert record_tier == [], record_tier
+
+
+class TestParkedLanesDoNotBlockTheDailyUnit:
+    """A row on `hold` or `excluded` never enrols from THIS list — `enrollment_gate`
+    refuses to load it and `prospect_readiness` sets it aside — but until this fix, neither
+    lane is a `LANE_VERDICTS` key, so auditing them here reported EVERY verdict they carried
+    as `verdict-inadmissible`, plus the row's own broken-record findings, as blocking
+    ERRORS. On a live tenant pool (2026-09-27) this was 310 of 331 `verdict-inadmissible`
+    findings, over rows the daily report will never help send.
+
+    One fictional account (``acme.example`` — reserved, never real, §R9) with three
+    contacts split across three lanes: `generic` is clean and must pass untouched (the
+    positive control); `excluded` and `hold` both carry a verdict (`send`) neither lane
+    admits and a blanked-out record (`signal-source-missing` etc.) — the exact shape that
+    turned the daily unit red. `excluded` must vanish entirely; `hold` must survive as
+    advisory `pending` warnings, never as an error.
+    """
+
+    _BROKEN = {
+        "verdict": "send",
+        "verdict_reason": "in market, fresh signal",
+        "signal_source_url": "",
+        "signal_observed": "",
+        "signal_evidence": "",
+    }
+
+    def test_excluded_rows_are_dropped_from_both_checks(self, tmp_path):
+        rows = [
+            _row(lane="generic"),
+            _row(lane="excluded", email="dara@acme.example", first="Dara", **self._BROKEN),
+        ]
+        _staged_with_lanes(tmp_path, "acme", rows)
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        for name in ("account_integrity", "signal_record"):
+            assert by[name].status == pr.OK, by[name].errors
+            assert not any("dara@acme.example" in e for e in by[name].errors)
+            assert not any("dara@acme.example" in w for w in by[name].warnings)
+        assert "excluded=1" in by["account_integrity"].detail
+
+    def test_hold_rows_demote_to_pending_warnings_not_errors(self, tmp_path):
+        rows = [
+            _row(lane="generic"),
+            _row(lane="hold", email="mateo@acme.example", first="Mateo", **self._BROKEN),
+        ]
+        _staged_with_lanes(tmp_path, "acme", rows)
+        _dossier(tmp_path, "acme")
+        by = _by_name(pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path))
+        for name in ("account_integrity", "signal_record"):
+            assert by[name].status == pr.OK, by[name].errors
+            assert not any("mateo@acme.example" in e for e in by[name].errors), by[name].errors
+        ai_pending = [w for w in by["account_integrity"].warnings if "mateo@acme.example" in w]
+        assert any(w.startswith("verdict-inadmissible:") for w in ai_pending), ai_pending
+        sr_pending = [w for w in by["signal_record"].warnings if "mateo@acme.example" in w]
+        assert any(w.startswith("signal-source-missing:") for w in sr_pending), sr_pending
+        assert any(w.startswith("signal-observed-missing:") for w in sr_pending), sr_pending
+        assert any(w.startswith("signal-evidence-missing:") for w in sr_pending), sr_pending
+
+    def test_the_whole_report_passes_with_only_parked_lanes_carrying_defects(self, tmp_path):
+        """The end-to-end shape of the bug: a list that is safe to load today (its only
+        enrollable row is clean) must exit 0, whatever `hold`/`excluded` carry."""
+        rows = [
+            _row(lane="generic"),
+            _row(lane="excluded", email="dara@acme.example", first="Dara", **self._BROKEN),
+            _row(lane="hold", email="mateo@acme.example", first="Mateo", **self._BROKEN),
+        ]
+        _staged_with_lanes(tmp_path, "acme", rows)
+        _dossier(tmp_path, "acme")
+        rep = pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path)
+        assert not rep.errors, rep.errors
+        assert rep.exit_code == 0, rep.errors
+
+    def test_a_clean_enrollable_row_still_fails_beside_a_parked_one(self, tmp_path):
+        """Positive control: parking a defect does not launder an UNRELATED enrollable
+        row's own defect. The `signal` row here has the broken record (a lane that, unlike
+        `generic`, does not demote a missing source/observed/evidence to advisory); the
+        `excluded` row beside it is clean, so it cannot be the one failing the run."""
+        rows = [
+            _row(lane="signal", **self._BROKEN),
+            _row(lane="excluded", email="dara@acme.example", first="Dara"),
+        ]
+        _staged_with_lanes(tmp_path, "acme", rows)
+        _dossier(tmp_path, "acme")
+        rep = pr.run_preflight("acme", content_root=tmp_path, profiles_root=tmp_path)
+        assert rep.failed
+        assert any(e.startswith("signal-source-missing:") for e in rep.errors), rep.errors

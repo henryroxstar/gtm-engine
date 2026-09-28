@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 
+from ..account_folder import _squash, _strip_suffix
 from ..lane_verdicts import LANE_VERDICTS
 from ..slugify import slug
 from .aggregate import _scope_figures
@@ -116,6 +117,30 @@ def _provider_enrolled(m: dict) -> dict[str, int]:
     }
 
 
+def _pack_match(company: str, packs: set[str]) -> bool:
+    """Does ``company`` own one of the folders in ``packs`` (each a real ``path.parent.name``
+    from ``sources.packs_model``)?
+
+    CLAUDE.md: "the account folder is the resolver's ... slug(company) only when it has
+    none" — an existing folder need not equal a fresh ``slug(company)``. A bare
+    ``slug(company) in packs`` check missed a pack under a folder that differs only by
+    punctuation (``quorum-io`` vs ``quorumio``) or a trailing legal suffix (``brindlecove``
+    vs ``brindlecove-limited``) — exactly the two cheap, disk-free rungs
+    ``gtm_core.account_folder`` itself resolves through before it ever has to read the
+    ledger. Reuses its own ``_squash``/``_strip_suffix`` normalisers rather than a second
+    copy of that matching rule. The ledger rung (a name unrelated by shape, tied to the
+    same account only through ``latest.json``) is NOT checked here — resolving every
+    company's folder that way means re-reading the account ledger once per account on
+    every page render, which this view cannot afford; a pack filed only under a
+    ledger-resolved alias still misses and reads as "held" rather than "pack".
+    """
+    s = slug(company)
+    if s in packs:
+        return True
+    squashed, stemmed = _squash(s), _strip_suffix(s)
+    return any(_squash(p) == squashed or _strip_suffix(p) == stemmed for p in packs)
+
+
 def _group_of(row: dict, packs: set[str], candidates: dict[str, dict]) -> str:
     """Which group this account belongs to. First match wins, and the order is the claim.
 
@@ -130,7 +155,7 @@ def _group_of(row: dict, packs: set[str], candidates: dict[str, dict]) -> str:
     cand = candidates.get(row["email"].lower())
     if cand and cand["admissible"] and (row.get("verdict") or "") in _SENDABLE:
         return "staged"
-    if slug(row["company"]) in packs:
+    if _pack_match(row["company"], packs):
         return "pack"
     if row["verdict"] and row["verdict"] not in _SENDABLE:
         return "excluded"
@@ -227,7 +252,7 @@ def _row_html(m: dict, row: dict, group: str, candidates: dict[str, dict]) -> st
     verdict = _e(row["verdict"]) if row.get("verdict") else _MUTED_DASH
     return (
         # `data-row` is the CANONICAL roster index: one selection hides the account everywhere.
-        f'<tr data-row="{row["i"]}">'
+        f'<tr data-row="{row["i"]}" data-roster-group="{_e(group)}">'
         f"<td><strong>{_e(row['company'])}</strong></td>"
         f"<td>{contact}</td>"
         f"<td>{title}</td>"
@@ -347,7 +372,7 @@ def _account_tiles(m: dict) -> str:
         )
         + _stat(
             r["named_seat"],
-            "resolve to a named seat",
+            "resolve to a named persona",
             src="rows:co_named",
             reach=True,
             sub_html=sub_counts(rows, (("co_role_inbox", " are role inboxes"),)),
@@ -431,13 +456,36 @@ def _account_table(m: dict) -> str:
         if placed != accounts
         else ""
     )
+    group_pills = [
+        f'<button type="button" class="roster-pill active" data-roster-group="all">All ({placed})</button>'
+    ]
+    for g, h, _ in GROUPS:
+        if buckets[g]:
+            short_lbl = _e(h.split(" — ")[0])
+            group_pills.append(
+                f'<button type="button" class="roster-pill" data-roster-group="{_e(g)}">{short_lbl} ({len(buckets[g])})</button>'
+            )
+    pills_html = "".join(group_pills)
+
     return f"""
     <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
-      <h2>Every account, and what is left to do with it</h2>
-      <p class="note">All <span data-group-count="*">{placed}</span> accounts in
+      <h2>Campaign Roster (Assigned Accounts)</h2>
+      <p class="note">The <span data-group-count="*">{placed}</span> accounts from the overall pool that have been assigned to campaigns in
       {_e(scope_label(m))}, prioritized by pipeline readiness.
       {counts}. {_e(shared)} {_e(roster_partial(m))}</p>
-      <table>
+
+      <div class="roster-toolbar">
+        <div class="roster-search-bar">
+          <span class="roster-search-icon">🔍</span>
+          <input type="text" id="roster-search" class="roster-search-input" placeholder="Search accounts, contacts, titles, emails, statuses..." autocomplete="off">
+          <button type="button" id="roster-search-clear" class="roster-search-clear" hidden title="Clear search">&times;</button>
+        </div>
+        <div class="roster-pills" id="roster-group-filters">
+          {pills_html}
+        </div>
+      </div>
+
+      <table id="roster-table">
         <thead><tr>
           <th>Account</th><th>Contact</th><th>Title</th><th>Email</th><th>Status</th>
           <th>What is left to do</th><th class="tech">Tier</th>

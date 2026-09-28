@@ -1934,6 +1934,36 @@ def test_account_record_reaches_the_row_the_gate_reads(tmp_path):
         assert row[col] == expected, col
 
 
+def test_account_record_with_a_garbage_verdict_does_not_propagate_to_the_row(tmp_path):
+    """Round-2 red-team finding: the account-record fill (this test's own sibling above) is a
+    SECOND propagation path into ready-to-load.csv, entirely separate from the raw-CSV
+    sanitizer — a garbage value already sitting in latest.json (written before Phase 2
+    shipped, or by an unknown writer) must not flow through unchecked."""
+    _one_row(tmp_path)
+    bad_record = dict(_FULL_RECORD)
+    bad_record["verdict"] = "prospect"  # garbage: legal for category_relation, not verdict
+    _latest_with_record(tmp_path, **bad_record)
+
+    result = pc.consolidate("acme", content_root=tmp_path)
+
+    (row,) = _ready_rows(tmp_path)
+    assert row["verdict"] == ""
+    assert result["vocab_dropped"] >= 1
+
+
+def test_account_record_with_a_garbage_signal_agent_kind_does_not_propagate(tmp_path):
+    _one_row(tmp_path)
+    bad_record = dict(_FULL_RECORD)
+    bad_record["signal_agent_kind"] = "not-a-real-agent-kind"
+    _latest_with_record(tmp_path, **bad_record)
+
+    result = pc.consolidate("acme", content_root=tmp_path)
+
+    (row,) = _ready_rows(tmp_path)
+    assert row.get("signal_agent_kind", "") == ""
+    assert result["vocab_dropped"] >= 1
+
+
 def test_row_level_record_wins_over_the_account(tmp_path):
     """A record written into the export is more specific; the account must not clobber it."""
     _one_row(
@@ -1950,6 +1980,105 @@ def test_row_level_record_wins_over_the_account(tmp_path):
     assert row["signal_subject"] == "Northwind Holdings (parent)"
     # ...while the fields the row did NOT carry are still filled from the account.
     assert row["signal_source_url"] == _FULL_RECORD["signal_source_url"]
+
+
+def test_a_garbage_row_verdict_is_replaced_by_the_account_record(tmp_path):
+    """A non-verdict value on the row (a source-export bug) must not stick forever.
+
+    2026-09-27: a HubSpot export wrote the category-relation value ``"prospect"`` into the
+    ``GTM_Verdict`` column for 27 rows. The old ``cur is None -> False`` rule read that as
+    an un-rankable value it could not confirm was a demotion, so it was never fixed and
+    every later consolidate re-applied the same refusal against a clean account record.
+    """
+    _one_row(
+        tmp_path,
+        extra_cols=["GTM_Verdict", "GTM_Verdict_Reason"],
+        extra_vals=["prospect", "send"],
+    )
+    _latest_with_record(tmp_path, **_FULL_RECORD)
+
+    pc.consolidate("acme", content_root=tmp_path)
+
+    (row,) = _ready_rows(tmp_path)
+    assert row["verdict"] == "send"
+    assert row["verdict_reason"] == ""
+
+
+def test_a_garbage_row_verdict_is_blanked_with_no_account_record_to_correct_it(tmp_path):
+    """A verification-audit finding (2026-09-28): the 2026-09-27 incident's REAL entry point
+    is `_row_to_record` copying a raw CSV column straight through with zero validation — the
+    previous test only proves a *researched* account's record can later overwrite the garbage.
+    An account with NO research record yet (the common case for a brand-new import) must not
+    carry the garbage value straight into ready-to-load.csv; it must be blanked, not refused
+    wholesale — a bulk CSV sweep must not abort over one bad cell."""
+    _one_row(
+        tmp_path,
+        extra_cols=["GTM_Verdict", "GTM_Signal_Agent_Kind"],
+        extra_vals=["prospect", "not-a-real-agent-kind"],
+    )
+    # No _latest_with_record call — this account has no research record at all yet.
+
+    result = pc.consolidate("acme", content_root=tmp_path)
+
+    (row,) = _ready_rows(tmp_path)
+    assert row["verdict"] == ""
+    assert row.get("signal_agent_kind", "") == ""
+    assert result["vocab_dropped"] == 2
+
+
+def test_a_legitimate_row_verdict_survives_with_no_account_record(tmp_path):
+    """The new sanitizer must not become a blanket ban — a real, recognised verdict on the
+    row itself (the common re-angle/send/drop case) must still reach ready-to-load.csv."""
+    _one_row(tmp_path, extra_cols=["GTM_Verdict"], extra_vals=["send"])
+
+    result = pc.consolidate("acme", content_root=tmp_path)
+
+    (row,) = _ready_rows(tmp_path)
+    assert row["verdict"] == "send"
+    assert result["vocab_dropped"] == 0
+
+
+def _checksum_dir(root):
+    import hashlib
+
+    h = hashlib.sha256()
+    for p in sorted(root.rglob("*")):
+        if p.is_file():
+            h.update(str(p).encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def test_consolidate_dry_run_writes_nothing_and_reports_the_diff(tmp_path):
+    """PRD-2026-09-28 Phase 4a: --dry-run recomputes outputs and diffs against what's on
+    disk, without writing. Checksums the whole content tree before/after, not just the
+    files this test happens to know about — any write anywhere is a failure."""
+    _one_row(tmp_path)
+    before = _checksum_dir(tmp_path)
+
+    result = pc.consolidate("acme", content_root=tmp_path, dry_run=True)
+
+    after = _checksum_dir(tmp_path)
+    assert before == after, "dry-run must write nothing at all"
+    assert result["dry_run"] is True
+    assert result["diff"]["ready_to_load"]["on_disk"] == 0
+    assert result["diff"]["ready_to_load"]["would_write"] == 1
+
+
+def test_consolidate_dry_run_diff_reflects_a_stale_on_disk_send_list(tmp_path):
+    """A deliberately stale send-list output on disk must be visible in the diff — this is
+    the direct test of Gap 1 (send-list drift) that Phase 4a's `prospects verify` will later
+    also read."""
+    _one_row(tmp_path)
+    pc.consolidate("acme", content_root=tmp_path)  # real run, populates ready-to-load.csv
+    before = _checksum_dir(tmp_path)
+
+    result = pc.consolidate("acme", content_root=tmp_path, dry_run=True)
+
+    after = _checksum_dir(tmp_path)
+    assert before == after, "dry-run must write nothing, even on a second run"
+    assert result["diff"]["ready_to_load"]["on_disk"] == 1
+    assert result["diff"]["ready_to_load"]["would_write"] == 1
 
 
 def test_a_corrected_account_clause_brings_its_own_provenance(tmp_path):

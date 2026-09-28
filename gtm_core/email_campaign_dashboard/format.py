@@ -66,11 +66,19 @@ def _seat_label(seat: str) -> str:
     """Display name for a seat. ``unknown`` stays the internal key — it is written into
     the cell id and onto outcome tags, so renaming the value would orphan any row already
     tagged with it. Only the label a reader sees changes."""
-    return "other" if seat == "unknown" else seat
+    return "other" if seat == "unknown" else seat.replace("-", " ").title()
 
 
 def _pct(n: float, d: float) -> str:
-    return f"{round(100 * n / d)}%" if d else "—"
+    """``round()`` alone reads a real but small share (e.g. 3 of 700, 0.4%) as "0%" —
+    indistinguishable from a genuine zero. A nonzero numerator over a nonzero denominator
+    never rounds down to the same string a true zero gets."""
+    if not d:
+        return "—"
+    pct = 100 * n / d
+    if n and pct < 0.5:
+        return "<1%"
+    return f"{round(pct)}%"
 
 
 #: Every tile the last ``render_html`` emitted, as ``{label, raw, src}``. Read by the

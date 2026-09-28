@@ -41,14 +41,20 @@ def _varies_block(m: dict) -> str:
     feeds = m["intent"]["feeds"]
     present = [f["label"] for f in feeds if f["present"]]
     absent = len(feeds) - len(present)
+    # ``assigns`` marks a parameter one recipient gets exactly ONE level of, which is what a
+    # "combinations" count means. "Email in sequence" is not one of these: every recipient
+    # gets every touch in their sequence, so multiplying in its level count used to inflate
+    # combinations by len(days)× — a 3-touch, single-message campaign read as "3 possible
+    # combinations" it never had, understating people-per-combination by the same factor.
     params = [
-        ("Market", len(sup["countries"]), ", ".join(c["name"] for c in sup["countries"])),
-        ("Company type", len(segments), ", ".join(segments) or "—"),
-        ("Buyer seat", len(seats), ", ".join(_seat_label(x) for x in seats)),
-        ("Message", len(variants), ", ".join(variants) or "—"),
+        ("Market", len(sup["countries"]), ", ".join(c["name"] for c in sup["countries"]), True),
+        ("Company type", len(segments), ", ".join(segments) or "—", True),
+        ("Target Persona", len(seats), ", ".join(_seat_label(x) for x in seats), True),
+        ("Message", len(variants), ", ".join(variants) or "—", True),
         # Read from the specs, not restated: this row said "3 · day 1, day 4, day 9" while the
-        # live campaign ran two touches on day 0 and day 5.
-        ("Email in sequence", len(_days), ", ".join(f"day {d}" for d in _days) or "—"),
+        # live campaign ran two touches on day 0 and day 5. Shown for context; not multiplied
+        # into "combinations" — see the docstring note above.
+        ("Email in sequence", len(_days), ", ".join(f"day {d}" for d in _days) or "—", False),
         (
             "Trigger type",
             len(present),
@@ -58,27 +64,31 @@ def _varies_block(m: dict) -> str:
                 if present and absent
                 else ""
             ),
+            True,
         ),
     ]
     combos = 1
-    for _, n, _ in params:
-        combos *= max(n, 1)
+    for _, n, _, assigns in params:
+        if assigns:
+            combos *= max(n, 1)
+    assigning = [p for p in params if p[3]]
     # Only a parameter with more than one level varies (PS20 P1.7): "Five things change" sat
     # over a six-row table in which several rows had one level.
-    varying = sum(1 for _, n, _ in params if n > 1)
+    varying = sum(1 for _, n, _, _ in assigning if n > 1)
     param_rows = "".join(
         f"<tr><td><strong>{_e(name)}</strong></td><td class='num-cell'>{n}</td>"
         f"<td class='muted'>{_e(detail)}</td></tr>"
-        for name, n, detail in params
+        for name, n, detail, _assigns in params
     )
 
     varies_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What varies, and by how much</h2>
-        <p class="note">{varying} of the {len(params)} parameters below
-        {"takes" if varying == 1 else "take"} more than one level. Multiplied out that is
-        <strong>{combos:,} possible combinations</strong> across {sup["total"]:,} people — roughly
-        {sup["total"] // max(combos, 1)} people per combination. That ratio, not the total, is what
-        decides whether anything is measurable.</p>
+        <p class="note">{varying} of the {len(assigning)} parameters below that assign one
+        level per person {"takes" if varying == 1 else "take"} more than one level (touch count
+        is shown but not multiplied in — every recipient gets every touch). Multiplied out that
+        is <strong>{combos:,} possible combinations</strong> across {sup["total"]:,} people —
+        roughly {sup["total"] // max(combos, 1)} people per combination. That ratio, not the
+        total, is what decides whether anything is measurable.</p>
         <table><thead><tr><th>Parameter</th><th>Levels</th><th></th></tr></thead>
         <tbody>{param_rows}</tbody></table>
       </div>"""
@@ -166,9 +176,10 @@ def _can_answer_block(m: dict) -> str:
 
     readable_full = f"""      <div class="card glass-panel animate-on-load anim-up-lg" style="--anim-delay: 50ms;">
         <h2>What this run can and cannot answer</h2>
+        <p class='note' style='margin-top:-0.5rem; margin-bottom:1.5rem; line-height:1.4;'><strong>Experimental Power:</strong> This diagnostic shows if we have enough data to confidently compare different messaging approaches. If a persona or message group isn't 'readable' yet, it means we need more replies before we can draw conclusions.</p>
         <div class="verdicts">
           <div class="v ok"><div class="vn">{len(seat_readable)}</div>
-            <div class="vl">groups where <strong>seat</strong> is readable</div>
+            <div class="vl">groups where <strong>persona</strong> is readable</div>
             <div class="vd muted">Same message, different job — so a gap is about the person.</div></div>
           <div class="v ok"><div class="vn">{len(var_readable)}</div>
             <div class="vl">groups where <strong>message</strong> is readable</div>
@@ -188,10 +199,18 @@ def _lift_block(m: dict) -> str:
     # Said only when the power computation agrees (PS20 P1.7 Rule B): no lane is large enough
     # for ANY lift to show. It used to be said of this campaign whatever its lanes' size.
     unpowered = all(detectable_lift(ln["people"], m["cells"]["baseline"]) is None for ln in lanes)
+    # §R14: name whether the baseline every lift below is measured against is this scope's
+    # own declared target or an undisclosed fallback.
+    basis_note = (
+        ""
+        if m["cells"].get("baseline_declared")
+        else f" (against an undeclared {m['cells']['baseline'] * 100:.1f}% reference rate — "
+        "no campaign here sets its own target)"
+    )
     lift_card = _scoped_out(
         m,
         "How big a difference each group could even show",
-        "Minimum detectable effect is sized from the pool's per-group counts."
+        f"Minimum detectable effect is sized from the pool's per-group counts{basis_note}."
         + (
             f" At {scheduled} scheduled recipient{'' if scheduled == 1 else 's'} across {lanes_n} "
             f"lane{'' if lanes_n == 1 else 's'} this campaign cannot "
@@ -204,7 +223,7 @@ def _lift_block(m: dict) -> str:
     lift_rows = "".join(
         f'<div class="brow"><div class="blabel">{_e(_seat_label(c["seat"]))} · {_e(c["variant"])}</div>'
         f'<div class="btrack"><div class="bfill ta" '
-        f'style="width:{min(100, 100 * (c["detectable_lift"] or 20) / 14):.0f}%"></div></div>'
+        f'style="width:{min(100, 100 * c["detectable_lift"] / 14):.0f}%"></div></div>'
         f'<div class="bval">{c["detectable_lift"]}×</div></div>'
         for c in sorted(cells, key=lambda x: x["detectable_lift"] or 99)
         if c["detectable_lift"]

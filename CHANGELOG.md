@@ -16,6 +16,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-28
+
+### Added
+- **`prospects verify` — one read-only integrity report across the prospect stores.**
+  `gtm_core/prospects_verify.py` answers, before a send rather than weeks after it, six
+  questions nothing asked: has the send list fallen behind the ledger, does any
+  closed-vocabulary field hold a value outside its set, do two outcome stores exist at once,
+  is a dropped account missing its suppression row, was a pipeline stage left running with no
+  completion, and is there a content directory with no matching profile. It writes nothing; a
+  send-blocking finding exits non-zero, so a daily unattended run can gate on it.
+- **Closed-vocabulary enforcement on every writer, not just import.** A verdict, lane or status
+  outside its allowed set is now refused on the merge and mutate paths and on the
+  account-record fill, so a bad value can neither enter the ledger nor propagate out of one
+  that already held it. The refusal is scoped to the single row attempted, so an unattended
+  batch records it and continues.
+- **Messaging intake — plain English in, machine-checked facts out.** Write your seats and
+  pains, capability claims, proof points and outbound angles in a `MESSAGING-INTAKE.md`
+  document; `gtm_core.messaging_intake` parses and validates it, writes a dated backup, and
+  stages the result for the existing diff-and-promote review before anything reaches the
+  claim / proof / angle / seat registries. Stdlib-only, no network, and promotion still runs
+  through the one sanctioned writer. A neutral starter document ships in the profile
+  skeleton, and the `learn` skill drives the loop, revert path included.
+- **Campaign dashboard: an Insights tab, an angle heatmap and reply-sentiment triage.** Twelve
+  lens cards — judge routing and seat fit, why-now coverage, opt-out interception, market gate
+  and roster country mix, pre-flight refusals, and statistical power measured against the
+  run's own cell sizes — each naming the input it read or saying what is missing.
+
+### Changed
+- **The campaign page stops claiming what it has not measured.** The Insights cards were fixed
+  prose that rendered identically whatever the data said, including an evidence claim for a
+  calculation nothing performed and a finding that published itself as an observed signal once
+  a typed threshold was crossed; every card is now derived. Alongside it: the pipeline meter
+  uses the same status words as the terminal and the worklist instead of inventing two more;
+  hypothesis verdicts come from an explicit flag plus sent/replied counts rather than keyword
+  matching on the question's own text; a lift figure computed against a fallback reply-rate
+  target now says so instead of presenting it as your own; and the pre-flight card reports the
+  check report's own state.
+- **No tenant-specific facts left in the de-branded engine.** The Emails tab read its public
+  anchor, offer label and buying-committee role from hardcoded example vocabulary; it now reads
+  only what a campaign spec declares and says "not declared in the spec" when nothing is. An
+  unclassified seat reads *Unclassified* rather than being presented as a specific role. The
+  campaign snapshot reads the declared audience instead of branching on the campaign's slug.
+  A new lint keeps it that way.
+- **Touch count is shown, not multiplied in.** The "possible combinations" figure counted touches
+  as a per-person assignment axis; every recipient gets every touch, so it no longer is one.
+- **The "% of pool" column is now "% Current"** — the share of people in non-archived sequences,
+  rather than a percentage against every sequence ever registered.
+- **Hold and lane routing** gained a default salvage kind, a fuller hold-triage sheet, and a
+  hold for an account with no champion.
+
+### Fixed
+- **A reply on record read as "no replies".** Sentiment triage matched only the audit log's event
+  vocabulary and never the outcome log's, and the angle heatmap read reply keys no live cell
+  carries — so every per-cell reply count was silently zero. An empty cell also reported one
+  phantom planned prospect.
+- **A corrupt ledger line rendered as an empty inbox.** A parse failure was swallowed into an
+  empty event list, indistinguishable from nothing having replied; it is now surfaced as
+  "could not be read".
+- **A one-touch lane read "1 working days"**, and a share under half a percent rounded to "0%" —
+  indistinguishable from a true zero. It now reads "<1%".
+- **A follow-up cadence claimed as one number when the lanes disagree** now says so and points at
+  the per-lane table; the working-day and working-month assumptions behind the forecast are
+  disclosed rather than silent.
+- **A pre-enrichment row carrying the literal text "unverified" as its email outranked a richer
+  row** in the company fold and silently discarded it.
+- **An account folder that differs only by punctuation or a trailing legal suffix** no longer
+  fails to join its own pack.
+- **The Needs Review / Ready filter matched every row**, because it scanned each row's text for a
+  word that also appears in the clean row's own wording; it now reads a per-row attribute.
+- **Sending figures 2.5 days old compared equal to 2 days old** and passed the freshness
+  threshold; the age check also runs when a readable snapshot lists no current sequences.
+- **Account status words claimed readiness the checks had not granted.** The status block's
+  account buckets are back on one vocabulary with the terminal and the worklist — *Sorted*
+  means sorted, and the checks still decide whether anything sends.
+- **The profile skeleton's messaging-intake document** shipped with one company's seats and
+  positioning in it; it now carries neutral examples.
+
 ## [0.25.0] - 2026-09-27
 
 ### Added

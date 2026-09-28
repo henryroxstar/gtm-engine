@@ -83,7 +83,9 @@ def test_one_working_day_is_singular():
     assert sentence.endswith("— 1 working day.")
     assert "takes 1 working day," in text and "take 1 working day to send" in text
     assert "1 working day" in visible_text(forecast._schedule(m)["rows"])
-    assert "1 working days" not in text + sentence
+    # Word-bounded: the card also discloses "assuming 21 working days in a month", which a
+    # bare substring check reads as the plural bug it is looking for.
+    assert not re.search(r"\b1 working days", text + sentence)
 
 
 def test_when_done_refuses_with_the_forecasts_own_reason(tmp_path):

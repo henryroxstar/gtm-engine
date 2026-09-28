@@ -38,7 +38,11 @@ from gtm_core.signal_sources import store_capture
 
 
 def _write_capture(content_root, url: str, text: str):
-    store_capture(url, text, sources_dir=content_root / "sources", profile=PROFILE, tool="test")
+    # audit_rows resolves this to content_root/PROFILE/sources (see sources_dir_for) —
+    # write there, not to a tenant-less content_root/sources the gate never reads.
+    store_capture(
+        url, text, sources_dir=content_root / PROFILE / "sources", profile=PROFILE, tool="test"
+    )
 
 
 PROFILE = "acme"

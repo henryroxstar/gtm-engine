@@ -90,3 +90,23 @@ def test_champion_missing_satisfied():
 
         assert ent_a.lane == "generic"  # Or whatever send lane
         assert ent_b.trigger == "duplicate-contact"
+
+
+def test_champion_missing_salvage_defaults_chip():
+    from gtm_core.lanes import decisions as dec
+
+    entry = dec._entry_from(
+        {
+            "email": "lead@ent.example",
+            "trigger": "champion-missing",
+            "decision": "salvage",
+            "salvage_kind": "",
+            "company": "Enterprise Inc",
+        }
+    )
+    assert entry.salvage_kind == "different-person:champion"
+
+    plan = dec.plan_apply([entry], {})
+    assert len(plan.salvage) == 1
+    assert not plan.refused
+    assert plan.salvage[0].salvage_kind == "different-person:champion"

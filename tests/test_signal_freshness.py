@@ -6,6 +6,8 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+
 from gtm_core.signal_freshness import audit_signal_freshness, revalidate_profile_signals
 
 
@@ -139,3 +141,40 @@ def test_revalidate_profile_signals_canonical_dict_format(tmp_path: Path) -> Non
     assert "items" in saved
     assert saved["meta"] == {"version": "1.0"}
     assert saved["items"][0]["verdict"] == "re-angle"
+
+
+def test_revalidate_profile_signals_routes_through_the_real_vocabulary_check(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """T1c: this module's direct writer (its own json.dumps + os.replace, no lock, no
+    vocabulary import) must be routed through the same check_vocabulary gate merge/mutate
+    use — not a parallel ad-hoc check. Proven by shrinking the allowed verdict set so the
+    hardcoded "re-angle" literal itself becomes unrecognised, and confirming the real entry
+    point refuses rather than silently writing it anyway."""
+    import gtm_core.prospects_item as pi
+
+    monkeypatch.setitem(pi._VOCABULARIES, "verdict", frozenset({"send", "drop"}))
+
+    profile = "test-tenant-vocab"
+    prospects_dir = tmp_path / profile / "prospects"
+    prospects_dir.mkdir(parents=True, exist_ok=True)
+    latest_file = prospects_dir / "latest.json"
+    today = date(2026, 9, 18)
+    stale_date = (today - timedelta(days=300)).isoformat()
+    latest_file.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {"company": "Acme Robotics", "signal_observed": stale_date, "verdict": "send"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not in the allowed set for verdict"):
+        revalidate_profile_signals(profile, as_of=today, dry_run=False, content_root=tmp_path)
+
+    # Refused before the write — the file on disk is unchanged.
+    unchanged = json.loads(latest_file.read_text(encoding="utf-8"))
+    assert unchanged["items"][0]["verdict"] == "send"

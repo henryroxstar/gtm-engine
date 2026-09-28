@@ -53,7 +53,7 @@ OPS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "experiment-design",
         "Experiment design",
-        ("varies", "grid", "readable-difference", "benchmarks", "experiment-notes"),
+        ("varies", "grid", "readable-difference", "benchmarks", "experiment-notes", "can-answer"),
     ),
     ("replies", "Replies and opt-outs", ("inbound-health",)),
     ("maintenance", "Maintenance", ("maintenance-lines",)),
@@ -64,18 +64,27 @@ OPS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 #: time (PRD root cause 1), so a new section is an edit here.
 #: Enforced by tests/contracts/test_dashboard_ps20_structure.py.
 SECTIONS: dict[str, frozenset[str]] = {
-    "overview": frozenset({"lede", "campaign-lines", "accounts-funnel", "contacts-by-status"}),
+    "overview": frozenset(
+        {
+            "lede",
+            "campaign-lines",
+            "accounts-funnel",
+            "contacts-by-status",
+            "ready-to-send",
+            "actions-required",
+        }
+    ),
     "accounts": frozenset({"filter", "account-tiles", "account-table"}),
-    "emails": frozenset({"email-table", "hand-sent", "packs-list"}),
-    "results": frozenset({"results-figures", "campaign-results", "when-we-know"}),
+    "emails": frozenset({"email-portfolio", "email-table", "hand-sent", "packs-list"}),
+    "results": frozenset(
+        {"results-figures", "campaign-results", "when-we-know", "voice-of-market"}
+    ),
     "insights": frozenset(
         {
             "small-numbers",
             "learnings",
-            "can-answer",
             "angle-heatmap",
             "sentiment-triage",
-            "ready-to-send",
         }
     ),
     "ops": frozenset(

@@ -39,19 +39,28 @@ def test_unreadable_snapshot_reads_unknown_not_zero(tmp_path):
     assert "These numbers may be out of date" not in head  # no artifact records-disagree
 
 
-def test_old_figures_strip_sits_above_the_tabs(tmp_path):
+def test_old_figures_alone_is_detected_but_renders_no_strip(tmp_path):
+    """`figures-old` no longer has a sentence, so on its own it must not render an empty
+    warning card — but the underlying model still flags it (still colors things that key off
+    ``m["warnings"]`` elsewhere on the page, e.g. the go-live badge)."""
     profile = _seed(tmp_path)
     _stats(tmp_path, profile, {"fetched": _ago(3), "sequences": [{"id": "S1", "sent": 0}]})
-    assert 'data-warn="figures-old"' in _strip(_page(tmp_path, profile))
+    m = gd.build_model(profile, tmp_path)
+    assert m["warnings"] == ["figures-old"]
+    page = _page(tmp_path, profile)
+    assert 'class="card warn"' not in _strip(page)
 
 
 def test_unparseable_fetched_shows_no_date_not_the_raw_string(tmp_path):
-    """A garbage `fetched` must never print as if it were a date — the renderer follows the
-    model's own parse (`health.figures_date`), never the raw string's truthiness."""
+    """A garbage `fetched` must never print as if it were a date — the renderer no longer
+    prints a sentence for `figures-old` at all, so with no other reason present it renders no
+    strip (`health.figures_date` still backs the underlying detection)."""
     profile = _seed(tmp_path)
     _stats(tmp_path, profile, {"fetched": "yesterday", "sequences": [{"id": "S1", "sent": 0}]})
+    m = gd.build_model(profile, tmp_path)
+    assert m["warnings"] == ["figures-old"]
     page = _page(tmp_path, profile)
-    assert "Sending figures carry no date, so treat them as old." in page
+    assert 'class="card warn"' not in page
     assert "from yesterday" not in page
 
 
@@ -68,7 +77,8 @@ def test_two_reasons_render_as_one_strip(tmp_path):
     assert page.count('class="card warn"') == 1
     assert 'data-warn="records-disagree figures-old"' in page
     strip = page.split('<div class="card warn"', 1)[1].split("</div>", 1)[0]
-    assert strip.count("<p>") == 2
+    # figures-old marks the strip via data-warn but no longer contributes a sentence.
+    assert strip.count("<p>") == 1
     assert "Refresh before trusting anything below." in strip
 
 
@@ -283,7 +293,7 @@ def test_one_answer_to_has_anything_gone_out(tmp_path):
 def test_started_reads_started(tmp_path):
     m = gd.build_model(_fixture_10_24_1(tmp_path), tmp_path)
     assert m["go_live_status"] == "started"
-    assert any("started, people have been contacted" in line for line in m["lede"])
+    assert any("🟢 Live — people have been contacted" in line for line in m["lede"])
 
 
 def test_nothing_sent_in_the_current_campaigns_names_the_earlier_run(tmp_path):

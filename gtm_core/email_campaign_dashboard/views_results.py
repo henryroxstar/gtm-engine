@@ -22,8 +22,28 @@ from .aggregate import (
 from .config import BOUNCE_RISK_PCT, TAB_LABELS
 from .forecast import _lanes, when_done
 from .format import _e, _stat, figure_span, section
-from .frontier import render_next_frontier_sections
-from .views_learn import _can_answer_block
+from .frontier import (
+    derive_sentiment_triage,
+    render_angle_heatmap_section,
+    render_sentiment_triage_html,
+    render_sentiment_triage_section,
+)
+from .insights_lenses import lens_toolbar_html, strategic_lenses_html
+from .views_lede import _sending_tool
+
+
+def _action_row(note: str, cmd: str, btn_label: str) -> str:
+    return (
+        '<div class="action-prompt-card" style="margin-top:10px;">'
+        '<div class="action-prompt-row">'
+        f'<div><strong style="color:var(--ink);">Next Move:</strong> <span class="muted">{_e(note)}</span></div>'
+        '<div class="action-prompt-copy-box">'
+        f'<span class="action-prompt-text">{_e(cmd)}</span>'
+        f'<button class="copy-btn" onclick="copyPrompt(this)">{_e(btn_label)}</button>'
+        "</div>"
+        "</div>"
+        "</div>"
+    )
 
 
 def _headline_learnings(m: dict) -> str:
@@ -34,8 +54,14 @@ def _headline_learnings(m: dict) -> str:
     manifest. Rendered from ``[[experiment.will_learn]]`` so there is one home for the fact.
     """
     blocks = ""
+    # Computed once, not once per question: the scope's figures don't change across a
+    # campaign's own questions.
+    fig = _scope_figures(m)
     for c in m["campaigns"]["campaigns"]:
         camp_title = c.get("title") or c.get("slug") or "Campaign"
+        own = campaign_contacted(fig, c)
+        sent = own["current"] if own else 0
+        replied = own["replied"] if own else 0
         for i, w in enumerate((c.get("experiment") or {}).get("will_learn") or [], 1):
             q_text = _e(str(w.get("question", "")))
             how_text = _e(str(w.get("how", "")))
@@ -48,17 +74,47 @@ def _headline_learnings(m: dict) -> str:
                 if deep_dive
                 else ""
             )
+
+            # Status comes ONLY from figures and the manifest's own `answered` flag —
+            # never from matching a keyword ("seat", "title", "finding") inside the
+            # question's own prose. That match used to declare a question "Validated"
+            # or "Judge audit routed candidate rows to re-target" whenever its text
+            # happened to contain the word, regardless of whether either was true.
+            if w.get("answered"):
+                status_pill = '<span class="pill ok">Answered Before Sending</span>'
+                action_html = ""  # the "how" text above already carries the answer
+            elif sent > 0 and replied > 0:
+                status_pill = '<span class="pill ok">Market Response Received</span>'
+                status_note = f"Received {replied} replies across {sent} contacted. Review sentiment for resonance."
+                action_html = _action_row(status_note, "/inbound-triage", "Copy Triage Prompt")
+            elif sent > 0:
+                status_pill = '<span class="pill">In Flight · Awaiting Replies</span>'
+                status_note = f"{sent} contacts active in sending tool. Awaiting reply volume before measuring lift."
+                action_html = _action_row(status_note, "/inbound-triage", "Monitor Inbound")
+            else:
+                status_pill = '<span class="pill">Staged · Not Started</span>'
+                status_note = (
+                    "Sequences staged in sending tool. Requires launch to begin collecting signal."
+                )
+                tool_name, tool_url = _sending_tool(m.get("profile") or "")
+                action_html = _action_row(
+                    status_note, tool_url or f"open {tool_name}", f"Open {tool_name}"
+                )
+
             blocks += (
                 '<div class="hyp"><div class="hyphead">'
                 f'<span class="claim"><b>{i}. {q_text}</b></span>'
-                f'<span class="pill" style="font-size:11px;">{_e(camp_title)}</span></div>'
+                f'<div style="display:flex; align-items:center; gap:6px;">{status_pill}<span class="pill" style="font-size:11px;">{_e(camp_title)}</span></div></div>'
                 f'<div class="hypbody"><strong>Core takeaway:</strong> {takeaway}</div>'
-                f"{deep_html}</div>"
+                f"{deep_html}{action_html}</div>"
             )
     if not blocks:
         return ""
     return (
-        '<div class="card"><h2>What this run is actually for</h2>'
+        # data-lens (not a text match on the h2) is what the lens filter keys off — see
+        # render.py:initInsightsControls. This card lists every declared question, so it
+        # is filed under "gtm" (the machine/methodology lens) rather than a made-up one.
+        '<div class="card" data-lens="gtm"><h2>What this run is actually for</h2>'
         "<p class='note'>Key validation questions and methodology defined in the campaign manifest."
         "</p>" + blocks + "</div>"
     )
@@ -319,16 +375,111 @@ def _small_numbers(m: dict) -> str:
     if not lanes:
         return ""
     base = m["cells"]["baseline"]
+    # §R14: a lift is computed against SOME baseline; when no campaign in scope declared
+    # one, that baseline is an undisclosed fallback and the sentence says so rather than
+    # presenting the figure as this run's own target.
+    basis = (
+        "the reply-rate target this scope declared"
+        if m["cells"].get("baseline_declared")
+        else f"an undeclared {base * 100:.1f}% reference rate (no campaign here sets its own target)"
+    )
     lifts = [x for ln in lanes if (x := detectable_lift(ln["people"], base))]
     line = (
         "<strong>Small numbers.</strong> At the numbers planned, the largest group here could "
-        f"only show a difference of {figure_span('smallest-lift', f'{min(lifts):g}×')} or more; "
-        "a smaller gap between groups reads as chance."
+        f"only show a difference of {figure_span('smallest-lift', f'{min(lifts):g}×')} or more "
+        f"over {basis}; a smaller gap between groups reads as chance."
         if lifts
         else "<strong>Small numbers.</strong> No group here is big enough for any difference in "
         "replies to show, so read replies one by one, not as rates."
     )
-    return f'<div class="card"><h2>Reading small numbers</h2><p class="note">{line}</p></div>'
+    return (
+        '<details class="card glass-panel" data-lens="gtm" style="margin-top:24px;">'
+        '<summary style="font-size:13px; color:var(--muted); cursor:pointer; font-weight:500;">'
+        "Statistical note: Sizing and detectable difference (reading small numbers)"
+        "</summary>"
+        f'<p class="note" style="margin-top:10px;">{line}</p>'
+        "</details>"
+    )
+
+
+def _bottom_line_banner(m: dict, fig: dict) -> str:
+    """A PMF-centric bottom line banner synthesizing the strongest signal from the data."""
+    if fig["contacted"][0] is None or fig["contacted"][0]["current"] == 0:
+        return ""
+
+    meetings = fig["meetings"][0] if fig["meetings"][0] is not None else 0
+    labels = fig["labels"][0] if fig["labels"][0] is not None else {}
+    interested = labels.get("interested", 0)
+    replied = fig["replied"][0] if fig["replied"][0] is not None else 0
+
+    if meetings > 0:
+        msg = f"🔥 <strong>Strong Signal:</strong> Generated {meetings} {'meeting' if meetings == 1 else 'meetings'}, proving urgency and willingness to engage."
+        cls = "signal-strong"
+    elif interested > 0:
+        msg = f"📈 <strong>Early Resonance:</strong> {interested} {'prospect' if interested == 1 else 'prospects'} showed interest. Focus on driving to next steps."
+        cls = "signal-medium"
+    elif replied > 0:
+        msg = f"👀 <strong>Market is Talking:</strong> {replied} {'reply' if replied == 1 else 'replies'} received. Awaiting clear validation signals."
+        cls = "signal-early"
+    else:
+        msg = "⏳ <strong>Gathering Data:</strong> Campaign is in flight. Awaiting initial market response."
+        cls = "signal-waiting"
+
+    return f'<div class="bottom-line-banner {cls}">{msg}</div>'
+
+
+def _pmf_funnel(m: dict, fig: dict) -> str:
+    """A visual PMF funnel mapping sales actions to learning milestones."""
+    if fig["contacted"][0] is None or fig["contacted"][0]["current"] == 0:
+        return ""
+
+    split = fig["contacted"][0]
+    contacted = split["current"] if split else 0
+    replied = fig["replied"][0] if fig["replied"][0] is not None else 0
+    labels = fig["labels"][0] if fig["labels"][0] is not None else {}
+    interested = labels.get("interested", 0)
+    meetings = fig["meetings"][0] if fig["meetings"][0] is not None else 0
+
+    return f"""
+    <div class="pmf-funnel">
+        <div class="funnel-stage">
+            <div class="funnel-metric">{contacted:,}</div>
+            <div class="funnel-label-pmf">Reached</div>
+            <div class="funnel-label-sales">Contacted</div>
+        </div>
+        <div class="funnel-stage">
+            <div class="funnel-metric">{replied:,}</div>
+            <div class="funnel-label-pmf">Resonated</div>
+            <div class="funnel-label-sales">Replied</div>
+        </div>
+        <div class="funnel-stage">
+            <div class="funnel-metric">{interested:,}</div>
+            <div class="funnel-label-pmf">Engaged</div>
+            <div class="funnel-label-sales">Interested</div>
+        </div>
+        <div class="funnel-stage">
+            <div class="funnel-metric">{meetings:,}</div>
+            <div class="funnel-label-pmf">Validated</div>
+            <div class="funnel-label-sales">Meetings</div>
+        </div>
+    </div>
+    """
+
+
+def _voice_of_market(m: dict) -> str:
+    history_events = m.get("frontier_events") or []
+    triage_data = derive_sentiment_triage(history_events)
+    sentiment_html = render_sentiment_triage_html(triage_data)
+
+    return section(
+        "voice-of-market",
+        '<div class="card showcase-sweep glow-card animate-on-load anim-up-lg" style="--anim-delay: 100ms;">'
+        '<div class="atmospheric-glow"></div>'
+        "<h2>Voice of the Market</h2>"
+        '<p class="note">Real-time raw replies from the market to help you find PMF signal. Escaped and automatically categorized.</p>'
+        + sentiment_html
+        + "</div>",
+    )
 
 
 def _results_view(m: dict) -> str:
@@ -338,17 +489,21 @@ def _results_view(m: dict) -> str:
     cards = "".join(_campaign_card(c, own, m) for c, own in owns)
     before = any(not _started(own) for _c, own in owns)
     contacted, unknown = fig["contacted"]
+
+    figures_html = _bottom_line_banner(m, fig) + _pmf_funnel(m, fig) + _outcome_tiles(m, fig)
     return (
-        section("results-figures", _outcome_tiles(m, fig))
+        section("results-figures", figures_html)
+        + _voice_of_market(m)
         + section("campaign-results", cards)
         + section("when-we-know", _when_we_know(m, before, unknown if contacted is None else None))
     )
 
 
 def _insights_view(m: dict) -> str:
+    content = lens_toolbar_html() + strategic_lenses_html(m) + _headline_learnings(m)
     return (
-        section("small-numbers", _small_numbers(m))
-        + section("learnings", _headline_learnings(m))
-        + section("can-answer", _can_answer_block(m))
-        + render_next_frontier_sections(m)
+        section("learnings", content)
+        + render_angle_heatmap_section(m)
+        + render_sentiment_triage_section(m)
+        + section("small-numbers", _small_numbers(m))
     )

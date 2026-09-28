@@ -33,6 +33,7 @@ from .lane_state import (
     prospect_status_model,
 )
 from .loadfiles import load_files
+from .portfolio import enrich_portfolio_metadata
 from .sources import (  # noqa: F401  (re-exported: model is the package's assembly point)
     packs_model,
     roster_model,
@@ -53,10 +54,10 @@ def reconcile_snapshot(campaigns_model: dict, status_model: dict) -> dict:
     staleness; it makes it impossible to miss.
     """
     snapshot_ids = {s["id"] for s in status_model.get("sequences", []) if s.get("id")}
-    ledger_ids: set[str] = set()
-    for c in campaigns_model.get("campaigns", []):
-        ledger_ids |= {s["sequence_id"] for s in c.get("sequences", [])}
-        ledger_ids |= {s["sequence_id"] for s in c.get("archived", [])}
+    camps = campaigns_model.get("campaigns", [])
+    ledger_ids = {
+        s["sequence_id"] for c in camps for s in c.get("sequences", []) + c.get("archived", [])
+    }
     ledger_ids |= {s["sequence_id"] for s in campaigns_model.get("unlinked_sequences", [])}
     return {
         "ok": snapshot_ids == ledger_ids,
@@ -236,6 +237,7 @@ def _spec_copy(spec_path: Path) -> list[dict]:
                 "day": tch.day,
                 "subject": tch.subject or "",
                 "opener": next((ln for ln in body[1:] if ln != "{{Why Now}}."), ""),
+                "body": "\n".join(body),
                 "words": sum(len(ln.split()) for ln in body),
             }
         )
@@ -265,8 +267,7 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
         return m
     ids: set[str] = set()
     for c in wanted:
-        ids |= {s["sequence_id"] for s in c.get("sequences", [])}
-        ids |= {s["sequence_id"] for s in c.get("archived", [])}
+        ids |= {s["sequence_id"] for s in c.get("sequences", []) + c.get("archived", [])}
 
     seqs = [s for s in m["status"].get("sequences", []) if s.get("id") in ids]
     # A sequence the LEDGER knows but the live snapshot does not would otherwise vanish, and
@@ -307,10 +308,8 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
     m.update(scoped_trust(m, ids))
     m["messages"] = [x for x in m.get("messages", []) if x.get("sequence_id") in ids]
 
-    # Packs carry no sequence id; they are tied to the campaign by its date suffix, which is
-    # the same key `hook_coverage.campaign_packs` joins on.
     # Packs carry no sequence id; a campaign claims them by its date suffix. A slug WITHOUT
-    # one can claim none — leaving the full list in place would have let `agent-gateway-cross-org`
+    # one can claim none — leaving the full list in place would have let a campaign
     # display six packs written for a different campaign.
     dates = {mm.group(1) for s in slugs if (mm := re.search(r"(\d{8})$", s))}
     pm = m.get("packs") or {}
@@ -363,12 +362,17 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
     campaigns = build_campaigns(profile, content_root)
     rows = read_outcomes(content_root or resolve_content_root(), profile)
     baseline = 0.059
+    baseline_declared = False
     for c in campaigns["campaigns"]:
-        r = _rate_of(c.get("targets") or {})
-        if r:
+        if r := _rate_of(c.get("targets") or {}):
             baseline = r
+            baseline_declared = True
             break
     cellmodel = build_cells(profile, content_root, outcome_rows=rows, baseline=baseline)
+    # Named so a lens can say whether this is the tenant's own target or an undisclosed
+    # fallback (§R14) — until now nothing on the page ever named which one a lift figure
+    # was computed against.
+    cellmodel["baseline_declared"] = baseline_declared
     supply = supply_profile(profile, content_root)
     intent = intent_profile(profile, content_root)
 
@@ -400,6 +404,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         }
         for src in cellmodel["sources"]
     ]
+    enrich_portfolio_metadata(messages, seq_dir, content_root, profile)
 
     # ONE SOURCE PER CLAIM (UX-02 / PSK-029). The accounts card is the routed state joined to
     # the ledger — the same call, with the same arguments, `prospects status` makes — so the
@@ -439,17 +444,23 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         if not status["snapshot"]["unreadable"]
         else {"ok": True, "in_ledger_only": [], "in_snapshot_only": []}
     )
+    frontier_error = ""
     try:
         frontier_events = parse_campaign_history(profile, content_root)
-    except (ValueError, Exception) as exc:
+    except ValueError as exc:
+        # Named on the page (views_results._results_view / frontier.render_sentiment_triage_section)
+        # rather than swallowed into an empty list, which rendered identically to "no replies
+        # logged yet" — a corrupt ledger line and a genuinely quiet inbox are different findings.
         log.warning("frontier history parse failed for profile %s: %s", profile, exc)
         frontier_events = []
+        frontier_error = str(exc)
     ready_accounts = list_ready_to_send_accounts(cellmodel.get("cells"), profile, content_root)
     return {
         "profile": profile,
         "generated_at": generated_at,
         "status": status,
         "campaigns": campaigns,
+        "frontier_error": frontier_error,
         "frontier_events": frontier_events,
         "ready_accounts": ready_accounts,
         # The rollup gets a roster too, built from every campaign that declares one. Before

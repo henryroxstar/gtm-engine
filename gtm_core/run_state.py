@@ -226,6 +226,34 @@ def get_or_create_run_state(
     return fresh, False
 
 
+def _handle_stage_action(
+    profile: str, action: str, stage: str | None, metrics_json: str | None
+) -> int:
+    """start-stage/complete-stage: the skill's only way to reach RunState's own methods.
+
+    A markdown procedure an agent follows is not a Python scheduler — this CLI is why a run
+    that died mid-stage left `run_state.json` untouched until now: the methods were always
+    real, but nothing outside a unit test could ever call them.
+    """
+    if not stage:
+        print(f"ERROR: --stage is required for {action}", file=sys.stderr)
+        return 2
+    state, _resumed = get_or_create_run_state(profile)
+    path = run_state_json(profile)
+    try:
+        if action == "start-stage":
+            state.start_stage(stage)
+        else:
+            metrics = json.loads(metrics_json) if metrics_json else None
+            state.complete_stage(stage, metrics=metrics)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    save_run_state(state, path)
+    print(f"{action} {stage} ({profile}): ok")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI for checking and managing prospect run state."""
     parser = argparse.ArgumentParser(
@@ -235,10 +263,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", required=True, help="Tenant profile name")
     parser.add_argument(
         "action",
-        choices=["status", "resume-from", "reset"],
+        choices=["status", "resume-from", "reset", "start-stage", "complete-stage"],
         help="Action to perform",
     )
+    parser.add_argument(
+        "--stage",
+        choices=STAGES,
+        help="Stage name — required for start-stage/complete-stage",
+    )
+    parser.add_argument(
+        "--metrics",
+        default=None,
+        help="Optional JSON object of metrics to record (complete-stage only)",
+    )
     args = parser.parse_args(argv)
+
+    if args.action in ("start-stage", "complete-stage"):
+        return _handle_stage_action(args.profile, args.action, args.stage, args.metrics)
 
     path = run_state_json(args.profile)
     state = load_run_state(path)

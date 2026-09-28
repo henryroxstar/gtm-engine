@@ -356,15 +356,29 @@ def retires_account(entry: DecisionEntry) -> bool:
     return HOLD_QUESTION.get(entry.trigger, "") in ACCOUNT_SCOPED_SUPPRESS
 
 
+def _default_salvage_kind(trigger: str) -> str:
+    """Default salvage chip for hold triggers with unambiguous operator action."""
+    if trigger == "champion-missing":
+        return "different-person:champion"
+    if trigger == "missing-hook-cell":
+        return "different-argument:hook-matrix"
+    return ""
+
+
 def _entry_from(row: dict) -> DecisionEntry:
     """One row of a filled hold CSV or an exported decisions JSONL."""
     email = (row.get("email") or "").strip().lower()
+    trigger = (row.get("trigger") or "").strip().lower()
+    decision = (row.get("decision") or "").strip().lower()
+    salvage_kind = (row.get("salvage_kind") or "").strip().lower()
+    if decision == "salvage" and not salvage_kind:
+        salvage_kind = _default_salvage_kind(trigger)
     return DecisionEntry(
         email=email,
-        trigger=(row.get("trigger") or "").strip().lower(),
+        trigger=trigger,
         account_key=(row.get("account_key") or "").strip() or account_key(row),
-        decision=(row.get("decision") or "").strip().lower(),
-        salvage_kind=(row.get("salvage_kind") or "").strip().lower(),
+        decision=decision,
+        salvage_kind=salvage_kind,
         note=(row.get("note") or "").strip(),
         detail=_raw_detail(row),
         company=row.get("company") or "",
@@ -394,6 +408,8 @@ def plan_apply(entries: list[DecisionEntry], prior: dict[tuple[str, str], dict])
             )
             plan.held.append(e)
             continue
+        if e.decision == "salvage" and not e.salvage_kind:
+            e.salvage_kind = _default_salvage_kind(e.trigger)
         if e.decision == "salvage" and e.salvage_kind.split(":", 1)[0] not in SALVAGE_KINDS:
             plan.refused.append(
                 f"{e.email}: salvage needs a chip from {SALVAGE_KINDS}, got {e.salvage_kind!r} — left held"
