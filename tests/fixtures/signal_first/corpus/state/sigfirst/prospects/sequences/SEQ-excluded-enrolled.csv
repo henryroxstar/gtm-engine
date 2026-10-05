@@ -1,0 +1,4 @@
+email,Email,first,First Name,last,Last Name,company,Company,cell_id,segment,seat,title,country,signal_clause,suppression
+sam.nakamura@riverbend-analytics.example,sam.nakamura@riverbend-analytics.example,Sam,Sam,Nakamura,Nakamura,Riverbend Analytics,Riverbend Analytics,cell-excluded,enterprise,platform,Chief Technology Officer,singapore,,
+alex.kraft@northwind-networks.example,alex.kraft@northwind-networks.example,Alex,Alex,Kraft,Kraft,Northwind Networks,Northwind Networks,cell-excluded,startup,platform,Head of Security,australia,,
+morgan.renner@brightpath-networks-group.example,morgan.renner@brightpath-networks-group.example,Morgan,Morgan,Renner,Renner,Brightpath Networks Group,Brightpath Networks Group,cell-excluded,unspecified,platform,Director of Engineering,singapore,the company described its agents handing work between two separate firms.,

@@ -54,6 +54,12 @@ from gtm_core.prospects_consolidate import (
     org_token as _org_token,
 )
 from gtm_core.prospects_state import load_latest
+from gtm_core.sequence_row import (  # noqa: F401 -- MAX_COUNTER_DIGITS and _int are re-exports
+    MAX_COUNTER_DIGITS,
+    _int,
+)
+from gtm_core.sequence_row import normalize_seq as _normalize_seq
+from gtm_core.sequence_snapshot_format import file_meta
 
 # Reference cost figures (NOT live — see gtm_core cost ledger for actuals).
 # Sourced from the Vibe/RocketReach cost-model notes; shown so the operator can
@@ -354,100 +360,28 @@ def build_status(
         },
         "sequences": sequences,
         "sequence": sequences[0] if sequences else None,  # back-compat
-        "snapshot": {k: snap[k] for k in ("fetched", "unreadable", "skipped", "source")},
+        "snapshot": {
+            k: snap[k] for k in ("fetched", "unreadable", "skipped", "source", "file_meta")
+        },
         "cost_model": COST_MODEL,
     }
 
 
-def _int(v) -> int:
-    try:
-        return int(float(str(v).strip() or 0))
-    except (TypeError, ValueError):
-        return 0
+#: What reading a snapshot file can raise. ``JSONDecodeError`` is a ``ValueError``, and so is the
+#: interpreter's refusal to parse an integer of more than 4300 digits; a document nested thousands
+#: deep raises ``RecursionError``. All of them mean "this file cannot be read", never a traceback
+#: that takes every later render of the profile down with it.
+_UNPARSEABLE = (ValueError, RecursionError, OSError)
 
 
-def _normalize_seq(d: dict) -> dict:
-    """Flatten a sequence's live stats into the curated set the page shows.
-
-    Accepts EITHER a raw Saleshandy ``get_sequence_stats`` payload (``prospects``
-    list + ``emails``) OR an already-flat dict the skill assembled — so the skill
-    layer can drop the MCP response verbatim without reshaping it.
-    """
-    if "prospects" in d and isinstance(d.get("prospects"), list):
-        p = (d["prospects"] or [{}])[0]
-        emails = d.get("emails")
-        status_block = emails.get("status") if isinstance(emails, dict) else None
-        est = status_block if isinstance(status_block, dict) else {}
-        # Presence of a bounce key -- not its value -- decides the source; missing or blank never reads as a genuine 0.
-        has_bounce_figure = isinstance(status_block, dict) and any(
-            est.get(k) not in (None, "")
-            for k in ("bounced", "hardBounced", "softBounced", "blockBounced")
-        )
-        if has_bounce_figure:
-            bounced = _int(est.get("bounced")) or (
-                _int(est.get("hardBounced"))
-                + _int(est.get("softBounced"))
-                + _int(est.get("blockBounced"))
-            )
-            bounce_source = "emails"
-        else:
-            bounced = _int(p.get("bounced"))
-            bounce_source = "prospects"
-        return {
-            "id": d.get("sequenceId", ""),
-            "name": d.get("sequenceName", ""),
-            "status": d.get("status", ""),
-            "loaded": _int(p.get("total")),
-            "sent": _int(p.get("contacted")),
-            "pending": _int(p.get("upcoming")) + _int(p.get("waiting")),
-            "delivered": _int(est.get("delivered")),
-            "opened": _int(p.get("open")) or _int(est.get("opened")),
-            "replied": _int(p.get("replied")) or _int(est.get("replied")),
-            "bounced": bounced,
-            "bounce_source": bounce_source,
-            "interested": _int(p.get("interested")),
-            "not_interested": _int(p.get("notInterested")),
-            "not_now": _int(p.get("notNow")),
-            "out_of_office": _int(p.get("outOfOffice")),
-            "unsubscribed": _int(p.get("unsubscribed")),
-            "do_not_contact": _int(p.get("doNotContact")),
-            "meetings": _int(p.get("meetingBooked")),
-            "deal_value": _int(p.get("meetingBookedDealValue"))
-            + _int(p.get("interestedDealValue")),
-        }
-    # already flat
-    keys = (
-        "id",
-        "name",
-        "status",
-        "loaded",
-        "sent",
-        "pending",
-        "delivered",
-        "opened",
-        "replied",
-        "bounced",
-        "interested",
-        "not_interested",
-        "not_now",
-        "out_of_office",
-        "unsubscribed",
-        "do_not_contact",
-        "meetings",
-        "deal_value",
-    )
-    flat = {k: (d.get(k) if k in ("id", "name", "status") else _int(d.get(k))) for k in keys}
-    flat["bounce_source"] = None  # no per-email block on the flat path -> rate is "not available"
-    return flat
-
-
-def _snapshot(rows, fetched, *, unreadable, skipped, source) -> dict:
+def _snapshot(rows, fetched, *, unreadable, skipped, source, meta=None) -> dict:
     return {
         "rows": rows,
         "fetched": fetched,
         "unreadable": unreadable,
         "skipped": skipped,
         "source": source,
+        "file_meta": meta,
     }
 
 
@@ -463,7 +397,7 @@ def load_sequence_snapshot(profile: str, content_root: Path | None) -> dict:
     if stats_file.exists():
         try:
             raw = json.loads(stats_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        except _UNPARSEABLE:
             return _snapshot([], None, unreadable=True, skipped=0, source="stats")
         if isinstance(raw, dict) and isinstance(raw.get("sequences"), list):
             items, fetched = raw["sequences"], raw.get("fetched")
@@ -472,14 +406,15 @@ def load_sequence_snapshot(profile: str, content_root: Path | None) -> dict:
         else:
             return _snapshot([], None, unreadable=True, skipped=0, source="stats")
         rows = [_normalize_seq(s) for s in items if isinstance(s, dict)]
+        skipped = len(items) - len(rows)
         return _snapshot(
-            rows, fetched, unreadable=False, skipped=len(items) - len(rows), source="stats"
+            rows, fetched, unreadable=False, skipped=skipped, source="stats", meta=file_meta(raw)
         )
     state_file = pool / "sequence-state.json"
     if state_file.exists():
         try:
             d = json.loads(state_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        except _UNPARSEABLE:
             return _snapshot([], None, unreadable=True, skipped=0, source="state")
         if not isinstance(d, dict):
             return _snapshot([], None, unreadable=True, skipped=0, source="state")

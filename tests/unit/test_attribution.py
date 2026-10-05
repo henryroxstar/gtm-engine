@@ -310,6 +310,7 @@ def test_send_cards_apply_registers_sequence_and_resolves_attribution(tmp_path: 
     export_payload = create_card_export(
         cells_data,
         decisions={"cell-sec-01": "send this cell"},
+        revealed_before={"cell-sec-01": True},
         run_id="run-wave-99",
     )
     export_file = tmp_path / "export.json"

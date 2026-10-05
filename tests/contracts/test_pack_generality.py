@@ -380,6 +380,7 @@ ENGINE_MODULES = (
     "agent/graph.py",
     "agent/pipeline_executor.py",
     "agent/packs.py",
+    "agent/egress_scope.py",
     "agent/readiness.py",
     "gtm_core/packs/loader.py",
     "gtm_core/packs/tenant.py",
@@ -448,6 +449,7 @@ _KNOWN_PACKS_AND_VARIANTS = frozenset(
         "planning",
         "prospecting",
         "prospect-outreach",
+        "source-capture",
         "solution-architecture",
     }
 )

@@ -264,6 +264,7 @@ work depends on is what makes the output strong. Setup handles the connection; n
 | **Media API keys** (Gemini · Higgsfield · ElevenLabs) | the same renders on the *headless* path, plus podcast/voice TTS | keys in `.env` | Self-hosted only | Mode 1 uses the connectors above instead |
 | **Saleshandy** | the email sequencer (Apollo or GMass can stand in — your profile's `email_tool` picks) — where `email-sequence` stages a multi-step sequence **paused**, and where the prospecting pack's `sequence-enroll` node pushes leads after you approve. Also the Do-Not-Contact list an opt-out is mirrored to | `SALESHANDY_API_KEY`, `SALESHANDY_DNC_LIST_ID` | Chat and self-hosted | sequences are drafted as files; nothing is staged in a sender |
 | **Syften** | community and social listening (`community-signal-analysis`, the Engagement pack, inbound signals) | `SYFTEN_API_KEY` | Chat and self-hosted | keyless web search covers far less of the long tail |
+| **TheirStack** *(optional)* | enterprise job posting and hiring intent acceleration (`prospect`, `gtm_core.signal_events`) | `THEIRSTACK_API_KEY` (Doppler-injected) | Chat and self-hosted | falls back to zero-cost ATS search across Greenhouse, Lever, and Ashby |
 | **Telegram** | **where you approve the gates in Mode 2.** Effectively required for the self-hosted agent — an unattended run with nowhere to ask simply stops at its gate | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` | Self-hosted only | not needed for Chat mode — you are the gate |
 | **Google Workspace** | reading and writing Docs/Drive deliverables | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | Self-hosted only | files stay on local disk |
 | **Your own deck renderer** *(optional)* | automatic PDF/PNG export for `build-deck` / `carousel-pdf` / `carousel-auto`. The skills always write the deck as **[Slidev](https://sli.dev) markdown** — an open format you own. Pointing `DECK_RENDERER_URL` at a renderer you run lets the agent export it without you leaving the chat | `DECK_RENDERER_URL` → a small HTTP service you host that accepts `POST /export` and shells out to Slidev's CLI. The host must be on the SSRF allowlist (localhost and a `deck-renderer` service name are allowed by default) | Chat and self-hosted | **you still get the whole deck** — just export it yourself with `npx slidev export` (add `--format png` for images). Nothing about the deck's content depends on this |
@@ -284,11 +285,13 @@ Metered skills **estimate cost and check your cap before every paid call** — s
 [`plugin/skills/prospect/references/discovery-and-budget.md`](plugin/skills/prospect/references/discovery-and-budget.md)
 for the prospecting budget model.
 
+**Zero-Cost ATS Sweeping & Signal Stacking:** `python -m gtm_core.signal_events.cli` probes and sweeps target hiring intent directly via cached ATS queries (`boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`), stacking multiple job openings into `cluster_expansion` Tier 1 signals and writing to monthly rolling ledgers (`events-YYYY-MM.jsonl`). When `THEIRSTACK_API_KEY` is not present, it gracefully defaults to zero-cost ATS search without blocking pipeline execution.
+
 ---
 
 ## What it does out of the box
 
-**11 packs ship in-repo, spanning 24 workflow variants** — each a wired **workflow graph** on the
+**11 packs ship in-repo, spanning 25 workflow variants** — each a wired **workflow graph** on the
 same unmodified engine. A pack is just which skills run, in what order, under which gates. All
 skills are shared, so a pack composes existing skills rather than owning them.
 
@@ -351,7 +354,7 @@ pause that guards something.
 |---|---|
 | **Operator guide** | [`PROSPECTING.md`](PROSPECTING.md) — a sample email, what the status report says, which decisions are yours, and what is not live yet |
 | **What it does** | Sources, enriches, and scores leads so your outreach lands where it should. Every account scored against **your** ideal customer profile, not a generic list |
-| **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** → **sequence-enroll** — one approval: you review the finished emails and the lead list together before anything reaches your sender. `sequence` drafts the enrolment plan and stops; `sequence-enroll` is the node that actually pushes the leads, and the agent never runs it — a Python-only dispatcher does, after you approve, because enrolling leads sends prospect details to a third-party processor |
+| **Flow** | prospect → dossier → outreach → email-quality → **sequence (gated)** → **sequence-enroll** — one approval: you review the finished emails and the lead list together before anything reaches your sender. `sequence` drafts the enrolment plan and stops; `sequence-enroll` is the node that actually pushes the leads, and the agent never runs it — a Python-only dispatcher does, after you approve, because enrolling leads sends prospect details to a third-party processor. One more variant, `source-capture`, is operator-only: a single `capture` node that fetches the source pages a pre-written manifest lists and nothing else. It is absent from the pack catalog and refused by the backend, and is run with `python -m agent.source_capture` |
 | **Data sources** | **Vibe Prospecting** — discovery, firmographics, company-level buyer-intent. **RocketReach** — verified contact email/phone, news & hiring triggers, job-change timing. **Apollo** — last-resort contact backstop (email only), company buying-intent, job-posting signals. Fused into a "why now" heat signal. Free web search is the fallback when none are connected |
 | **Output** | Scored brief · contact-ready outreach packs · HubSpot-ready CSV. Email drafts follow best-practice sequence structure (a real signal as the hook, a matched case study, one clear ask) and cite only public signals — intent times the touch, it never appears in the copy |
 | **After a reply lands** | The `inbound` pack reads it (read-only), classifies intent (P0–P3), and drafts a reply behind the same human gate. Nothing auto-sends |

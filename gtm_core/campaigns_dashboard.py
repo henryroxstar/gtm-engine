@@ -55,6 +55,14 @@ def _campaigns_dir(profile: str, content_root: Path | None = None) -> Path:
     return _prospects_dir(profile, content_root).parent / "plans" / "campaigns"
 
 
+def _id_set(value) -> set[str]:
+    """Sequence ids a manifest names, as text: a hand-edited ``sequences = [7]`` or a bare
+    string must not make the page raise or iterate a string's characters."""
+    if not isinstance(value, list):
+        return set()
+    return {str(v).strip() for v in value if isinstance(v, (str, int)) and str(v).strip()}
+
+
 def _load_manifests(profile: str, content_root: Path | None = None) -> list[dict]:
     """Every ``*.campaign.toml`` under ``plans/campaigns/``. Missing/malformed
     files are skipped, not fatal. Every field optional except ``slug``."""
@@ -63,7 +71,7 @@ def _load_manifests(profile: str, content_root: Path | None = None) -> list[dict
         try:
             with open(p, "rb") as f:
                 m = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError):
+        except (OSError, ValueError):  # ValueError: bad TOML and non-UTF-8 bytes alike
             continue
         if not m.get("slug"):
             continue
@@ -181,8 +189,8 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
     campaigns = []
     for m in manifests:
         slug = m["slug"]
-        manifest_ids = set(m.get("sequences") or [])
-        archived_ids = set(m.get("archived_sequences") or [])
+        manifest_ids = _id_set(m.get("sequences"))
+        archived_ids = _id_set(m.get("archived_sequences"))
         # A sequence belongs to this campaign if its staged event is tagged with the slug,
         # OR the manifest names its id. The manifest path also admits a sequence that was
         # never logged as staged (e.g. a hand-loaded live sequence) — it is synthesized

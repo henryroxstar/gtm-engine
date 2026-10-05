@@ -19,6 +19,11 @@ Invariants this module preserves:
   - Nobody is enrolled unless the paused sequence in Saleshandy still says exactly what was
     approved: the approval covers the copy as well as the people (client issue #244), so the
     sequence is read back first and any difference refuses the whole enrollment.
+  - Nobody is enrolled unless the profile's own records say the load may go ahead: the
+    compliance preflight for THIS sequence is on record and did not fail, the copy is the copy
+    that was digested at staging, and a pilot-limited campaign is not growing past its ceiling
+    (:mod:`gtm_core.load_preconditions`, A5). These are read before anything is read from
+    Saleshandy, and an unreadable record refuses rather than passes.
   - Every dispatch (success or failure) is audited via ``ledgers.append_history`` — a ledger
     write failure never blocks the caller from returning the outcome.
 """
@@ -26,14 +31,13 @@ Invariants this module preserves:
 from __future__ import annotations
 
 import datetime
-import html
 import json
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
 from agent.permissions import email_context
+from gtm_core.copy_words import normalise_copy, variant_words
 
 log = logging.getLogger(__name__)
 
@@ -47,27 +51,10 @@ _ENROLL_TOOLS = frozenset({"add_leads_to_sequence", "import_prospects_to_sequenc
 _SEQUENCE_PAGE_SIZE = 1000
 _MAX_SEQUENCE_PAGES = 20
 
-_BREAK_TAG = re.compile(r"<\s*/?\s*(?:br|p|div|li|ul|ol|tr|h[1-6])\b[^>]*>", re.IGNORECASE)
-_ANY_TAG = re.compile(r"<[^>]*>")
-_LINK = re.compile(r"""\b(?:href|src)\s*=\s*(["'])(.*?)\1""", re.IGNORECASE | re.DOTALL)
-
-
-def _normalise_copy(text: Any) -> str:
-    """The words a recipient reads: tags dropped (block tags and ``<br>`` as spaces),
-    entities decoded, whitespace collapsed. Saleshandy re-wrapping approved HTML is not a
-    difference; any change to the wording is."""
-    text = _ANY_TAG.sub("", _BREAK_TAG.sub(" ", text if isinstance(text, str) else ""))
-    return " ".join(html.unescape(text).split())
-
-
-def _variant_words(payload: Any) -> tuple:
-    """What a variant says: its subject, body and preheader wording, plus every link and image
-    address in the body — dropping tags would otherwise hide a changed ``href``."""
-    payload = payload if isinstance(payload, dict) else {}
-    content = payload.get("content") if isinstance(payload.get("content"), str) else ""
-    links = tuple(sorted(html.unescape(m.group(2)).strip() for m in _LINK.finditer(content)))
-    words = tuple(_normalise_copy(payload.get(key)) for key in ("subject", "content", "preheader"))
-    return (*words, links)
+# The words a recipient reads — one definition of "the same copy", shared with the digest
+# recorded at staging (gtm_core.load_preconditions), so the two can never disagree.
+_normalise_copy = normalise_copy
+_variant_words = variant_words
 
 
 def _read_json(raw: str) -> Any:
@@ -301,6 +288,48 @@ def _lane_refusal(draft: dict, ledgers: Any, cfg: Any) -> str | None:
     return check_account_status(rows, profile, content_root=content_root)
 
 
+def _load_refusal(draft: dict, ledgers: Any, cfg: Any) -> str | None:
+    """Why the profile's own records say this load must not go ahead, in plain words, or None.
+
+    The compliance preflight used to be a command whoever drove the load had to choose to run;
+    this makes it a precondition of the one path that loads people. Local reads only (history,
+    cells.toml), so it runs before any network call. The rules and their wording live in
+    :mod:`gtm_core.load_preconditions`, shared with the Claude Code hook.
+    """
+    from gtm_core.load_preconditions import load_refusal
+
+    refusal = load_refusal(
+        getattr(ledgers, "profile", None), getattr(cfg, "content_root", None), draft
+    )
+    return refusal.render() if refusal is not None else None
+
+
+def _stamp_enrolments(cfg: Any, ledgers: Any, draft: dict, *, failed: bool) -> None:
+    """Record who was enrolled (R6.2). A write failure is logged and never undoes an enrolment."""
+    if failed:
+        return
+    try:
+        from gtm_core import enrolments
+
+        enrolments.record(cfg.content_root, ledgers.profile, draft)
+    except Exception:  # noqa: BLE001 - the people are already enrolled; the stamp is a record
+        log.exception("Failed to write enrolments.jsonl")
+
+
+def _expiry_refusal(draft: dict) -> str | None:
+    """Why an approved draft is past its ``expires_on`` date, or ``None`` when it is not."""
+    expires_on = draft.get("expires_on")
+    if not expires_on:
+        return None
+    try:
+        exp_date = datetime.date.fromisoformat(str(expires_on).strip())
+    except ValueError:
+        return f"draft has invalid expires_on {expires_on!r}"
+    if datetime.date.today() > exp_date:
+        return f"draft expired on {expires_on}"
+    return None
+
+
 async def dispatch_approved_enrollment(
     cfg: Any,
     ledgers: Any,
@@ -346,19 +375,15 @@ async def dispatch_approved_enrollment(
     )
 
     rows = None
-    refusal = None
-    expires_on = draft.get("expires_on")
-    if expires_on:
-        try:
-            exp_date = datetime.date.fromisoformat(str(expires_on).strip())
-            if datetime.date.today() > exp_date:
-                refusal = f"draft expired on {expires_on}"
-        except ValueError:
-            refusal = f"draft has invalid expires_on {expires_on!r}"
+    refusal = _expiry_refusal(draft)
 
+    from_records = False
     try:
         if refusal is None:
             refusal = _lane_refusal(draft, ledgers, cfg)
+        if refusal is None:
+            refusal = _load_refusal(draft, ledgers, cfg)
+            from_records = refusal is not None
         if refusal is None:
             refusal = await _live_copy_refusal(api_key, draft)
         if refusal is None and tool == "import_prospects_to_sequence":
@@ -368,7 +393,9 @@ async def dispatch_approved_enrollment(
         refusal = f"could not verify the sequence before enrolling: {type(exc).__name__}"
 
     if refusal is not None:
-        raw, is_error = f"nothing enrolled — {refusal}", True
+        # A refusal from the records is already a full plain-words sentence ("I haven't loaded
+        # anyone. That's because …"); the older fragments keep the prefix they always had.
+        raw, is_error = (refusal if from_records else f"nothing enrolled — {refusal}"), True
     else:
         # The email-context flag permits the two Saleshandy enroll verbs only during this
         # approved dispatch window (mirrors publish_context() for Reap publish verbs). The
@@ -395,21 +422,23 @@ async def dispatch_approved_enrollment(
         is_error = raw.startswith("[saleshandy-error]")
     event = "enroll_failed" if is_error else "enrolled"
     outcome = EnrollDispatchOutcome(ok=not is_error, status=event, detail=raw)
+    _stamp_enrolments(cfg, ledgers, draft, failed=is_error)
 
     # Audit, written by the component that actually dispatched — never trusted to the model.
     try:
         lead_count = len(draft.get("lead_ids") or draft.get("prospect_list") or [])
-        ledgers.append_history(
-            {
-                "event": event,
-                "skill": "email-sequence",
-                "tool": tool,
-                "sequence_id": draft.get("sequence_id"),
-                "step_id": draft.get("step_id"),
-                "lead_count": lead_count,
-                "detail": raw if is_error else None,
-            }
-        )
+        row = {
+            "event": event,
+            "skill": "email-sequence",
+            "tool": tool,
+            "sequence_id": draft.get("sequence_id"),
+            "step_id": draft.get("step_id"),
+            "lead_count": lead_count,
+            "detail": raw if is_error else None,
+        }
+        if from_records:
+            row["reason_code"] = "load_preconditions"
+        ledgers.append_history(row)
     except Exception:  # noqa: BLE001 — a ledger write must never break the caller
         log.exception("Failed to write enrollment history")
 

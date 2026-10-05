@@ -1,0 +1,6 @@
+schema = 1
+
+[premise.alpha-premise]
+claim = "the reader runs more than one system alphaonly"
+min_distinct = 2
+terms = ["relay", "mesh"]

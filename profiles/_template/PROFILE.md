@@ -12,6 +12,7 @@
 name:            <Your Name>
 title:           <e.g. GTM Lead, [your product]>
 email_signature: <how you sign off — e.g. just your first name, or a full block>
+# signature_source: body    # OPTIONAL — remove the leading "# " to set it. body (default): the email BODY ends with your bare sign-off line and the outreach linter requires it. mailbox: your sending mailbox appends the signature itself, so the body must NOT end with a sign-off (a double sign-off is a lint error). Any other value is refused.
 ```
 
 ## Voice style  *(optional — overrides the built-in voice.md for outreach drafts)*

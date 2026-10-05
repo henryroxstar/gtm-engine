@@ -210,6 +210,11 @@ def test_an_approved_enrollment_with_no_sender_configured_is_email_not_configure
     async def _go():
         with (
             lifecycle_harness(db, executor) as hz,
+            patch.object(
+                runs_pack_executor,
+                "get_workspace_credentials",
+                AsyncMock(return_value={"saleshandy": "test-key"}),
+            ),
             patch.object(runs_pack_executor, "dispatch_backend_email_enroll", enroll),
         ):
             q = state._subscribe(run_id)
@@ -223,6 +228,33 @@ def test_an_approved_enrollment_with_no_sender_configured_is_email_not_configure
     frames = asyncio.run(_go())
     seen = _observed(db, frames)
     assert enroll.await_count == 1
+    assert seen.codes == ("email_not_configured",) * 4
+    assert seen.errors == (
+        ("no Saleshandy API key configured for this workspace — not enrolled",) * 4
+    )
+
+
+def test_a_pack_run_with_missing_required_integration_fails_at_preflight(ws_env):
+    """Issue #314: an unconfigured workspace attempting to run a pack with external effects
+    fails immediately at preflight before any nodes execute ($0 spend)."""
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    run_id = str(uuid.uuid4())
+    db = LifecycleDb(run_id, ws_env.ws_id)
+    recorded: list[str] = []
+    executor = fake_executor(recorded)
+
+    async def _go():
+        with lifecycle_harness(db, executor) as hz:
+            q = state._subscribe(run_id)
+            coro = _pack_run(hz, ws_env, run_id, pack="prospecting", variant="prospect-outreach")
+            task = _tracked(hz, db.workspace_id, run_id, coro)
+            await _settle(task)
+            state._unsubscribe(run_id, q)
+            return _drain(q)
+
+    frames = asyncio.run(_go())
+    seen = _observed(db, frames)
+    assert recorded == [], "no nodes should have executed"
     assert seen.codes == ("email_not_configured",) * 4
     assert seen.errors == (
         ("no Saleshandy API key configured for this workspace — not enrolled",) * 4

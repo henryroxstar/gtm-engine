@@ -6,7 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..paths import resolve_knowledge_file, resolve_profiles_root
+from .. import run_scope
+from ..paths import resolve_profiles_root
 from ..prospects_consolidate import _prospects_dir
 from ..signal_record import HOOK_CELL_COLUMN, SIGNAL_COLUMN
 from .config import (
@@ -39,7 +40,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 def _registry_or_none(
-    profile: str, profiles_root: Path | None, cov: Coverage, overlay: str | None
+    profile: str,
+    profiles_root: Path | None,
+    cov: Coverage,
+    overlay: str | None,
+    product: str | None = None,
 ) -> Registry | None:
     """The tenant's fact registry, or ``None`` with the reason recorded on ``cov``.
 
@@ -53,7 +58,9 @@ def _registry_or_none(
     The loading itself is :func:`load_registry_or_reason`, shared with ``backlog`` — this
     function only decides where the reason goes.
     """
-    registry, reason = load_registry_or_reason(profile, profiles_root, overlay=overlay)
+    registry, reason = load_registry_or_reason(
+        profile, profiles_root, overlay=overlay, product=product
+    )
     if reason:
         cov.warnings.append(reason)
     return registry
@@ -112,6 +119,7 @@ def audit_campaign(
     include_packs: bool = False,
     overlay: str | None = None,
     registry: Registry | None = None,
+    product: str | None = None,
 ) -> Coverage:
     """Measure one campaign's message axis, from ``cells.toml`` outward.
 
@@ -138,6 +146,8 @@ def audit_campaign(
     than degrading silently into "nobody has migrated yet".
     """
     profiles_root = profiles_root or resolve_profiles_root()
+    scope = run_scope.require(profile, product, profiles_root=profiles_root)
+    product = scope.product
     cov = Coverage(
         campaign=campaign,
         profile=profile,
@@ -147,10 +157,12 @@ def audit_campaign(
         min_signal_attestation=min_signal_attestation,
     )
     if registry is None:
-        registry = _registry_or_none(profile, profiles_root, cov, overlay)
+        registry = _registry_or_none(profile, profiles_root, cov, overlay, product)
 
     cov.matrix = parse_matrix(
-        resolve_knowledge_file(profiles_root, profile, "hook-matrix.md", overlay=overlay),
+        run_scope.product_file(
+            profile, scope, "hook-matrix.md", profiles_root=profiles_root, overlay=overlay
+        ),
         profile=profile,
     )
     if not cov.matrix.ok:
@@ -163,7 +175,7 @@ def audit_campaign(
             f"({unmapped}); recipients can never be attributed to them"
         )
 
-    cap_vocab = capability_vocab(profile, profiles_root)
+    cap_vocab = capability_vocab(profile, profiles_root, product)
 
     seq_dir = _prospects_dir(profile, content_root) / "sequences"
     sources = [

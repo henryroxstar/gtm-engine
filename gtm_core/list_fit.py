@@ -38,7 +38,9 @@ from typing import Any
 
 from .finding_budget import WARN_BUDGET, BudgetVerdict, budget_verdict, render_budget
 from .merge_hygiene import SIGNAL_MAX_AGE_DAYS, signal_is_fresh, signal_latest_date
+from .merge_hygiene.signal_dates import signal_recency_score
 from .prospect_paths import suppression_ledger
+from .signal_quality import derive_signal_quality_tier, is_cxo, load_signal_quality_config
 from .suppression import load_index as load_suppression_index
 
 __all__ = [
@@ -227,6 +229,12 @@ class ListAudit:
     acked: tuple[str, ...] = ()
     budget: int = WARN_BUDGET
     level_mix: Any = None
+    signal_quality_tiers: Counter = field(default_factory=Counter)
+    cxo_ready: int = 0
+    cxo_refuse: int = 0
+    cxo_unverified: int = 0
+    cxo_total: int = 0
+    advisories: list[str] = field(default_factory=list)
 
     @property
     def signal_usable(self) -> int:
@@ -242,6 +250,63 @@ class ListAudit:
         return bool(self.findings)
 
 
+def _audit_signal_quality(
+    a: ListAudit,
+    rows: list[dict],
+    as_of: datetime.date | None,
+    cfg: Any,
+) -> None:
+    if not any("signal_fit" in r for r in rows):
+        return
+    for r in rows:
+        title = r.get("title", "")
+        why_now = r.get("why_now", "")
+        observed = r.get("signal_observed")
+        recency = signal_recency_score(observed, as_of=as_of, why_now=why_now)
+        fit_raw = r.get("signal_fit")
+        virality_raw = r.get("signal_virality")
+        tier = derive_signal_quality_tier(recency, fit_raw, virality_raw, config=cfg)
+        a.signal_quality_tiers[tier] += 1
+
+        if is_cxo(title):
+            a.cxo_total += 1
+            if fit_raw is None or str(fit_raw).strip() == "":
+                a.cxo_unverified += 1
+            elif tier <= 2:
+                a.cxo_ready += 1
+            else:
+                a.cxo_refuse += 1
+
+    if a.cxo_total > 0:
+        if a.cxo_total == len(rows) and a.cxo_ready == 0:
+            a.findings.append(
+                f"cxo-quality-none-admissible: all {len(rows)} row(s) are CxOs and 0 are ready (Tier 1/2)."
+            )
+        elif a.cxo_refuse > 0 or a.cxo_unverified > 0:
+            a.advisories.append(
+                f"cxo-quality: {a.cxo_refuse + a.cxo_unverified} CxO row(s) (Tier 3/4 or unverified) will be triaged at enrollment."
+            )
+
+
+def _audit_tier_predictiveness(a: ListAudit) -> None:
+    graded = {t: v for t, v in a.tier_role.items() if t != "untiered" and v["rows"] >= 10}
+    if len(graded) >= 2:
+        best = max(graded.values(), key=lambda v: v["hit_rate"])
+        worst = min(graded.values(), key=lambda v: v["hit_rate"])
+        if best["hit_rate"] - worst["hit_rate"] < 0.15:
+            a.findings.append(
+                f"tier-meaningless: tier hit rates span only "
+                f"{worst['hit_rate']:.0%}-{best['hit_rate']:.0%}; the tier column does not predict "
+                f"role fit, so it must not be used to allocate research effort."
+            )
+        untiered = a.tier_role.get("untiered")
+        if untiered and untiered["rows"] >= 10 and untiered["hit_rate"] > best["hit_rate"]:
+            a.findings.append(
+                f"tier-inverted: untiered rows are {untiered['hit_rate']:.0%} on-target versus "
+                f"{best['hit_rate']:.0%} for the best labelled tier. The tier ranking is backwards."
+            )
+
+
 def audit_rows(
     rows: list[dict],
     as_of: datetime.date | None = None,
@@ -249,6 +314,7 @@ def audit_rows(
     min_hit_rate: float = 0.60,
     acked: tuple[str, ...] = (),
     budget: int = WARN_BUDGET,
+    profile: str = "",
 ) -> ListAudit:
     """Audit a prospect list before any research or enrolment spend.
 
@@ -264,6 +330,7 @@ def audit_rows(
     """
     a = ListAudit(rows=len(rows), acked=acked, budget=budget)
     tiers: dict[str, Counter] = defaultdict(Counter)
+    cfg = load_signal_quality_config(profile) if profile else None
 
     for r in rows:
         fit = role_fit(r.get("title", ""))
@@ -272,6 +339,9 @@ def audit_rows(
         tiers[(r.get("tier") or "untiered").strip() or "untiered"][fit] += 1
 
     a.sources = source_hit_rates(rows)
+
+    _audit_signal_quality(a, rows, as_of, cfg)
+
     a.tier_role = {
         t: {
             "rows": sum(c.values()),
@@ -294,22 +364,7 @@ def audit_rows(
 
     # A tier column is only useful if it predicts fit. When the best-labelled tier is no better
     # than the worst, the label is measuring something else and must not drive research spend.
-    graded = {t: v for t, v in a.tier_role.items() if t != "untiered" and v["rows"] >= 10}
-    if len(graded) >= 2:
-        best = max(graded.values(), key=lambda v: v["hit_rate"])
-        worst = min(graded.values(), key=lambda v: v["hit_rate"])
-        if best["hit_rate"] - worst["hit_rate"] < 0.15:
-            a.findings.append(
-                f"tier-meaningless: tier hit rates span only "
-                f"{worst['hit_rate']:.0%}-{best['hit_rate']:.0%}; the tier column does not predict "
-                f"role fit, so it must not be used to allocate research effort."
-            )
-        untiered = a.tier_role.get("untiered")
-        if untiered and untiered["rows"] >= 10 and untiered["hit_rate"] > best["hit_rate"]:
-            a.findings.append(
-                f"tier-inverted: untiered rows are {untiered['hit_rate']:.0%} on-target versus "
-                f"{best['hit_rate']:.0%} for the best labelled tier. The tier ranking is backwards."
-            )
+    _audit_tier_predictiveness(a)
 
     for src, s in a.sources.items():
         if s["rows"] >= 25 and s["hit_rate"] < min_hit_rate:
@@ -359,6 +414,23 @@ def render(a: ListAudit) -> str:
     ):
         lines.append(f"    {k:<12} {a.signal[k]:>5}")
     lines.append(f"    -> {a.signal_usable} row(s) can carry a personalised opener")
+    lines.append("  signal quality tier (wedge strength):")
+    tier_labels = {
+        1: "tier-1 (elite)",
+        2: "tier-2 (strong)",
+        3: "tier-3 (moderate)",
+        4: "tier-4 (marginal)",
+    }
+    for t in (1, 2, 3, 4):
+        cnt = a.signal_quality_tiers[t]
+        pct = f"({round(cnt / a.rows * 100)}%)" if a.rows else "(0%)"
+        lines.append(f"    {tier_labels[t]:<22} {cnt:>3}   {pct:>5}")
+    if a.cxo_total > 0:
+        lines.append("  cxo signal quality:")
+        lines.append(f"    tier-1/2 (ready)         {a.cxo_ready:>3}")
+        lines.append(f"    tier-3/4 (will refuse)   {a.cxo_refuse:>3}")
+        unver_suffix = "  (run signal_quality backfill)" if a.cxo_unverified > 0 else ""
+        lines.append(f"    unverified (will refuse) {a.cxo_unverified:>3}{unver_suffix}")
     if a.tier_role:
         lines.append("  tier vs role fit:")
         for t, v in a.tier_role.items():
@@ -369,6 +441,10 @@ def render(a: ListAudit) -> str:
     if getattr(a, "level_mix", None) is not None:
         lines.append("")
         lines.append(a.level_mix.render())
+    if a.advisories:
+        lines.append("  advisory:")
+        for adv in a.advisories:
+            lines.append(f"    - {adv}")
     lines.append("")
     if a.findings:
         lines.append(f"  FAIL — {len(a.findings)} finding(s):")
@@ -452,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
         min_hit_rate=args.min_hit_rate,
         acked=tuple(args.ack),
         budget=args.budget,
+        profile=args.profile,
     )
     print(render(a))
     return 0 if (args.warn_only or not a.failed) else 1

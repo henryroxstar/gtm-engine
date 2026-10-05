@@ -159,9 +159,23 @@ def run_lock_path(profile: str, content_root: Path | None = None) -> Path:
     return prospects_dir(profile, content_root) / ".run_lock"
 
 
-def run_state_json(profile: str, content_root: Path | None = None) -> Path:
-    """Persistent step-by-step state for the active or last prospect run."""
-    return prospects_dir(profile, content_root) / "run_state.json"
+def run_state_json(
+    profile: str, content_root: Path | None = None, product: str | None = None
+) -> Path:
+    """Persistent step-by-step state for the active or last prospect run.
+
+    ``product`` is a **second product's slug**, never the default product's: the default product
+    keeps the legacy ``run_state.json`` (same name, same keys), so a profile with one product, and
+    every run for the default product, read and write exactly the file they always did. A second
+    product gets ``run_state.<slug>.json``, so two products never share a resume point and a
+    ``reset`` for one cannot delete the other's state. Use :func:`gtm_core.run_state.run_state_path`
+    when you hold a named product rather than a state slug.
+    """
+    if product is None:
+        return prospects_dir(profile, content_root) / "run_state.json"
+    return (
+        prospects_dir(profile, content_root) / f"run_state.{_safe_segment(product, 'product')}.json"
+    )
 
 
 def run_summary_json(profile: str, content_root: Path | None = None) -> Path:

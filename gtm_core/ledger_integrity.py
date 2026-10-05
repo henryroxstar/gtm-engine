@@ -65,7 +65,7 @@ def enforce_drop_suppression(
         if verdict != "drop":
             continue
 
-        email = str(item.get("email", "")).strip()
+        email = str(item.get("email") or item.get("contact_email") or "").strip()
         name = str(item.get("contact_name") or item.get("name", "")).strip()
         domain = str(item.get("domain", "")).strip()
         reason = str(item.get("verdict_reason", "dropped-in-research")).strip()

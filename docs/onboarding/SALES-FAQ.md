@@ -111,11 +111,17 @@ On your own computer, inside the engine folder. Ask *"where did you save that?"*
 
 ## Prospecting & data tools
 
+**My company sells more than one product. Which one does a prospecting run use?**
+One per run. Once a second product has all of its own targeting and messaging files, the assistant asks; until then that product is not offered and a run for it stops, saying what is missing. Say *"find prospects"* and it offers your products with the main one recommended; a run for another product says in one sentence which settings it is borrowing from the main product. A run never mixes the products' arguments.
+
 **What do the status words mean?**
 Every prospect and account has a status that answers whose move it is next. See the full status table in [PROSPECTING.md](../../PROSPECTING.md#the-status-word--one-word-six-values-always-derived).
 
 **How do I check where my prospecting list stands?**
 Say *"where do I stand?"* (or *"how is my list doing?"*) — the engine gives you a count of whose move it is next, what is held back and why, and what is already in the sending tool. For what each status word means, see the table in [PROSPECTING.md](../../PROSPECTING.md#the-status-word--one-word-six-values-always-derived).
+
+**How do I know the status page's numbers are current?**
+Read its first line: it says when the page was built and how old the sending figures were. Past the age limit a card above the tabs says so and names the one command that fixes it. Say *"is the status page still true?"* to check every page, and *"refresh every status page"* to bring them up to date. The sending figures themselves are refreshed from your sending tool, which no re-render can do for you. A page it cannot refresh is named, with the command that fixes it. Details: [PROSPECTING.md](../../PROSPECTING.md#9b-how-old-are-these-numbers).
 
 **What's the difference between Vibe, RocketReach, and Apollo?**
 **Vibe** finds the right *companies* (discovery, firmographics, buyer-intent, events). **RocketReach** finds the right *person* at those companies — verified email and direct phone, plus hiring/news signals. **Apollo** is a backup for finding that person's email when RocketReach doesn't have them, plus its own company buying-intent signals. Vibe answers "who to target," RocketReach answers "how to reach them," Apollo fills the gaps.

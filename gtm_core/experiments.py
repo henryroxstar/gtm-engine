@@ -119,6 +119,7 @@ REFUSED: dict[str, str] = {
         "could automate a hold could silently un-hold a protected account"
     ),
     "competitors.toml": "drives the competitor-direct exclusion",
+    "regulators.toml": "a regulator list is a safety list; an experiment may never swap it",
     "domain-aliases.toml": "drives competitor/partner matching, so it is part of that exclusion",
     "voice-bans.txt": "a ban list is safety, not style",
     "outreach-banned-stems.txt": "a ban list is safety, not style",

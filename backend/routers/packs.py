@@ -111,6 +111,15 @@ async def list_packs(
     repo_root = request.app.state.cfg.repo_root
     profiles_root = workspace_profiles_root(principal.workspace_id, repo_root)
 
+    pool = getattr(request.app.state, "pool", None)
+    configured_integrations = None
+    if pool is not None:
+        from ..services.integrations import get_workspace_configured_providers
+
+        configured_integrations = await get_workspace_configured_providers(
+            pool, principal.workspace_id
+        )
+
     out: list[dict] = []
     profile_file = profiles_root / profile / "PROFILE.md"
     profile_text = profile_file.read_text(encoding="utf-8") if profile_file.is_file() else None
@@ -118,7 +127,9 @@ async def list_packs(
         if agent_packs is not None and resolved.graph.pack not in agent_packs:
             continue
         try:
-            report = variant_readiness(profiles_root, profile, resolved)
+            report = variant_readiness(
+                profiles_root, profile, resolved, configured_integrations=configured_integrations
+            )
         except ValueError:
             # Profile row exists but its files are not provisioned yet — the pack is
             # unrunnable for a knowable reason; say so rather than 500 or silence.
@@ -201,8 +212,19 @@ async def variant_readiness_detail(
             {"code": "pack_invalid", "message": "Pack configuration is invalid"},
         ) from exc
 
+    pool = getattr(request.app.state, "pool", None)
+    configured_integrations = None
+    if pool is not None:
+        from ..services.integrations import get_workspace_configured_providers
+
+        configured_integrations = await get_workspace_configured_providers(
+            pool, principal.workspace_id
+        )
+
     try:
-        report = variant_readiness(profiles_root, profile, resolved)
+        report = variant_readiness(
+            profiles_root, profile, resolved, configured_integrations=configured_integrations
+        )
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "Profile files are not provisioned yet"

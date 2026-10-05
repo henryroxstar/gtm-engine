@@ -1,12 +1,21 @@
 """PS20 T1.10/T1.11 — the page knows how old and how readable its sending figures are."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from gtm_core.email_campaign_dashboard import health
+from gtm_core.email_campaign_dashboard.config import FIGURES_MAX_AGE_DAYS
 
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+
+
+def test_the_limit_is_the_weekly_publish_cadence():
+    """T1 — the one constant the strip, the header and `--check-fresh` all read. Pinned
+    because the tests below choose their `fetched` values RELATIVE to it: a silent change
+    back to 2 would make the boundary test below vacuous rather than failing here.
+    """
+    assert FIGURES_MAX_AGE_DAYS == 7
 
 
 @pytest.mark.parametrize(
@@ -56,7 +65,7 @@ def test_fresh_readable_agreeing_page_has_no_strip():
 
 
 def test_old_figures_raise_figures_old():
-    st = _status([{"id": "S1"}], fetched="2026-09-22T11:00:00Z")
+    st = _status([{"id": "S1"}], fetched="2026-09-17T11:00:00Z")  # 8.04 days before NOW
     assert health.page_warnings(st, OK_REC, True, NOW) == ["figures-old"]
 
 
@@ -85,7 +94,7 @@ def test_sum_mismatch_is_records_disagree():
 def test_figures_exactly_at_max_age_is_not_old():
     """The boundary is `>`, never `>=` — exactly `FIGURES_MAX_AGE_DAYS` old is still fresh
     enough. Pinned so a future rewrite to `>=` fails here instead of passing unnoticed."""
-    st = _status([{"id": "S1"}], fetched="2026-09-23T12:00:00Z")  # exactly 2 days before NOW
+    st = _status([{"id": "S1"}], fetched="2026-09-18T12:00:00Z")  # exactly 7.0 days before NOW
     assert health.page_warnings(st, OK_REC, True, NOW) == []
 
 
@@ -241,3 +250,80 @@ def test_a_scoped_page_orders_its_own_gap_before_old_figures():
     rec = {"ok": False, "in_ledger_only": ["S1"], "in_snapshot_only": []}
     m = _m([C1], [{"id": "S1", "sent": 5}], rec, warnings=("records-disagree", "figures-old"))
     assert health.scoped_trust(m, {"S1"})["warnings"] == ["records-disagree", "figures-old"]
+
+
+def test_the_boundary_is_strict_on_fractional_days():
+    """T5 (the model half; the header/strip half is in
+    tests/contracts/test_dashboard_figures_age.py). Exactly the limit is fresh, a minute past
+    it is not, and the whole-day count the header shows still reads 7 at 7.5 days — which is
+    why the strip says "over 7 days" rather than quoting that count (PRD F1).
+    """
+    at_limit = NOW - timedelta(days=FIGURES_MAX_AGE_DAYS)
+    just_past = at_limit - timedelta(minutes=1)
+    half_past = NOW - timedelta(days=FIGURES_MAX_AGE_DAYS, hours=12)
+
+    def warned(when):
+        st = _status([{"id": "S1"}], fetched=when.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        return health.page_warnings(st, OK_REC, True, NOW)
+
+    assert warned(at_limit) == []
+    assert warned(just_past) == ["figures-old"]
+    assert warned(half_past) == ["figures-old"]
+    # The display count truncates; the comparison does not. Both must be true at once, or
+    # a 7.5-day-old snapshot would either pass as fresh or print "over 7 days" as "7 days".
+    assert health.figures_age_days(half_past.isoformat(), NOW) == FIGURES_MAX_AGE_DAYS
+    assert health._figures_age_exact_days(half_past.isoformat(), NOW) > FIGURES_MAX_AGE_DAYS
+
+
+# --- gaps a mutation pass found (2026-09-30) -------------------------------------------------
+
+
+def test_an_unreadable_snapshot_shows_no_age_even_when_it_carries_a_date():
+    """MUTANT: `age_days` computed for every state, not just `dated`. An unreadable snapshot that
+    still names a well-formed date would print "N days old" under a header that says it could not
+    read the figures at all — a number asserted about a file nobody could open."""
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+    fig = health.figures_state({"snapshot": {"unreadable": True, "fetched": "2026-09-25"}}, now)
+    assert fig["state"] == "unreadable"
+    assert fig["age_days"] is None and fig["date"] is None
+
+
+def test_a_blank_date_with_no_rows_is_undated_not_none():
+    """MUTANT N14 (`not fetched` for `fetched is None`): an empty-string `fetched` is a file that
+    HAS a date field and left it blank — undated, a finding — and is not the same as a snapshot
+    that has never been written (`None`, no rows), which is a setup step and warns nothing."""
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+    blank = health.figures_state({"snapshot": {"fetched": ""}, "sequences": []}, now)
+    never = health.figures_state({"snapshot": {"fetched": None}, "sequences": []}, now)
+    assert blank["state"] == "undated" and blank["over_limit"] is True
+    assert never["state"] == "none"
+    assert health.page_warnings(
+        {"snapshot": {"fetched": ""}, "sequences": []}, OK_REC, True, now
+    ) == ["figures-old"]
+
+
+def test_the_instant_is_the_exact_moment_in_utc_from_the_same_parse_as_the_age():
+    """The in-page banner's input. One parser: whatever `_figures_age_exact_days` accepts, this
+    normalises, and whatever it refuses, this refuses — so the browser and Python cannot disagree
+    about which stamps are readable."""
+    f = health.figures_instant
+    assert f("2026-09-25") == "2026-09-25T00:00:00Z"
+    assert f("2026-09-25T20:00:00Z") == "2026-09-25T20:00:00Z"
+    assert f("2026-09-25T20:00:00+08:00") == "2026-09-25T12:00:00Z"
+    assert f("2026-09-25T20:00:00-05:00") == "2026-09-26T01:00:00Z"
+    assert f("2026-09-25T20:00:00") == "2026-09-25T20:00:00Z"  # naive reads as UTC, as the age does
+    assert f("2026-09-25T20:00:00.250Z") == "2026-09-25T20:00:00.250Z"
+    for bad in (None, "", "   ", "garbage", "2026-13-40", 20260925, ["2026-09-25"]):
+        assert f(bad) is None, bad
+        assert health._figures_age_exact_days(bad, datetime(2026, 10, 1, tzinfo=UTC)) is None
+    # a stamp whose UTC form is out of range is unusable, never a traceback
+    assert f("0001-01-01T00:00:00+05:00") is None
+
+
+def test_the_state_carries_the_instant_only_when_dated():
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+    dated = health.figures_state(_status([{"id": "S1"}], fetched="2026-09-29T08:00:00+08:00"), now)
+    assert dated["state"] == "dated" and dated["instant"] == "2026-09-29T00:00:00Z"
+    for fetched in ("2026-12-25", "garbage", None):
+        st = health.figures_state(_status([{"id": "S1"}], fetched=fetched), now)
+        assert st["instant"] is None, fetched

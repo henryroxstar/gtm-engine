@@ -46,7 +46,13 @@ from gtm_core.prospects_item import (  # noqa: F401 — re-exported: the item ru
     normalise_items,
 )
 from gtm_core.prospects_merge import is_blank
-from gtm_core.prospects_state import _identity_key, _norm, upsert_latest
+from gtm_core.prospects_state import (
+    _identity_key,
+    _is_second_product,
+    _norm,
+    scoped_product,
+    upsert_latest,
+)
 from gtm_core.slugify import slug as _slug
 
 #: Default **ON**: a scored row must name the rubric it was scored against. Off exists only to
@@ -367,9 +373,17 @@ def finalize(
     run_date: str | None = None,
     rubric_version: str | None = None,
     standard: bool = False,
+    product: str | None = None,
+    identity_only: bool = False,
 ) -> dict:
     """Merge already-scored items into latest.json (snapshot-safe, merge-only) and
     emit the run's HubSpot CSV. ``scored_items`` come from the skill's scoring pass.
+
+    ``product`` names the product the run is for. A **second** product writes identity and contact
+    fields to the shared ledger only (:func:`gtm_core.prospects_state.upsert_latest`), and its CSV
+    goes to ``prospects/by-product/<slug>/``: consolidate folds in every ``prospects-*-hubspot.csv``
+    beside ``latest.json``, so a second product's export left there would join the default
+    product's pool.
 
     Every item — minimal or full — is read through :func:`normalise_items` first, so
     ``standard`` no longer selects anything and is kept only so existing invocations
@@ -396,8 +410,17 @@ def finalize(
     require_rubric_provenance(scored_items)
     items = normalise_items(scored_items)
 
-    render = functools.partial(_hubspot_row, run_date=run_date, rubric_version=rubric_version)
-    export = RunExport(items, _HUBSPOT_COLUMNS, render)
+    second = _is_second_product(profile, product)
+    base_render = functools.partial(_hubspot_row, run_date=run_date, rubric_version=rubric_version)
+    if second:
+        columns = [*_HUBSPOT_COLUMNS, "GTM_Account_ID"]
+
+        def render(row: dict) -> list:
+            return [*base_render(row), row.get("account_id", "")]
+
+    else:
+        columns, render = _HUBSPOT_COLUMNS, base_render
+    export = RunExport(items, columns, render, second_product=second)
     summary = upsert_latest(
         profile,
         items,
@@ -405,9 +428,18 @@ def finalize(
         content_root=content_root,
         new_account_defaults=new_account_defaults,
         on_merged=export.plan,  # rows are built — or refused — before the ledger is written
+        product=product,
+        identity_only=identity_only,
     )
     root = content_root or resolve_content_root()
-    csv_path = root / profile / "prospects" / f"prospects-{source_run}-hubspot.csv"
+    export_dir = root / profile / "prospects"
+    if second:
+        # The slug, never the spelling the caller used: "Beta Ledger" is the same product as "beta".
+        from gtm_core import run_scope
+
+        slug = run_scope.require(profile, product).product
+        export_dir = export_dir / "by-product" / _safe_segment(slug or "", "product")
+    csv_path = export_dir / f"prospects-{source_run}-hubspot.csv"
     export.write(csv_path)
     for company, why in export.excluded:
         print(f"NOT EXPORTED {company}: the account's {why} in latest.json", file=sys.stderr)
@@ -575,6 +607,16 @@ def _cli(argv: list[str] | None = None) -> int:
     fin.add_argument("--items", required=True, help="path to a JSON array of scored item objects")
     fin.add_argument("--source-run", required=True)
     fin.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
+    fin.add_argument(
+        "--identity-only",
+        action="store_true",
+        help="second product: write identity and contact fields to the ledger, drop fit fields",
+    )
+    fin.add_argument(
         "--run-date", default=None, help="YYYY-MM-DD for the HubSpot CSV's GTM_Run_Date column"
     )
     fin.add_argument(
@@ -624,6 +666,8 @@ def _run(args: argparse.Namespace) -> int:
             run_date=args.run_date,
             rubric_version=args.rubric_version,
             standard=args.standard,
+            product=scoped_product(args.profile, args.product),
+            identity_only=args.identity_only,
         )
         print(json.dumps(summary, indent=2))
         return 0

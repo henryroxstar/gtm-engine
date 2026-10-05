@@ -39,6 +39,7 @@ __all__ = [
     "refused_rows",
     "render_refused",
     "write_kept",
+    "write_refused",
 ]
 
 #: The gate's last line for a list with no rows at enrollment. It used to end in ``PASS``,
@@ -87,8 +88,9 @@ def refused_rows(
     """``(who, why)`` for every row the verdict filter removed, in file order.
 
     ``why`` is derived from the row, not re-decided: a row whose verdict is outside
-    ``wanted`` was refused on its verdict; any other removed row can only have been the
-    calibrated judge's ``drop`` (the filter has exactly those two exits).
+    ``wanted`` was refused on its verdict; a triaged row carries its explicit
+    ``refusal_reason``; any other removed row can only have been the calibrated
+    judge's ``drop`` (the filter has exactly those exits).
     """
     kept_ids = {id(r) for r in kept}
     out: list[tuple[str, str]] = []
@@ -96,7 +98,9 @@ def refused_rows(
         if id(r) in kept_ids:
             continue
         verdict = _verdict(r)
-        if verdict not in wanted:
+        if r.get("refusal_reason"):
+            out.append((_who(r), r["refusal_reason"]))
+        elif verdict not in wanted:
             out.append((_who(r), f"verdict {verdict or '(empty)'!r}"))
         else:
             out.append((_who(r), f"verdict {verdict!r}, judge drop (calibrated)"))
@@ -124,10 +128,12 @@ def read_list(csv_path: Path, enrolling: bool) -> tuple[list[str], list[dict], s
     return fieldnames, rows, EMPTY_LIST_FAIL if enrolling and not rows else None
 
 
-def _not_beside_the_list(csv_path: Path, kept_path: Path) -> str | None:
-    """Why the kept file may not be written where it was asked for, or ``None``.
+def _not_beside_the_list(
+    csv_path: Path, target_path: Path, flag_name: str = "--write-kept"
+) -> str | None:
+    """Why the target file may not be written where it was asked for, or ``None``.
 
-    The kept file is named people at named companies, and the path is chosen by whoever — or
+    The file is named people at named companies, and the path is chosen by whoever — or
     whatever — runs the gate. It must land in the SAME folder as the list it filters. That is
     where it belongs (the list's own tenant folder, beside the file it replaces), and it is
     what stops one tenant's list being written into another tenant's folder, where the next
@@ -135,11 +141,11 @@ def _not_beside_the_list(csv_path: Path, kept_path: Path) -> str | None:
     every tenant's tree sits under that one root.
     """
     here = Path(csv_path).expanduser().resolve().parent
-    there = Path(kept_path).expanduser().resolve().parent
+    there = Path(target_path).expanduser().resolve().parent
     if here == there:
         return None
     return (
-        f"REFUSED: --write-kept {str(kept_path)!r} is not beside the list it filters — write it "
+        f"REFUSED: {flag_name} {str(target_path)!r} is not beside the list it filters — write it "
         f"into {here} (a kept list in another folder is loaded by whatever run finds it there)"
     )
 
@@ -156,9 +162,19 @@ def flag_refusal(args: argparse.Namespace) -> str | None:
             "file is the one to load, and it would contain the suppressed rows"
         )
     if args.write_kept is not None:
-        beside = _not_beside_the_list(args.csv, args.write_kept)
+        beside = _not_beside_the_list(args.csv, args.write_kept, "--write-kept")
         if beside:
             return beside
+    write_refused_arg = getattr(args, "write_refused", None)
+    if write_refused_arg is not None:
+        beside = _not_beside_the_list(args.csv, write_refused_arg, "--write-refused")
+        if beside:
+            return beside
+        ref_path_refusal = refused_path_refusal(
+            args.csv, write_refused_arg, bool(args.require_verdict), args.write_kept
+        )
+        if ref_path_refusal:
+            return ref_path_refusal
     return kept_path_refusal(args.csv, args.write_kept, bool(args.require_verdict))
 
 
@@ -187,10 +203,51 @@ def kept_path_refusal(csv_path: Path, kept_path: Path | None, filtering: bool) -
     return None
 
 
+def refused_path_refusal(
+    csv_path: Path, refused_path: Path | None, filtering: bool, kept_path: Path | None = None
+) -> str | None:
+    """Why ``--write-refused`` cannot be honoured as given, or ``None``."""
+    if refused_path is None:
+        return None
+    if not filtering:
+        return (
+            "REFUSED: --write-refused needs --require-verdict — without it the gate filters no "
+            "verdicts, so there is no refused set to write"
+        )
+    same_as_csv = refused_path.resolve() == csv_path.resolve() or (
+        refused_path.exists() and csv_path.exists() and refused_path.samefile(csv_path)
+    )
+    if same_as_csv:
+        return (
+            f"REFUSED: --write-refused {str(refused_path)!r} is the input file — the refused rows are "
+            f"written beside it, never over it"
+        )
+    if kept_path is not None:
+        same_as_kept = refused_path.resolve() == kept_path.resolve() or (
+            refused_path.exists() and kept_path.exists() and refused_path.samefile(kept_path)
+        )
+        if same_as_kept:
+            return f"REFUSED: --write-refused and --write-kept cannot point to the same file ({str(refused_path)!r})"
+    return None
+
+
 def write_kept(kept_path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     """The rows that survived suppression and the verdict filter — same columns, atomically
     (temp file + ``os.replace``), so a reader sees the old file or the new one."""
-    fsio.atomic_write_csv(kept_path, fieldnames, rows)
+    out_cols = list(fieldnames)
+    if "signal_fit" in fieldnames:
+        for col in ("signal_quality_tier", "signal_recency_score"):
+            if col not in out_cols and any(col in r for r in rows):
+                out_cols.append(col)
+    fsio.atomic_write_csv(kept_path, out_cols, rows)
+
+
+def write_refused(refused_path: Path, fieldnames: list[str], rows: list[dict]) -> None:
+    """The rows triaged by the verdict filter or CxO quality gate — atomically written with refusal_reason."""
+    out_cols = list(fieldnames)
+    if "refusal_reason" not in out_cols:
+        out_cols.append("refusal_reason")
+    fsio.atomic_write_csv(refused_path, out_cols, rows)
 
 
 def pass_line(kept: int, total: int, kept_path: Path | None) -> str:

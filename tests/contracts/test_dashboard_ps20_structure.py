@@ -129,10 +129,10 @@ def _break_the_snapshot(tmp_path, profile):
 @pytest.mark.parametrize("mode", SCOPES)
 def test_only_the_strip_sits_above_the_tabs(tmp_path, mode):
     profile = _seed_every_site(tmp_path)
-    # `figures-old` alone no longer renders a card (it carries no sentence — see
-    # test_dashboard_ps20_trust.py::test_old_figures_alone_is_detected_but_renders_no_strip),
-    # and undated figures are all this fixture warns about. Break the snapshot so the strip
-    # this test is about is actually on the page, in every scope.
+    # This fixture's only warning is its undated figures, which since 2026-09-30 (PRD F1) DO
+    # render a strip of their own. The snapshot is still broken here deliberately: `unreadable`
+    # is the one reason that survives scoping unchanged, so the strip this test is about is on
+    # the page in every scope for the same reason rather than three different ones.
     _break_the_snapshot(tmp_path, profile)
     page = _render(tmp_path, profile, mode)
     top = head(page)

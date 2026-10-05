@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 
@@ -35,8 +36,11 @@ def test_cmd_cost_renders_budget_status(tmp_path, monkeypatch):
     (tmp_path / "profiles" / "example").mkdir(parents=True)
     (tmp_path / "profiles" / "example" / "PROFILE.md").write_text("monthly_tool_budget_usd: 50.0\n")
     (tmp_path / "example").mkdir()
+    # Stamped in the current month: the budget reads this month's spend, so a fixed date goes
+    # stale the day the month rolls over.
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     (tmp_path / "example" / "costs.jsonl").write_text(
-        '{"ts":"2026-09-03T10:00:00Z","cost_usd":12.5,"tool":"rocketreach"}\n'
+        f'{{"ts":"{ts}","cost_usd":12.5,"tool":"rocketreach"}}\n'
     )
 
     cockpit = botmod.Cockpit(make_cfg(tmp_path, chat_ids={CHAT_ID}))

@@ -122,6 +122,27 @@ def _last_line(path: Path) -> str | None:
         return None
 
 
+def _recent_rows(path: Path, nbytes: int = 65536) -> list[dict]:
+    """The JSON rows in the last ``nbytes`` of ``path``, oldest first; a partial or bad line is skipped."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            end = fh.tell()
+            fh.seek(max(0, end - nbytes))
+            data = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    rows: list[dict] = []
+    for line in data.splitlines()[1 if end > nbytes else 0 :]:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            rows.append(obj)
+    return rows
+
+
 class Ledgers:
     """Reads/writes the per-profile JSONL/JSON ledgers under ``content/<profile>/``.
 
@@ -157,7 +178,7 @@ class Ledgers:
     def _ensure_base(self) -> None:
         self._base.mkdir(parents=True, exist_ok=True)
 
-    def _append_jsonl(self, path: Path, record: dict) -> dict:
+    def _append_jsonl(self, path: Path, record: dict, *, once: Any = None) -> dict:
         """Append one record, chaining it to the previous raw line (NIST AU-9).
 
         Each record carries ``prev_sha256`` = SHA-256 of the previous line's raw bytes (newline
@@ -166,6 +187,10 @@ class Ledgers:
         read-tail + write happen under an exclusive advisory lock so a second process (the
         RocketReach MCP worker also appends here) chains to whatever was truly last, not a stale
         tail. Legacy unchained lines need no migration — the appender hashes whatever line is last.
+
+        ``once`` (a predicate over a recent row) makes the append idempotent: if a row in the
+        ledger's tail satisfies it, that row is returned and nothing is written. The check runs
+        inside the lock, so two writers that race to record the same event write one row.
         """
         self._ensure_base()
         enriched = dict(record)
@@ -174,6 +199,10 @@ class Ledgers:
             if fcntl is not None:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
             try:
+                if once is not None:
+                    for seen in reversed(_recent_rows(path)):
+                        if once(seen):
+                            return seen
                 last = _last_line(path)
                 enriched["prev_sha256"] = _line_sha256(last) if last is not None else GENESIS_HASH
                 line = json.dumps(enriched, ensure_ascii=False)
@@ -188,15 +217,17 @@ class Ledgers:
         """Append an audit record to ``history.jsonl`` (timestamped if needed)."""
         self._append_jsonl(self._history_path, record)
 
-    def append_cost(self, record: dict) -> dict:
+    def append_cost(self, record: dict, *, once: Any = None) -> dict:
         """Append a cost record to ``costs.jsonl`` (timestamped if needed).
+
+        ``once`` makes it idempotent (see :meth:`_append_jsonl`).
 
         Returns the record as written, including the stamped ``ts``. The ``ts`` is the ledger
         row's natural key (rows carry no id of their own) and is what a render manifest records
         as ``cost_ledger_ts`` so a spend can be tied back to the row that metered it — see
         :func:`gtm_core.render_manifest.write_render_manifest`.
         """
-        return self._append_jsonl(self._costs_path, record)
+        return self._append_jsonl(self._costs_path, record, once=once)
 
     def append_denial(self, record: dict) -> None:
         """Append a permission-policy event to ``denials.jsonl`` (timestamped if needed).

@@ -248,6 +248,9 @@ def _campaign_lines(m: dict) -> str:
     day = figures_date(snap.get("fetched"))
     if snap.get("unreadable"):
         as_of = "the sending tool's figures couldn't be read"
+    elif day and (m.get("figures") or {}).get("state") == "future":
+        # The header and the strip already say this; a clean date here would read as trusted.
+        as_of = f"figures dated {day}, in the future, so their age is unknown"
     elif day:
         as_of = f"figures from {day}"
     else:

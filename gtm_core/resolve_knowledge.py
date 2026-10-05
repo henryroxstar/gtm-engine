@@ -25,7 +25,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .paths import PathConfig, resolve_knowledge_file
+from .paths import PathConfig
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,8 +71,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        path = resolve_knowledge_file(
-            profiles_root, args.profile, args.filename, args.product, args.overlay
+        # The run scope first: a dropped or display-name `--product` on a company with a second
+        # product refuses here instead of printing the default product's path, and a product
+        # file that must be the product's own never falls back (`run_scope.product_file`).
+        from . import run_scope
+
+        scope = run_scope.require(args.profile, args.product, profiles_root=profiles_root)
+        path = run_scope.product_file(
+            args.profile, scope, args.filename, profiles_root=profiles_root, overlay=args.overlay
         )
     except ValueError as exc:
         print(f"[resolve-knowledge] {exc}", file=sys.stderr)

@@ -558,3 +558,98 @@ class WebhookResponse(BaseModel):
     run_id: str | None = None
     status: str  # "queued" | "duplicate"
     message: str | None = None
+
+
+# ── profile knowledge & suppressions (PRD-324) ────────────────────────────────
+
+
+class KnowledgeTopicResponse(BaseModel):
+    topic: str
+    content: str
+    frontmatter: dict[str, Any] | None = None
+
+
+class StagedTopicsResponse(BaseModel):
+    staged_topics: list[str]
+
+
+class KnowledgeStageRequest(BaseModel):
+    content: str = Field(..., max_length=500_000)
+    frontmatter: dict[str, Any] | None = None
+
+
+class KnowledgeDiffResponse(BaseModel):
+    topic: str
+    diff: str
+    has_changes: bool
+    staged: bool
+    candidate_sha: str | None = None
+
+
+class KnowledgePromoteRequest(BaseModel):
+    candidate_sha: str
+
+
+class KnowledgePromoteResponse(BaseModel):
+    topic: str
+    status: str = "promoted"
+    refreshed: str
+
+
+class CaseStudyStageRequest(BaseModel):
+    customer: str = Field(..., min_length=1, max_length=200)
+    problem: str = Field(..., min_length=1, max_length=1000)
+    action: str = Field(..., min_length=1, max_length=1000)
+    result: str = Field(..., min_length=1, max_length=500)
+    auto_promote: bool = False
+
+
+class CaseStudyResponse(BaseModel):
+    customer: str
+    problem: str
+    action: str
+    result: str
+    staged: bool
+    promoted: bool
+    diff: str | None = None
+
+
+class SuppressionItem(BaseModel):
+    company_domain: str | None = None
+    email: str | None = None
+    name: str | None = None
+    reason: str = Field(
+        default="competitor",
+        pattern="^(competitor|customer|partner|eval-disqualified|role-mismatch)$",
+    )
+    note: str = ""
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> SuppressionItem:
+        if (
+            not (self.company_domain and self.company_domain.strip())
+            and not (self.email and self.email.strip())
+            and not (self.name and self.name.strip())
+        ):
+            raise ValueError("At least one of company_domain, email, or name must be provided")
+        return self
+
+
+class SuppressionAddRequest(BaseModel):
+    items: list[SuppressionItem] = Field(..., min_length=1, max_length=500)
+
+
+class SuppressionEntryResponse(BaseModel):
+    email: str
+    name: str
+    company_domain: str
+    reason: str
+    date: str
+    note: str
+
+
+class SuppressionsListResponse(BaseModel):
+    suppressions: list[SuppressionEntryResponse]
+    total: int
+    limit: int
+    offset: int

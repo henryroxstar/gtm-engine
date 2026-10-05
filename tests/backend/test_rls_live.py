@@ -16,6 +16,7 @@ Lens coverage (per the hardening PRD verification plan):
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 
 import pytest
@@ -774,6 +775,49 @@ def test_open_gate_row_never_clobbers_a_decision_committed_while_it_waits(clean_
                 )
             assert row["state"] == "approved" and row["decided_at"] is not None
             assert row["applied_at"] is None, "the decision must still be UNCLAIMED"
+        finally:
+            await api.close()
+
+    asyncio.run(body())
+
+
+def test_encrypted_credentials_rows_are_invisible_to_another_workspace(clean_db):
+    """T7: encrypted_credentials under credentials_isolation RLS: workspace A's
+    saleshandy credential is never visible to workspace B."""
+
+    async def body():
+        from backend.database import create_pool, workspace_scope
+
+        api = await create_pool(clean_db["api_dsn"], min_size=1, max_size=3)
+        try:
+            async with api.acquire() as c:
+                _, wa = await _register(c, "creda@example.com")
+                _, wb = await _register(c, "credb@example.com")
+            async with workspace_scope(api, wa) as c:
+                await c.execute(
+                    """INSERT INTO encrypted_credentials(workspace_id, provider, account_ref, encrypted_data, wrapped_dek, iv, tag, key_version)
+                       VALUES($1::uuid, 'saleshandy', 'default', decode('656e63', 'hex'), decode('646b', 'hex'), decode('313233343536373839303132', 'hex'), decode('31323334353637383930313233343536', 'hex'), 'v1')""",
+                    wa,
+                )
+                assert await c.fetchval("SELECT count(*) FROM encrypted_credentials") == 1
+                providers_a = [
+                    r["provider"]
+                    for r in await c.fetch("SELECT DISTINCT provider FROM encrypted_credentials")
+                ]
+                assert providers_a == ["saleshandy"]
+            async with workspace_scope(api, wb) as c:
+                assert await c.fetchval("SELECT count(*) FROM encrypted_credentials") == 0
+                assert await c.fetch("SELECT DISTINCT provider FROM encrypted_credentials") == []
+
+            # Also verify get_workspace_configured_providers helper directly
+            from backend.services.integrations import get_workspace_configured_providers
+
+            os.environ["VAULT_KEK"] = "0123456789abcdef" * 4  # 32 bytes, as get_kek() requires
+            try:
+                assert await get_workspace_configured_providers(api, wa) == {"saleshandy"}
+                assert await get_workspace_configured_providers(api, wb) == set()
+            finally:
+                os.environ.pop("VAULT_KEK", None)
         finally:
             await api.close()
 

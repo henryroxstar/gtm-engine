@@ -8,13 +8,43 @@ import pytest
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospects_consolidate as pc
 from gtm_core.email_campaign_dashboard.aggregate import _scope_figures
+from gtm_core.email_campaign_dashboard.config import FIGURES_MAX_AGE_DAYS
 from gtm_core.email_campaign_dashboard.filters import row_groups
 from gtm_core.prospect_lede import GO_LIVE_WORDS
+from gtm_core.sequence_snapshot_format import FORMAT, body_digest
 from tests.test_dashboard_operator_truth import _badge
 from tests.test_email_campaign_dashboard import CSV_HEADER, _page, _seed
 
 
-def _stats(tmp_path, profile, payload):
+def _stamped(payload):
+    """A legacy ``{fetched, sequences}`` payload as the refresh command writes it: every row
+    carries its own date (here the top-level one) and the body digest is recorded."""
+    data = json.loads(payload) if isinstance(payload, str) else payload
+    rows = data["sequences"]
+    stamp = data.get("fetched")
+    ids = [str(r.get("id") or r.get("sequenceId")) for r in rows]
+    raw = {
+        "format": FORMAT,
+        "fetched": stamp,
+        "sequences": rows,
+        "stamps": dict.fromkeys(ids, stamp) if isinstance(stamp, str) else {},
+        "inherited": [],
+        "falls": {},
+        "payload_sha256": {},
+    }
+    raw["body_sha256"] = body_digest(raw)
+    return raw
+
+
+def _stats(tmp_path, profile, payload, *, stamped=False):
+    """Write ``sequence-stats.json``. ``stamped=True`` writes the per-sequence-dated shape the
+    refresh command produces; the default is the older shape, which the page labels as taking
+    its date from the file."""
+    if stamped:
+        try:
+            payload = _stamped(payload)
+        except ValueError:
+            pass  # a deliberately unreadable file stays as written
     pc._pool_dir(profile, tmp_path).joinpath("sequence-stats.json").write_text(
         payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8"
     )
@@ -39,29 +69,12 @@ def test_unreadable_snapshot_reads_unknown_not_zero(tmp_path):
     assert "These numbers may be out of date" not in head  # no artifact records-disagree
 
 
-def test_old_figures_alone_is_detected_but_renders_no_strip(tmp_path):
-    """`figures-old` no longer has a sentence, so on its own it must not render an empty
-    warning card — but the underlying model still flags it (still colors things that key off
-    ``m["warnings"]`` elsewhere on the page, e.g. the go-live badge)."""
-    profile = _seed(tmp_path)
-    _stats(tmp_path, profile, {"fetched": _ago(3), "sequences": [{"id": "S1", "sent": 0}]})
-    m = gd.build_model(profile, tmp_path)
-    assert m["warnings"] == ["figures-old"]
-    page = _page(tmp_path, profile)
-    assert 'class="card warn"' not in _strip(page)
-
-
-def test_unparseable_fetched_shows_no_date_not_the_raw_string(tmp_path):
-    """A garbage `fetched` must never print as if it were a date — the renderer no longer
-    prints a sentence for `figures-old` at all, so with no other reason present it renders no
-    strip (`health.figures_date` still backs the underlying detection)."""
-    profile = _seed(tmp_path)
-    _stats(tmp_path, profile, {"fetched": "yesterday", "sequences": [{"id": "S1", "sent": 0}]})
-    m = gd.build_model(profile, tmp_path)
-    assert m["warnings"] == ["figures-old"]
-    page = _page(tmp_path, profile)
-    assert 'class="card warn"' not in page
-    assert "from yesterday" not in page
+# `figures-old`'s own two tests moved to tests/contracts/test_dashboard_figures_age.py on
+# 2026-09-30 (PRD F1, T2/T3). They lived here pinning the ABSENCE of the sentence that commit
+# `3ff97acf` deleted — `test_old_figures_alone_is_detected_but_renders_no_strip` and
+# `test_unparseable_fetched_shows_no_date_not_the_raw_string` — so a restored sentence had to
+# fail them. They are REPLACED rather than repaired: their subject is now the copy itself, and
+# the header that carries the age on every render is part of the same contract.
 
 
 def test_two_reasons_render_as_one_strip(tmp_path):
@@ -71,15 +84,17 @@ def test_two_reasons_render_as_one_strip(tmp_path):
     pool = pc._pool_dir(profile, tmp_path)
     stats = json.loads((pool / "sequence-stats.json").read_text(encoding="utf-8"))
     stats["sequences"].append({"id": "GHOST", "name": "Ghost", "status": "paused", "sent": 0})
-    stats["fetched"] = _ago(3)
+    stats["fetched"] = _ago(FIGURES_MAX_AGE_DAYS + 1)  # 3 days is FRESH under the 7-day limit
     (pool / "sequence-stats.json").write_text(json.dumps(stats), encoding="utf-8")
     page = _page(tmp_path, profile)
     assert page.count('class="card warn"') == 1
     assert 'data-warn="records-disagree figures-old"' in page
     strip = page.split('<div class="card warn"', 1)[1].split("</div>", 1)[0]
-    # figures-old marks the strip via data-warn but no longer contributes a sentence.
-    assert strip.count("<p>") == 1
+    # Two reasons, two sentences, ONE card. `figures-old` regained its sentence on 2026-09-30
+    # (PRD F1) and merges into this strip rather than stacking a second card above the tabs.
+    assert strip.count("<p>") == 2
     assert "Refresh before trusting anything below." in strip
+    assert "over 7 days before this page was built" in strip
 
 
 def test_go_live_badge_uses_the_one_vocabulary(tmp_path):

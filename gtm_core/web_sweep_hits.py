@@ -18,6 +18,7 @@ import re
 import tomllib
 from typing import Any
 
+from gtm_core import run_scope
 from gtm_core.merge_hygiene import clean_company
 from gtm_core.paths import PathConfig, resolve_knowledge_file
 from gtm_core.role_vocabulary import DEFAULT_SEGMENTS
@@ -84,13 +85,26 @@ def _within_why_now_window(segment: str, hit_type: str, age_days: int) -> bool:
 
 # --- agent-kind classification (PSK-016: word-bounded, not a substring test) ---------------
 
-_regex_cache: dict[tuple[str, float, float], re.Pattern] = {}
+_regex_cache: dict[tuple[str, str, str, float, float], re.Pattern] = {}
 
 
-def get_ai_vocab_regex(profile: str) -> re.Pattern:
+def get_ai_vocab_regex(profile: str, product: str | None = None) -> re.Pattern:
+    """The profile's AI-vocabulary regex, for the product the run is bound to.
+
+    ``product`` goes through :func:`gtm_core.run_scope.require`, so on a profile with a second
+    product a dropped product raises rather than returning the default product's vocabulary. The
+    cache key carries the **resolved paths** as well as their mtimes: two products' files can
+    share an mtime (a fresh checkout), and a key of ``(profile, mtime, mtime)`` would hand the
+    second product the first one's regex.
+    """
+    scope = run_scope.require(profile, product)
     config = PathConfig.from_env()
-    ws_path = resolve_knowledge_file(config.profiles_root, profile, "web-sweep.toml")
-    rv_path = resolve_knowledge_file(config.profiles_root, profile, "role-vocabulary.toml")
+    ws_path = resolve_knowledge_file(
+        config.profiles_root, profile, "web-sweep.toml", product=scope.product
+    )
+    rv_path = resolve_knowledge_file(
+        config.profiles_root, profile, "role-vocabulary.toml", product=scope.product
+    )
 
     if not ws_path.is_file():
         raise FileNotFoundError(f"Missing required config file: {ws_path}")
@@ -100,7 +114,7 @@ def get_ai_vocab_regex(profile: str) -> re.Pattern:
     ws_mtime = ws_path.stat().st_mtime
     rv_mtime = rv_path.stat().st_mtime
 
-    cache_key = (profile, ws_mtime, rv_mtime)
+    cache_key = (profile, str(ws_path), str(rv_path), ws_mtime, rv_mtime)
     if cache_key in _regex_cache:
         return _regex_cache[cache_key]
 
@@ -142,13 +156,13 @@ _HUMAN_AGENT_CONTEXT_RE = re.compile(
 )
 
 
-def _determine_agent_kind(text: str, profile: str | None = None) -> str:
+def _determine_agent_kind(text: str, profile: str | None = None, product: str | None = None) -> str:
     """Classify agent kind: ai, human, unclear, or none — word-bounded matching only, so
     'ai' never matches inside 'said'/'retail'/'raised'/'maintain'/'email' and 'agent' inside
     an insurer's or staffing firm's own vocabulary is 'human', not 'ai'."""
     if profile is None:
         profile = PathConfig.from_env().default_profile
-    ai_vocab_re = get_ai_vocab_regex(profile)
+    ai_vocab_re = get_ai_vocab_regex(profile, product)
     if ai_vocab_re.search(text):
         return "ai"
     if not _AGENT_WORD_RE.search(text):
@@ -222,7 +236,11 @@ def _resolve_subject(
 
 
 def _resolve_strength(
-    raw: dict[str, Any], hit_type: str, evidence: str, profile: str | None = None
+    raw: dict[str, Any],
+    hit_type: str,
+    evidence: str,
+    profile: str | None = None,
+    product: str | None = None,
 ) -> str:
     strength = str(raw.get("strength") or "").upper()
     if strength in ("H", "M", "L"):
@@ -230,7 +248,7 @@ def _resolve_strength(
     # Heuristic default: newsroom / eng / incident with genuine AI-agent content -> H, else M.
     if (
         hit_type in ("newsroom", "eng", "incident")
-        and _determine_agent_kind(evidence, profile=profile) == "ai"
+        and _determine_agent_kind(evidence, profile=profile, product=product) == "ai"
     ):
         return "H"
     return "M"
@@ -299,6 +317,7 @@ def _evaluate_hit(
     segment: str,
     ref_date: dt.date | None,
     profile: str | None = None,
+    product: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None, str | None]:
     """Validate and normalize one raw hit (PSK-018/017/021/020's shared core).
 
@@ -325,7 +344,9 @@ def _evaluate_hit(
         return None, "subject-mismatch", None, subject
 
     hit_type = str(raw.get("type") or "newsroom").lower()
-    strength = _resolve_strength(raw, hit_type, fields["evidence"], profile=profile)
+    strength = _resolve_strength(
+        raw, hit_type, fields["evidence"], profile=profile, product=product
+    )
 
     if not _check_freshness(hit_type, segment, age_days):
         return None, "stale", None, None
@@ -362,6 +383,7 @@ def normalize_hit(
     segment: str = "startup",
     ref_date: dt.date | None = None,
     profile: str | None = None,
+    product: str | None = None,
 ) -> dict[str, Any] | None:
     """Normalize and validate a single hit. Returns None if invalid, stale, or off-subject.
 
@@ -372,6 +394,6 @@ def normalize_hit(
     """
     cleaned_co = clean_company(company)
     hit, _reason, _context, _stranger = _evaluate_hit(
-        raw, cleaned_co, segment, ref_date, profile=profile
+        raw, cleaned_co, segment, ref_date, profile=profile, product=product
     )
     return hit

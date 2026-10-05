@@ -105,18 +105,27 @@ def _rendered(row: dict, touch, extra: dict | None = None) -> tuple[str, str, di
     )
 
 
-def judge_context(spec_path: str, profile: str) -> dict:
+def judge_context(spec_path: str, profile: str, product: str | None = None) -> dict:
     """The spec's ``capability:`` and the profile's capability groups, for the judge's context.
-    Empty when the profile has no capability vocabulary — never a guess."""
+    Empty when the profile has no capability vocabulary — never a guess.
+
+    ``product`` scopes the vocabulary. A dropped product on a profile that has a second product
+    raises :class:`gtm_core.run_scope.ScopeError` out of here, deliberately: swallowing it into
+    ``{}`` would score a second product's email with no capability context and say nothing.
+    """
+    from gtm_core.run_scope import ScopeError
+
     try:
         from gtm_core.hook_coverage.premise import capability_vocab, declared_capability
 
         text = Path(spec_path).read_text(encoding="utf-8") if Path(spec_path).is_file() else ""
-        vocab = capability_vocab(profile) if profile else {}
+        vocab = capability_vocab(profile, product=product) if profile else {}
         return {
             "capability": declared_capability(text, vocab) if text else "",
             "capability_groups": sorted(vocab),
         }
+    except ScopeError:
+        raise
     except Exception:  # noqa: BLE001 — context is advisory; a vocab failure must not block scoring
         return {}
 
@@ -327,6 +336,7 @@ async def score_emails(
     repaired: bool = False,
     reverse_rubric: bool = False,
     backend: str = "",
+    product: str = "",
 ) -> str:
     """Score EVERY row of a staged sequence and write one adjudication record per row.
 
@@ -355,6 +365,8 @@ async def score_emails(
         reverse_rubric: Reverse rubric item order — PRD §3.2's flip-rate stability control.
         backend: Force ``"api"`` or ``"sdk"``. Leave empty to auto-select; set it only to
             reproduce a prior run's transport exactly.
+        product: The product this run is for. Required once the profile has a second product;
+            it scopes the capability groups the judge is told about. Leave empty otherwise.
 
     Returns a JSON string: ``{rows, scored, unscored, backend, out, verdicts: {...}}``, or a
     payload carrying ``error``. ``scored + unscored == rows`` always.
@@ -391,7 +403,7 @@ async def score_emails(
         repair_attempt=repair_attempt,
         repaired=repaired,
         op="re-judge" if repair_attempt else "score_emails",
-        extra=judge_context(spec_path, profile),
+        extra=judge_context(spec_path, profile, product or None),
     )
 
     # Has this judge ever been measured against a human? Stamped on every record BEFORE the

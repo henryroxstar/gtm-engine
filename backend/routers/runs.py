@@ -184,11 +184,6 @@ async def create_run(
 
     try:
         admit_run_creation(principal, body)
-    except Refusal as exc:
-        await audit_service_refusal_from(request.app.state.cfg, principal, request.url.path, exc)
-        raise
-
-    try:
         agent_row, profile_name = await resolve_acting_agent(pool, ws, body)
         if body.pack is not None:
             # Called for its refusals — see resolve_pack_for_run's own docstring for the
@@ -200,6 +195,7 @@ async def create_run(
                 profile_name,
                 agent_row,
                 body,
+                pool=pool,
             )
         elif getattr(body, "context", None):
             from ..callers.dependency import refusal_to_http
@@ -209,6 +205,9 @@ async def create_run(
                 DefaultInletGuard().guard_context(body.context, ())
             except Refusal as exc:
                 raise refusal_to_http(exc) from exc
+    except Refusal as exc:
+        await audit_service_refusal_from(request.app.state.cfg, principal, request.url.path, exc)
+        raise
     except HTTPException as exc:
         await audit_service_refusal(request.app.state.cfg, principal, request.url.path, exc)
         raise

@@ -1,0 +1,7 @@
+[[claim]]
+id = "solo-claim"
+group = "observability"
+status = "verified"
+statement = "The solo product records each action. soloonly"
+source = "knowledge/references/solo-notes.md:1"
+do_not_say = ["tamper-proof"]

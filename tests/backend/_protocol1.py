@@ -252,7 +252,7 @@ def patch_everywhere(modules, name, value):
 
 
 @contextlib.contextmanager
-def pack_run_harness(conn, executor):
+def pack_run_harness(conn, executor, *, credentials: dict[str, str] | None = None):
     """Patch _execute_pack_run's collaborators: fake executor + given conn +
     always-allowing budget + no-op push. Yields the conn back."""
 
@@ -263,8 +263,16 @@ def pack_run_harness(conn, executor):
     budget_ok = AsyncMock(return_value=True)
     push = AsyncMock(return_value=0)
     done_push = AsyncMock(return_value=0)
+    creds = {"saleshandy": "test-saleshandy-key"} if credentials is None else credentials
     with contextlib.ExitStack() as stack:
         stack.enter_context(patch("agent.packs.execute_stage", executor))
+        stack.enter_context(
+            patch.object(
+                runs_pack_executor,
+                "get_workspace_credentials",
+                AsyncMock(return_value=creds),
+            )
+        )
         for mod in SCOPE_MODULES:
             stack.enter_context(patch.object(mod, "workspace_scope", _scope))
         for mod in BUDGET_MODULES:

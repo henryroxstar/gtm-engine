@@ -104,9 +104,40 @@ def test_wrapper_and_status_model_carry_the_same_rows(tmp_path):
         encoding="utf-8",
     )
     assert [r["id"] for r in pd._load_sequences("acme", tmp_path)] == ["S1"]
-    assert pd.build_status("acme", tmp_path)["snapshot"] == {
+    snap = pd.build_status("acme", tmp_path)["snapshot"]
+    assert {k: snap[k] for k in ("fetched", "unreadable", "skipped", "source")} == {
         "fetched": "2026-09-20",
         "unreadable": False,
         "skipped": 0,
         "source": "stats",
     }
+    assert snap["file_meta"]["stamps"] == {"S1": "2026-09-20"}
+
+
+@pytest.mark.parametrize(
+    "falls",
+    [
+        {"S1": {"on": "2026-09-29T08:00:00Z", "changes": "abc"}},
+        {"S1": {"on": "2026-09-29T08:00:00Z", "changes": [{"x": 1}]}},
+        ["S1"],
+    ],
+    ids=["changes-is-text", "item-lacks-keys", "falls-is-a-list"],
+)
+def test_a_malformed_falls_entry_loads_as_an_edited_file_not_an_error(tmp_path, falls):
+    """The loader feeds every page build: a shape it cannot read must come back as a flag on
+    the file, with nothing from it kept, never as an exception."""
+    from gtm_core.sequence_snapshot_format import FORMAT, body_digest
+
+    raw = {
+        "format": FORMAT,
+        "fetched": "2026-09-29T08:00:00Z",
+        "sequences": [{"sequenceId": "S1", "prospects": [{"contacted": 3}]}],
+        "stamps": {"S1": "2026-09-29T08:00:00Z"},
+        "falls": falls,
+    }
+    raw["body_sha256"] = body_digest(raw)  # a hash that matches: only the shape gives it away
+    _pool(tmp_path).joinpath("sequence-stats.json").write_text(json.dumps(raw), encoding="utf-8")
+    snap = pd.load_sequence_snapshot("acme", tmp_path)
+    assert snap["unreadable"] is False and [r["id"] for r in snap["rows"]] == ["S1"]
+    assert snap["file_meta"]["edited"] is True and snap["file_meta"]["falls"] == {}
+    pd.build_status("acme", tmp_path)  # and the status model builds on it

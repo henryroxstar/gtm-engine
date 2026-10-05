@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from html.parser import HTMLParser
 
 import pytest
@@ -194,7 +195,9 @@ def test_a_campaign_title_named_by_the_strip_renders_escaped(tmp_path, sequences
         )
     _stats(tmp_path, profile, {"fetched": _ago(0), "sequences": [{"id": "S1", "sent": 5}]})
     m = gd.build_model(profile, tmp_path)
-    assert m["warnings"] == ["records-disagree"]
+    # A listed sequence the figures lack leaves the age unknown, so that page is also "old".
+    missing = "S9" in sequences
+    assert m["warnings"] == ["records-disagree"] + (["figures-old"] if missing else [])
     strip = _warn_div(gd.render_html(m))
     assert sentence in strip and "It affects" in strip
     assert ESCAPED_SCRIPT in strip
@@ -258,3 +261,59 @@ def test_the_ledger_check_catches_a_write(tmp_path):
         fh.write(json.dumps({"event": "prospect_run", "ts": "2026-09-21T00:00:00Z"}) + "\n")
 
     assert _sha(history, costs) != before  # would fail "byte-identical" above
+
+
+# --- the figures-old strip names sequence ids (verification audit F2) ---------------------------
+
+HOSTILE_ID = "<img src=x onerror=1>"
+
+
+def _format2_stats(tmp_path, profile, sequence_id, *, stamped):
+    """A ``format: 2`` file whose one sequence is the hostile id, with a valid body digest so the
+    loader accepts it as the writer's own file. ``stamped=False`` leaves the stamp out, which is
+    the shape whose cause text (``"<id>: figures carry no date"``) the strip interpolates."""
+    from gtm_core.sequence_snapshot_format import body_digest
+
+    doc = {
+        "format": 2,
+        "fetched": _ago(0),
+        "sequences": [{"sequenceId": sequence_id, "emails": {"status": {"delivered": 3}}}],
+        "stamps": {sequence_id: _ago(0)} if stamped else {},
+        "inherited": [],
+        "falls": {},
+        "payload_sha256": {},
+    }
+    doc["body_sha256"] = body_digest(doc)
+    pc._pool_dir(profile, tmp_path).joinpath("sequence-stats.json").write_text(
+        json.dumps(doc), encoding="utf-8"
+    )
+
+
+def test_a_hostile_sequence_id_renders_escaped_in_the_figures_strip(tmp_path):
+    """The strip's undated wording interpolated ``figure_ages.cause_text(fig)`` raw: the ids it
+    joins come from the provider's own file (§R5), and the other branch of that sentence
+    legitimately carries ``<code>``, so the page cannot escape the whole card. The id is escaped
+    where it is interpolated. Through the real path: a format-2 file, an unstamped hostile id, the
+    real renderer. Catches: dropping ``_e`` around ``cause_text`` in
+    ``freshness.figures_strip_sentence``."""
+    profile = _seed(tmp_path)
+    _format2_stats(tmp_path, profile, HOSTILE_ID, stamped=False)
+
+    page = gd.render_html(gd.build_model(profile, tmp_path))
+    card = re.search(r'<div class="card warn" data-warn="[^"]*figures-old[^"]*">.*?</div>', page)
+    assert card, "precondition: the figures-old strip rendered"
+    card = card.group(0)
+    assert "carry no usable date" in card, "precondition: the id reached the strip"
+    assert HOSTILE_ID not in page
+    assert "&lt;img src=x onerror=1&gt;" in card
+
+
+def test_the_hostile_id_check_would_catch_a_raw_interpolation(tmp_path):
+    """Red evidence: the same fixture with the escaping removed WOULD leak the id, so the
+    assertion above is a real check and not a payload the loader happened to drop."""
+    profile = _seed(tmp_path)
+    _format2_stats(tmp_path, profile, HOSTILE_ID, stamped=False)
+    m = gd.build_model(profile, tmp_path)
+    from gtm_core.email_campaign_dashboard import figure_ages
+
+    assert HOSTILE_ID in figure_ages.cause_text(m["figures"])

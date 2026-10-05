@@ -29,11 +29,26 @@ from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
+
+class GateDenial(dict):
+    """The ``tool_input`` a capture-gate denial hands the sink: ``{"reason": <code>}``.
+
+    A reason is read only from this type, never from a key of an ordinary dict: the brain builds
+    an MCP call's arguments, so a ``reason`` key in one of those is the brain writing to the ledger.
+    """
+
+
 _MAX_DETAIL = 300
 
 #: Outcomes a permission event can record. "denied" = the policy denied it outright;
 #: "approved"/"declined"/"timeout" = the cockpit ask path consulted the operator.
 OUTCOMES = ("denied", "approved", "declined", "timeout")
+
+
+def _gate_reasons() -> tuple[str, ...]:
+    from gtm_core.capture_manifest import REASONS
+
+    return REASONS
 
 
 def denial_detail(tool_name: str, tool_input: dict | None) -> str:
@@ -45,7 +60,11 @@ def denial_detail(tool_name: str, tool_input: dict | None) -> str:
     elif tool_name == "Skill":
         raw = str(tool_input.get("skill") or tool_input.get("name") or "")
     elif tool_name.startswith("mcp__"):
-        raw = ""  # the tool name already carries server+leaf; args may hold payload/PII
+        # The tool name already carries server+leaf; args may hold payload/PII. A capture-gate
+        # denial passes only its reason code, read from a GateDenial and checked against the
+        # closed set, so nothing the brain wrote can reach the ledger through here.
+        reason = tool_input.get("reason") if isinstance(tool_input, GateDenial) else None
+        raw = f"capture-gate: {reason}" if reason in _gate_reasons() else ""
     else:
         raw = str(
             tool_input.get("file_path") or tool_input.get("path") or tool_input.get("pattern") or ""

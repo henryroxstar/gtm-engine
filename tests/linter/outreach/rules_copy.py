@@ -204,7 +204,13 @@ def lint_email(
     signoff: str = "Alex",
     case_studies: tuple[str, ...] = DEFAULT_CASE_STUDY_NAMES,
     banned_stems: tuple[str, ...] = DEFAULT_BANNED_STEMS,
+    signature_source: str = "body",
 ) -> list[Violation]:
+    # `body` (default): the body ends with the bare sign-off. `mailbox`: the sequencer appends the
+    # signature, so the `sign-off` rule inverts (see gtm_core.signature_source). Any other value
+    # is refused: a typo must not quietly restore the rule it was set to invert.
+    if signature_source not in ("body", "mailbox"):
+        raise ValueError(f"signature_source must be 'body' or 'mailbox', not {signature_source!r}")
     v: list[Violation] = []
     low = b.body.lower()
     plain = re.sub(r"\s+", " ", b.body)
@@ -287,7 +293,19 @@ def lint_email(
         _sig = _sig[:-1]
     body_wo_signoff = "\n".join(_sig) if lines and lines[-1] == signoff else b.body
     sentences = _sentences(body_wo_signoff)
-    if not lines or lines[-1] != signoff:
+    if signature_source == "mailbox":
+        tail = lines[-1] if lines else ""
+        if tail == signoff or tail.rstrip(",").strip().lower() in VALEDICTIONS:
+            v.append(
+                Violation(
+                    "ERROR",
+                    b.label,
+                    "sign-off",
+                    f"body ends with {tail!r} but the mailbox already appends the signature "
+                    "(double sign-off) — end the body on its last sentence",
+                )
+            )
+    elif not lines or lines[-1] != signoff:
         v.append(Violation("ERROR", b.label, "sign-off", f"last line must be bare {signoff!r}"))
 
     # Length

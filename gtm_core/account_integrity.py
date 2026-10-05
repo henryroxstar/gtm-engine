@@ -61,11 +61,17 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import os
 import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from .account_relation_gate import check_row_relation, parse_relation_ack
+from .account_relation_load import load_index as load_relation_index
+from .account_relation_record import record_relation_overrides
 
 # The competitor index and the registrable-stem helper live in `competitor_index` (moved
 # 2026-09-21, when matching grew to every identity an entry declares); re-exported here so
@@ -86,6 +92,7 @@ from .enrollment_gate import (
 from .finding_budget import WARN_BUDGET, budget_verdict, render_budget
 from .lane_verdicts import LANE_VERDICTS as _LANE_VERDICTS
 from .merge_hygiene import check_row
+from .merge_hygiene.signal_dates import signal_recency_score
 from .paths import _safe_segment, resolve_content_root, resolve_profiles_root
 from .prospect_paths import suppression_ledger
 from .prospects_consolidate import (
@@ -94,6 +101,7 @@ from .prospects_consolidate import (
     DOSSIER_GLOB_ONEPAGER,
     dossier_folder,
 )
+from .signal_quality import derive_signal_quality_tier, is_cxo, load_signal_quality_config
 from .signal_record import audit_records
 from .signal_sources import sources_dir_for
 from .suppression import load_index as load_suppression_index
@@ -104,6 +112,7 @@ from .verdict_refusals import (
     read_list,
     refused_lines,
     write_kept,
+    write_refused,
 )
 
 __all__ = [
@@ -422,6 +431,7 @@ _ROW_LEVEL_RULES = frozenset(
         "relation-regulator",
         "relation-partner",
         "relation-adjacent",
+        "relation-public-body",
         "signal-clause-underivable",
         "signal-source-missing",
         "signal-source-malformed",
@@ -448,6 +458,8 @@ _ROW_LEVEL_RULES = frozenset(
 @dataclass
 class AccountAudit:
     rows: int = 0
+    #: the test-scoped `--signal-age-days` override in force, or None (the per-segment limit)
+    signal_age_days: int | None = None
     accounts: int = 0
     no_dossier: int = 0
     domain_academic: int = 0
@@ -510,6 +522,10 @@ class VerdictFilterStats:
     kept: int = 0
     judge_dropped: int = 0  # calibrated judge additionally removed
     judge_advisory: int = 0  # uncalibrated judge flagged `drop`, kept anyway
+    cxo_dropped: int = 0
+    cxo_unverified: int = 0
+    tier4_dropped: int = 0
+    refused_rows: list[dict] = field(default_factory=list)
 
 
 #: Which researcher ``verdict`` values may enrol in each lane (see ``gtm_core.lane_router``).
@@ -598,6 +614,7 @@ GENERIC_LANE_STAYS_ERROR = frozenset(
         "relation-regulator",
         "relation-partner",
         "relation-adjacent",
+        "relation-public-body",
         # the contact's own address is wrong or unusable — a property of the row, not of
         # its research record, so no lane's body style makes it safe
         "domain-academic",
@@ -619,8 +636,100 @@ def _is_generic_advisory(rule: str) -> bool:
     return rule in GENERIC_LANE_ADVISORY
 
 
+def _triage_signal_row(
+    r: dict,
+    recency: float,
+    config: Any,
+    gate_enabled: bool,
+    stats: VerdictFilterStats,
+) -> bool:
+    """Triage a single row in a signal-enabled lane.
+
+    Returns True if row is kept, False if dropped.
+    """
+    title = r.get("title", "")
+    fit_val = r.get("signal_fit")
+    has_fit = fit_val is not None and str(fit_val).strip() != ""
+    vir_raw = r.get("signal_virality")
+    virality_val = vir_raw if vir_raw is not None and str(vir_raw).strip() != "" else 1
+
+    if is_cxo(title):
+        if not has_fit:
+            if gate_enabled:
+                stats.cxo_unverified += 1
+                refused_r = dict(r)
+                refused_r["refusal_reason"] = "cxo-signal-quality-unverified"
+                r["refusal_reason"] = "cxo-signal-quality-unverified"
+                stats.refused_rows.append(refused_r)
+                return False
+            print(
+                f"ADVISORY [gate disabled]: CxO {r.get('email') or r.get('company')} "
+                f"has unverified signal quality",
+                file=sys.stderr,
+            )
+            return True
+
+        tier = derive_signal_quality_tier(recency, fit_val, virality_val, config=config)
+        if tier > 2:
+            if gate_enabled:
+                stats.cxo_dropped += 1
+                refused_r = dict(r)
+                refused_r["refusal_reason"] = f"cxo-signal-quality-low (Signal Tier {tier})"
+                r["refusal_reason"] = f"cxo-signal-quality-low (Signal Tier {tier})"
+                stats.refused_rows.append(refused_r)
+                return False
+            print(
+                f"ADVISORY [gate disabled]: CxO {r.get('email') or r.get('company')} "
+                f"has Tier {tier} signal",
+                file=sys.stderr,
+            )
+        r["signal_quality_tier"] = str(tier)
+        r["signal_recency_score"] = f"{recency:.2f}"
+        return True
+
+    if "signal_fit" in r or has_fit:
+        if not has_fit:
+            if gate_enabled:
+                stats.tier4_dropped += 1
+                refused_r = dict(r)
+                refused_r["refusal_reason"] = "signal-quality-unverified"
+                r["refusal_reason"] = "signal-quality-unverified"
+                stats.refused_rows.append(refused_r)
+                return False
+            print(
+                f"ADVISORY [gate disabled]: Recipient {r.get('email') or r.get('company')} "
+                f"has unverified signal quality",
+                file=sys.stderr,
+            )
+            return True
+
+        tier = derive_signal_quality_tier(recency, fit_val, virality_val, config=config)
+        if tier == 4:
+            if gate_enabled:
+                stats.tier4_dropped += 1
+                refused_r = dict(r)
+                refused_r["refusal_reason"] = "signal-quality-tier4-prohibited"
+                r["refusal_reason"] = "signal-quality-tier4-prohibited"
+                stats.refused_rows.append(refused_r)
+                return False
+            print(
+                f"ADVISORY [gate disabled]: Recipient {r.get('email') or r.get('company')} "
+                f"has prohibited Tier 4 signal",
+                file=sys.stderr,
+            )
+        r["signal_quality_tier"] = str(tier)
+        r["signal_recency_score"] = f"{recency:.2f}"
+    return True
+
+
 def filter_by_verdict(
-    rows: list[dict], want: str, *, lane: str = ""
+    rows: list[dict],
+    want: str,
+    *,
+    lane: str = "",
+    profile: str = "",
+    as_of: datetime.date | None = None,
+    signal_age_days: int | None = None,
 ) -> tuple[list[dict], VerdictFilterStats]:
     """Keep only rows whose researcher ``verdict`` may enrol in ``lane`` (``want`` alone when
     no lane is named — today's behaviour, unchanged), then apply the calibrated-judge-may-
@@ -629,6 +738,12 @@ def filter_by_verdict(
     a judge ``drop`` is always advisory (see ``_JUDGE_MAY_REMOVE_LANES``). One
     implementation, so ``main()`` and any other caller (the status dashboard) cannot
     report two different counts for the same list.
+
+    Enforces the Hard CxO Gate and Signal Quality Triage:
+    - In generic lane (or unlaned), signal quality check is skipped.
+    - In signal/personalised lanes: CxOs require Tier <= 2 signal quality.
+    - Non-CxOs require Tier <= 3 (Tier 4 is prohibited).
+    - When GTM_CXO_SIGNAL_GATE_ENABLED=false (kill switch), rows are not dropped.
     """
     want = want.strip().lower()
     lane = lane.strip().lower()
@@ -638,6 +753,10 @@ def filter_by_verdict(
         )
     wanted = LANE_VERDICTS[lane] if lane else frozenset({want})
     judge_may_remove = lane in _JUDGE_MAY_REMOVE_LANES
+    gate_enabled = os.getenv("GTM_CXO_SIGNAL_GATE_ENABLED", "true").lower() != "false"
+    is_signal_lane = lane in ("personalised", "signal")
+    config = load_signal_quality_config(profile) if profile else None
+
     stats = VerdictFilterStats(total=len(rows))
     kept: list[dict] = []
     for r in rows:
@@ -648,8 +767,28 @@ def filter_by_verdict(
                 stats.judge_dropped += 1
                 continue
             stats.judge_advisory += 1
+
+        fit_val = r.get("signal_fit")
+        has_fit = fit_val is not None and str(fit_val).strip() != ""
+        recency = signal_recency_score(
+            r.get("signal_observed"),
+            as_of=as_of,
+            why_now=r.get("why_now"),
+            max_age_days=signal_age_days,
+        )
+
+        why_now = r.get("why_now") or ""
+        obs = r.get("signal_observed")
+        ak = str(r.get("signal_agent_kind") or "").lower().strip()
+        has_signal_fields = bool(why_now or obs or has_fit or ak)
+
+        if is_signal_lane and has_signal_fields:
+            if not _triage_signal_row(r, recency, config, gate_enabled, stats):
+                continue
+
         kept.append(r)
     stats.kept = len(kept)
+    return kept, stats
     return kept, stats
 
 
@@ -725,6 +864,65 @@ def _competitor_finding(
         a.warnings.append(f"competitor-flag: {company!r} — {hit.summary}")
 
 
+def _audit_row_issues(
+    a: AccountAudit,
+    r: dict,
+    lane: str,
+    domain_aliases: dict,
+) -> None:
+    """Check domain, why_now, and artifact issues for a single row."""
+    company = r.get("company", "")
+    issue, detail = domain_issue(r, domain_aliases)
+    if issue == DomainIssue.ACADEMIC:
+        a.domain_academic += 1
+        a.errors.append(
+            f"domain-academic: {r.get('email', '')!r} at {company!r} — {detail} — an "
+            f"academic address is not a legitimate corporate contact here"
+        )
+    elif issue == DomainIssue.ACADEMIC_MEDICAL:
+        a.domain_academic_medical += 1
+        a.warnings.append(
+            f"domain-academic-medical: {r.get('email', '')!r} at {company!r} — "
+            f"{detail} — declared in domain-aliases.toml as this account's own "
+            f"academic domain (an academic medical centre genuinely runs corporate mail "
+            f"on .edu); confirm the seat is a buyer and not a clinician"
+        )
+    elif issue == DomainIssue.MISMATCH:
+        a.domain_mismatch += 1
+        a.warnings.append(
+            f"domain-mismatch: {r.get('email', '')!r} at {company!r} — {detail} — "
+            f"often benign (parent/subsidiary, brand vs. legal-name domain); confirm "
+            f"before send"
+        )
+    elif issue == DomainIssue.PERSONAL:
+        a.domain_personal += 1
+        a.warnings.append(
+            f"domain-personal: {r.get('email', '')!r} at {company!r} — free webmail, "
+            f"confirm this is really the buyer's working address"
+        )
+    elif issue == DomainIssue.UNVERIFIABLE:
+        a.domain_unverifiable += 1
+
+    why_not = why_now_not_a_signal(r.get("why_now", ""))
+    if why_not:
+        a.why_now_not_signal += 1
+        consequence = (
+            "why_now is not merged into a generic body, so no recipient reads this "
+            "sentence — but the row has no dated why-now for a personalised send"
+            if lane.strip().lower() == "generic"
+            else "why_now is the merge field; this row would open its email with that sentence"
+        )
+        a.errors.append(f"why-now-not-a-signal: {company!r} — {why_not}. {consequence}")
+
+    artifact = stale_artifact_string(company)
+    if artifact:
+        a.stale_artifact += 1
+        a.errors.append(
+            f"stale-artifact-string: {company!r} carries a research-note suffix "
+            f"({artifact!r}) that leaked into the live merge field"
+        )
+
+
 def audit_rows(
     rows: list[dict],
     profile: str,
@@ -736,6 +934,9 @@ def audit_rows(
     budget: int = WARN_BUDGET,
     as_of: datetime.date | None = None,
     lane: str = "",
+    signal_age_days: int | None = None,
+    acked_domains: set[str] | None = None,
+    recorded_overrides: list[dict[str, Any]] | None = None,
 ) -> AccountAudit:
     """Audit a load-ready prospect list for account-level integrity, immediately
     before it becomes sequence copy — the whole reason this runs after ``list_fit``
@@ -743,9 +944,15 @@ def audit_rows(
     is designed to run (which judges the rendered copy): this is the last check that
     can still stop a bad row before a human ever sees it as a "ready" email.
     """
-    a = AccountAudit(rows=len(rows), acked=acked, budget=budget)
-    competitors = load_competitors(profile, profiles_root)
+    a = AccountAudit(rows=len(rows), acked=acked, budget=budget, signal_age_days=signal_age_days)
+    relation_index = load_relation_index(profile, profiles_root)
     domain_aliases = load_domain_aliases(profile, profiles_root)
+    if acked_domains is None:
+        acked_domains = set()
+        for item in acked:
+            res = parse_relation_ack(item)
+            if res:
+                acked_domains.add(res[1])
 
     # The research record. Owned by gtm_core.signal_record; this gate owns the moment
     # it runs — the same arrangement as check_row above, and for the same reason: the
@@ -755,6 +962,7 @@ def audit_rows(
         fieldnames if fieldnames is not None else (list(rows[0]) if rows else []),
         as_of=as_of,
         lane=lane,
+        signal_age_days=signal_age_days,
         # `content_root / "sources"` (no profile segment) once sent this to the SAME
         # tenant-less folder regardless of which profile's rows were being audited — the
         # hook writes under `<content_root>/<profile>/sources`, so a caller that passed an
@@ -781,61 +989,7 @@ def audit_rows(
     from .lanes.router import account_key
 
     for r in rows:
-        company = r.get("company", "")
-        issue, detail = domain_issue(r, domain_aliases)
-        if issue == DomainIssue.ACADEMIC:
-            a.domain_academic += 1
-            a.errors.append(
-                f"domain-academic: {r.get('email', '')!r} at {company!r} — {detail} — an "
-                f"academic address is not a legitimate corporate contact here"
-            )
-        elif issue == DomainIssue.ACADEMIC_MEDICAL:
-            a.domain_academic_medical += 1
-            a.warnings.append(
-                f"domain-academic-medical: {r.get('email', '')!r} at {company!r} — "
-                f"{detail} — declared in domain-aliases.toml as this account's own "
-                f"academic domain (an academic medical centre genuinely runs corporate mail "
-                f"on .edu); confirm the seat is a buyer and not a clinician"
-            )
-        elif issue == DomainIssue.MISMATCH:
-            a.domain_mismatch += 1
-            a.warnings.append(
-                f"domain-mismatch: {r.get('email', '')!r} at {company!r} — {detail} — "
-                f"often benign (parent/subsidiary, brand vs. legal-name domain); confirm "
-                f"before send"
-            )
-        elif issue == DomainIssue.PERSONAL:
-            a.domain_personal += 1
-            a.warnings.append(
-                f"domain-personal: {r.get('email', '')!r} at {company!r} — free webmail, "
-                f"confirm this is really the buyer's working address"
-            )
-        elif issue == DomainIssue.UNVERIFIABLE:
-            a.domain_unverifiable += 1
-
-        why_not = why_now_not_a_signal(r.get("why_now", ""))
-        if why_not:
-            a.why_now_not_signal += 1
-            # The consequence clause is lane-dependent, and stating the personalised one
-            # in the generic lane is simply false: `{{Why Now}}` is never merged into a
-            # generic body, so that row does not open its email with that sentence. A
-            # finding whose stated consequence the operator can see is untrue is how a
-            # real rule gets read past.
-            consequence = (
-                "why_now is not merged into a generic body, so no recipient reads this "
-                "sentence — but the row has no dated why-now for a personalised send"
-                if lane.strip().lower() == "generic"
-                else "why_now is the merge field; this row would open its email with that sentence"
-            )
-            a.errors.append(f"why-now-not-a-signal: {company!r} — {why_not}. {consequence}")
-
-        artifact = stale_artifact_string(company)
-        if artifact:
-            a.stale_artifact += 1
-            a.errors.append(
-                f"stale-artifact-string: {company!r} carries a research-note suffix "
-                f"({artifact!r}) that leaked into the live merge field"
-            )
+        _audit_row_issues(a, r, lane, domain_aliases)
 
     # Account-level checks: dedupe by org identity so one company with several
     # contacts doesn't produce a repeated dossier/competitor finding per contact.
@@ -859,7 +1013,16 @@ def audit_rows(
             elif classify_dossier_folder(profile, folder_name, content_root) == DossierDepth.BRIEF:
                 a.leadership_unverified += 1
 
-        _competitor_finding(a, r, tok, competitors, flagged)
+        check_row_relation(
+            a,
+            r,
+            tok,
+            relation_index,
+            flagged,
+            as_of=as_of,
+            acked_domains=acked_domains,
+            recorded_overrides=recorded_overrides,
+        )
 
     # Two checks whose finding is the SAME sentence with a different name in it, and
     # which by construction fire on most of a bulk run: the dossier variant is chosen
@@ -888,8 +1051,28 @@ def audit_rows(
     return a
 
 
+#: Upper bound for `--signal-age-days`: the source-list cohort's own rule (12 months).
+SIGNAL_AGE_DAYS_MAX = 365
+
+
+def _signal_age_days(value: str) -> int:
+    """`--signal-age-days` as a whole number of days from 1 to SIGNAL_AGE_DAYS_MAX, or refused."""
+    try:
+        days = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a whole number of days") from None
+    if not 1 <= days <= SIGNAL_AGE_DAYS_MAX:
+        raise argparse.ArgumentTypeError(f"must be 1 to {SIGNAL_AGE_DAYS_MAX} days, got {days}")
+    return days
+
+
 def render(a: AccountAudit, *, pass_text: str = "PASS") -> str:
     lines = [f"account-integrity audit — {a.rows} row(s), {a.accounts} account(s)", ""]
+    if a.signal_age_days is not None:
+        lines[1:1] = [
+            f"  signal age limit overridden for this run: {a.signal_age_days} days "
+            "(test-scoped; the per-segment limit is not applied)"
+        ]
     if a.record_missing_columns:
         # One file-level finding, and the OTHER checks still run and still print. A
         # migration that also blinds the dossier/domain/competitor checks would leave
@@ -936,7 +1119,7 @@ def render(a: AccountAudit, *, pass_text: str = "PASS") -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="gtm_core.account_integrity",
         description=(
@@ -951,10 +1134,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--profile", required=True, help="active profile (reads its accounts/ + knowledge/)"
     )
-    # One suppression semantics across `list_fit`, this gate, and `merge_render_linter`:
-    # consulting the ledger is the DEFAULT. They previously disagreed — one always
-    # skipped, two were opt-in — so whether a suppressed person was linted depended on
-    # which gate ran, and their findings crowded out the rows that would actually send.
     p.add_argument(
         "--include-suppressed",
         action="store_true",
@@ -994,6 +1173,16 @@ def main(argv: list[str] | None = None) -> int:
         help="pin today's date for the signal-freshness check (tests, replays)",
     )
     p.add_argument(
+        "--signal-age-days",
+        type=_signal_age_days,
+        default=None,
+        metavar="DAYS",
+        help=(
+            "TEST-SCOPED: replace the per-segment signal age limit with DAYS for this run only "
+            "(a source-list cohort, operator-approved 2026-10-01: 365). Never a default."
+        ),
+    )
+    p.add_argument(
         "--require-verdict",
         default="",
         metavar="VERDICT",
@@ -1006,24 +1195,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--lane",
         required=True,
-        # Required, not defaulted. `--lane` does not tune strictness; it selects WHICH RULE
-        # SET applies, so omitting it did not produce a stricter run — it produced a run
-        # whose rules did not match its list. Measured 2026-09-23: a generic-lane list was
-        # gated with no `--lane`, so `wanted` fell back to the bare `--require-verdict`
-        # value and `_demote_generic_lane_findings` returned untouched; 138 contacts were
-        # reported blocked that were not, and the report carried a section defending the
-        # number. A default would still be a silent choice, made by the code, about which
-        # lane's rules a list gets — which is why this is `required` and not `default=`.
-        # `email-sequence/SKILL.md` has stated "at enrollment, --lane is not optional"
-        # since 2026-09-09; this is the program agreeing with the instructions (§R18).
-        #
-        # Derived, never typed: the enrollable lanes are exactly the NON-EMPTY keys of
-        # LANE_VERDICTS. The empty key stays in that mapping for the Python API but is not
-        # offered here — `--lane ""` would be the unlaned path back, spelled differently.
-        # `personalised` was missing from a hand-written list until 2026-09-09, so the
-        # router's own best lane could not be named at the gate — `--lane signal` was
-        # refused on the lane-column check and the operator's only route was to omit the
-        # flag, which skips that check for every list, not just this one.
         choices=sorted(k for k in LANE_VERDICTS if k),
         help=(
             "REQUIRED. Which lane this list is being enrolled into (gtm_core.lane_router). "
@@ -1051,6 +1222,145 @@ def main(argv: list[str] | None = None) -> int:
             "input still contains the refused ones."
         ),
     )
+    p.add_argument(
+        "--write-refused",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "with --require-verdict: write the rows triaged by the verdict and CxO quality "
+            "filters to PATH (with refusal_reason column, atomic) beside the input list."
+        ),
+    )
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="exit with code 2 if any CxO recipient is triaged from enrollment",
+    )
+    return p
+
+
+def _precheck_enrollment_lanes(
+    args: argparse.Namespace,
+    rows: list[dict],
+    fieldnames: list[str],
+    lane: str,
+) -> tuple[str, int]:
+    """Check lane and account status consistency. Returns (lane, exit_code)."""
+    if args.require_verdict:
+        want = args.require_verdict.strip().lower()
+        refusal, lane = check_enrollment_lanes(rows, args.profile, lane, fieldnames, want=want)
+        if refusal:
+            print(refusal, file=sys.stderr)
+            return lane, 2
+        refusal = check_account_status(rows, args.profile)
+        if refusal:
+            print(refusal, file=sys.stderr)
+            return lane, 2
+    else:
+        if lane and "lane" in fieldnames:
+            foreign = sorted({(r.get("lane") or "").strip().lower() for r in rows} - {lane, ""})
+            if foreign:
+                print(
+                    f"REFUSED: --lane {lane!r} but the CSV's own lane column carries {foreign} — "
+                    f"a list routed into one lane must not be enrolled into another",
+                    file=sys.stderr,
+                )
+                return lane, 2
+        if "lane" in fieldnames:
+            refusal = _refuse_lane_state_mismatch(rows, args.profile)
+            if refusal:
+                print(refusal, file=sys.stderr)
+                return lane, 2
+    return lane, 0
+
+
+def _apply_verdict_filter(
+    args: argparse.Namespace,
+    rows: list[dict],
+    fieldnames: list[str],
+    lane: str,
+) -> tuple[list[dict], VerdictFilterStats, int]:
+    want = args.require_verdict.strip().lower()
+    unfiltered = rows
+    rows, vstats = filter_by_verdict(
+        rows,
+        want,
+        lane=lane,
+        profile=args.profile,
+        as_of=args.as_of,
+        signal_age_days=args.signal_age_days,
+    )
+    admitted = "/".join(sorted(v or "(empty)" for v in LANE_VERDICTS[lane]))
+    print(
+        f"verdict filter: kept {vstats.kept}/{vstats.total} row(s) with verdict in "
+        f"{admitted!r} (lane {lane})"
+    )
+    if vstats.judge_dropped:
+        print(f"  judge (calibrated) additionally removed {vstats.judge_dropped} row(s)")
+    if vstats.judge_advisory:
+        print(
+            f"  judge flagged {vstats.judge_advisory} row(s) `drop` but is NOT calibrated — "
+            f"kept, and reported below. Seal a holdout to make these binding."
+        )
+    triaged_cxos = vstats.cxo_dropped + vstats.cxo_unverified
+    if triaged_cxos > 0 or vstats.tier4_dropped > 0:
+        kept_dest = str(args.write_kept) if args.write_kept else f"{vstats.kept} leads"
+        if triaged_cxos > 0 and vstats.tier4_dropped > 0:
+            print(
+                f"GATE 2 AUDIT: {triaged_cxos} CxO recipient(s) (Tier 3/4) and "
+                f"{vstats.tier4_dropped} non-CxO recipient(s) (Tier 4) triaged from enrollment.\n"
+                f"Surviving {vstats.kept} leads kept in {kept_dest}."
+            )
+        elif triaged_cxos > 0:
+            print(
+                f"GATE 2 AUDIT: {triaged_cxos} CxO recipient(s) triaged from enrollment (Tier 3/4).\n"
+                f"Surviving {vstats.kept} leads kept in {kept_dest}."
+            )
+        else:
+            print(
+                f"GATE 2 AUDIT: {vstats.tier4_dropped} recipient(s) triaged from enrollment (Tier 4 prohibited signal).\n"
+                f"Surviving {vstats.kept} leads kept in {kept_dest}."
+            )
+        if vstats.refused_rows:
+            print("Top exemplars blocked:")
+            for rf in vstats.refused_rows[:5]:
+                who = rf.get("email") or rf.get("company") or "?"
+                comp = rf.get("company", "")
+                reason = rf.get("refusal_reason", "")
+                comp_str = f" ({comp})" if comp else ""
+                print(f"  - {who}{comp_str} — {reason}")
+            print("Next actions:")
+            if args.write_kept:
+                print(f"  - To enroll surviving leads: stage {args.write_kept} into email-sequence")
+            if vstats.cxo_unverified > 0:
+                print(
+                    f"  - If triaged as unverified: uv run python -m gtm_core.signal_quality backfill --csv {args.csv} --profile {args.profile}"
+                )
+            refused_target = args.write_refused if args.write_refused else f"{args.csv}-refused.csv"
+            print(
+                f'  - To re-angle accounts: uv run python -m gtm_core.prospect reangle --csv {refused_target} --target-roles "VP, Head of"'
+            )
+    wanted = LANE_VERDICTS[lane]
+    for line in refused_lines(unfiltered, rows, wanted):
+        print(line)
+    print()
+
+    if len(rows) == 0:
+        if args.write_refused and vstats:
+            if vstats.refused_rows:
+                write_refused(args.write_refused, fieldnames, vstats.refused_rows)
+            elif args.write_refused.exists():
+                args.write_refused.unlink()
+        print("REFUSED: 0 rows survived verdict and quality filters", file=sys.stderr)
+        return rows, vstats, 2
+
+    return rows, vstats, 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = _build_parser()
     args = p.parse_args(argv)
     lane = args.lane.strip().lower()
     refusal = flag_refusal(args)
@@ -1063,60 +1373,34 @@ def main(argv: list[str] | None = None) -> int:
     if empty:  # PASS over zero rows reads as "this list may be enrolled"
         print(empty)
         return 0 if args.warn_only else 1
-    if args.require_verdict:
-        want = args.require_verdict.strip().lower()
-        refusal, lane = check_enrollment_lanes(rows, args.profile, lane, fieldnames, want=want)
-        if refusal:
-            print(refusal, file=sys.stderr)
-            return 2
-        refusal = check_account_status(rows, args.profile)
-        if refusal:
-            print(refusal, file=sys.stderr)
-            return 2
-    else:
-        if lane and "lane" in fieldnames:
-            foreign = sorted({(r.get("lane") or "").strip().lower() for r in rows} - {lane, ""})
-            if foreign:
-                print(
-                    f"REFUSED: --lane {lane!r} but the CSV's own lane column carries {foreign} — "
-                    f"a list routed into one lane must not be enrolled into another",
-                    file=sys.stderr,
-                )
-                return 2
-        if "lane" in fieldnames:
-            refusal = _refuse_lane_state_mismatch(rows, args.profile)
-            if refusal:
-                print(refusal, file=sys.stderr)
-                return 2
+
+    lane, code = _precheck_enrollment_lanes(args, rows, fieldnames, lane)
+    if code != 0:
+        return code
+
     if not args.include_suppressed:
         before = len(rows)
         index = load_suppression_index(suppression_ledger(args.profile))
         rows = [r for r in rows if not (r.get("suppression") or "").strip() and not index.match(r)]
         if before != len(rows):
             print(f"suppressed: skipped {before - len(rows)} row(s) (ledger + column)\n")
+    vstats = None
     if args.require_verdict:
-        want = args.require_verdict.strip().lower()
-        unfiltered = rows
-        rows, vstats = filter_by_verdict(rows, want, lane=lane)
-        admitted = "/".join(sorted(v or "(empty)" for v in LANE_VERDICTS[lane]))
-        print(
-            f"verdict filter: kept {vstats.kept}/{vstats.total} row(s) with verdict in "
-            f"{admitted!r} (lane {lane})"
-        )
-        if vstats.judge_dropped:
-            print(f"  judge (calibrated) additionally removed {vstats.judge_dropped} row(s)")
-        if vstats.judge_advisory:
-            print(
-                f"  judge flagged {vstats.judge_advisory} row(s) `drop` but is NOT calibrated — "
-                f"kept, and reported below. Seal a holdout to make these binding."
-            )
-        # `--lane` is required, so the unlaned fallback `filter_by_verdict` still carries
-        # for its Python callers is unreachable from here.
-        wanted = LANE_VERDICTS[lane]
-        for line in refused_lines(unfiltered, rows, wanted):
-            print(line)
-        print()
+        rows, vstats, code = _apply_verdict_filter(args, rows, fieldnames, lane)
+        if code != 0:
+            return code
 
+    acked_domains: set[str] = set()
+    for ack in args.ack:
+        try:
+            res = parse_relation_ack(ack)
+            if res:
+                acked_domains.add(res[1])
+        except ValueError as e:
+            print(f"REFUSED: {e}", file=sys.stderr)
+            return 2
+
+    recorded_overrides: list[dict] = []
     a = audit_rows(
         rows,
         args.profile,
@@ -1125,7 +1409,17 @@ def main(argv: list[str] | None = None) -> int:
         budget=args.budget,
         as_of=args.as_of,
         lane=lane,
+        signal_age_days=args.signal_age_days,
+        acked_domains=acked_domains,
+        recorded_overrides=recorded_overrides,
     )
+    if not a.failed and recorded_overrides:
+        record_relation_overrides(args.profile, recorded_overrides)
+    if args.write_refused and vstats:
+        if vstats.refused_rows:
+            write_refused(args.write_refused, fieldnames, vstats.refused_rows)
+        elif args.write_refused.exists():
+            args.write_refused.unlink()
     # PASS is a verdict on the rows that were KEPT. The input still holds the refused
     # ones, so the kept rows are written only beside a pass, and the line says so.
     if args.write_kept and a.failed:
@@ -1134,7 +1428,15 @@ def main(argv: list[str] | None = None) -> int:
         write_kept(args.write_kept, fieldnames, rows)
     final = pass_line(len(rows), in_file, args.write_kept) if args.require_verdict else "PASS"
     print(render(a, pass_text=final))
-    return 0 if (args.warn_only or not a.failed) else 1
+    if a.failed and not args.warn_only:
+        return 1
+    if args.strict and vstats and (vstats.cxo_dropped > 0 or vstats.cxo_unverified > 0):
+        print(
+            f"REFUSED (--strict): {vstats.cxo_dropped + vstats.cxo_unverified} CxO recipient(s) triaged from enrollment",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

@@ -325,6 +325,7 @@ def load_registry_or_reason(
     profiles_root: Path | None = None,
     *,
     overlay: str | None = None,
+    product: str | None = None,
 ) -> tuple[Registry | None, str]:
     """``(registry, "")``, or ``(None, <one-line reason>)`` when it will not load.
 
@@ -343,7 +344,7 @@ def load_registry_or_reason(
     from ..messaging.registry import load as _load
 
     try:
-        return _load(profile, profiles_root, overlay=overlay), ""
+        return _load(profile, profiles_root, overlay=overlay, product=product), ""
     except RegistryError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "unreadable"
         return None, (

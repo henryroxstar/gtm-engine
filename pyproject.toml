@@ -182,6 +182,8 @@ packages = [
     "gtm_core.screen_ui",
     "gtm_core.screen_ui.scenes",
     "gtm_core.shots_lint",
+    "gtm_core.signal_events",
+    "gtm_core.signal_obs",
   "gtm_core.prospects",
   "gtm_core.skills",
   "gtm_core.vfs",

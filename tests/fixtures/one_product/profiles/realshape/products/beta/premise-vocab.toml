@@ -1,0 +1,6 @@
+schema = 1
+
+[premise.beta-premise]
+claim = "the reader runs more than one system zqbeta"
+min_distinct = 2
+terms = ["ledger", "zqbeta"]

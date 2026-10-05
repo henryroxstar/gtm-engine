@@ -43,6 +43,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import run_scope
 from .lanes.decisions import StateError, newest_sheet, read_state_records
 from .lanes.model import HOLD_QUESTION, QUESTION_COPY
 from .paths import resolve_content_root
@@ -243,7 +244,13 @@ def _routed_contacts(records: list[dict]) -> list[dict]:
     ]
 
 
-def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -> None:
+def _print_report(
+    profile: str,
+    records: list[dict],
+    ledger_items: list[dict],
+    *,
+    product: str | None = None,
+) -> None:
     contacts = _routed_contacts(records)
     counts = Counter(c["status"] for c in contacts)
     receipt = compute_attrition_receipt(ledger_items, contacts)
@@ -281,6 +288,10 @@ def _print_report(profile: str, records: list[dict], ledger_items: list[dict]) -
     # never in the lede (operator direction 2026-09-24: internal workings must not crowd it).
     for problem in problems:
         print(problem)
+    from . import signal_first_status
+
+    for ln in signal_first_status.record_lines(profile, product):
+        print(ln)
     if counts.get(UNRECOGNISED):
         print(
             f"warning: {counts[UNRECOGNISED]} routed record(s) carry a reason this build does "
@@ -301,7 +312,28 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="break waiting_on_you (or another lane-derived status) down by question",
     )
+    p.add_argument(
+        "--product",
+        default=None,
+        help="label the report for this product; optional, the numbers are every product's",
+    )
     args = p.parse_args(argv)
+
+    # A status page is a read of the shared ledger, not a product's run: with no product it
+    # never refuses, it is just labelled. Only a product that is named must be a real one.
+    title = ""
+    if args.product is not None:
+        try:
+            title = run_scope.status_title(run_scope.require(args.profile, args.product))
+        except run_scope.ScopeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    elif isinstance(run_scope.resolve(args.profile, interactive=True), run_scope.Ask):
+        title = run_scope.ALL_PRODUCTS_TITLE
+    if title:
+        # One ledger row per account and no product field: these numbers are every product's, and
+        # a second product's report must not read as its own.
+        print(title)
 
     state_file = evals_dir(args.profile) / "lanes-state.jsonl"
     if not state_file.is_file():
@@ -325,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"The account ledger could not be read — {exc}", file=sys.stderr)
         return 2
-    _print_report(args.profile, records, ledger_items)
+    _print_report(args.profile, records, ledger_items, product=args.product)
     return 0
 
 

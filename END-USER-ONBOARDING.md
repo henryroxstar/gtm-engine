@@ -195,6 +195,7 @@ Just say these in plain English:
 
 **Find & research buyers**
 - *"Run my prospecting"* — find, score, and enrich accounts that fit your ICP
+  (if your company has more than one product set up for prospecting, it asks which product this run is for)
 - *"Where do I stand?"* — see your prospect list, whose move it is next, and what's waiting on you
 - *"Prep me for my call with [company]"* — the buyer, their persona, matched proof stories
 - *"Make a dossier for [account]"* — a ~4-page meeting-prep brief

@@ -21,7 +21,12 @@ from gtm_core.signal_backfill import (
     render,
     write_list,
 )
-from gtm_core.signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
+from gtm_core.signal_record import (
+    RECORD_COLUMNS,
+    SIGNAL_COLUMN,
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
+)
 
 AS_OF = datetime.date(2026, 8, 20)
 
@@ -354,6 +359,8 @@ def test_every_record_input_field_is_a_real_column_or_the_join_key():
         SIGNAL_COLUMN,
         "hook_cell",
         *RECORD_COLUMNS,
+        SIGNAL_FIT_COLUMN,
+        SIGNAL_VIRALITY_COLUMN,
     }
 
 

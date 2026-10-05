@@ -1,0 +1,8 @@
+[[proof]]
+id = "solo-proof"
+kind = "anchor"
+market = "singapore"
+figure_kind = "none"
+statement = "A regulator expects one accountable human per agent. soloonly"
+source = "knowledge/guidance/solo-regulator.md:1"
+binding = false

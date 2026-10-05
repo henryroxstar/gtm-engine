@@ -48,6 +48,8 @@ an older export keeps importing; the first spelling is the one to write today.
 | `lane_reason` | — | why this lane; required for anything but `personalised` |
 | `GTM_Industry` | `Industry`, `industry` | the account's industry classification from `latest.json`, a firmographic fact `premise-vocab.toml` may attest a premise from (`industry_terms`); blank when the ledger has none |
 | `GTM_Hook_Cell` | `Hook Cell`, `hook_cell` | the messaging matrix cell coordinate (segment|signal) derived at research time |
+| `GTM_Signal_Fit` | `Signal Fit`, `signal_fit` |  |
+| `GTM_Signal_Virality` | `Signal Virality`, `signal_virality` |  |
 
 ## Columns the pipeline assigns
 

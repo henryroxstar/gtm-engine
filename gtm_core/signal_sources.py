@@ -16,8 +16,14 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
+from .capture_index import fetched_at_key, filed_just_now, read_tolerant
 from .merge_hygiene import Finding
 from .paths import _safe_segment, resolve_content_root
+
+try:  # POSIX advisory file lock, as in gtm_core.ledgers
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 __all__ = [
     "Capture",
@@ -197,9 +203,21 @@ def store_capture(
     norm = url_norm(url)
     entry = {"url_norm": norm, "fetched_at": ts, "sha256": sha, "tool": tool}
 
-    for fname in ("index.jsonl", "sources.jsonl"):
-        with open(dir_path / fname, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with open(dir_path / "index.jsonl", "a+", encoding="utf-8") as idx:
+        if fcntl is not None:
+            fcntl.flock(idx.fileno(), fcntl.LOCK_EX)
+        try:
+            # The same page filed twice in a moment is one paid call seen by two hooks (a headless
+            # capture run has the run's hook and the project's), so it is one row. A later fetch
+            # is a new row: cadence reads the date of the newest one.
+            if filed_just_now(dir_path / "index.jsonl", norm, sha, ts):
+                return sha
+            for fname in ("index.jsonl", "sources.jsonl"):
+                with open(dir_path / fname, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        finally:
+            if fcntl is not None:
+                fcntl.flock(idx.fileno(), fcntl.LOCK_UN)
 
     return sha
 
@@ -228,38 +246,77 @@ def _read_index_entries(dir_path: Path) -> list[dict]:
     return entries
 
 
+def index_problems(
+    *, sources_dir: Path | str | None = None, profile: str | None = None
+) -> list[dict]:
+    """Lines of the capture index a reader had to skip, as ``{line, kind, text}``."""
+    dir_path = _resolve_sources_dir(sources_dir, profile)
+    if not dir_path.is_dir():
+        return []
+    return read_tolerant(dir_path)[1]
+
+
+def get_captures(
+    url: str,
+    *,
+    sources_dir: Path | str | None = None,
+    profile: str | None = None,
+) -> list[Capture]:
+    """Every capture whose text is on disk for ``url``, oldest first by ``fetched_at``.
+
+    Order is by time, never by line position (R0.2): a union merge of two writers' indexes
+    interleaves lines. Ties break by sha so the order is the same on every machine.
+    """
+    dir_path = _resolve_sources_dir(sources_dir, profile)
+    if not dir_path.is_dir():
+        return []
+    norm = url_norm(url)
+    entries, _ = read_tolerant(dir_path)
+    matching = sorted((e for e in entries if e.get("url_norm") == norm), key=fetched_at_key)
+    out: list[Capture] = []
+    for e in matching:
+        sha = e.get("sha256", "")
+        # The sha names a file: only a full lowercase hex digest may, never a path.
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+            continue
+        text_file = dir_path / f"{sha}.txt"
+        if not text_file.is_file():
+            continue
+        out.append(
+            Capture(
+                url_norm=norm,
+                sha256=sha,
+                fetched_at=e.get("fetched_at", ""),
+                tool=e.get("tool", ""),
+                text=text_file.read_text(encoding="utf-8"),
+            )
+        )
+    return out
+
+
 def get_latest_capture(
     url: str,
     *,
     sources_dir: Path | str | None = None,
     profile: str | None = None,
 ) -> Capture | None:
-    """Return the latest Capture matching url_norm(url), or None."""
-    dir_path = _resolve_sources_dir(sources_dir, profile)
-    if not dir_path.is_dir():
-        return None
+    """The capture with the maximum ``fetched_at`` for ``url`` (ties by sha), or None.
 
-    norm = url_norm(url)
-    entries = _read_index_entries(dir_path)
-    matching = [e for e in entries if e.get("url_norm") == norm]
-    if not matching:
+    Raises on a damaged index, as BASE did: the evidence gate reads this, and a gate that
+    quietly skips a bad line could pass on a capture it never saw (``get_captures`` tolerates).
+    """
+    if problems := index_problems(sources_dir=sources_dir, profile=profile):
+        raise ValueError(
+            f"Corrupt capture index: {len(problems)} unreadable line(s), first at {problems[0]['line']}"
+        )
+    captures = get_captures(url, sources_dir=sources_dir, profile=profile)
+    if not captures:
         return None
-
-    # Latest row wins (order of capture / fetched_at)
-    latest_entry = matching[-1]
-    sha = latest_entry.get("sha256", "")
-    text_file = dir_path / f"{sha}.txt"
-    if not text_file.is_file():
-        return None
-
-    text = text_file.read_text(encoding="utf-8")
-    return Capture(
-        url_norm=norm,
-        sha256=sha,
-        fetched_at=latest_entry.get("fetched_at", ""),
-        tool=latest_entry.get("tool", ""),
-        text=text,
-    )
+    # The newest row wins even when its page is gone: BASE said "no capture" then, and quoting
+    # evidence from an older page instead would pass a check the newest page may not.
+    rows = read_tolerant(_resolve_sources_dir(sources_dir, profile))[0]
+    newest = max((e for e in rows if e.get("url_norm") == url_norm(url)), key=fetched_at_key)
+    return captures[-1] if newest.get("sha256") == captures[-1].sha256 else None
 
 
 def get_capture_text(
@@ -374,21 +431,28 @@ def prune(
     if not dir_path.is_dir():
         return []
 
+    from .signal_obs.state import referenced_shas
+
     entries = _read_index_entries(dir_path)
     today = as_of or datetime.date.today()
+    # A capture a member-set state file still points at is not ours to delete (R1.4).
+    try:
+        protected = referenced_shas(dir_path.parent / "prospects" / "observations")
+    except ValueError as exc:
+        raise ValueError(f"Refusing to prune, nothing deleted: {exc}") from exc
 
     active_entries: list[dict] = []
     expired_entries: list[dict] = []
     for e in entries:
         dt = _parse_iso_date(e.get("fetched_at", ""))
-        if older_than_days is not None and dt is not None:
+        if older_than_days is not None and dt is not None and e.get("sha256") not in protected:
             age = (today - dt).days
             if age > older_than_days:
                 expired_entries.append(e)
                 continue
         active_entries.append(e)
 
-    active_hashes = {e.get("sha256") for e in active_entries if e.get("sha256")}
+    active_hashes = {e.get("sha256") for e in active_entries if e.get("sha256")} | protected
     all_files = sorted(dir_path.glob("*.txt"))
     to_remove = [f for f in all_files if f.stem not in active_hashes]
 
@@ -427,12 +491,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "prune":
-        removed = prune(
-            sources_dir=args.sources_dir,
-            profile=args.profile,
-            older_than_days=args.older_than,
-            apply=args.apply,
-        )
+        try:
+            removed = prune(
+                sources_dir=args.sources_dir,
+                profile=args.profile,
+                older_than_days=args.older_than,
+                apply=args.apply,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         action = "Removed" if args.apply else "Would remove"
         for p in removed:
             print(f"{action}: {p}")

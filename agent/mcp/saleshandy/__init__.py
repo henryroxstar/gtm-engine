@@ -23,10 +23,11 @@ Exposes these tools the brain calls (staging + read ONLY — never send/reply):
   - ``add_step_variant(sequence_id, step_id, step_type, payload, …)``
   - ``create_schedule(name, timezone, time_slots, is_default)``
   - ``add_email_accounts_to_sequence(sequence_id, email_account_ids)``
-  - ``add_leads_to_sequence(lead_ids, sequence_id, step_id, …)`` — enroll Lead Finder
-    leads into a step.
-  - ``import_prospects_to_sequence(prospect_list, step_id, …)`` — the prospect-import
-    counterpart for raw email prospects.
+  - ``add_leads_to_sequence(lead_ids, sequence_id, step_id, …)`` and
+    ``import_prospects_to_sequence(prospect_list, step_id, …)`` — registered so an agent
+    that tries to load people gets a plain-words explanation; they REFUSE ALWAYS and never
+    reach Saleshandy. Loading happens only in ``agent.email_dispatch`` after the operator
+    approves the list.
 
 CRITICAL SECURITY INVARIANT: this wrapper makes it **structurally impossible for the
 brain to cause Saleshandy to send email** — the email analogue of the publish gate

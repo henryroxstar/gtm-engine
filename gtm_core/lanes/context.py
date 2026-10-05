@@ -20,7 +20,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..hook_coverage.matrix import Matrix
 
+from .. import run_scope
 from ..account_integrity import CompetitorHit, load_competitors
+from ..account_relation import FLOOR_ENDINGS, Regulators, RelationIndex
+from ..account_relation_load import load_regulators
 from ..cells import load_cell_map
 from ..paths import resolve_content_root, resolve_profiles_root
 from ..prospect_paths import suppression_ledger
@@ -37,16 +40,10 @@ from .model import PROTECTIVE_HOLD_TRIGGERS
 POLICY_FILE = "lane-policy.toml"
 STRATEGIC_FILE = "strategic-accounts.toml"
 
-#: Domain suffixes that read as public sector / regulator without any tenant list.
-DEFAULT_REGULATED_SUFFIXES = (
-    ".gov",
-    ".mil",
-    ".gov.uk",
-    ".gov.sg",
-    ".gov.au",
-    ".gc.ca",
-    ".europa.eu",
-)
+#: Domain suffixes that read as public sector / regulator without any tenant list. The classifier
+#: (:mod:`gtm_core.account_relation`) owns the list; this name is kept for importers. It is a floor:
+#: ``regulators.toml`` adds to it and cannot remove from it.
+DEFAULT_REGULATED_SUFFIXES = FLOOR_ENDINGS
 
 #: The account statuses that default to "already in conversation" when the tenant policy does
 #: not override them (PS6). Aligned with :data:`gtm_core.prospects_state.LEDGER_STATUSES`.
@@ -76,13 +73,25 @@ class RouterContext:
     engaged_statuses: frozenset[str] = DEFAULT_ENGAGED_STATUSES
     regulated_suffixes: tuple[str, ...] = DEFAULT_REGULATED_SUFFIXES
     regulated_industries: tuple[str, ...] = ()
+    #: The tenant's ``regulators.toml`` plus the built-in endings, set by :func:`load_context`.
+    #: ``None`` on a hand-built context, where :meth:`relations` falls back to the endings alone.
+    regulators: Regulators | None = None
     strategic: set[str] = field(default_factory=set)  # org tokens
     policy_auto: dict[str, str] = field(default_factory=dict)  # trigger -> generic|salvage
     notes: list[str] = field(default_factory=list)
     matrix: Matrix | None = None
 
+    def relations(self) -> RelationIndex:
+        """The one classifier the competitor and regulator triggers read (PRD 2026-10-02)."""
+        regs = self.regulators
+        if regs is None:
+            regs = Regulators().with_endings(self.regulated_suffixes)
+        return RelationIndex(regs, self.competitors)
+
 
 def _knowledge_path(profile: str, name: str, profiles_root: Path | None) -> Path:
+    """A **tenant-wide** knowledge file (lane policy, strategic accounts): the profile's own copy,
+    never a product's. Product-scoped files go through the resolver (see ``load_context``)."""
     root = profiles_root or resolve_profiles_root()
     return root / profile / "knowledge" / name
 
@@ -115,6 +124,10 @@ def _load_policy(ctx: RouterContext, path: Path) -> None:
         ctx.policy_auto[trig] = choice
     hold = data.get("hold") or {}
     if hold.get("regulated_domains"):
+        ctx.notes.append(
+            f"{POLICY_FILE}: [hold] regulated_domains is deprecated — move the entries to "
+            "regulators.toml [endings]; they are read here with a dot boundary meanwhile"
+        )
         ctx.regulated_suffixes = (
             *ctx.regulated_suffixes,
             *(str(d).lower() for d in hold["regulated_domains"]),
@@ -258,9 +271,12 @@ def load_context(
     content_root: Path | None = None,
     profiles_root: Path | None = None,
     as_of: datetime.date | None = None,
+    product: str | None = None,
 ) -> RouterContext:
     """Everything the triggers read, loaded once. See the module docstring for the
-    missing-vs-corrupt rule."""
+    missing-vs-corrupt rule. ``product`` selects the hook matrix; the lane policy, strategic
+    accounts and competitors are company-wide and are read the same for every product."""
+    scope = run_scope.require(profile, product, profiles_root=profiles_root)
     root = content_root or resolve_content_root()
     ctx = RouterContext(profile=profile, as_of=as_of or datetime.date.today())
     ctx.competitors = load_competitors(profile, profiles_root)
@@ -283,10 +299,14 @@ def load_context(
     _load_history(ctx, root / profile / "history.jsonl")
     _load_statuses(ctx, profile, root)
     _load_policy(ctx, _knowledge_path(profile, POLICY_FILE, profiles_root))
+    # After the policy: its deprecated `regulated_domains` arrive as extra endings.
+    ctx.regulators = load_regulators(profile, profiles_root, extra_endings=ctx.regulated_suffixes)
     _load_strategic(ctx, _knowledge_path(profile, STRATEGIC_FILE, profiles_root))
 
     # Load hook matrix
-    matrix_path = _knowledge_path(profile, "hook-matrix.md", profiles_root)
+    matrix_path = run_scope.product_file(
+        profile, scope, "hook-matrix.md", profiles_root=profiles_root
+    )
     if matrix_path.is_file():
         from ..hook_coverage.matrix import parse_matrix
 

@@ -17,3 +17,24 @@ Use `settings.template.json` as a starting point.
 
 - **`higgsfield_billing`** *(string, `"monthly"` or `"annual"`)*:
   Higgsfield billing frequency used for credit cost calculations.
+
+## Stop lines for live sequences (read by `gtm_core.sequence_health`)
+
+All optional. A key that is present but invalid stops the check (exit 3); it never falls back to the default.
+
+- **`unsubscribe_stop_line`** *(fraction above 0 and at most 1, default: 0.05)*:
+  Pause when unsubscribed ÷ contacted is strictly over this, per sequence and per step, once at least 20 people have been contacted at that level.
+
+- **`bounce_stop_line`** *(fraction, default: 0.05)*:
+  Pause when bounced ÷ sent is strictly over this, per sequence and per step, once at least 20 emails have gone.
+
+- **`block_bounce_stop_line`** *(fraction, default: 0.02)*:
+  Pause when emails refused outright by the receiving server ÷ sent is strictly over this. Per sequence only: the per-step feed carries no bounce type.
+
+- **`mailbox_daily_cap`** *(whole number of 1 or more)*:
+  Emails one mailbox may send in a day. With it set, a mailbox that sent more in one day (read from the sends, or from `mailbox_daily_volume`) is a breach.
+
+- **`mailbox_daily_volume`** *(whole number of 0 or more)*:
+  Normally not set: the peak is derived from the sends. Use it, or the `--mailbox-daily-volume` flag, to compare a figure you already hold against the cap.
+
+Separately, three or more unsubscribes among a step's first 20 emails sent is always an early warning (no setting).

@@ -1,0 +1,11 @@
+[[angle]]
+id = "enterprise-platform-alpha"
+seat = "platform"
+premise = "alpha-premise"
+claim = "alpha-claim"
+proof = "alpha-proof"
+opener_kind = "account-event"
+stakes = "an outage nobody can reconstruct"
+summary = "One record per action for alpha. alphaonly"
+status = "draft"
+segments = ["enterprise"]

@@ -181,6 +181,20 @@ def _wd(n: int) -> str:
     return f"{n} working day{'' if n == 1 else 's'}"
 
 
+def _first_send_day(start: date) -> date:
+    """Day 1 of sending: the first working day AFTER the page's own day.
+
+    The same rule ``_finish`` walks, factored out so the date the prose PRINTS and the dates
+    the table computes come from one place. Before F7 the prose said only "the next working
+    day" — a relative date wearing a sentence, which meant a page read on Wednesday described
+    a Monday start as "next". The reader could not tell which day the column was counted from.
+    """
+    day = start + timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
 def _schedule(m: dict) -> dict:
     """The forecast's arithmetic, once: the Operator-notes card and the Results sentence read it.
 
@@ -259,6 +273,7 @@ def _schedule(m: dict) -> dict:
         )
     return {
         "lanes": lanes,
+        "starts": _first_send_day(start).isoformat(),
         "cap": cap,
         "boxes": boxes,
         "touches": touches,
@@ -291,8 +306,8 @@ def when_done(m: dict) -> tuple[str | None, str | None]:
     if "empty" in s:
         return None, s["empty"]
     return (
-        f"If sending starts on the next working day, the last email goes out by {s['finish']}"
-        f" — {_wd(s['total_all'])}.",
+        f"If sending starts on the next working day ({s['starts']}), the last email goes out "
+        f"by {s['finish']} — {_wd(s['total_all'])}.",
         None,
     )
 
@@ -406,7 +421,7 @@ def _forecast_block(m: dict) -> str:
         </tr></thead>
         <tbody>{s["rows"]}</tbody></table>
         <p class="note">{arc}
-        Dates assume it starts on the next working day.
+        Dates assume it starts on the next working day, {s["starts"]}.
         {_e(caveat) and "<strong>Caveat:</strong> " + _e(caveat) + "."}</p>
         {hand_note}
         {f'<p class="note">{unloaded_note}</p>' if unloaded_note else ""}

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..prospects_consolidate import _prospects_dir
+from ..prospects_consolidate.dossier import _DOSSIER_GLOB_PATTERNS
 
 #: PS20 Phase 2 — the five tabs, by question, in reading order (PRD Phase 2). Overview first:
 #: this page is read by a founder and a founding AE, so the worklist-first order is superseded.
@@ -18,13 +19,23 @@ TABS: tuple[tuple[str, str], ...] = (
 TAB_LABELS: dict[str, str] = dict(TABS)
 
 
-#: Operator notes: collapsed `<details>` groups in reading order, `(id, summary, block ids)`.
-#: "Numbers that need a look" opens itself when it has something to show.
+#: Operator notes: `<details>` groups in reading order, `(id, summary, block ids)`, collapsed
+#: except two. "Numbers that need a look" opens itself when it has something to show, and "Where
+#: these numbers come from" is ALWAYS open, on every page and in every state (the one table that
+#: says what is stale is never hidden). `views_ops._ops_view` is the one place that decides.
 OPS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "numbers",
         "Numbers that need a look",
         ("cross-check", "reconciliation", "shared-sequences", "unlinked", "list-vs-provider"),
+    ),
+    (
+        # F3 (2026-09-30) — "Where these numbers come from". Second, right after the
+        # disagreements: "can I trust this at all?" is the question that precedes every detail
+        # below it. Always open: a collapsed copy of the table that says what is stale defeats it.
+        "sources",
+        "Where these numbers come from",
+        ("sources-table", "section-kinds"),
     ),
     (
         "before-sending",
@@ -94,9 +105,22 @@ SECTIONS: dict[str, frozenset[str]] = {
 
 PAGE_NAME = "email_campaign_status.html"
 
-#: PS20 (``health.page_warnings``) — sending figures older than this are flagged stale on
-#: the page-wide warning strip, regardless of whether the reconciliation itself agrees.
-FIGURES_MAX_AGE_DAYS = 2
+#: Sending figures older than this are flagged stale on the page-wide warning strip and
+#: convicted by ``--check-fresh``, regardless of whether the reconciliation itself agrees.
+#:
+#: **2 -> 7 on 2026-09-30** (PRD D1/D9). This page is published weekly, so a 2-day limit
+#: flagged the figures on most days a human actually opened it — and the strip sentence was
+#: deleted outright (commit ``3ff97acf``, no reason recorded) rather than the limit being
+#: raised, which left the warning detectable in the model and invisible on the page. Seven
+#: days is the publish cadence, so a snapshot that survived one refresh cycle is fresh and one
+#: that missed it is not. **The risk is recorded, not solved:** 7 EQUALS the cadence, so a
+#: one-day slip fires the strip on the published page. A second cadence is what moves this
+#: into ``settings.json``; until then one constant is the honest home.
+#:
+#: The comparison is a strict ``>`` on FRACTIONAL days (``health._figures_age_exact_days``),
+#: never on the truncated whole-day count the header displays — at 7.5 days those disagree,
+#: and comparing the truncated one passed a snapshot half a day over the limit as fresh.
+FIGURES_MAX_AGE_DAYS = 7
 
 #: PS20 P3.5 — a bounce rate STRICTLY above this percentage draws the ``bounce-rate`` risk
 #: pill (``RISK_REASONS`` below). ``aggregate.bounce_rate`` returns a percentage (e.g. 3.1,
@@ -165,14 +189,14 @@ def resolve_seat_coverage(
     from .. import role_vocabulary
     from ..role_vocabulary.defaults import DEFAULT_SEAT_RULES
 
-    p_root = profiles_root
-    if p_root is None and content_root is not None:
-        sibling = content_root.parent / "profiles"
-        if sibling.is_dir():
-            p_root = sibling
-
+    # ONE profiles root: the one the page inventory hashes (`page_inputs._profile_root` →
+    # `resolve_profiles_root()`), reached by passing none. This used to prefer a `profiles/`
+    # directory beside `content_root`, which diverges from the inventoried file whenever
+    # GTM_PROFILES_ROOT points elsewhere — an edit to the file the page read then left
+    # `--check-fresh` green (red-team F12). `content_root` stays in the signature for callers
+    # that pass it; it no longer selects a vocabulary.
     try:
-        vocab = role_vocabulary.load(profile=profile, profiles_root=p_root)
+        vocab = role_vocabulary.load(profile=profile, profiles_root=profiles_root)
     except Exception:
         return dict(SEAT_COVERAGE)
 
@@ -228,7 +252,13 @@ FUNNEL_GLOSS = (
 )
 
 
-#: Published cold-email reply-rate reference points, researched 2026-08-19.
+#: When :data:`BENCHMARKS` below was researched. A CONSTANT because the provenance table prints
+#: it (F3): these figures are compiled into the page, so no refresh command exists for them and
+#: `--check-fresh` can never see them move — the date is the only thing that tells a reader how
+#: old they are, and a date restated in prose is a date that goes stale silently (§R14).
+BENCHMARKS_RESEARCHED = "2026-08-19"
+
+#: Published cold-email reply-rate reference points, researched on :data:`BENCHMARKS_RESEARCHED`.
 #:
 #: Three warnings travel with these numbers and are rendered on the page, because a
 #: benchmark quoted without them is worse than none.
@@ -344,6 +374,11 @@ INPUT_GLOBS = (
     # `build_model`). A dedicated entry, not a `*.csv` wildcard: `sequences/*.csv` cannot
     # cross into the hidden `.pool/` subdirectory (glob `*` never crosses `/`).
     "prospects/sequences/.pool/needs-verification.csv",
+    # F5 (2026-09-30) — `prospects_backlog.enrichment_queue_path`, counted by
+    # `prospects_dashboard.build_status` (via `build_model`) for the "finding a contact" backlog
+    # line. A dedicated entry, not a wildcard: `sequences/*.csv` cannot cross into the hidden
+    # `.pool/` subdirectory, which is where every one of these lives.
+    "prospects/sequences/.pool/enrichment-queue.csv",
     # PS20 T1.9 review round 2 — `prospect_readiness.input_paths`/`fingerprints` (reached
     # through `load_readiness` via `build_model`) STATS this (mtime/size), never opens it —
     # `prospect_readiness.suppression_ledger`'s path. Flips the lede's readiness state, so a
@@ -378,7 +413,25 @@ INPUT_GLOBS = (
 #: than everything in :data:`INPUT_GLOBS`, which is why `page_inputs` tracks them separately
 #: (its ``profile_files`` section). ``PROFILE.md`` feeds `email_compliance.read_target_markets`,
 #: reached through `model.market_split` -> `prospects_consolidate.suppression._resolve_market_gate`.
-PROFILE_FILES = ("PROFILE.md",)
+#:
+#: **The COMPANY rung only** (F5, 2026-09-30). Both sub-path entries are read with no product
+#: and no overlay — `resolve_seat_coverage` calls `role_vocabulary.load(profile=…, profiles_root=…)`
+#: and `health.resolve_brand_palette` calls `load_brand_kit(p_root, profile)` — so
+#: `resolve_knowledge_file` returns `knowledge/<file>` and no other rung is reachable from this
+#: page. Adding a product rung here would record a path the render never opens, which is a check
+#: that convicts the wrong edit.
+#:
+#: Sub-paths are new here: every entry is split and confined by `page_inputs._profile_rel`, the
+#: ONE guard write and verify share. Until it existed a `/` in a name raised out of the verifier.
+PROFILE_FILES = (
+    "PROFILE.md",
+    "knowledge/role-vocabulary.toml",
+    "knowledge/BRAND.toml",
+)
+
+#: Names the page reads without opening (the Tier-A dossier lookup) — one glob per pattern the
+#: lookup itself uses, so a pattern added there is tracked here with no second edit.
+NAME_GLOBS = tuple(f"accounts/*/{p}" for p in _DOSSIER_GLOB_PATTERNS)
 
 
 def input_globs(profile: str, content_root: Path | None = None) -> tuple[Path, list[str]]:

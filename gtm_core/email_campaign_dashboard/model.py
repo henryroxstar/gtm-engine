@@ -20,6 +20,7 @@ from ..prospect_status_receipt import cross_check
 from ..prospects_consolidate import _pool_dir, _prospects_dir
 from ..prospects_dashboard import build_status
 from ..prospects_state import load_latest
+from . import figure_ages
 from .aggregate import _scope_figures
 from .config import resolve_seat_coverage
 from .format import _rate_of
@@ -62,7 +63,7 @@ def reconcile_snapshot(campaigns_model: dict, status_model: dict) -> dict:
     return {
         "ok": snapshot_ids == ledger_ids,
         "in_snapshot_only": sorted(snapshot_ids - ledger_ids),
-        "in_ledger_only": sorted(ledger_ids - snapshot_ids),
+        "in_ledger_only": sorted(ledger_ids - snapshot_ids, key=str),
     }
 
 
@@ -306,6 +307,7 @@ def scope_to_campaign(m: dict, campaign: str) -> dict:
     m["status"] = dict(m["status"], sequences=seqs, sequence=(seqs[0] if seqs else {}))
     m["campaigns"] = dict(m["campaigns"], campaigns=wanted, unlinked_sequences=[])
     m.update(scoped_trust(m, ids))
+    figure_ages.rescope(m, m["campaigns"])
     m["messages"] = [x for x in m.get("messages", []) if x.get("sequence_id") in ids]
 
     # Packs carry no sequence id; a campaign claims them by its date suffix. A slug WITHOUT
@@ -358,8 +360,10 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
     operator's answers ("who is waiting on me, what do I load, is anything live") and are all
     derived from the same routed state and ledger that ``prospects status`` prints from.
     """
+    now = datetime.now(UTC)
     status = build_status(profile, content_root)
     campaigns = build_campaigns(profile, content_root)
+    status["snapshot"] = figure_ages.with_effective_age(status["snapshot"], campaigns, now)
     rows = read_outcomes(content_root or resolve_content_root(), profile)
     baseline = 0.059
     baseline_declared = False
@@ -481,11 +485,14 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
         # this model was built from — a backend run is pinned to a workspace root, and
         # re-deriving it from the profile name alone would cross that boundary.
         "_content_root": content_root,
+        "_now": now,
         "runs": prospecting_runs(profile, content_root),
         # Profile-wide, like `runs`: the inbound lane is not scoped to one campaign.
         "inbound": inbound_health(profile, content_root),
         "reconciliation": reconciliation,
-        **page_extras(profile, content_root, status, reconciliation, figures["sum_ok"], now),
+        **page_extras(
+            profile, content_root, status, reconciliation, figures["sum_ok"], now, readiness
+        ),
         # Profile-wide, like `market`/`supply`/`intent` above — the router's last route
         # is not scoped to one campaign, so `scope_to_campaign` leaves this key untouched.
         "prospect_status": prospect_status,

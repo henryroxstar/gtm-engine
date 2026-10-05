@@ -37,6 +37,7 @@ from backend.callers.principal import Principal  # noqa: E402
 from backend.callers.rest import require_principal  # noqa: E402
 from backend.deps import WorkspaceCtx, require_auth  # noqa: E402
 from backend.errors import register_error_handlers  # noqa: E402
+from backend.pack_catalog import PackResolutionError, list_variants, resolve_variant  # noqa: E402
 from backend.routers import api_keys as api_keys_router  # noqa: E402
 from backend.routers import packs as packs_router  # noqa: E402
 from backend.routers import runs as runs_router  # noqa: E402
@@ -1080,3 +1081,126 @@ def test_a_bearer_failure_on_a_require_principal_route_matches_require_auth(labe
     assert swapped.headers.get("www-authenticate") == unchanged.headers.get("www-authenticate"), (
         label
     )
+
+
+# ── R1.3: an `internal` pack graph is absent from the catalog and refused by dispatch ─────────
+#
+# The refusal is a 404 byte-identical to a variant that does not exist, whether or not the tenant
+# activated the pack (a 403 on an unactivated pack would say the graph exists), for a user and a
+# service principal alike. Each refusal has a positive control: the public sibling variant of the
+# same pack is still listed and still resolves. No row is written: it refuses before admission.
+
+INTERNAL_TARGET = {"pack": "prospecting", "variant": "source-capture"}
+PUBLIC_TARGET = {"pack": "prospecting", "variant": "prospect-outreach"}
+BEARER_TOK = {"Authorization": "Bearer tok"}
+
+
+def _internal_body(target: dict) -> dict:
+    return _run_json(**target, inputs={})
+
+
+# --- the resolver: the one choke point listing, readiness, admission and the executor share ---
+
+
+def test_the_resolver_treats_an_internal_graph_as_unknown_even_when_activated(tmp_path):
+    profiles = tmp_path / "profiles"
+    (profiles / "acme").mkdir(parents=True)
+    (profiles / "acme" / "packs.toml").write_text('active = ["prospecting"]\n')
+    resolved = resolve_variant(REPO, profiles, "acme", **PUBLIC_TARGET)  # positive control
+    assert resolved.graph.variant == "prospect-outreach"
+    with pytest.raises(PackResolutionError) as exc:
+        resolve_variant(REPO, profiles, "acme", **INTERNAL_TARGET)
+    assert exc.value.code == "unknown_variant"
+    assert {r.graph.variant for r in list_variants(REPO, profiles, "acme")} == {"prospect-outreach"}
+
+
+def test_the_resolver_answers_unknown_not_not_activated_for_an_unactivated_internal_pack(tmp_path):
+    profiles = tmp_path / "profiles"
+    (profiles / "acme").mkdir(parents=True)
+    (profiles / "acme" / "packs.toml").write_text('active = ["marketing"]\n')
+    with pytest.raises(PackResolutionError) as exc:
+        resolve_variant(REPO, profiles, "acme", **PUBLIC_TARGET)  # positive control: 403 shape
+    assert exc.value.code == "pack_not_activated"
+    with pytest.raises(PackResolutionError) as exc:
+        resolve_variant(REPO, profiles, "acme", **INTERNAL_TARGET)
+    assert exc.value.code == "unknown_variant"
+
+
+# --- the catalog ----------------------------------------------------------------------------
+
+
+def test_the_listing_hides_an_internal_graph_from_a_user_and_a_service_principal(ws_env, db):
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    agent_id = str(uuid.uuid4())
+    db.add_agent(agent_id, ws_env.ws_id, packs=None)
+    client = _client(ws_env, db, {"u": _user(ws_env.ws_id), "s": _svc(ws_env.ws_id, agent_id)})
+    for token in ("u", "s"):
+        resp = client.get(
+            f"/v1/packs?profile_name={PROFILE}", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200
+        assert [d["variant"] for d in resp.json()] == ["prospect-outreach"], token
+        assert "source-capture" not in resp.text and "capture_manifest" not in resp.text
+
+
+def test_readiness_of_an_internal_graph_is_the_same_404_as_a_missing_variant(ws_env, db):
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    client = _client(ws_env, db, {"tok": _user(ws_env.ws_id)})
+    base = f"/v1/packs/prospecting/%s/readiness?profile_name={PROFILE}"
+    ok = client.get(base % "prospect-outreach", headers=BEARER_TOK)
+    assert ok.status_code == 200  # positive control
+    hidden = client.get(base % "source-capture", headers=BEARER_TOK)
+    missing = client.get(base % "no-such-variant", headers=BEARER_TOK)
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.json() == missing.json()
+
+
+# --- run dispatch ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("activated", [True, False])
+def test_a_user_dispatching_an_internal_graph_gets_the_missing_variant_404(ws_env, db, activated):
+    packs = 'active = ["prospecting"]\n' if activated else 'active = ["marketing"]\n'
+    _provision(ws_env.profiles_root, packs_toml=packs)
+    client = _client(ws_env, db, {"tok": _user(ws_env.ws_id)})
+
+    hidden = client.post("/v1/runs", json=_internal_body(INTERNAL_TARGET), headers=BEARER_TOK)
+    missing = client.post(
+        "/v1/runs",
+        json=_internal_body({"pack": "prospecting", "variant": "no-such-variant"}),
+        headers=BEARER_TOK,
+    )
+
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.json() == missing.json()
+    assert db.runs == {}  # refused before any row exists
+
+
+def test_dispatch_positive_control_the_public_sibling_is_not_refused_as_unknown(ws_env, db):
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    client = _client(ws_env, db, {"tok": _user(ws_env.ws_id)})
+    resp = client.post("/v1/runs", json=_internal_body(PUBLIC_TARGET), headers=BEARER_TOK)
+    assert resp.status_code != 404
+
+
+def test_a_service_principal_dispatching_an_internal_graph_gets_the_404_and_no_run(ws_env, db):
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    agent_id = str(uuid.uuid4())
+    db.add_agent(agent_id, ws_env.ws_id, packs=["prospecting"])  # the pack is inside its subset
+    client = _client(ws_env, db, {"tok": _svc(ws_env.ws_id, agent_id)})
+
+    with _recorded(ws_env):
+        hidden = client.post("/v1/runs", json=_internal_body(INTERNAL_TARGET), headers=BEARER_TOK)
+        missing = client.post(
+            "/v1/runs",
+            json=_internal_body({"pack": "prospecting", "variant": "no-such-variant"}),
+            headers=BEARER_TOK,
+        )
+        ok = client.post(
+            "/v1/runs", json=_internal_body(PUBLIC_TARGET), headers=BEARER_TOK
+        )  # positive control
+
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.json() == missing.json()
+    assert ok.status_code != 404
+    assert all("source-capture" not in str(r) for r in db.runs.values())

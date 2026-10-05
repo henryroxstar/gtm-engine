@@ -122,7 +122,7 @@ skill's call; only firmographic/heat filtering and set materialization move into
    export for Tier-A verified contacts, Vibe `enrich-prospects` bulk for Tier-B, and the web sweep
    (§"Why now" below) confirms/dates why-now for **Tier-A only** — this is what removes the per-row
    WebSearch bottleneck that capped the 2026-07-19 run.
-8. **Merge to state.** Run `python -m gtm_core.prospects_import finalize --profile <active> --items
+8. **Merge to state.** Run `python -m gtm_core.prospects_import finalize --profile <active> [--product <slug>] --items
    <scored-items.json> --source-run <run-id>` — this merges the scored items into `latest.json` via
    the safe, snapshot-taking writer (`gtm_core.prospects_state`, same merge-only guarantee as standard
    mode's Step 10) and writes the run's HubSpot CSV in one call. It fabricates no defaults: `verdict`,
@@ -157,7 +157,7 @@ state file as every other mode.
    ```
 3. **Score from the file**, exactly as bulk mode does — read `candidates-<run-id>.json`, apply
    `gates-and-scoring.md`, then `python -m gtm_core.score_prospects`.
-4. **Merge to state** with `python -m gtm_core.prospects_import finalize` — the same safe, merge-only
+4. **Merge to state** with `python -m gtm_core.prospects_import finalize --profile <active> [--product <slug>]` — the same safe, merge-only
    writer, which also emits the run's HubSpot CSV.
 5. **Fill the heat axis** with a **Re-score mode** pass (`references/heat-rescore.md`). This is also
    the answer to "people added more accounts, score them again": re-ingest the updated sheet (the

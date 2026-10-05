@@ -207,4 +207,6 @@ def merge_pack_override(base: PackGraph, override: PackOverride) -> PackGraph:
         title=base.title,
         description=base.description,
         min_entitlement=base.min_entitlement,
+        internal=base.internal,
+        egress_scope=base.egress_scope,
     )

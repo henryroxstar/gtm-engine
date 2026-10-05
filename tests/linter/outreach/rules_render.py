@@ -495,7 +495,13 @@ def lint_opener_dated(
     ]
 
 
-def lint_premise(spec_text: str, rows: list[dict], premise_vocab: dict | None) -> list[Violation]:
+def lint_premise(
+    spec_text: str,
+    rows: list[dict],
+    premise_vocab: dict | None,
+    source_ctx=None,
+    profile: str | None = None,
+) -> list[Violation]:
     """Can each row's own research carry the premise this spec's body requires?
 
     Three rules:
@@ -510,6 +516,10 @@ def lint_premise(spec_text: str, rows: list[dict], premise_vocab: dict | None) -
     * ``premise-unsupported`` (ERROR) — the row's recorded evidence carries fewer than
       ``min_distinct`` attesting terms. This is the rule the operator's six "doesn't establish
       the claim" rejections were reaching for and no gate had.
+
+    ``source_ctx`` (signal-first R2.5) lets an agentic source list stand in for the premise's terms;
+    omitted, nothing changes. ``profile`` is where a row's own recorded announcement is checked
+    against its stored capture (the record route); without it that route refuses.
 
     Off unless ``premise_vocab`` is supplied, matching how ``--hook-matrix`` and
     ``--case-study-file`` gate their checks. That convention is exactly how
@@ -578,7 +588,7 @@ def lint_premise(spec_text: str, rows: list[dict], premise_vocab: dict | None) -
             )
         )
 
-    failures = premise_unsupported(rows, premise)
+    failures = premise_unsupported(rows, premise, source_ctx=source_ctx, profile=profile)
     if not failures:
         return out
 

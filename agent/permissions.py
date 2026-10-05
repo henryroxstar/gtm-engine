@@ -262,13 +262,13 @@ _EXTERNAL_EFFECT_LEAVES: frozenset[str] = frozenset(
         "reply_to_email",
         # ── Hosted Saleshandy: account verbs with no automated caller (2026-09-25) ─────────
         # The claude.ai connector exposes these; the in-repo one does not. Buying a domain
-        # spends money, the deletes cannot be undone, and re-pointing a sequence's mailboxes
-        # changes who it sends as. Denied with no admitting context.
+        # spends money, and the deletes cannot be undone. Denied with no admitting context.
+        # (add_email_accounts_to_sequence is a sequence-staging tool on paused sequences,
+        # matching create_sequence / add_sequence_step, and is allowed).
         "purchase_domain",
         "delete_sequence",
         "delete_domain",
         "revoke_domain",
-        "add_email_accounts_to_sequence",
     }
 )
 
@@ -972,8 +972,26 @@ def classify_tool(
     tool_input: dict | None,
     *,
     allowed_skills: frozenset[str] | None = None,
+    capture_gate=None,
 ) -> Decision:
     """Return the policy decision for one tool call. Pure; safe to unit-test directly.
+
+    ``capture_gate`` (a :class:`gtm_core.capture_manifest.CaptureGate`) scopes Firecrawl to a
+    source-capture run's manifest. It is stateful (its cap counts allowed calls), so a call that
+    passes a gate is the one place this function is not pure. ``None`` changes nothing.
+    """
+    if capture_gate is not None and capture_gate.check(tool_name, tool_input) is not None:
+        return "deny"
+    return _classify_tool(tool_name, tool_input, allowed_skills=allowed_skills)
+
+
+def _classify_tool(
+    tool_name: str,
+    tool_input: dict | None,
+    *,
+    allowed_skills: frozenset[str] | None = None,
+) -> Decision:
+    """The policy proper (see :func:`classify_tool`).
 
     ``allowed_skills`` is the caller's skill scope (SECURITY-SELF-ASSESSMENT
     residuals #11/#12): when set, a ``Skill`` invocation is allowed only for a
@@ -1126,6 +1144,24 @@ def _attempt_key(tool_name: str, tool_input: dict | None) -> tuple[str, str]:
     return (tool_name, payload)
 
 
+_CAPTURE_GATE_HINTS = {
+    "url-not-in-manifest": "that URL is not in this run's manifest. Scrape only the listed pages "
+    "(a cursor is allowed only on a listed page's own host and path).",
+    "options-differ": 'send exactly formats=["markdown"], onlyMainContent=false and the '
+    "manifest's maxAge, and no other option.",
+    "cap-exceeded": "this run has used its page cap. Stop and report what was captured.",
+    "budget-exhausted": "the monthly spend cap is reached, so no paid call is made. Stop and "
+    "report.",
+    "tool-not-allowed": "under a capture manifest only firecrawl_scrape is allowed; search, "
+    "crawl, map, agent and interact reach pages the manifest cannot list.",
+}
+
+
+def capture_gate_message(reason: str) -> str:
+    hint = _CAPTURE_GATE_HINTS.get(reason, "this call is outside the capture manifest.")
+    return f"DENIED (capture manifest, {reason}): {hint} Do not retry it another way."
+
+
 def hard_stop_message(tool_name: str, count: int) -> str:
     """A firm, final-denial message after repeated attempts at the *same* blocked call."""
     return (
@@ -1173,6 +1209,7 @@ def make_headless_can_use_tool(
     on_deny: Callable[[str, dict, Decision], None] | None = None,
     *,
     allowed_skills: frozenset[str] | None = None,
+    capture_gate=None,
 ) -> CanUseTool:
     """Callback for the unattended/cron path: allow known-safe, otherwise **deny** (fail closed).
 
@@ -1190,20 +1227,31 @@ def make_headless_can_use_tool(
     totals = {"denials": 0}  # session-wide denial count (all commands) — global loop guard
 
     async def _cb(tool_name: str, tool_input: dict, context: object) -> object:
-        decision = classify_tool(tool_name, tool_input, allowed_skills=allowed_skills)
+        decision = classify_tool(
+            tool_name, tool_input, allowed_skills=allowed_skills, capture_gate=capture_gate
+        )
         if decision == "allow":
             return PermissionResultAllow()
+        gate_reason = capture_gate.last_reason if capture_gate is not None else None
         key = _attempt_key(tool_name, tool_input)
         count = attempts[key] = attempts.get(key, 0) + 1
         totals["denials"] += 1
         if on_deny is not None:
-            on_deny(tool_name, tool_input or {}, decision)
+            from agent.denial_log import GateDenial  # a gate denial: reason code only (§R5)
+
+            on_deny(
+                tool_name,
+                GateDenial(reason=gate_reason) if gate_reason else (tool_input or {}),
+                decision,
+            )
         # Global cap first: a rephrasing loop (many distinct blocked commands) is bounded here,
         # since the per-key counter alone resets on every new wording.
         if totals["denials"] >= GLOBAL_STRIKE_LIMIT:
             message = global_hard_stop_message(totals["denials"])
         elif count >= STRIKE_LIMIT:
             message = hard_stop_message(tool_name, count)
+        elif gate_reason:
+            message = capture_gate_message(gate_reason)
         else:
             message = deny_message(tool_name, decision)
         return PermissionResultDeny(message=message)

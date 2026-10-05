@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from gtm_core import run_scope
 from gtm_core.prospect_paths import run_state_json
 
 StageStatus = Literal["pending", "running", "completed", "failed"]
@@ -197,19 +198,34 @@ def load_run_state(path: Path) -> RunState | None:
         return None
 
 
+def run_state_path(
+    profile: str, content_root: Path | None = None, product: str | None = None
+) -> Path:
+    """The state file for a run bound to ``product`` (a named product, or ``None``).
+
+    The default product, and a profile with no second product, use the legacy ``run_state.json``.
+    A second product uses its own file, so its run can neither resume nor ``reset`` another's.
+    A missing product on a profile that has a second product raises ``ProductRequired`` here, so
+    the resume point cannot silently be the default product's.
+    """
+    scope = run_scope.require(profile, product)
+    return run_state_json(profile, content_root, scope.state_slug)
+
+
 def get_or_create_run_state(
     profile: str,
     mode: str = "full",
     content_root: Path | None = None,
     force_new: bool = False,
     max_resume_age_hours: float = 48.0,
+    product: str | None = None,
 ) -> tuple[RunState, bool]:
     """Load existing uncompleted run state for resumption, or create a new one.
 
     Returns:
         (state, resumed) tuple where resumed is True if an existing incomplete state was reused.
     """
-    path = run_state_json(profile, content_root)
+    path = run_state_path(profile, content_root, product)
     if not force_new:
         existing = load_run_state(path)
         if existing is not None and not existing.is_completed:
@@ -227,7 +243,11 @@ def get_or_create_run_state(
 
 
 def _handle_stage_action(
-    profile: str, action: str, stage: str | None, metrics_json: str | None
+    profile: str,
+    action: str,
+    stage: str | None,
+    metrics_json: str | None,
+    product: str | None = None,
 ) -> int:
     """start-stage/complete-stage: the skill's only way to reach RunState's own methods.
 
@@ -238,8 +258,8 @@ def _handle_stage_action(
     if not stage:
         print(f"ERROR: --stage is required for {action}", file=sys.stderr)
         return 2
-    state, _resumed = get_or_create_run_state(profile)
-    path = run_state_json(profile)
+    state, _resumed = get_or_create_run_state(profile, product=product)
+    path = run_state_path(profile, None, product)
     try:
         if action == "start-stage":
             state.start_stage(stage)
@@ -276,12 +296,24 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional JSON object of metrics to record (complete-stage only)",
     )
+    parser.add_argument(
+        "--product",
+        default=None,
+        help="Product this run is for. Required once the profile has a second product",
+    )
     args = parser.parse_args(argv)
 
-    if args.action in ("start-stage", "complete-stage"):
-        return _handle_stage_action(args.profile, args.action, args.stage, args.metrics)
+    try:
+        path = run_state_path(args.profile, None, args.product)
+    except run_scope.ScopeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
-    path = run_state_json(args.profile)
+    if args.action in ("start-stage", "complete-stage"):
+        return _handle_stage_action(
+            args.profile, args.action, args.stage, args.metrics, args.product
+        )
+
     state = load_run_state(path)
 
     if args.action == "status":

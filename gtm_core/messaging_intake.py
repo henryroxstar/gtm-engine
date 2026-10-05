@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import run_scope
 from .fsio import atomic_write_text, utc_stamp
 from .messaging.registry import (
     ANGLE_STATUSES,
@@ -31,7 +32,12 @@ from .messaging.registry import (
     PROOF_FILE,
     PROOF_KINDS,
 )
-from .paths import _safe_segment, resolve_content_root, resolve_profiles_root
+from .paths import (
+    _safe_segment,
+    resolve_content_root,
+    resolve_knowledge_file,
+    resolve_profiles_root,
+)
 from .slugify import slug as slugify
 
 BACKUPS_DIRNAME = "knowledge-backups"
@@ -429,16 +435,26 @@ def _format_angle_export(a: dict) -> list[str]:
     return res
 
 
-def export_profile_to_markdown(profile: str, profiles_root: Path | None = None) -> str:
-    """Export a profile's live knowledge registry to MESSAGING-INTAKE.md format."""
+def export_profile_to_markdown(
+    profile: str, profiles_root: Path | None = None, product: str | None = None
+) -> str:
+    """Export a profile's live knowledge registry to MESSAGING-INTAKE.md format.
+
+    ``product`` selects the registry the export describes: a second product's claims, proof and
+    angles, with the company-wide seats when it has none of its own. Required once the profile has
+    a second product, so an export of "the profile" cannot quietly be the default product's.
+    """
     roots = profiles_root or resolve_profiles_root()
     profile_safe = _safe_segment(profile, "profile")
-    prof_dir = roots / profile_safe / "knowledge"
+    scope = run_scope.require(profile_safe, product, profiles_root=roots)
 
-    seats = _load_toml_items(prof_dir / ROLE_VOCABULARY_FILE, "seat")
-    claims = _load_toml_items(prof_dir / CLAIMS_FILE, "claim")
-    proofs = _load_toml_items(prof_dir / PROOF_FILE, "proof")
-    angles = _load_toml_items(prof_dir / ANGLES_FILE, "angle")
+    def _file(name: str) -> Path:
+        return resolve_knowledge_file(roots, profile_safe, name, product=scope.product)
+
+    seats = _load_toml_items(_file(ROLE_VOCABULARY_FILE), "seat")
+    claims = _load_toml_items(_file(CLAIMS_FILE), "claim")
+    proofs = _load_toml_items(_file(PROOF_FILE), "proof")
+    angles = _load_toml_items(_file(ANGLES_FILE), "angle")
 
     out: list[str] = [
         f"# Messaging & Hook Intake — {profile_safe}",
@@ -491,6 +507,7 @@ def create_intake_backup(
     profile: str,
     content_root: Path | None = None,
     profiles_root: Path | None = None,
+    product: str | None = None,
 ) -> Path:
     """Create a dated markdown backup of current live messaging in content/<profile>/knowledge-backups/."""
     c_root = content_root or resolve_content_root()
@@ -503,7 +520,7 @@ def create_intake_backup(
     stamp = utc_stamp()
     dest = backup_dir / f"messaging-intake-backup-{stamp}.md"
 
-    md_content = export_profile_to_markdown(profile_safe, profiles_root=p_root)
+    md_content = export_profile_to_markdown(profile_safe, profiles_root=p_root, product=product)
     atomic_write_text(dest, md_content)
     return dest
 
@@ -712,11 +729,22 @@ def stage_intake(
     profiles_root: Path | None = None,
     *,
     auto_backup: bool = True,
+    product: str | None = None,
 ) -> tuple[dict[str, Path], Path | None]:
-    """Parse, validate, backup, and stage candidate files in content/<profile>/knowledge-staging/."""
+    """Parse, validate, backup, and stage candidate files in content/<profile>/knowledge-staging/.
+
+    Staging promotes into the profile's own ``knowledge/``, which is the default product's level,
+    so a second product is refused rather than staged into the wrong place.
+    """
     c_root = content_root or resolve_content_root()
     p_root = profiles_root or resolve_profiles_root()
     profile_safe = _safe_segment(profile, "profile")
+    scope = run_scope.require(profile_safe, product, profiles_root=p_root)
+    if scope.writes_as_second:
+        raise ValueError(
+            f"intake for {scope.product_display} is not supported yet: staged files are promoted "
+            "into the company-wide knowledge folder, which is the default product's level."
+        )
     prof_knowledge = p_root / profile_safe / "knowledge"
 
     text = intake_path.read_text(encoding="utf-8")
@@ -727,7 +755,9 @@ def stage_intake(
 
     backup_path: Path | None = None
     if auto_backup:
-        backup_path = create_intake_backup(profile_safe, content_root=c_root, profiles_root=p_root)
+        backup_path = create_intake_backup(
+            profile_safe, content_root=c_root, profiles_root=p_root, product=product
+        )
 
     staging_dir = c_root / profile_safe / STAGING_DIRNAME
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -769,12 +799,20 @@ def main() -> None:
     )
     p_export.add_argument("--profile", required=True, help="Active profile slug")
     p_export.add_argument(
+        "--product", default=None, help="Product to export; required once the profile has a second"
+    )
+    p_export.add_argument(
         "--output", type=Path, help="Destination markdown path (defaults to stdout)"
     )
     p_stage = subparsers.add_parser(
         "stage", help="Stage intake changes and create automatic backup"
     )
     p_stage.add_argument("--profile", required=True, help="Active profile slug")
+    p_stage.add_argument(
+        "--product",
+        default=None,
+        help="Product this intake is for; required on a multi-product profile",
+    )
     p_stage.add_argument("--file", required=True, type=Path, help="Path to markdown intake file")
     p_stage.add_argument(
         "--no-backup", action="store_true", help="Skip creating automated markdown backup"
@@ -796,7 +834,11 @@ def main() -> None:
         print("✓ All intake records validated cleanly.")
 
     elif args.command == "export":
-        md = export_profile_to_markdown(args.profile)
+        try:
+            md = export_profile_to_markdown(args.profile, product=args.product)
+        except run_scope.ScopeError as exc:
+            print(f"Error exporting: {exc}", file=sys.stderr)
+            sys.exit(2)
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(md, encoding="utf-8")
@@ -806,7 +848,9 @@ def main() -> None:
 
     elif args.command == "stage":
         try:
-            staged, backup = stage_intake(args.profile, args.file, auto_backup=not args.no_backup)
+            staged, backup = stage_intake(
+                args.profile, args.file, auto_backup=not args.no_backup, product=args.product
+            )
         except Exception as exc:
             print(f"Error staging intake: {exc}", file=sys.stderr)
             sys.exit(2)

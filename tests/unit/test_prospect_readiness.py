@@ -196,6 +196,7 @@ def test_every_row_has_exactly_one_fate(root):
         "not_scored": 1,
         "not_admitted": 1,
         "judge_dropped": 0,
+        "cxo_triaged": 0,
         "set_aside": 2,
         "suppressed": 1,
         "not_sorted": 1,
@@ -209,8 +210,8 @@ def test_a_row_the_count_loses_is_an_error_not_a_smaller_answer(root, monkeypatc
 
     real = account_integrity.filter_by_verdict
 
-    def lossy(rows, want, *, lane=""):
-        kept, stats = real(rows, want, lane=lane)
+    def lossy(rows, want, *, lane="", **kw):
+        kept, stats = real(rows, want, lane=lane, **kw)
         if kept:
             kept = kept[1:]
             stats.kept -= 1

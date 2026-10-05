@@ -15,6 +15,7 @@ from ...database import workspace_scope
 from ...dnc_dispatch import dispatch_backend_dnc_add
 from ...email_dispatch import dispatch_backend_email_enroll
 from ...publish_dispatch import dispatch_backend_publish
+from ...services.integrations import get_workspace_credentials
 from .budget import _reserve_or_deny
 from .decisions import run_status
 from .events import _utc_now, publish_run_event
@@ -563,6 +564,94 @@ def _apply_pack_inputs_and_context(
     return pack_graph
 
 
+def _check_pack_integrations_preflight(pack_graph: Any, cfg: Any) -> RunFailure | None:
+    """Preflight check: fail fast with $0 spend if the graph declares external effects
+    that require integration credentials missing in this workspace (Issue #314)."""
+    effects = {getattr(n, "external_effect", None) for n in pack_graph.nodes}
+    if "email_enroll" in effects and not getattr(cfg, "saleshandy_api_key", None):
+        return RunFailure(
+            "email_not_configured",
+            "no Saleshandy API key configured for this workspace — not enrolled",
+        )
+    if "dnc_add" in effects and not getattr(cfg, "saleshandy_api_key", None):
+        return RunFailure(
+            "dnc_not_configured",
+            "no Saleshandy API key configured for this workspace — not suppressed",
+        )
+    return None
+
+
+def _resolve_gate_draft_content(
+    gate_actions: Any,
+    cfg: Any,
+    profile_name: str,
+    gated: dict,
+    *,
+    run_id: str,
+    effect: str | None,
+    is_publish: bool,
+) -> tuple[RunFailure | None, tuple[Any, Any, str] | None]:
+    """Resolve draft content at a gate, returning a RunFailure if unconfigured or invalid."""
+    try:
+        content = _gate_draft_content(
+            gate_actions,
+            cfg,
+            profile_name,
+            gated,
+            run_id=run_id,
+            enroll=effect == "email_enroll",
+            dnc=effect == "dnc_add",
+            publish=is_publish,
+        )
+        return None, content
+    except gate_actions.EnrollDraftError as exc:
+        if not getattr(cfg, "saleshandy_api_key", None):
+            return (
+                RunFailure(
+                    "email_not_configured",
+                    "no Saleshandy API key configured for this workspace — not enrolled",
+                ),
+                None,
+            )
+        return RunFailure("draft_invalid", str(exc)), None
+    except gate_actions.DncDraftError as exc:
+        if not getattr(cfg, "saleshandy_api_key", None):
+            return (
+                RunFailure(
+                    "dnc_not_configured",
+                    "no Saleshandy API key configured for this workspace — not suppressed",
+                ),
+                None,
+            )
+        return RunFailure("draft_invalid", str(exc)), None
+
+
+async def _reserve_and_start_run(pool: Any, workspace_id: str, run_id: str) -> bool:
+    """Reserve budget cap and mark run started. Returns False if denied or aborted."""
+    if not await _reserve_or_deny(pool, workspace_id, run_id):
+        await _fail_run(pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached")
+        return False
+    return bool(await start_run(pool, workspace_id, run_id))
+
+
+async def _handle_rejected_gate(
+    pool: Any,
+    workspace_id: str,
+    run_id: str,
+    gate_actions: Any,
+    cfg: Any,
+    profile_name: str,
+    draft_kind: str,
+    draft_path: Any,
+) -> None:
+    """Discard unapproved draft and mark the run rejected."""
+    if draft_kind == "plan":
+        gate_actions.discard_plan_draft(cfg, profile_name)
+    elif draft_kind == "enroll":
+        gate_actions.discard_enroll_draft(cfg, profile_name, path=draft_path)
+    await reject_run(pool, workspace_id, run_id)
+
+
 async def _execute_pack_run(
     pool,
     repo_root,
@@ -600,29 +689,6 @@ async def _execute_pack_run(
             _cancelled_runs.discard(run_id)
             return
 
-        # RL-13/ST-06: a boot reconcile (reconcile.py) or a lease reclaim of a run
-        # already sitting at awaiting_approval (queue.py's dispatch_claimed, when
-        # claim_next_run's prev_status was awaiting_approval) is a RESUME of a still-open
-        # gate wait, not a fresh start. The reserve/start pair below is this function's
-        # ONE-TIME admission (a §R2 cap check with no user action behind it, and the
-        # running transition + started_at) — re-running it on a resume would (a) fail a
-        # run legitimately parked at a gate with "monthly cost cap reached" for a cap
-        # that has nothing to do with it, and (b) flip the row back to 'running',
-        # overwriting started_at and lying to every client polling/streaming it. Skipping
-        # it changes nothing else: the runner loop below re-enters its gate-holding
-        # branch exactly as it does on every reclaim already (unchanged), and the §R2
-        # per-batch _budget_guard still runs before every dispatch batch either way.
-        resuming = await run_status(pool, workspace_id, run_id) == "awaiting_approval"
-
-        if not resuming:
-            if not await _reserve_or_deny(pool, workspace_id, run_id):
-                await _fail_run(
-                    pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached"
-                )
-                return
-            if not await start_run(pool, workspace_id, run_id):
-                return
-
         from agent import gate_actions
         from agent.config import Config
         from agent.packs import make_executor_from_pack, pack_graph_to_engine_graph
@@ -630,15 +696,29 @@ async def _execute_pack_run(
         from gtm_core.packs.reachability import entitled_skills_for_profile
 
         from ...pack_catalog import resolve_variant
-        from ...services.integrations import get_workspace_credentials
         from ...session import _workspace_scoped_config, make_pg_usage_sink
 
         base_cfg = Config.from_env(repo_root=repo_root)
         creds = await get_workspace_credentials(pool, workspace_id)
         cfg = _workspace_scoped_config(base_cfg, workspace_id, repo_root, credentials=creds)
         resolved = resolve_variant(repo_root, cfg.profiles_root, profile_name, pack, variant)
-
         pack_graph = _apply_pack_inputs_and_context(resolved.graph, inputs, context)
+
+        # RL-13/ST-06: a boot reconcile or lease reclaim resuming a gate wait skips admission.
+        resuming = await run_status(pool, workspace_id, run_id) == "awaiting_approval"
+        if not resuming:
+            preflight_failure = _check_pack_integrations_preflight(pack_graph, cfg)
+            if preflight_failure is not None:
+                await _fail_run(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    preflight_failure.error,
+                    error_code=preflight_failure.code,
+                )
+                return
+            if not await _reserve_and_start_run(pool, workspace_id, run_id):
+                return
 
         allowed_skills = entitled_skills_for_profile(
             cfg.profiles_root, profile_name, repo_root / "packs", entitlement
@@ -700,16 +780,22 @@ async def _execute_pack_run(
             gated_node_id = gated.get("name", "")
             effect = _dispatch_target(runner, gated_node_id)[0]
             is_publish = effect == "publish" or gated_node_id == "publish"
-            pending_content, draft_path, draft_kind = _gate_draft_content(
+            draft_err, draft_res = _resolve_gate_draft_content(
                 gate_actions,
                 cfg,
                 profile_name,
                 gated,
                 run_id=run_id,
-                enroll=effect == "email_enroll",
-                dnc=effect == "dnc_add",
-                publish=is_publish,
+                effect=effect,
+                is_publish=is_publish,
             )
+            if draft_err is not None:
+                await _fail_run(
+                    pool, workspace_id, run_id, draft_err.error, error_code=draft_err.code
+                )
+                return
+            assert draft_res is not None
+            pending_content, draft_path, draft_kind = draft_res
             has_draft = draft_path is not None
             gate_kind = pack_gate_kind(draft_kind)
             sentinel = _GATE_PUBLISH_SENTINEL if gate_kind == "publish" else _GATE_PLAN_SENTINEL
@@ -730,13 +816,16 @@ async def _execute_pack_run(
             if decision in (CANCELLED, TIMED_OUT):
                 return
             if not approved(decision):
-                # Only pack mode has a draft to discard — a rejected gate must not survive
-                # to be promoted/dispatched by the next run.
-                if draft_kind == "plan":
-                    gate_actions.discard_plan_draft(cfg, profile_name)
-                elif draft_kind == "enroll":
-                    gate_actions.discard_enroll_draft(cfg, profile_name, path=draft_path)
-                await reject_run(pool, workspace_id, run_id)
+                await _handle_rejected_gate(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    gate_actions,
+                    cfg,
+                    profile_name,
+                    draft_kind,
+                    draft_path,
+                )
                 return
 
             # Approved — re-gate before spending more (H6), same as prompt mode.

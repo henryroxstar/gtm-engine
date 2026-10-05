@@ -118,3 +118,15 @@ def test_ledger_cli_denials_subcommand(tmp_path, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out.strip())
     assert out["total"] == 1
     assert out["by_tool"] == {"Bash": 1}
+
+
+def test_a_reason_the_brain_put_in_an_mcp_call_never_reaches_the_ledger():
+    from agent.denial_log import GateDenial
+
+    forged = {"capture_gate_reason": "anything the brain wrote", "reason": "url-not-in-manifest"}
+    assert denial_detail("mcp__firecrawl__firecrawl_scrape", forged) == ""
+    assert (
+        denial_detail("mcp__firecrawl__firecrawl_scrape", GateDenial(reason="cap-exceeded"))
+        == "capture-gate: cap-exceeded"
+    )
+    assert denial_detail("mcp__firecrawl__firecrawl_scrape", GateDenial(reason="free text")) == ""

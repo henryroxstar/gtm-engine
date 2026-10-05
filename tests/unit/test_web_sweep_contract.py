@@ -17,6 +17,24 @@ from gtm_core import web_sweep as ws
 AS_OF = "2026-09-21"
 
 
+@pytest.fixture(autouse=True)
+def _name_the_default_product(monkeypatch):
+    """These tests read the environment's default profile's real vocabulary. A profile with a
+    second product refuses a classification that names no product (``run_scope``), so name the
+    default one, discovered from the profile rather than spelled."""
+    from gtm_core import run_scope, web_sweep_hits
+
+    real = web_sweep_hits.get_ai_vocab_regex
+
+    def named(profile, product=None):
+        if product is None:
+            got = run_scope.resolve(profile, interactive=True)
+            product = got.default if isinstance(got, run_scope.Ask) else None
+        return real(profile, product)
+
+    monkeypatch.setattr(web_sweep_hits, "get_ai_vocab_regex", named)
+
+
 def _hit(snippet: str, **kw) -> dict:
     return {
         "url": "https://northwind.example/news/a",

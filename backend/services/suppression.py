@@ -36,11 +36,8 @@ async def is_suppressed(
     if not conditions:
         return False, None
 
-    query = f"""  # nosec B608
-        SELECT reason FROM tenant_suppression
-        WHERE workspace_id = $1::uuid AND ({" OR ".join(conditions)})
-        LIMIT 1  # nosec B608
-    """
+    cond_sql = " OR ".join(conditions)
+    query = f"SELECT reason FROM tenant_suppression WHERE workspace_id = $1::uuid AND ({cond_sql}) LIMIT 1"  # nosec B608
     async with workspace_scope(pool, workspace_id) as conn:
         row = await conn.fetchrow(query, *params)
 

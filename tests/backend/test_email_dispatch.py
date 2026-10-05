@@ -111,6 +111,15 @@ def saleshandy():
         yield fake
 
 
+@pytest.fixture(autouse=True)
+def records_allow_the_load(monkeypatch):
+    """These tests are about the copy match, the lane gate and the audit row, not about the
+    profile's records. The records rule (compliance check on file, digest, pilot) has its own
+    tests against a real tenant directory in tests/agent/test_email_dispatch_preconditions.py;
+    here it is held open so each test exercises only the check it is named for."""
+    monkeypatch.setattr(email_dispatch, "_load_refusal", lambda *_a, **_k: None)
+
+
 class FakeLedgers:
     # `profile` mirrors the real Ledgers accessor: the dispatcher resolves the enrollment
     # lane state from it, and refuses fail-closed when it is absent.

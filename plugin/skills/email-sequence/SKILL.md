@@ -99,7 +99,7 @@ gtm_core.paths`. `uv` provisions its own Python 3.11+, so the alias never gets a
    the retired phrasings, sign-off and subject shape, CTA shape, and pointers (never copies) to the
    ban lists. Where the two could disagree, `voice-rules.toml` wins, because it is the copy a
    machine reads.
-4. **`premise-vocab.toml`** — `profiles/<active>/knowledge/premise-vocab.toml`. **Read it before
+4. **`premise-vocab.toml`** — resolve it with `python -m gtm_core.resolve_knowledge premise-vocab.toml --profile <active> [--product <slug>]` and read what it prints. **Read it before
    choosing an argument, not after the gate rejects one.** It defines what a body is allowed to
    assume the recipient's own recorded evidence establishes, and — just as importantly — which
    premises are **disqualified as the load-bearing premise of a spec**, with the evidence that
@@ -141,7 +141,7 @@ gtm_core.paths`. `uv` provisions its own Python 3.11+, so the alias never gets a
    `gtm_core.messaging:generated` banner it is rendered from `angles.toml` on the axes
    seat × (premise × opener kind), and a `—` cell means **there is no angle for that seat here** —
    never a blank to fill in. **Never edit a generated matrix and never instruct anyone to**;
-   regenerate it with `python -m gtm_core.messaging matrix --profile <active>`. A tenant that has
+   regenerate it with `python -m gtm_core.messaging matrix --profile <active> [--product <slug>]`. A tenant that has
    not migrated still ships a hand-authored persona × signal grid; read the file's own header row
    rather than assuming which you have.
 
@@ -150,7 +150,7 @@ gtm_core.paths`. `uv` provisions its own Python 3.11+, so the alias never gets a
    loads before composing anything:
 
    ```bash
-   uv run python -m gtm_core.messaging check --profile <active>
+   uv run python -m gtm_core.messaging check --profile <active> [--product <slug>]
    ```
 
    `knowledge/icp-personas.md` carries the Pain·Claim·Gain card per
@@ -193,8 +193,9 @@ gtm_core.paths`. `uv` provisions its own Python 3.11+, so the alias never gets a
 > **Knowledge resolution (product-aware).** For any per-product knowledge file — `icp-personas.md`,
 > `market-scan-config.md` — resolve its path with
 > `python -m gtm_core.resolve_knowledge <file> --profile <active> [--product <slug>]` and read
-> whatever path it prints, instead of opening `knowledge/<file>` directly. Pass `--product` when the
-> run is bound to one product (the lead `default_product`, or a product the operator named).
+> whatever path it prints, instead of opening `knowledge/<file>` directly. Pass the run's product on
+> every such read (the `run_scope resolve` answer, or `default_product` when the company has one
+> product); a company with a second product refuses a read that drops it.
 
 ## Inputs to gather
 
@@ -225,7 +226,7 @@ multi-step arc:
    `country`. Run it against the list this spec will serve:
 
    ```bash
-   uv run python -m gtm_core.messaging resolve --profile <active> \
+   uv run python -m gtm_core.messaging resolve --profile <active> [--product <slug>] \
      --csv content/<active>/prospects/sequences/ready-to-load.csv --dry-run
    ```
 
@@ -279,7 +280,7 @@ multi-step arc:
    different arguments, and a shared sentence is the tell. Check before staging:
 
    ```bash
-   uv run python -m gtm_core.hook_coverage --profile <active> --campaign <campaign-slug>
+   uv run python -m gtm_core.hook_coverage --profile <active> [--product <slug>] --campaign <campaign-slug>
    ```
 
    It reports the cells the campaign declares, which personas hold recipients no spec addresses,
@@ -457,7 +458,7 @@ every 4–5-rated email had the spine and every 1-rated email broke it:
    `argument-monotone`, which fails the run above the cap:
 
    ```bash
-   uv run python -m gtm_core.hook_coverage --profile <active> --campaign <slug> [--include-drafts]
+   uv run python -m gtm_core.hook_coverage --profile <active> [--product <slug>] --campaign <slug> [--include-drafts]
    ```
 
    `--include-drafts` folds in drafted cells under `prospects/evals/drafts/`, which are absent from
@@ -467,7 +468,7 @@ every 4–5-rated email had the spine and every 1-rated email broke it:
    per-email gate at zero errors, because no per-email rule can see a sibling. The report also
    prints the spread, so the question a drafter actually has ("which groups are taken?") is
    answered before the next spec, not after the cap breaks. The complement — which angles no spec
-   has claimed — is `uv run python -m gtm_core.messaging unused --profile <active>`.
+   has claimed — is `uv run python -m gtm_core.messaging unused --profile <active> [--product <slug>]`.
 3. **Slot 3 — the seat's pain, as a PREDICTED question, never an asserted internal.** Take the
    words from the seat's `lead_pain` in `role-vocabulary.toml`; its `forbidden_pains` are the ones
    that misfire into this seat. Banned shape:
@@ -631,7 +632,7 @@ divergence) and must pass the deterministic pack linter with zero errors:
 
 ```bash
 uv run python3 tests/linter/outreach_linter.py pack <pack.md> \
-  --profile <active> \
+  --profile <active> [--product <slug>] \
   --ban-file profiles/<active>/knowledge/voice-bans.txt \
   --case-study-file profiles/<active>/knowledge/outreach-case-studies.txt \
   --stem-file profiles/<active>/knowledge/outreach-banned-stems.txt \
@@ -666,6 +667,7 @@ uv run python3 tests/linter/outreach_linter.py render <spec.md> \
   --case-study-file profiles/<active>/knowledge/outreach-case-studies.txt \
   --stem-file profiles/<active>/knowledge/outreach-banned-stems.txt \
   --profile <active> \
+  [--product <slug>] \
   --sequence-id <sequence-id> \
   --json content/<active>/prospects/evals/qa/<sequence-id>-$(date -u +%F).json
 ```
@@ -829,6 +831,16 @@ and is a no-op. The same default holds for `list-fit` and the merge-render linte
 disagree with each other about this.
 
 Exit 1 on any ERROR — **or on a WARN tier that has stopped being readable.**
+
+### Hard CxO Signal Quality Gate & `--write-kept` Staging
+
+When `--require-verdict send` runs, the gate enforces **Signal Quality Scoring** across all senior CxO recipients (CEOs, CTOs, CISOs, etc.):
+- **Admissibility Floor:** CxOs must carry **Tier 1 (elite)** or **Tier 2 (strong)** signals derived from 3D scoring (`signal_fit >= 2` + recent date, or `signal_fit == 3` with warm recency). Non-CxOs require Tier 1–3 (Tier 4 is prohibited engine-wide).
+- **Row-Level Triage:** Low-tier CxOs (Tier 3/4) and unverified CxOs (missing `signal_fit`) are triaged to refused lines with `cxo-signal-quality-low` or `cxo-signal-quality-unverified`.
+- **Surviving Leads Staged:** Surviving clean leads are written to `--write-kept <dir>/kept.csv` (confined beside input CSV), stamped with point-in-time `signal_quality_tier` and `signal_recency_score`.
+- **Enroll `kept.csv`, Never the Raw List:** Downstream sequencer enrollment must stage `kept.csv`, never the raw un-triaged input CSV.
+- **Refusal & Strict Mode:** If an all-CxO list yields 0 kept leads, or if `--strict` is passed and any CxOs are triaged, `account_integrity` refuses with **exit code 2**.
+- **Optional Refusal File:** `--write-refused <dir>/refused.csv` writes triaged rows beside the list with refusal reasons.
 
 ### The warning budget (why this gate blocks on volume)
 
@@ -1650,17 +1662,28 @@ python -m gtm_core.email_campaign_dashboard --profile <active> --scope open
 
 `--scope open` renders the campaigns whose manifest says `status = "active"`. Use
 `--scope campaign --campaign <slug>` when this run touched one named campaign, and `--scope all`
-for the profile-wide rollup. Then **assert the page is not stale** — a stale page renders
-identically to a current one, so the render alone proves nothing:
+for the profile-wide rollup. Then **assert no page is stale** — a stale page renders
+identically to a current one, so the render alone proves nothing. Pass no `--scope` here, on
+purpose: you rendered one, and the others are still on disk.
 
 ```bash
-python -m gtm_core.email_campaign_dashboard --profile <active> --scope open --check-fresh
+python -m gtm_core.email_campaign_dashboard --profile <active> --check-fresh
 ```
+
+On a red check the remedy is one command — `--refresh-all`, which re-renders every page that exists under its own recorded scope — then check again. Do not re-render one scope and call it done: the check now covers every page, and the rollup is the only one anything refreshes on its own. It also goes red when the sending figures themselves are older than the
+limit, which is your job in this skill and not a rendering problem: refresh them (below), then
+re-render. A page it calls a *retired candidate* needs nothing (every campaign it names is
+finished or removed, and `--refresh-all` skips it). Any other page the refresh cannot recover — no
+inventory, a damaged one, a scope that disagrees with the page's own file name, a deleted page file
+whose record was left, a symlink, an unreadable campaign manifest — is named with the exact command,
+and `--refresh-all` exits non-zero until you do what it says. Old figures also make it exit
+non-zero, because a re-render cannot refresh them: it says so, and you fetch them as below, then run
+it again.
 
 Then **report the current status, same shape every other step in this pipeline reports it.** Run:
 
 ```bash
-uv run python -m gtm_core.prospects status --profile <active>
+uv run python -m gtm_core.prospects status --profile <active> [--product <slug>]
 ```
 
 and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path (`content/<active>/email_campaign_status.html`) go in Details (if the command exits 1 because no list has been routed yet, paste its message verbatim — do not compose your own table):
@@ -1671,12 +1694,52 @@ and paste the lede (the lines above 'For the record') inside the operator block;
 
 This lands the operator on the one page that shows the whole funnel (account backlog → email funnel → ready/verifying/blocked) **and live sequencer performance** (loaded / people contacted / replied / reply labels / tagged meetings / bounces per sequence), instead of hunting through CSVs or the Saleshandy UI.
 
-**Refresh the live sequencer stats first** (this is what powers the performance card): for every
-sequence you touched — and in any read-back / "check stats / how's it doing" mode, for every active
-sequence — call `get_sequence_stats` and write the payloads to
-`content/<active>/prospects/sequences/.pool/sequence-stats.json` as `{"fetched":"<date>","sequences":[<payload>, ...]}`.
-The dashboard accepts the **raw** Saleshandy payload verbatim (it normalizes loaded/sent/pending/
-opened/replied/bounced/meetings itself) — do not reshape it. Then run the dashboard refresh above.
+**Refresh the live sequencer stats first** (this is what powers the performance card). A current
+sequence is one a campaign manifest lists and has not archived. Refresh **every current sequence
+in one pass — never a subset**: the page is only as current as the oldest sequence behind it, so a
+partial pass cannot make it current. Run `status` first. It lists any current sequence whose
+figures are missing, old or unstamped, and the pass must cover all of them. Then call
+`get_sequence_stats` for each current sequence, put the `payload` object of each reply into one
+file as `{"sequences": [<payload>, …]}`, and hand the file to the one writer — never write or edit
+`sequence-stats.json` by hand:
+
+```bash
+uv run python -m gtm_core.sequencer_snapshot --profile <active> status
+uv run python -m gtm_core.sequencer_snapshot --profile <active> write --payload <file> [--payload <file> ...]
+uv run python -m gtm_core.sequencer_snapshot --profile <active> status
+```
+
+The second `status` must say every current sequence has recent figures; if it still lists one, the
+pass was not complete — fetch that sequence and write again. A sequence the sending tool no longer
+has cannot be fetched: `status` says so, and removing it (`forget`, below) is the operator's call.
+
+**The writer, not you, owns the file.** It validates every payload before it writes anything (a row
+without a `sequenceId` that is text, a counter that is not a whole number, a reply passed as it
+came instead of its `payload` object, and a duplicate id are each refused by name), merges the new
+rows into what is already there under a lock, and stamps each sequence with its own fetch date —
+you never pass or write a date. It also refuses a payload file that was not freshly saved, a
+previous file it cannot read, and a merged file the status page could not read, leaving the file
+untouched and saying why. If the bad row is already in the file the refusal names the way out:
+`forget`, or `--replace`. A numeric `sequenceId` is refused by name: report it to the operator
+rather than editing the payload.
+
+Options, used only when the operator asks: `--replace` starts the file over (the only way past an
+unreadable previous file), `--prune` drops rows for sequences no campaign lists any more,
+`forget --id <id>` drops one, and `ack` clears a recorded fall.
+
+**A counter that fell is data, not noise.** The sending tool's sent and delivered counts only
+rise, so when one is lower than at the last snapshot the writer records it, keeps the earlier
+sentence on the page's Emails tab, and the sequencer-sends ledger writes no row for it. Report
+the sentence to the operator; do not "fix" the figure.
+
+**A re-dated row is visible.** When a sequence's figures are identical to the ones already on file,
+the writer still re-dates it and says so (`re-dated <old> -> <new>, figures identical to the
+previous record`), and `status` lists it as information. A paused sequence's figures do not move,
+so that can be true; tell the operator, because it is also what re-feeding an old copy looks like.
+
+The rows are the **raw** Saleshandy payload objects, verbatim (the dashboard normalizes loaded/sent/
+pending/opened/replied/bounced/meetings itself) — do not reshape or total them. Then run the
+dashboard refresh above.
 The page auto-regenerates on every consolidation sweep too; this step guarantees it's fresh + live
 even in modes that don't sweep.
 

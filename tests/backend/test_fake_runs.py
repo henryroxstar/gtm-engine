@@ -744,7 +744,11 @@ def test_fake_run_gate_timeout_fails_like_a_real_run(ws_env, fake_env):
 
 # ── gate kinds: parity with the real pack runner (LD-03) ──────────────────
 
-_VARIANT_GRAPHS = sorted((REPO / "packs").glob("*/graphs/*.toml"))
+# An `internal` graph is operator-only: the backend refuses to run it (backend/pack_catalog.py),
+# real or fake, so it has no backend gate kinds to hold parity with.
+_VARIANT_GRAPHS = sorted(
+    path for path in (REPO / "packs").glob("*/graphs/*.toml") if not load_pack_graph(path).internal
+)
 
 #: The ONE named divergence — RL-01. A real pack run never pauses at a node declaring
 #: ``external_effect = "publish"`` (``execute_stage`` short-circuits it to SKIPPED before its
@@ -930,6 +934,11 @@ def _real_prospecting_frames(ws_env) -> list[tuple[str, dict]]:
     async def _go():
         with (
             lifecycle_harness(db, stage) as hz,
+            patch.object(
+                runs_pack_executor,
+                "get_workspace_credentials",
+                AsyncMock(return_value={"saleshandy": "test-key"}),
+            ),
             patch.object(runs_pack_executor, "dispatch_backend_email_enroll", enrolled),
         ):
             q = state._subscribe(run_id)

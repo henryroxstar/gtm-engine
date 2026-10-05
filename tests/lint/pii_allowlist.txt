@@ -51,6 +51,17 @@ riverbend
 # Fictional companies introduced when real prospects were removed (v0.9.1).
 summitline
 brightpath
+# Fictional labels for the account-relation tests (regulator / competitor matching). They sit on
+# real TLDs on purpose: the property under test is the registrable-domain / government-suffix
+# rule (.gov, .gov.uk, .org vs .co), which a .example host cannot stand in for.
+contoso
+agency
+notgov
+bank
+quarry
+rival
+vertex
+a
 forgeworks
 eastvale
 medipath
@@ -116,6 +127,10 @@ exec@mail.other.com
 # "email-freemail" rule fires, which needs a literal free-mail domain. Pinned as a full
 # address so a genuine prospect's gmail still fails the gate.
 chris@gmail.com
+# Free-mail fixtures: the property under test is that a free-mail host is never treated as an
+# organisation's identity. Pinned addresses, not the domain.
+x@gmail.com
+a@gmail.com
 
 [fixture-url-domains]
 # URL hosts allowed inside tests/ (suffix match: an entry covers its subdomains).
@@ -158,6 +173,7 @@ elevenlabs.io
 saleshandy.com
 gmass.co
 syften.com
+theirstack.com
 revenuecat.com
 firecrawl.dev
 sentry.io
@@ -186,6 +202,10 @@ crates.io
 jsdelivr.net
 luma.com
 businesswire.com
+# ATS job board platforms queried by zero-cost ATS sweep (gtm_core/signal_events/providers.py):
+greenhouse.io
+lever.co
+ashbyhq.com
 # Public bodies named as regulators / sources (rule inputs and fixtures, no person):
 sec.gov
 treasury.gov

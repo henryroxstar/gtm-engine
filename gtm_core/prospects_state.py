@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gtm_core.paths import _safe_segment, resolve_content_root
-from gtm_core.prospects_item import VocabularyRefusal, check_vocabulary
+from gtm_core.prospects_item import IDENTITY_FIELDS, VocabularyRefusal, check_vocabulary
 from gtm_core.prospects_lock import ledger_lock, serialised
 from gtm_core.prospects_merge import AccountMatcher, merge_onto
 
@@ -244,6 +244,54 @@ def _atomic_write(path: Path, data: dict) -> None:
             os.unlink(tmp)
 
 
+class LedgerFitRefused(ValueError):
+    """A second product tried to write fit fields to the shared ledger before it holds them."""
+
+
+def _is_second_product(profile: str, product: str | None) -> bool:
+    """True when ``product`` names a second product of ``profile``.
+
+    Goes through ``run_scope.require`` even for ``None``: on a company with a selectable second
+    product a writer called with no product refuses (``ProductRequired``) instead of writing as if
+    it were the default product. On a single-product company ``None`` is the default product and
+    every write is exactly what it always was.
+    """
+    from gtm_core import run_scope  # lazy: run_scope pulls in the profile parser
+
+    return run_scope.require(profile, product).writes_as_second
+
+
+def _hold_back_fit(
+    items: list[dict], *, product: str, identity_only: bool
+) -> tuple[list[dict], int]:
+    """Apply the second-product write guard to incoming items.
+
+    Refuses (naming the fields) when any incoming value outside :data:`IDENTITY_FIELDS` is
+    populated, unless ``identity_only`` — which drops those values and reports how many. A blank
+    value is a no-op in the merge, so it is never counted.
+    """
+    from gtm_core.prospects_merge import is_blank
+
+    held: dict[str, int] = {}
+    kept: list[dict] = []
+    for item in items:
+        clean: dict = {}
+        for field, value in item.items():
+            if field in IDENTITY_FIELDS:
+                clean[field] = value
+            elif not is_blank(value):
+                held[field] = held.get(field, 0) + 1
+        kept.append(clean)
+    if held and not identity_only:
+        raise LedgerFitRefused(
+            f"a run for {product!r} may not write fit fields to the shared ledger yet "
+            f"({', '.join(sorted(held))}): one row per account would overwrite the default "
+            "product's tier, score, verdict and lane. Keep them in the run's own files, or pass "
+            "--identity-only to write identity and contact fields and drop the rest."
+        )
+    return kept, sum(held.values())
+
+
 @serialised(latest_path, create=True)
 def upsert_latest(
     profile: str,
@@ -255,8 +303,14 @@ def upsert_latest(
     content_root: Path | None = None,
     new_account_defaults: Callable[[dict], dict] | None = None,
     on_merged: Callable[[list[dict]], None] | None = None,
+    product: str | None = None,
+    identity_only: bool = False,
 ) -> dict:
     """Merge ``new_items`` into latest.json by :func:`_identity_key`.
+
+    ``product`` names the product the run is for. A **second** product may write identity and
+    contact fields only (:data:`IDENTITY_FIELDS`); see :func:`_hold_back_fit`. ``None`` — the
+    default product, or any caller that predates the run scope — is unguarded.
 
     Merge-only by construction: the result starts from *every* existing account
     and only appends/updates — it can never drop a prior account, so a full-file
@@ -272,6 +326,23 @@ def upsert_latest(
     is a copy of the merged ledger row ``new_items[i]`` belongs to (``account_id`` already
     stamped). An exception from it propagates and leaves the ledger untouched.
     """
+    fit_held_back = 0
+    second_product = _is_second_product(profile, product)
+    if second_product:
+        assert product is not None
+        new_items, fit_held_back = _hold_back_fit(
+            new_items, product=product, identity_only=identity_only
+        )
+        if new_account_defaults is not None:
+            _defaults = new_account_defaults
+            new_account_defaults = lambda item: {  # noqa: E731
+                k: v for k, v in _defaults(item).items() if k in IDENTITY_FIELDS
+            }
+    # A second product never changes a row that already exists: every field on it is either the
+    # default product's decision (tier, verdict, lane, the contact it chose) or a company fact
+    # with its own blank-only writer (`fill_accounts`). It may only ADD companies nobody has yet.
+    untouched = 0
+
     current = load_latest(profile, content_root)
     existing_items = current.get("items", [])
 
@@ -305,6 +376,7 @@ def upsert_latest(
 
     added, updated, keyless_appended, ids_stamped = 0, 0, 0, 0
     landed_at: list[int] = []  # new_items[i] landed on result_items[landed_at[i]]
+    created_at: set[int] = set()  # positions of the rows THIS call created
     for item in new_items:
         # Un-keyable (e.g. a pure-non-ASCII name with no domain/id): append rather than
         # silently drop, and report it — an invisible append is how duplicates accumulate.
@@ -316,22 +388,30 @@ def upsert_latest(
             pos = len(result_items) - 1
             added += 1
             keyless_appended += keyless
+        elif second_product:
+            untouched += 1
         else:
             result_items[pos] = merge_onto(result_items[pos], item, sticky=STICKY_FIELDS, keep=keep)
             updated += 1
         matcher.note(pos, new=is_new)
         landed_at.append(pos)
+        if is_new:
+            created_at.add(pos)
 
     # Stamp an account_id on anything that lacks one — including pre-existing rows, so a
     # file written before this field existed gains ids on its next merge rather than
     # needing a migration. Never overwrites: the id is the account's identity, and
     # reassigning it would break every join that already quotes it.
     timestamp_str = generated_at or datetime.now(UTC).isoformat()
-    for item in result_items:
+    # ``added_at`` is different: it dates the row for retention, so a second product, which never
+    # changes a row that exists, dates only the rows it created (fresh audit, B2).
+    for pos, item in enumerate(result_items):
         if not str(item.get(ACCOUNT_ID_FIELD) or "").strip():
             item[ACCOUNT_ID_FIELD] = f"a-{uuid.uuid4().hex[:10]}"
             ids_stamped += 1
-        if not str(item.get("added_at") or "").strip():
+        if not str(item.get("added_at") or "").strip() and (
+            not second_product or pos in created_at
+        ):
             item["added_at"] = timestamp_str
 
     if on_merged is not None:
@@ -365,6 +445,8 @@ def upsert_latest(
         "total": len(result_items),
         "vocab_refused": vocab_refused,
         "snapshot": str(snap) if snap else None,
+        **({"fit_held_back": fit_held_back} if identity_only and product else {}),
+        **({"existing_untouched": untouched} if second_product else {}),
     }
 
 
@@ -376,6 +458,7 @@ def set_status(
     reason: str = "",
     source: str = "",
     content_root: Path | None = None,
+    product: str | None = None,
 ) -> dict:
     """Set ``status`` on existing accounts, keyed by :func:`_identity_key`.
 
@@ -400,6 +483,15 @@ def set_status(
     ``disqualified`` — writing them for any other status would misleadingly imply an
     account was disqualified when it was not.
     """
+    if product is not None and _is_second_product(profile, product):
+        # `status` is account-wide: disqualifying an account retires it for every product, so a
+        # run for a second product cannot decide it on the strength of its own fit. A caller with
+        # no product (a reply, an opt-out) is recording an account-wide FACT, not a product's
+        # judgment, so it is not a product run and is not refused.
+        raise LedgerFitRefused(
+            f"a run for {product!r} may not set an account's status: status is account-wide and "
+            "would retire the account for the default product too."
+        )
     bad = {s for s in updates.values() if s not in LEDGER_STATUSES}
     if bad:
         raise ValueError(
@@ -482,12 +574,21 @@ def mutate_account(
     updates: dict[str, str],
     *,
     content_root: Path | None = None,
+    product: str | None = None,
 ) -> dict:
     """Mutate arbitrary fields on an account by its slug, id, or domain.
 
     This provides chat-native CRUD capability (e.g. dropping a zombie row).
-    Snapshots first, writes atomically, and returns a summary.
+    Snapshots first, writes atomically, and returns a summary. A **second** product may not use it
+    at all: it only edits a row that exists, and a second product never changes one.
     """
+    if _is_second_product(profile, product):
+        # `mutate` only ever edits a row that exists, and a second product never changes one.
+        raise LedgerFitRefused(
+            f"a run for {product!r} may not edit an existing account: every field on it is the "
+            "default product's decision or a company fact (fill blanks with `firmographics "
+            "apply`). Keep this product's view of the account in its own files."
+        )
     current = load_latest(profile, content_root)
     items = [dict(it) for it in current.get("items", [])]
 
@@ -547,6 +648,7 @@ def mutate_accounts_unattended(
     updates_by_account: dict[str, dict[str, str]],
     *,
     content_root: Path | None = None,
+    product: str | None = None,
 ) -> dict:
     """Apply :func:`mutate_account` to many accounts, one call each — for a daily-cron or any
     other automated caller that must never abort a whole run over one account's bad field.
@@ -565,7 +667,13 @@ def mutate_accounts_unattended(
     refused: list[dict] = []
     for account, updates in updates_by_account.items():
         try:
-            result = mutate_account(profile, account, updates, content_root=content_root)
+            result = mutate_account(
+                profile,
+                account,
+                updates,
+                content_root=content_root,
+                product=product,
+            )
         except VocabularyRefusal as exc:
             refused.append({"account": account, "updates": updates, "reason": str(exc)})
             continue
@@ -708,9 +816,20 @@ def fill_accounts(
 
 
 def restore(
-    profile: str, snapshot_file: str | None = None, content_root: Path | None = None
+    profile: str,
+    snapshot_file: str | None = None,
+    content_root: Path | None = None,
+    product: str | None = None,
 ) -> Path:
-    """Restore latest.json from a snapshot (newest by default)."""
+    """Restore latest.json from a snapshot (newest by default).
+
+    Replaces the whole shared ledger, so a run for a second product may not do it.
+    """
+    if _is_second_product(profile, product):
+        raise LedgerFitRefused(
+            f"a run for {product!r} may not restore the shared ledger: it would replace the "
+            "default product's rows wholesale."
+        )
     snap_dir = _snapshot_dir(profile, content_root)
     if snapshot_file:
         src = Path(snapshot_file)
@@ -745,6 +864,16 @@ def _cli(argv: list[str] | None = None) -> int:
         action="store_true",
         help="override the shrink tripwire (only if the merge would legitimately reduce the item count)",
     )
+    m.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
+    m.add_argument(
+        "--identity-only",
+        action="store_true",
+        help="second product: write identity and contact fields, drop fit fields",
+    )
 
     s = sub.add_parser("snapshot", help="take a manual snapshot of latest.json")
     s.add_argument("--profile", required=True)
@@ -752,6 +881,11 @@ def _cli(argv: list[str] | None = None) -> int:
     r = sub.add_parser("restore", help="restore latest.json from a snapshot (newest by default)")
     r.add_argument("--profile", required=True)
     r.add_argument("--from", dest="snapshot_file", default=None)
+    r.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; a second product may not restore the shared ledger",
+    )
 
     ls = sub.add_parser("list-snapshots", help="list available snapshots")
     ls.add_argument("--profile", required=True)
@@ -765,6 +899,11 @@ def _cli(argv: list[str] | None = None) -> int:
     mut.add_argument(
         "--reason", default="", help="reason, sets verdict_reason if verdict is mutated"
     )
+    mut.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
 
     args = ap.parse_args(argv)
     try:
@@ -774,6 +913,19 @@ def _cli(argv: list[str] | None = None) -> int:
         # cause, not a traceback — matches prospects_import.py's top-level convention.
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
+
+
+def scoped_product(profile: str, product: str | None) -> str | None:
+    """The CLI's product, validated by the run scope.
+
+    On a profile with a second product a missing ``--product`` refuses (``ProductRequired`` is a
+    ``ValueError``, so the CLI prints one line and exits 2): each CLI call is its own process, and
+    a dropped flag must not become a default-product write. On any other profile it is a no-op.
+    """
+    from gtm_core import run_scope
+
+    scope = run_scope.require(profile, product)
+    return scope.product if product is not None else None
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -788,6 +940,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             args.source_run,
             generated_at=args.generated_at,
             allow_shrink=args.allow_shrink,
+            product=scoped_product(args.profile, args.product),
+            identity_only=args.identity_only,
         )
         # A vocabulary refusal never aborts the merge (R7) — it must still be VISIBLE (R5's
         # error-copy contract), so an interactive operator sees exactly which rows were
@@ -803,7 +957,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         return 0
 
     if args.cmd == "restore":
-        src = restore(args.profile, args.snapshot_file)
+        src = restore(
+            args.profile, args.snapshot_file, product=scoped_product(args.profile, args.product)
+        )
         print(f"restored latest.json from {src}")
         return 0
 
@@ -827,7 +983,12 @@ def _dispatch(args: argparse.Namespace) -> int:
             # Research setting a verdict by hand dates it; `prospects_consolidate` lifts a
             # pool row's re-angle to send only on a stamp newer than the row's.
             updates.setdefault("verdict_on", datetime.now().date().isoformat())
-        summary = mutate_account(args.profile, args.account, updates)
+        summary = mutate_account(
+            args.profile,
+            args.account,
+            updates,
+            product=scoped_product(args.profile, args.product),
+        )
         print(json.dumps(summary, indent=2))
         return 0
 

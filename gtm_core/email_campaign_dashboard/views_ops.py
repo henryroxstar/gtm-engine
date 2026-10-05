@@ -12,13 +12,18 @@ module may import any view module; none of them may import it.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from .aggregate import _ceiling_sub, _scope_figures, sending_tiles
 from .config import BENCHMARKS, OPS_GROUPS
 from .forecast import _forecast_block
 from .format import _e, _i, _pct, _scoped_out, _stat, figure_span, roster_gap, scope_label, section
 from .health import disagree_names, reconciliation_detail, repeated_rows, shared_sequences
+from .provenance import (
+    GROUP_ID as _SOURCES_GROUP,
+)
+from .provenance import (
+    section_kinds_table,
+    sources_table,
+)
 from .views_accounts import _list_vs_provider
 from .views_funnel import _safe_downloads_block
 from .views_inbound import _capability_card, _inbound_card
@@ -174,12 +179,12 @@ def _runs_block(m: dict) -> str:
         return scoped
     runs = m["runs"]
     if runs:
-        last = runs[0]["ts"]
-        try:
-            age = (datetime.now(UTC).date() - datetime.strptime(last, "%Y-%m-%d").date()).days
-        except ValueError:
-            age = None
-        age_txt = f"{age} days ago" if age is not None else last
+        # The run's own DATE, not its age (F7). "last run 7 days ago" was computed from
+        # `datetime.now(UTC)` at render time, so it was wrong the next calendar morning with
+        # no input having changed — the defect `page_inputs`'s docstring named under "time-
+        # derived content" and a content digest structurally cannot see. The date is already
+        # ISO on the row below; no clock is needed to print it.
+        age_txt = runs[0]["ts"]
         run_rows = "".join(
             f"<tr><td>{_e(r['ts'])}</td><td>{_e(r['kind'])}</td>"
             f"<td>{_e(r['market'] or '—')}</td>"
@@ -235,7 +240,8 @@ _TITLES = {gid: title for gid, title, _b in OPS_GROUPS}
 
 
 def _group(gid: str, title: str, blocks: dict[str, str], *, open_: bool) -> str:
-    """One collapsed group: its declared blocks in `OPS_GROUPS` order, each a section."""
+    """One `<details>` group — collapsed unless ``open_`` — with its declared blocks in
+    `OPS_GROUPS` order, each a section."""
     declared = next(b for g, _t, b in OPS_GROUPS if g == gid)
     body = "".join(section(sid, blocks.get(sid, "")) for sid in declared)
     if not body:
@@ -318,6 +324,19 @@ def _before_sending(m: dict) -> dict[str, str]:
     }
 
 
+def _figure_cell(row: dict, field: str) -> str:
+    """One count of a sequence row, or a dash when the loader refused it as not a usable number."""
+    return "—" if field in (row.get("refused") or ()) else f"{_i(row.get(field)):,}"
+
+
+def _progress_cell(row: dict) -> str:
+    """People contacted over people loaded — a dash when either was refused, because a share of a
+    number nobody could read is not a share."""
+    if {"sent", "loaded"} & set(row.get("refused") or ()):
+        return "—"
+    return _pct(_i(row.get("sent")), _i(row.get("loaded")))
+
+
 def _sending_setup(m: dict) -> dict[str, str]:
     """The loaded and sequences-set-up tiles and the "Email sequences" table, copied from
     `views_status._status_view` without the table's technical State column (TP T2.12: the
@@ -344,13 +363,20 @@ def _sending_setup(m: dict) -> dict[str, str]:
         src="count:live",
     )
     seq_rows = "".join(
-        f"<tr><td>{_e(x.get('name', '') or x['id'])}</td>"
-        f"<td class='num-cell'>{_i(x.get('loaded')):,}</td>"
-        f"<td class='num-cell'>{_i(x.get('sent')):,}</td>"
-        f"<td class='num-cell'>{_i(x.get('replied')):,}</td>"
+        f"<tr><td>{_e(x.get('name') or x['id'])}</td>"
+        f"<td class='num-cell'>{_figure_cell(x, 'loaded')}</td>"
+        f"<td class='num-cell'>{_figure_cell(x, 'sent')}</td>"
+        f"<td class='num-cell'>{_figure_cell(x, 'replied')}</td>"
         f'<td class="num-cell muted" data-figure="progress-{_e(x["id"])}">'
-        f"{_pct(_i(x.get('sent')), _i(x.get('loaded')))}</td></tr>"
+        f"{_progress_cell(x)}</td></tr>"
         for x in sorted(t["current"], key=lambda y: -_i(y.get("loaded")))
+    )
+    refused_note = (
+        "<p class='note'>A dash is a figure the sending tool gave that is not a usable number "
+        "(not a number at all, negative, or far too large to be a count). It is left out of "
+        "the totals rather than guessed; check that sequence in the sending tool.</p>"
+        if any(x.get("refused") for x in t["current"])
+        else ""
     )
     blocker = (
         "<p class='note'>Why it has not started yet is under "
@@ -367,6 +393,7 @@ def _sending_setup(m: dict) -> dict[str, str]:
         <p class="note">Progress is people contacted against people loaded: the share of each
         sequence's people who have had their first email. How long the whole run takes is
         worked out below.</p>
+        {refused_note}
         {blocker}
       </div>"""
     return {
@@ -422,10 +449,16 @@ def _email_quality(m: dict) -> dict[str, str]:
 
 
 def _ops_view(m: dict) -> str:
-    """Operator notes: every `OPS_GROUPS` group, collapsed, in order. Only "Numbers that need a
-    look" opens itself, and only when one of its checks has something to show."""
+    """Operator notes: every `OPS_GROUPS` group, collapsed, in order, with two exceptions.
+    "Numbers that need a look" opens itself when one of its checks has something to show, and
+    "Where these numbers come from" is ALWAYS open: it is the one table that says what is stale,
+    and a collapsed copy of it is the failure it exists to prevent (PRD F3)."""
     builders = {
         "numbers": _numbers,
+        _SOURCES_GROUP: lambda m: {
+            "sources-table": sources_table(m),
+            "section-kinds": section_kinds_table(m),
+        },
         "before-sending": _before_sending,
         "sending-setup": _sending_setup,
         "list-quality": _list_quality,
@@ -444,7 +477,11 @@ def _ops_view(m: dict) -> str:
     out = []
     for gid, title, _blocks in OPS_GROUPS:
         blocks = builders[gid](m)
-        opens = gid == "numbers" and any(b.strip() for b in blocks.values())
+        # Two groups are open, each on its own rule: "Numbers that need a look" when one of its
+        # checks found something, and the sources table unconditionally (F3).
+        opens = gid == _SOURCES_GROUP or (
+            gid == "numbers" and any(b.strip() for b in blocks.values())
+        )
         out.append(_group(gid, title, blocks, open_=opens))
     return "".join(out)
 

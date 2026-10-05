@@ -851,6 +851,111 @@ def test_sequence_id_writes_a_capability_asserted_row(tmp_path, monkeypatch):
     assert rows[0]["status"] == "FAIL"
 
 
+def _history(tmp_path, profile="acme"):
+    path = tmp_path / profile / "history.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def _env(tmp_path, monkeypatch):
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(tmp_path / "profiles"))
+
+
+def test_a_preflight_with_a_profile_records_even_when_no_sequence_id_is_given(
+    tmp_path, monkeypatch
+):
+    """A8/A5: a failed check used to leave NO row unless --sequence-id was remembered, so a load
+    that ignored it was indistinguishable from a run that never happened."""
+    _env(tmp_path, monkeypatch)
+    rc = ec.main(_cli_files(tmp_path) + ["--provider", "saleshandy", "--profile", "acme"])
+    assert rc == 1
+    rows = _history(tmp_path)
+    assert [r["event"] for r in rows] == ["capability_asserted"]
+    assert rows[0]["status"] == "FAIL"
+    assert rows[0]["sequence_id"] is None  # recorded, but bound to no sequence
+
+
+def test_the_row_carries_the_verdict_of_the_whole_preflight(tmp_path, monkeypatch):
+    """The CLI says DO NOT LOAD when ANY check fails. A passing capability status must not hide
+    a failed market check behind it, so the row also records the overall verdict."""
+    _env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        cp, "check_capabilities", lambda *a, **k: ec.Result("capabilities", "PASS", ["fine"])
+    )
+    rc = ec.main(
+        _cli_files(tmp_path, country="United Kingdom")
+        + ["--provider", "saleshandy", "--profile", "acme", "--sequence-id", "seq-1"]
+    )
+    assert rc == 1
+    (row,) = _history(tmp_path)
+    assert row["status"] == "PASS"
+    assert row["overall"] == "FAIL"
+    assert row["failed_checks"] and all(isinstance(n, str) for n in row["failed_checks"])
+
+
+def test_a_clean_preflight_records_overall_pass(tmp_path, monkeypatch):
+    _env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        cp, "check_capabilities", lambda *a, **k: ec.Result("capabilities", "PASS", ["fine"])
+    )
+    rc = ec.main(
+        _cli_files(tmp_path)
+        + ["--provider", "saleshandy", "--profile", "acme", "--sequence-id", "seq-1"]
+    )
+    assert rc == 0
+    (row,) = _history(tmp_path)
+    assert (row["status"], row["overall"], row["failed_checks"]) == ("PASS", "PASS", [])
+
+
+def test_step_ids_are_recorded_so_a_step_resolves_to_its_sequence(tmp_path, monkeypatch):
+    _env(tmp_path, monkeypatch)
+    ec.main(
+        _cli_files(tmp_path)
+        + [
+            "--provider",
+            "saleshandy",
+            "--profile",
+            "acme",
+            "--sequence-id",
+            "seq-1",
+            "--step-id",
+            "st-1",
+            "--step-id",
+            "st-2",
+        ]
+    )
+    (row,) = _history(tmp_path)
+    assert row["step_ids"] == ["st-1", "st-2"]
+
+
+def test_no_step_id_flag_means_no_step_ids_key(tmp_path, monkeypatch):
+    _env(tmp_path, monkeypatch)
+    ec.main(_cli_files(tmp_path) + ["--provider", "saleshandy", "--profile", "acme"])
+    (row,) = _history(tmp_path)
+    assert "step_ids" not in row
+
+
+def test_a_preflight_with_no_profile_writes_nothing_and_still_gates(tmp_path, monkeypatch, capsys):
+    _env(tmp_path, monkeypatch)
+    rc = ec.main(_cli_files(tmp_path) + ["--provider", "saleshandy"])
+    assert rc == 1
+    assert _history(tmp_path) == []
+
+
+def test_the_recorder_still_writes_only_what_it_is_given(tmp_path, monkeypatch):
+    """Direct callers that predate the wider row keep their exact shape."""
+    _env(tmp_path, monkeypatch)
+    from gtm_core.capability_ledger import record_asserted
+
+    record_asserted(
+        "acme", provider="saleshandy", sequence_id="s", status="PASS", attested=[], detail=[]
+    )
+    (row,) = _history(tmp_path)
+    assert "overall" not in row and "failed_checks" not in row and "step_ids" not in row
+
+
 def test_record_autoset_refuses_when_the_reread_does_not_show_the_flip(tmp_path, capsys):
     (tmp_path / "before.json").write_text(json.dumps(_settings(**{"13": "0"})), encoding="utf-8")
     (tmp_path / "after.json").write_text(json.dumps(_settings(**{"13": "0"})), encoding="utf-8")

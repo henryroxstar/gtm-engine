@@ -13,6 +13,7 @@ All fixtures are fictional (§R9): invented items, hooks and a `.example` permal
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -241,7 +242,7 @@ def test_cli_dry_run_writes_nothing_then_apply_feeds_the_prior_and_fatigue(tree,
         "--channel",
         "linkedin",
         "--fetched",
-        "2026-09-04",
+        datetime.now(UTC).date().isoformat(),
     ]
 
     assert _cli(argv) == 0

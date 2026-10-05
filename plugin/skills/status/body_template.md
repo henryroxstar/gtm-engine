@@ -5,17 +5,32 @@ Answer "where do I stand?" for the current prospecting list in plain words: whos
 ## The procedure (execute in order)
 
 **Step 1 — Check freshness and run the status CLI.**
-First, check that the campaign status page is fresh:
+First, check that every status page is fresh. With no `--scope` this checks them all — the
+rollup and each scoped page — and goes red when the sending figures are older than the limit
+even if no file changed:
 
 ```bash
 uv run python -m gtm_core.email_campaign_dashboard --profile <active> --check-fresh
 ```
 
-If the freshness check fails (non-zero exit code), refresh the status page:
+If it exits non-zero, read what it names, then run the one remedy and check again:
 
 ```bash
-uv run python -m gtm_core.email_campaign_dashboard --profile <active>
+uv run python -m gtm_core.email_campaign_dashboard --profile <active> --refresh-all
+uv run python -m gtm_core.email_campaign_dashboard --profile <active> --check-fresh
 ```
+
+Rendering one scope is **not** the remedy: that refreshes the page the old check happened to
+ask about and leaves the others exactly as stale. A page the check calls a *retired candidate*
+needs nothing — every campaign it names is finished or removed, `--refresh-all` skips it, nothing
+was deleted, and it is not counted. Any other page the refresh cannot recover is named with the
+exact command and makes `--refresh-all` exit non-zero: no inventory, a damaged one, a scope that
+disagrees with the page's own file name, a page file deleted while its record was left, a symlink,
+a campaign manifest that cannot be read, or campaigns of which only some are gone. Re-render that
+page with its own explicit `--scope`, fix the file it names, or delete the page.
+If the figures are what it names, refresh those first (`email-sequence`, read-back mode) — no
+re-render makes old figures current, so after a refresh `--refresh-all` also exits non-zero when
+the figures are old, and says to refresh them and run it again.
 
 Then run the status summary CLI:
 

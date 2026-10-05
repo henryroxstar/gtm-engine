@@ -72,7 +72,7 @@ def _row(**kw) -> dict:
         "first": "Jordan",
         "last": "Vance",
         "email": "jordan.vance@vertex.example",
-        "title": "Chief Information Security Officer",
+        "title": "Head of Platform",
         "company": "Vertex Systems",
         "company_domain": "vertex.example",
         "signal_clause": "opened an AI governance program covering autonomous agents",
@@ -251,6 +251,7 @@ _EMITTING_MODULES = (
     "gtm_core/account_integrity.py",
     "gtm_core/signal_record.py",
     "gtm_core/verdict_refusals.py",
+    "gtm_core/account_relation_gate.py",
 )
 
 _RULE_HEAD = re.compile(r"^([a-z][a-z0-9]*(?:-[a-z0-9]+)+):\s")

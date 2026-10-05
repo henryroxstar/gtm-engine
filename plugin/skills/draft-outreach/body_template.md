@@ -11,21 +11,28 @@ Write first-touch and follow-up messages that sound like the colleague wrote the
 
 1. **PROFILE** — `profiles/<active>/PROFILE.md`. **Read first.** Pull `name`, `title`, `email_signature`, `brand_name`, `default_product`, `language`. Sign the colleague's name from `email_signature`. If language ≠ English, write in it. **If `voice_style` is set in the PROFILE, that is the primary voice spec for this colleague** — it overrides the calibration examples in `voice.md`.
 2. **`voice.md`** — `profiles/<active>/knowledge/voice.md`. **Always read; it is short on purpose.** It carries the *judgement* half of the voice: the through-line, sentence mechanics, the five slots with their sources, and approved examples. The *mechanical* half — word ceiling and band, the closed hedge vocabulary, sign-off shape, subject shape, CTA shape, the ban-list pointers — lives in `knowledge/voice-rules.toml`, which is the same data a linter reads. Where the two could disagree, `voice-rules.toml` wins, because it is the copy a machine checks. If PROFILE has no `voice_style`, the pair is the full voice spec.
-3. **The fact registry** — `profiles/<active>/knowledge/{claims,proof,angles}.toml` plus the seat
-   vocabulary in `role-vocabulary.toml` and the mechanical rules in `voice-rules.toml`. This is
+3. **The fact registry** — the run's product's `claims`, `proof` and `angles` (`messaging check` below
+   loads them and names them; never open them by path) plus the seat vocabulary in
+   `role-vocabulary.toml` and the mechanical rules in `voice-rules.toml`. This is
    where the body's sentences come from: a **claim** with a status and a source, a **proof** entry
    with a market and a figure kind, an **angle** that binds one seat to one premise, one claim and
    one proof. You never pick from these by hand — `messaging resolve` (below) picks the angle and
    the angle names the rest. Confirm the tenant's registry loads before drafting anything:
 
    ```bash
-   uv run python -m gtm_core.messaging check --profile <active>
+   uv run python -m gtm_core.messaging check --profile <active> [--product <slug>]
    ```
 
    A non-zero exit prints one line per defect naming the file and the id; fix the registry (or
    report it) rather than drafting around it.
-4. **`hook-matrix.md`** — `profiles/<active>/knowledge/hook-matrix.md`. Opening ideas as a grid, in one of **two** shapes — read the file's own header row for its axes rather than assuming. A hand-authored matrix is **persona × signal**. A matrix whose line 1 carries a `gtm_core.messaging:generated` banner is a **generated view of `angles.toml`** and is **seat × (premise × opener kind)**. A generated matrix is a *view*: never edit it, and never tell anyone else to (regenerate it with `python -m gtm_core.messaging matrix --profile <active>`). A `—` cell means **there is no angle for that seat here** — it is not a blank to fill in yourself, and writing into it invents copy the registry does not back.
-5. **`profiles/<active>/knowledge/case-studies.md`** — the case-study selection map (shape → proof) and reusable hooks. For product facts, `profiles/<active>/knowledge/product.md` and `profiles/<active>/knowledge/icp-personas.md`.
+4. **`hook-matrix.md`** — resolve it with `python -m gtm_core.resolve_knowledge hook-matrix.md --profile <active> [--product <slug>]` and read what it prints. Opening ideas as a grid, in one of **two** shapes — read the file's own header row for its axes rather than assuming. A hand-authored matrix is **persona × signal**. A matrix whose line 1 carries a `gtm_core.messaging:generated` banner is a **generated view of `angles.toml`** and is **seat × (premise × opener kind)**. A generated matrix is a *view*: never edit it, and never tell anyone else to (regenerate it with `python -m gtm_core.messaging matrix --profile <active> [--product <slug>]`). A `—` cell means **there is no angle for that seat here** — it is not a blank to fill in yourself, and writing into it invents copy the registry does not back.
+5. **`case-studies.md`** — the case-study selection map (shape → proof) and reusable hooks. For product facts, `product.md` and `icp-personas.md`. Resolve each and read what it prints:
+
+   ```bash
+   python -m gtm_core.resolve_knowledge case-studies.md --profile <active> [--product <slug>]
+   python -m gtm_core.resolve_knowledge product.md      --profile <active> [--product <slug>]
+   python -m gtm_core.resolve_knowledge icp-personas.md --profile <active> [--product <slug>]
+   ```
 6. **Vertical pack + objection digest (only if the profile ships them).** When the account maps to an industry the profile covers under `knowledge/industry/`, read `knowledge/industry/<vertical>.md` for the layer the generic voice can't carry: its **"Email angles"** (industry-level `[bracketed]` starter templates — adapt to the specific signal, never paste), its **"Native vocabulary & talk-track"** (insider register, the lowercase subject-line signal words that read like an internal note, and the ban list of outsider tells to avoid), and its **"Objections & rebuttals"** (the vertical pushback + the complementary rebuttal). For **rebuttal-aware follow-ups**, read the compact `knowledge/adversary-testing/objection-digest.md` — one line per objection keyed by buyer archetype — instead of the full persona library; open a specific `knowledge/adversary-testing/<persona>-viewpoint.md` only when a single touch needs the deep version. A profile that ships none of these simply skips this step — nothing changes for it.
 7. **Cohort dossier (only if the account's workflow maps to one).** If the profile ships `knowledge/use-cases/` and the account's workflow matches one of the cross-org cohorts listed in `knowledge/use-cases/README.md`'s table, read only that one dossier — never the whole directory — for **§7 (dual buyer map)** and **§8 (objections & rebuttals)**: sharper, cohort-specific register and pushback than the generic vertical pack carries. Skip entirely if no cohort fits; this is a narrower match than the industry pack in the step above, so it will apply less often.
 
@@ -34,9 +41,9 @@ Write first-touch and follow-up messages that sound like the colleague wrote the
 > `python -m gtm_core.resolve_knowledge <file> --profile <active> [--product <slug>]` and read whatever
 > path it prints, instead of opening `knowledge/<file>` directly. The helper returns the product-level
 > file (`products/<slug>/<file>`) when present and falls back to the profile-level `knowledge/<file>`
-> otherwise. Pass `--product` when the run is bound to one product (the lead `default_product` from
-> PROFILE.md, or a product the operator named); omit it for profile-wide work — a profile that keeps one
-> shared knowledge pack always falls back to the profile level, so nothing changes for it.
+> otherwise. Pass the run's product on every such read (the `run_scope resolve` answer, or `default_product`
+> from PROFILE.md when the company has one product); a company with a second product refuses a read that
+> drops it, so there is no profile-wide reading.
 >
 > **The same helper takes `--overlay <slug>`, and since 2026-09-23 it reaches the messaging
 > files too** (`hook-matrix.md`, `hooks.toml`, `premise-vocab.toml`) — so an experiment can
@@ -94,7 +101,7 @@ load-bearing choice is genuinely ambiguous.
    `country`. Run it against the pool CSV the row came from and read the line for that row:
 
    ```bash
-   uv run python -m gtm_core.messaging resolve --profile <active> \
+   uv run python -m gtm_core.messaging resolve --profile <active> [--product <slug>] \
      --csv content/<active>/prospects/sequences/ready-to-load.csv --dry-run
    ```
 
@@ -170,14 +177,31 @@ load-bearing choice is genuinely ambiguous.
      run of the previous template self-reported 96 for a 105-word body and `word-count-mismatch`
      caught it. Greeting and sign-off are excluded from the count.
 
-     Then `Regards` on its own line, then the bare first name. Subject 1–4 words, lowercase.
+     **Subject line rotation taxonomy (1–4 words, all lowercase, zero punctuation, zero hype):**
+     Rotate across 4 patterns across a campaign/batch to prevent inbox fatigue and enable deliverability & angle experimentation:
+     - **Signal Trigger:** derived directly from the observed event/announcement (e.g. `dbs agentic rollout`, `vertex ai deployment`).
+     - **Friction Observation:** names the operational bottleneck or boundary risk (e.g. `off-script agent containment`, `shadow agent risk`, `credential sprawl`).
+     - **Inquiry / Casual:** peer-level inquiry on architecture or operational posture (e.g. `financial crimes agent identity`, `agent audit trail`).
+     - **Internal / Project:** formatted like an internal ticket or peer memo (e.g. `agent identity note`, `agent gateway architecture`).
+
+     **Conversational craft metrics:**
+     - **Reading grade target:** 6th–8th grade reading level (Flesch-Kincaid). Use crisp, conversational sentences; eliminate bloated academic jargon or compound multi-clause sentences.
+     - **Pronoun balance:** ≥2 instances of `you` / `your` throughout the body. The message must center on their reality, not the vendor's.
+     - **Sender ego restraint:** Exactly zero "I" before line two. Do not open an email with "I saw...", "I noticed...", "I am reaching out...". Open immediately with the recipient, their company, or the observed signal.
+
+     **Mailbox signature rule:** When staging for sequencers (e.g. Saleshandy, Instantly, Smartlead) that inject native user/mailbox signatures, sequence specs and row bodies must end directly on the last sentence (the low-friction CTA question) — do not append trailing sign-off lines (like `Regards, Henry`) in sequence specs or CSV rows to prevent duplicate sign-offs. For standalone 1:1 manual drafts where no sequencer signature is active, conclude with `Regards` on its own line followed by the sender's bare first name.
      Plain text: no images, attachments or calendar links; ≤1 untracked link; never a time-ask.
      **Retired 2026-09-04 and now failing:** "Happy to …", "I can / I could …", "Hi there,"
      (use `Hi team,` for a role inbox), "My hunch/read/bet:", "Tell me if this is already
      handled". The authoritative list is `voice-rules.toml` `[hedge].retired` and
      `[sign_off].banned`, plus the stem files those `[bans]` pointers name — read them there, not
      from this file.
-   - **Follow-ups (the gift ladder, up to 4 touches):** touch 2 (+2–3 days, same thread — or immediately on reply) delivers the bundle (teaser + demo-recording link) and names the product, one capability, one outcome; touch 3 (+5 days, same thread) adds a different-angle insight on the same signal — a good place to answer, complementary-first, the one objection that persona's archetype is likeliest to raise (from `knowledge/adversary-testing/objection-digest.md`): credit the control they already run, then locate the boundary gap, never trash their stack; touch 4 (+7–10 days, **new thread** + new subject) tries a different angle or persona, then park. Every touch adds something new — never "just checking in", never repeat the original. Once they reply, flip the CTA to a **specific** time proposal.
+   - **Follow-ups (the gift ladder, up to 4 touches):** touch 2 (+2–3 days, same thread — or immediately on reply) routes its archetype strictly by `signal_fit` (via `touch2_archetype_for_fit`):
+      - **Fit = 3 (Gift Archetype):** delivers the un-gated asset bundle (teaser + demo-recording, 1-page crosswalk, or reference architecture diagram) and names the product, one capability, one outcome with zero time-ask;
+      - **Fit = 2 (Friction Point Archetype):** highlights operational boundary friction (e.g. multi-agent auth breakdown, audit logging gaps, runtime policy enforcement) and offers a peer-level comparison;
+      - **Fit = 1 (Sanity Check / Referral Bump Archetype):** asks a low-friction question validating your assumption from touch 1 or asking if another team owns agent governance/runtime policy;
+      - **Fit = 0 (Do Not Pitch / None):** soft reframe or close the loop, single-touch only.
+      Touch 3 (+5 days, same thread) adds a different-angle insight on the same signal — a good place to answer, complementary-first, the one objection that persona's archetype is likeliest to raise (from `knowledge/adversary-testing/objection-digest.md`): credit the control they already run, then locate the boundary gap, never trash their stack; touch 4 (+7–10 days, **new thread** + new subject from the 4-type rotation) tries a different angle or persona, then park. Every touch adds something new — never "just checking in", never repeat the original. Once they reply, flip the CTA to a **specific** time proposal. Preserves the standard 4-touch cadence; do not expand into 45-day cadences.
 5. **Apply the persona adjustment** (voice.md): CEO → deal risk; CTO → build-vs-buy; CISO → audit/regulatory exposure (name the regulator; time to a trigger — they respond to insight, not demos); Head of AI Platform → architecture fit; platform/security engineer → lead with the technical gap and give the artifact early (the reachable buyer when execs go quiet).
 
 ### The pack's front block (machine-read — six lines, at column 0)
@@ -256,13 +280,13 @@ being 48% shared boilerplate with unhedged claims dossiers contradicted. These g
    the campaign, not per file:
 
    ```bash
-   uv run python -m gtm_core.hook_coverage --profile <active> --campaign <slug> --include-packs
+   uv run python -m gtm_core.hook_coverage --profile <active> [--product <slug>] --campaign <slug> --include-packs
    ```
 
    And the other direction — which angles nobody has written a pack for — is:
 
    ```bash
-   uv run python -m gtm_core.messaging unused --profile <active>
+   uv run python -m gtm_core.messaging unused --profile <active> [--product <slug>]
    ```
 3. **Per-seat lead pain — read it, never recall it.** Slot 3 is the seat's `lead_pain` in
    `knowledge/role-vocabulary.toml`, and that file is the only home for the mapping. Its
@@ -297,7 +321,7 @@ being 48% shared boilerplate with unhedged claims dossiers contradicted. These g
 
    ```bash
    uv run python3 tests/linter/outreach_linter.py pack <pack.md> \
-     --profile <active> \
+     --profile <active> [--product <slug>] \
      --ban-file profiles/<active>/knowledge/voice-bans.txt \
      --case-study-file profiles/<active>/knowledge/outreach-case-studies.txt \
      --stem-file profiles/<active>/knowledge/outreach-banned-stems.txt \
@@ -314,7 +338,7 @@ being 48% shared boilerplate with unhedged claims dossiers contradicted. These g
 
    ```bash
    uv run python3 tests/linter/outreach_linter.py pack --batch "content/<active>/accounts/*/email-*-<date>.md" \
-     --profile <active> \
+     --profile <active> [--product <slug>] \
      --shared-phrase-file profiles/<active>/knowledge/shared-phrases.txt \
      --signoff "<the sending colleague's real first name>"
    ```

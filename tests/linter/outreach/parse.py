@@ -473,15 +473,19 @@ def render(template: str, row: dict) -> str:
     return _MERGE_TAG_RE.sub(sub, template)
 
 
-def _load_premise_vocab(profile: str) -> dict:
+def _load_premise_vocab(profile: str, product: str | None = None) -> dict:
     """Load the profile's premise vocabulary, or ``{}`` if it ships none.
+
+    ``product`` selects the product's own vocabulary. A dropped product on a profile that has a
+    second product raises ``gtm_core.run_scope.ScopeError``: linting a second product's copy
+    against the default product's premises would pass or fail rows on the wrong argument.
 
     Deferred import: ``gtm_core.hook_coverage`` imports ``parse_spec`` from THIS module, so a
     top-level import would be a cycle — the same reason ``lint_hook_cell`` defers its own.
     """
     from gtm_core.hook_coverage import load_premise_vocab
 
-    return load_premise_vocab(profile)
+    return load_premise_vocab(profile, product=product)
 
 
 def _load_domain_aliases(profile: str) -> set:

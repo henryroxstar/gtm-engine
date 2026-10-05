@@ -593,14 +593,24 @@ def test_split_by_signal_separates_usable_triggers_from_the_rest(tmp_path):
             # Research recording that NO signal was found must never open an email.
             ["Cara", "c@z.com", "Zco", "RocketReach A", "No dated funding round confirmed"],
             ["Dan", "d@w.com", "Wco", "RocketReach A", ""],
+            # Stale signal: has a clause but too old
+            [
+                "Eve",
+                "e@stale.example",
+                "StaleCo",
+                "RocketReach A",
+                "Agent Control Layer launch (2024-01-01)",
+            ],
         ],
     )
     pc.consolidate(profile, content_root=tmp_path)
     result = pc.split_by_signal(profile, content_root=tmp_path)
 
-    assert result["why_now_populated"] == 3
+    assert result["why_now_populated"] == 4
     assert result["signal_led"] == 1
-    assert result["generic"] == 3
+    assert result["generic"] == 2
+    assert result["refresh"] == 1
+    assert result["synthetic"] == 1
 
     # PS17: neither split is loaded directly by a human, so both live under the hidden
     # `.pool/`, not visibly in `sequences/`.
@@ -613,11 +623,17 @@ def test_split_by_signal_separates_usable_triggers_from_the_rest(tmp_path):
     assert row["signal_clause"] == "Agent Control Layer launch"
 
     generic = {r["email"] for r in pc._load_master(pool / "ready-to-load-generic.csv")}
-    assert generic == {"b@y.com", "c@z.com", "d@w.com"}
+    assert generic == {"c@z.com", "d@w.com"}
+
+    refresh = {r["email"] for r in pc._load_master(pool / "ready-to-load-refresh.csv")}
+    assert refresh == {"e@stale.example"}
+
+    synthetic = {r["email"] for r in pc._load_master(pool / "ready-to-load-synthetic.csv")}
+    assert synthetic == {"b@y.com"}
 
 
 def test_split_by_signal_totals_always_reconcile(tmp_path):
-    """Every ready row lands in exactly one of the two lists — none silently dropped."""
+    """Every ready row lands in exactly one of the lists — none silently dropped."""
     profile = "acme"
     pdir = _prospects_dir(tmp_path, profile)
     _write_csv(
@@ -626,11 +642,16 @@ def test_split_by_signal_totals_always_reconcile(tmp_path):
         [
             ["Ann", "a@x.com", "Rain", "RocketReach A", "Agent Control Layer launch (2026-06-09)"],
             ["Ben", "b@y.com", "Yco", "RocketReach A", ""],
+            ["Cara", "c@y.com", "Yco", "RocketReach A", "machine learning (intent score 81)"],
+            ["Dan", "d@y.com", "Yco", "RocketReach A", "Agent Control Layer launch (2024-01-01)"],
         ],
     )
     pc.consolidate(profile, content_root=tmp_path)
     result = pc.split_by_signal(profile, content_root=tmp_path)
-    assert result["signal_led"] + result["generic"] == result["ready_total"]
+    assert (
+        result["signal_led"] + result["generic"] + result["refresh"] + result["synthetic"]
+        == result["ready_total"]
+    )
 
 
 def test_split_by_signal_csv_headers_have_no_duplicate_columns(tmp_path, monkeypatch):

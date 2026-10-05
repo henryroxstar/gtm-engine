@@ -1,5 +1,4 @@
 add_dnc_items
-add_email_accounts_to_sequence
 add_leads_to_sequence
 clear_dnc_list
 create_dnc_list

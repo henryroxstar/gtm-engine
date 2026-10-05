@@ -1,0 +1,5 @@
+# Notes
+
+The team now runs relay and mesh agents across three regions in production.
+
+More context follows on the next line.

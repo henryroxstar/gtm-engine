@@ -248,9 +248,10 @@ def test_competitor_match_by_alias_and_domain():
     """The real run's 'Acme Singapore' vs. the watchlist's 'Acme for AI Agents' shape —
     a prospected account is often named by product/region, not the entity the
     watchlist was filed under, so matching must go through aliases AND domains."""
-    competitors = {
-        "rival": CompetitorHit("direct", "Rival Corp (direct) — Ships an overlapping product."),
-    }
+    hit = CompetitorHit("direct", "Rival Corp (direct) — Ships an overlapping product.")
+    # A dotted key is a listed host and a plain one a name token (2026-10-02: the index no longer
+    # keys a domain by its first label, so the domain and the name are separate keys).
+    competitors = {"rival.example": hit, "rival": hit}
     # Matches via domain even though the display name is completely different.
     assert competitor_match("Rival Regional Ops", "rival.example", competitors)
     # Matches via a bare-name token when no domain is on file.

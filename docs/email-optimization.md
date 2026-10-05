@@ -254,20 +254,21 @@ the middle is the exact shape this section exists to catch.
 ## 4. Sequence architecture
 
 One email is a coin flip you usually lose. A sequence is the actual unit of outbound.
-
-**How many touches: 3–4 for cold B2B.** Enough to catch people who missed or deferred touch 1; not so
+**How many touches: 2–4 for cold B2B.** Enough to catch people who missed or deferred touch 1; not so
 many you become the thing they complain about. More touches keep adding replies with diminishing
 returns, and there's evidence the **4th+ follow-up starts to correlate with rising spam/unsubscribe
 signals** — so land around 4 and stop, or move the prospect to a long re-engage window
 ([Snov.io cold email analysis, 2026 — snov.io](https://snov.io/blog/cold-email-statistics/) — *single-source; treat the exact spam/unsub figures as directional*).
 
+We support **2-touch**, **3-touch**, and **4-touch** sequence archetypes based on signal strength and list value.
+
 **Cadence: start tight, then widen.** First follow-up ~2–3 days after touch 1, then stretch the gaps
-(an increasing/Fibonacci-style spacing). A workable default:
+(an increasing/Fibonacci-style spacing). A workable default (4-touch):
 
 | Touch | Timing | Thread | What it adds |
 |---|---|---|---|
 | **1** | Day 0 | New | Signal → bridge → proof → interest ask |
-| **2** | +2–3 days | **Same thread** (reply) | Deliver/point to the asset; name one capability + one outcome |
+| **2** | +2–3 days | **Same thread** (reply) | **Strictly non-pitchy**: Friction Point, Gift, Sanity Check, or Micro Peer Story. No direct pitches. |
 | **3** | +5 days | **Same thread** | A *different angle* on the same signal — a peer example, a threat/edge case, a new observation |
 | **4** | +7–10 days | **New thread, new subject** | Fresh angle, or switch persona (e.g. the engineer instead of the exec). Then park. |
 
@@ -335,11 +336,27 @@ produce different splits. Don't cite a specific percentage as fact; cite the mec
 
 **Add value per follow-up — never "just bumping."** A follow-up that says "circling back" / "did you
 see this?" wastes the touch and nudges the reader toward the spam button. Each follow-up should carry a
-**new reason to reply**:
+**new reason to reply**.
+
+**Crucially, the first follow-up (Touch 2) must be strictly non-pitchy.** It should use one of the following archetypes instead of a direct sales pitch:
+- **Friction Point** — point out a specific operational friction they likely face.
+- **Gift** — offer a high-value artifact (one-pager, teardown, threat model) without asking for a meeting.
+- **Sanity Check** — ask a direct, low-friction question validating your assumption from touch 1.
+- **Micro Peer Story** — one sentence on how a peer solved the same gap.
+
+### 5.1 Fit-to-Archetype Mapping for Follow-ups (Touch 2)
+
+The choice of Touch 2 archetype is **not arbitrary** — it is routed directly by the row's **signal fit** (`signal_fit` 0–3):
+
+| Signal Fit | Archetype | Rationale & Execution | Example |
+|---|---|---|---|
+| **Fit = 3**<br>*(Wedge-Direct)* | **Gift** | The prospect has a direct, verifiable agent-identity/governance pain. Deliver immediate un-gated value (e.g. an agent-identity reference architecture, threat model, compliance crosswalk) with zero time-ask. They are already evaluating solutions; earn the meeting with a high-status gift. | *"Put together a 1-page crosswalk of MAS agentic governance guidelines against runtime proxy checkpoints — happy to send the PDF if helpful."* |
+| **Fit = 2**<br>*(Wedge-Adjacent)* | **Friction Point** | The prospect is building/deploying agents or multi-agent workflows, but hasn't explicitly named the identity/governance gap. Highlight the precise operational friction point their engineering or security team is hitting. | *"Most teams deploying multi-agent workflows find the default auth model breaks at the boundary: the audit log records a single service principal, so you can't tell which agent acted on whose behalf."* |
+| **Fit = 1**<br>*(Sector-Fit)* | **Sanity Check** | The prospect is in-ICP (right industry and scale) but carries only generic AI/platform news. Probe with a low-friction question validating your assumption from Touch 1. | *"Quick question — are your enterprise buyers asking about agent audit trails and delegation yet, or is it still too early to matter for your roadmap?"* |
+| **Fit = 0**<br>*(Generic / Absent)* | **Do Not Pitch** | If Touch 1 was sent on structural facts with no trigger, do not escalate in Touch 2. Use a soft reframe or close the loop. Never send an AI-generated generic bump. | *"Assuming this isn't a priority right now — will close the loop here unless you'd like to revisit later."* |
+
+For subsequent touches (Touch 3+):
 - A **new angle** on the same signal (a different implication, a second-order consequence).
-- A **peer proof point** — how a similar company handled the same problem.
-- A **specific artifact** — the one-pager, a short teardown, a threat-model note, an edge case they'll
-  recognize.
 - A **persona switch** — if the exec is silent, the reachable engineer/champion often replies, and the
   artifact is high-status currency with them.
 - A **soft reframe** on the final touch — a clean, no-guilt "should I close the loop?" that makes
@@ -392,6 +409,20 @@ not by faking depth.
   Use AI to *research and draft*, but keep a human (or a verification step) on any specific claim about
   the prospect, and vary structure — not just tokens. The emerging standard is **"relevant scale":**
   high volume is only safe when personalization depth *and* list hygiene are equally high.
+
+### 6.1 Seniority × Signal Quality Matrix (The Audience Gate)
+
+The 2026 data shows that CxOs (CEO, CTO, CISO, CIO) have near-zero tolerance for generic or AI-templated outreach, while champions (Heads of AI Platform, Lead Architects, Staff Engineers) tolerate broader outreach if the technical premise is sound.
+
+| Signal Quality Tier | Eligible Seniority Levels | Prohibited Seniority Levels | Personalization Requirement |
+|---|---|---|---|
+| **Tier 1** *(Hot + Wedge-Direct)* | **All levels** (CxO, VP, Director, Champion, Evaluator) | None | 1:1 bespoke deep personalization. Open directly on the signal. |
+| **Tier 2** *(Warm + Wedge-Adjacent)* | **VP, Director, Champion, Evaluator** | CxO (unless virality ≥ 2 talking-point) | Contextual personalization. Open on company context/gap. |
+| **Tier 3** *(Ambient + Sector-Fit)* | **Director, Architect, Lead Engineer, Evaluator** | **CxO, VP (Strictly Banned)** | Segment-level personalization. Structural hooks only. |
+| **Tier 4** *(Mundane / Generic / Absent)* | **Evaluator, Individual Contributor** | **CxO, VP, Director (Strictly Banned)** | Minimal personalization. Standard segment copy. |
+
+> [!CAUTION]
+> **The Seniority Rule:** Never send a Tier 3 or Tier 4 email to a CxO or VP. Low signal quality sent to high seniority is the single most reliable predictor of catastrophic unsubscribe rates (>20%) and domain reputation burns.
 
 ---
 
@@ -617,6 +648,8 @@ A "why now" is not one thing. Grade it (`gtm_core.list_fit.signal_grade`):
 | **structural** | yes | durable fact about what their systems do — **does not decay** |
 | **stale** | **no** | dated event past the window |
 | **intent-only** | **no** | a Bombora topic + score |
+| **synthetic** | **no** | heavily generalized or AI-fabricated signal |
+| **generic** | **no** | no specific trigger found |
 | **absent** | no | nothing usable |
 
 Three things this catches that §6 does not:
@@ -629,7 +662,14 @@ Three things this catches that §6 does not:
 - **Prefer structural hooks for anything that takes weeks to send.** A list that drains slowly will
   outlive its news. A structural claim is immune, so it should be the default rather than the
   fallback. Critically: **do not let a stale signal silently demote a row to a generic template** —
-  that is how a personalised campaign quietly becomes an untargeted one, with no error raised.
+  that is how a personalised campaign quietly becomes an untargeted one, with no error raised. 
+
+**New Routing Logic:** Stale signals go to the `refresh` queue to await new triggers. Generic and synthetic signals are no longer pushed into the generic drafting bucket; instead, they are routed to the `refresh` and `synthetic` queues respectively.
+
+**The 30% Absent Signal Pre-flight Gate:**
+Before enrolling or drafting for any list, run `python -m gtm_core.list_fit --csv <list>`. Count `fresh` vs `structural` vs `absent`.
+- If **`absent` > 30%**, the list is **NOT ready to send**.
+- Lists with >30% absent signals fail pre-flight and must be sent back for re-research or structural enrichment. Sending a list where nearly a third of recipients have zero verifiable trigger guarantees high bounce, low open, and high unsubscribe rates.
 
 ### 12.5 Exclusions must outlive a rebuild
 
@@ -647,6 +687,16 @@ logged with negative sentiment and left un-suppressed. This one is a legal oblig
 2026-08-11 (`jordan.avery@brackenhealth.example` replied "Unsubscribe"; Saleshandy tagged it
 Negative sentiment, `Unsubscribed` stayed `No`) and again 2026-08-17: he sat un-suppressed for six
 days because nothing was watching, not because the rubric was wrong.
+
+### 12.7 The CxO Outreach Standard (Attestation & Quality Gate)
+
+Cold emailing C-suite executives (CEO, CTO, CISO, CIO) carries asymmetric downside. A mis-aimed email to an engineer gets ignored; a mis-aimed email to a CxO gets an immediate unsubscribe or spam flag.
+
+**The CxO Hard Gate:**
+1. **Source Attestation Bar:** A CxO may only be enrolled if the account's signal originates from a verified registry in `signal-sources.toml` with `attestation = "agentic"` and an audited `precision ≥ 70%` (e.g. `hkma-genai-sandbox-annex`), OR if the research record holds a verified Tier 1 signal (`signal_fit = 3` and verified date within 30 days).
+2. **Champion-First Principle:** For all other accounts (Tier 2–4 signals), **target champions (Head of AI Platform, VP Engineering, Principal Architect) or evaluators**, not CxOs. Let the champion bring the conversation upward after reviewing the technical artifact.
+3. **Cohort Seniority Cap:** Any campaign batch targeting a general pool must maintain **< 10% CxO representation**.
+
 
 **Detection is automated on a timer** (`gtm_core.optout_watch` + `agent/optout_sweep.py`,
 `systemd/gtm-optout-watch.timer` — every 4h) — it does **not** auto-write the provider's Do Not
@@ -673,6 +723,19 @@ is English. A reply in another SCRIPT is detected as unreadable, escalated as an
 and never auto-drafted to (SC6) — but a non-English opt-out written in LATIN script ("désinscrire",
 "abmelden") still misses the matcher and is routed as an ordinary reply. Per-language patterns are
 not built.
+
+---
+
+## 13. Static-Email Mode (The Hand-Written Bypass)
+
+Sometimes the operator has pre-written, highly specific copy that doesn't need to be drafted by the AI. **Static-Email Mode** (`gtm_core/static_pipeline.py`) is officially incorporated as a valid, first-class option for these cases.
+
+When using Static-Email Mode:
+- It **bypasses the LLM drafting waterfall entirely**, saving tokens, time, and avoiding unwanted AI rewrites of hand-crafted copy.
+- The pipeline still enforces the standard compliance, targeting, and deliverability checks.
+- Merge variables (e.g., `{{first_name}}`, `{{company}}`) are still resolved natively.
+
+Use this mode when you already have the exact email copy you want to send and simply need the engine to route, schedule, and send it.
 
 ---
 

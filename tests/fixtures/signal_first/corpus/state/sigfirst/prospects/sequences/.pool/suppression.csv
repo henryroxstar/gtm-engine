@@ -1,0 +1,3 @@
+email,name,company_domain,reason,date,note
+alex.renner@tidewater-analytics.example,,tidewater-analytics.example,unsubscribed,2026-09-01,fixture
+jordan.bello@wideloop-analytics.example,,wideloop-analytics.example,bounced,2026-09-02,fixture

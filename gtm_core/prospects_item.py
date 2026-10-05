@@ -65,6 +65,28 @@ CANONICAL_FIELDS: tuple[str, ...] = (
     "lane_reason",
 )
 
+#: The only fields a run for a **second product** may write to the shared ledger, until the ledger
+#: holds fit per product (PRD 2026-09-29-one-product-per-run, Layer C). Everything a run *decides*
+#: about an account — tier, score, verdict, lane, the signal record, the hook cell — is fit, and
+#: is product-specific: one row per account means a second product's fit would overwrite the
+#: default product's. So this is an allowlist, not a list of fit fields: a field added tomorrow is
+#: held back by default, which is the direction a shared file should fail. Identity, firmographics
+#: and contact details are facts about the company and the person, true whichever product asks.
+IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "id", "account_id", "added_at", "company", "domain", "domain_source", "domain_note",
+        "company_domain", "segment", "segment_basis", "market", "market_basis",
+        "city", "country", "region", "industry", "employees_range", "revenue_range",
+        "description", "firmo_source", "firmo_on",
+        "contact_name", "contact_title", "contact_email", "contact_phone",
+        "contact_linkedin_url", "contact_source", "contact_resolved_on",
+        "contact_resolved_by", "contact_resolved_at", "contact_verified", "contact_note",
+        "email", "email_status", "email_grade", "email_source", "email_resolved_at",
+        "secondary_contact_name", "secondary_contact_title", "secondary_contact_role",
+        "secondary_contact_email", "merged_aliases", "merged_domains",
+    }
+)  # fmt: skip
+
 #: Canonical fields read as plain text. ``domain`` is not canonical but is an identity key,
 #: so it is held to the same check.
 _TEXT_FIELDS = (

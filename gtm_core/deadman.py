@@ -71,17 +71,24 @@ def check(
     now: datetime,
     max_age_hours: float,
     only_profiles: list[str] | None = None,
+    exclude_profiles: list[str] | None = None,
 ) -> list[dict]:
     """Return a per-profile staleness report.
 
     Each entry: ``{profile, newest_ts, age_hours, stale}``. A profile with no
     parseable history (``newest_ts is None``) is reported stale — a pipeline that
     has *never* produced an event is exactly the silent-start failure to catch.
+    Reserved and hidden directories (starting with ``_`` or ``.``, such as
+    ``_system``) are ignored.
     """
     report: list[dict] = []
     for history_path in sorted(content_root.glob("*/history.jsonl")):
         profile = history_path.parent.name
+        if profile.startswith(("_", ".")):
+            continue
         if only_profiles and profile not in only_profiles:
+            continue
+        if exclude_profiles and profile in exclude_profiles:
             continue
         newest = newest_event_ts(history_path)
         if newest is None:
@@ -116,6 +123,12 @@ def main(argv: list[str] | None = None) -> int:
         dest="profiles",
         help="Limit to this profile (repeatable). Default: all profiles found.",
     )
+    parser.add_argument(
+        "--exclude-profile",
+        action="append",
+        dest="exclude_profiles",
+        help="Exclude this profile from monitoring (repeatable).",
+    )
     args = parser.parse_args(argv)
 
     content_root = resolve_content_root()
@@ -125,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         now=now,
         max_age_hours=args.max_age_hours,
         only_profiles=args.profiles,
+        exclude_profiles=args.exclude_profiles,
     )
 
     if not report:

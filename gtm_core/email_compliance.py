@@ -976,17 +976,23 @@ def _preflight(args) -> int:
 
     # "Was this sequence checked, and when?" must be answerable from the ledger with no provider
     # call (test plan §3.E). Written for a FAIL too: a refused staging attempt is exactly the
-    # event somebody will later want to find.
-    if getattr(args, "sequence_id", None) and getattr(args, "profile", None) and capability_result:
+    # event somebody will later want to find. And written WHETHER OR NOT --sequence-id was passed:
+    # a check that left no row unless a flag was remembered is how a failed Security preflight on
+    # 2026-09-26 left nothing behind. Without a sequence id the row binds to no sequence (it is
+    # on the record, but `gtm_core.load_preconditions` will not accept it for a load).
+    if getattr(args, "profile", None) and capability_result:
         from gtm_core.capability_ledger import record_asserted
 
         record_asserted(
             args.profile,
             provider=provider,
-            sequence_id=args.sequence_id,
+            sequence_id=getattr(args, "sequence_id", None) or None,
             status=capability_result.status,
             attested=list(args.attest or ()),
             detail=capability_result.detail,
+            overall="FAIL" if failed else "PASS",
+            failed_checks=[r.name for r in failed],
+            step_ids=list(getattr(args, "step_id", None) or ()),
         )
 
     print()
@@ -1038,7 +1044,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     pf.add_argument(
         "--sequence-id",
-        help="record a `capability_asserted` history row for this sequence (needs --profile)",
+        help="bind the `capability_asserted` history row to this sequence. The row is written "
+        "whenever --profile is given; without this it binds to no sequence and a load of any "
+        "sequence will not accept it",
+    )
+    pf.add_argument(
+        "--step-id",
+        action="append",
+        default=[],
+        help="a step id of the sequence (repeatable), recorded so an import that names only a "
+        "step can be traced back to this sequence",
     )
     pf.set_defaults(func=_preflight)
 

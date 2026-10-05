@@ -301,7 +301,31 @@ def _notice_retired_flags(args: argparse.Namespace) -> None:
             print(f"note: {label} — ignored, nothing reads it", file=sys.stderr)
 
 
-def _load_registry(profile: str | None):
+def _scoped(profile: str | None, product: str | None) -> str | None:
+    """The run's product, validated. A refusal stops the lint with one plain line: linting a
+    second product's copy against the default product's registry is a wrong answer, not a
+    degraded one."""
+    if not profile:
+        return None
+    from gtm_core import run_scope
+
+    try:
+        return run_scope.require(profile, product).product
+    except run_scope.ScopeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+def _source_ctx(profile: str | None, product: str | None):
+    """The run's source lists when both switches are open, else ``None`` (R2.5)."""
+    if not profile:
+        return None
+    from gtm_core.signal_view import routing_context
+
+    return routing_context(profile, _scoped(profile, product))
+
+
+def _load_registry(profile: str | None, product: str | None = None):
     """The tenant's fact registry, or ``None`` with a loud reason.
 
     A malformed or absent registry turns the three derivation rules OFF rather than refusing
@@ -314,8 +338,9 @@ def _load_registry(profile: str | None):
         return None
     from gtm_core.messaging.registry import RegistryError, load
 
+    product = _scoped(profile, product)
     try:
-        return load(profile)
+        return load(profile, product=product)
     except RegistryError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "unreadable"
         print(
@@ -400,6 +425,12 @@ def build_parser() -> argparse.ArgumentParser:
         "the shape a human actually reviews and sends — reached none of the registry rules "
         "while the quality card recorded `claim-status` as authoritative on it.",
     )
+    p.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required with --profile once the profile has a second "
+        "product (its registry and premises are the product's own)",
+    )
 
     r = sub.add_parser("render", help="lint a sequence spec against the CSV it will render over")
     r.add_argument("spec", nargs="?", help="sequence spec .md containing the touches")
@@ -448,6 +479,12 @@ def build_parser() -> argparse.ArgumentParser:
         "rules are OFF — an opt-in check nobody opts into is an inert check, so pass it.",
     )
     r.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required with --profile once the profile has a second "
+        "product (its registry and premises are the product's own)",
+    )
+    r.add_argument(
         "--craft-report",
         action="store_true",
         help="per-touch reading grade and person counts on the TEMPLATE, then exit 0 "
@@ -467,7 +504,7 @@ def _run_pack(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         "banned_stems": _load_bans(args.stem_file),
         # Loaded once and shared by the single-pack and the --batch loop, so a batch cannot
         # silently run a narrower gate than the same packs linted one at a time.
-        "registry": _load_registry(args.profile),
+        "registry": _load_registry(args.profile, args.product),
     }
     _notice_retired_flags(args)
     violations: list[Violation] = []
@@ -582,10 +619,16 @@ def _run_render(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         banned_stems=_load_bans(args.stem_file),
         field_labels=labels,
         spec_text=spec_header_text,
-        premise_vocab=(_load_premise_vocab(args.profile) if args.profile else None),
+        premise_vocab=(
+            _load_premise_vocab(args.profile, _scoped(args.profile, args.product))
+            if args.profile
+            else None
+        ),
         domain_aliases=(_load_domain_aliases(args.profile) if args.profile else None),
         require_dated_opener=args.require_dated_opener,
-        registry=_load_registry(args.profile),
+        registry=_load_registry(args.profile, args.product),
+        source_ctx=_source_ctx(args.profile, args.product),
+        profile=args.profile,
     )
     rc = _report(violations, stats, show=args.show, daily_cap=args.daily_cap)
     if args.json_out:

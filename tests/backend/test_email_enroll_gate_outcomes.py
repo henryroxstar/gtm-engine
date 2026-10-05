@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from agent.email_dispatch import EnrollDispatchOutcome
 from backend.routers import runs as runs_router
 from backend.services.runs import pack_executor as runs_pack_executor
-from tests.backend._protocol1 import REPO, drive_gate, fake_executor, pack_run_harness
+from tests.backend._protocol1 import REPO, StateConn, drive_gate, fake_executor, pack_run_harness
 from tests.backend.test_packs_api import PROFILE, _provision
 
 
@@ -334,7 +334,7 @@ def test_no_enroll_draft_for_this_run_fails_at_the_pause(ws_env):
     dispatch_mock.assert_not_awaited()
     fail_run_mock.assert_awaited_once()
     assert "wrote no enrollment draft" in fail_run_mock.await_args.args[3]
-    assert fail_run_mock.await_args.kwargs == {"error_code": "internal_error"}
+    assert fail_run_mock.await_args.kwargs == {"error_code": "draft_invalid"}
     assert not _reached_ok(conn)
 
 
@@ -348,5 +348,45 @@ def test_an_enroll_draft_without_the_copy_fails_at_the_pause(ws_env):
     dispatch_mock.assert_not_awaited()
     fail_run_mock.assert_awaited_once()
     assert "steps" in fail_run_mock.await_args.args[3]
-    assert fail_run_mock.await_args.kwargs == {"error_code": "internal_error"}
+    assert fail_run_mock.await_args.kwargs == {"error_code": "draft_invalid"}
     assert not _reached_ok(conn)
+
+
+def test_unconfigured_workspace_fails_at_preflight_before_nodes_run(ws_env):
+    """Issue #314: when no Saleshandy key is configured for the workspace, the run
+    fails immediately at preflight with email_not_configured before any paid nodes run,
+    and never reaches the gate."""
+    _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
+    run_id = str(uuid.uuid4())
+    conn = StateConn()
+    recorded: list[str] = []
+    executor = fake_executor(recorded)
+    fail_run_mock = AsyncMock()
+
+    async def _go():
+        await asyncio.wait_for(
+            runs_router._execute_pack_run(
+                MagicMock(),
+                REPO,
+                ws_env.ws_id,
+                run_id,
+                PROFILE,
+                "prospecting",
+                "prospect-outreach",
+                {},
+                entitlement="pro_plus",
+            ),
+            timeout=10,
+        )
+
+    with (
+        pack_run_harness(conn, executor, credentials={}),
+        patch.object(runs_pack_executor, "_fail_run", fail_run_mock),
+    ):
+        asyncio.run(_go())
+
+    fail_run_mock.assert_awaited_once()
+    assert fail_run_mock.await_args.kwargs == {"error_code": "email_not_configured"}
+    assert "saleshandy" in fail_run_mock.await_args.args[3].lower()
+    assert recorded == [], "no nodes may run when integration preflight fails"
+    assert run_id not in runs_router._gate_events, "no gate may open for this run"

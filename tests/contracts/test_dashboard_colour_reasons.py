@@ -275,12 +275,13 @@ def _render(tmp_path, profile, mode):
 SCOPES = ("all", "open", "campaign")
 
 #: What the fixture must make render in every scope — so the reason check below can never
-#: pass by rendering nothing. ``figures-old`` is deliberately absent: it carries no sentence
-#: of its own (render.py:_warnings_strip), so alone it renders no card at all — there is no
-#: standalone site for it to color-check. It still shows up folded into another reason's
-#: card (see test_dashboard_ps20_trust.py::test_two_reasons_render_as_one_strip).
+#: pass by rendering nothing. ``figures-old`` joined the set on 2026-09-30 (PRD F1): it regained
+#: its sentence in ``render._warnings_strip``, so it now has a standalone site of its own to
+#: colour-check rather than only appearing folded into another reason's card. This fixture's
+#: snapshot carries no ``fetched`` at all, which is the "carries no usable date" half.
 EVERY_SITE = {
     ("card lede warn", "warn", "checks-untrusted"),
+    ("card warn", "warn", "figures-old"),
     ("card warn", "warn", "tripwire"),
     ("pill warn", "warn", "unmapped"),
     ("warn", "warn", "records-disagree"),

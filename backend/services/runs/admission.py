@@ -9,6 +9,8 @@ OpenAPI golden pins the surface.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import HTTPException, status
 
 from ...database import workspace_scope
@@ -93,7 +95,15 @@ def _prefill_missing_inputs(resolved, body, profile_text: str | None) -> None:
 
 
 async def resolve_pack_for_run(
-    repo_root, workspace_id: str, entitlement, profile_name, agent_row, body
+    repo_root,
+    workspace_id: str,
+    entitlement,
+    profile_name,
+    agent_row,
+    body,
+    *,
+    pool: Any = None,
+    configured_integrations: set[str] | None = None,
 ):
     """Resolve the requested pack variant and refuse the run unless it is activated,
     entitled, fully configured, and ready. Returns the resolved variant."""
@@ -192,9 +202,18 @@ async def resolve_pack_for_run(
                 {"code": "input_rejected", "message": str(exc)},
             ) from exc
 
+    if configured_integrations is None and pool is not None:
+        from ...services.integrations import get_workspace_configured_providers
+
+        configured_integrations = await get_workspace_configured_providers(pool, workspace_id)
+
     try:
         report = variant_readiness(
-            profiles_root, profile_name, resolved, context=getattr(body, "context", None)
+            profiles_root,
+            profile_name,
+            resolved,
+            context=getattr(body, "context", None),
+            configured_integrations=configured_integrations,
         )
     except ValueError as exc:
         raise HTTPException(

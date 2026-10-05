@@ -47,6 +47,7 @@ FATES: tuple[str, ...] = (
     "not_scored",  # no score yet, and this kind of email needs one
     "not_admitted",  # scored, but for a different kind of email than its batch sends
     "judge_dropped",  # removed by a calibrated email judge
+    "cxo_triaged",  # removed by CxO signal quality / unverified gate
     "set_aside",  # waiting on the operator's decision, or deliberately not emailed
     "suppressed",  # asked not to be contacted
     "not_sorted",  # the list was built before these rows were sorted
@@ -178,7 +179,7 @@ def _lane_readiness(
 
     # 4. The verdict filter. It drops an inadmissible row without counting it, so the two
     # kinds of drop are counted here, against the lane's admissible set, to keep every row.
-    kept, vstats = filter_by_verdict(live, "send", lane=lane)
+    kept, vstats = filter_by_verdict(live, "send", lane=lane, profile=profile, as_of=as_of)
     wanted = LANE_VERDICTS[lane]
     inadmissible = [r for r in live if (r.get("verdict") or "").strip().lower() not in wanted]
     not_scored = sum(1 for r in inadmissible if not (r.get("verdict") or "").strip())
@@ -200,6 +201,7 @@ def _lane_readiness(
     fates["not_scored"] = not_scored
     fates["not_admitted"] = len(inadmissible) - not_scored
     fates["judge_dropped"] = vstats.judge_dropped
+    fates["cxo_triaged"] = vstats.cxo_dropped + vstats.cxo_unverified + vstats.tier4_dropped
     because: list[dict] = []
     if audit.failed:
         fates["refused"] = vstats.kept

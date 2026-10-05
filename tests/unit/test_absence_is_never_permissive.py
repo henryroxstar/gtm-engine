@@ -527,3 +527,255 @@ def test_upsert_latest_absence_registry(tmp_path) -> None:
         i["domain"]: i for i in _prospects_state.load_latest("acme", content_root=tmp_path)["items"]
     }
     assert items["litware.example"].get("verdict", "") == ""
+
+
+# --- the run scope: a product that is absent, unknown, ambiguous or half-built is never the default --
+
+
+def _scope(profiles_root, **kw):
+    from gtm_core import run_scope
+
+    return run_scope.resolve("realshape", interactive=False, profiles_root=profiles_root, **kw)
+
+
+def _assert_refused_and_not_the_default(result, code: str | None = None) -> None:
+    from gtm_core import run_scope
+
+    assert isinstance(result, run_scope.Refusal), f"resolved to {result!r}"
+    if code:
+        assert result.code == code
+
+
+@pytest.mark.parametrize("value", ABSENT)
+def test_a_product_that_is_absent_or_unknown_is_never_resolved_to_the_default(
+    one_product_profiles, value: object
+) -> None:
+    """Nothing, empty, whitespace and an unheard-of word all refuse on a company with a second
+    product. Only a closed list of real products resolves; a fall-through to the default product is
+    the rev-1 bug (a Stream run reading Gateway's arguments)."""
+    result = _scope(one_product_profiles, product=value)
+    code = {None: "product-required", "wharrgarbl": "product-unknown"}.get(value)  # type: ignore[arg-type]
+    _assert_refused_and_not_the_default(result, code)  # blank words refuse too, under any code
+
+
+def test_an_interactive_run_with_no_product_asks_and_does_not_pick(one_product_profiles) -> None:
+    from gtm_core import run_scope
+
+    asked = run_scope.resolve("realshape", interactive=True, profiles_root=one_product_profiles)
+    assert isinstance(asked, run_scope.Ask)
+
+
+def test_two_products_that_normalise_to_the_same_name_are_ambiguous_not_the_first(
+    one_product_profiles,
+) -> None:
+    profile = one_product_profiles / "realshape" / "PROFILE.md"
+    text = profile.read_text(encoding="utf-8").replace(
+        "{ slug: beta, name: Beta Ledger, capabilities: [beta] }",
+        "{ slug: beta, name: Alpha-Relay, capabilities: [beta] }",
+    )
+    profile.write_text(text, encoding="utf-8")
+    _assert_refused_and_not_the_default(
+        _scope(one_product_profiles, product="alpha relay"), "product-ambiguous"
+    )
+
+
+def test_a_second_product_missing_a_required_file_is_not_offered_and_does_not_fall_back(
+    one_product_profiles,
+) -> None:
+    (one_product_profiles / "realshape" / "products" / "beta" / "proof.toml").unlink()
+    _assert_refused_and_not_the_default(
+        _scope(one_product_profiles, product="beta"), "product-not-ready"
+    )
+    # Not offered either: with beta unfinished the company has ONE selectable product, so a run
+    # with no product is the default product's, exactly as for a single-product company.
+    from gtm_core import run_scope
+
+    bare = run_scope.resolve("realshape", interactive=True, profiles_root=one_product_profiles)
+    assert isinstance(bare, run_scope.RunScope) and not bare.is_second_product
+
+
+def test_a_second_product_with_its_own_copy_of_a_company_wide_file_is_refused(
+    one_product_profiles,
+) -> None:
+    (one_product_profiles / "realshape" / "products" / "beta" / "competitors.toml").write_text(
+        '[[competitor]]\nname = "Elsewhere"\n', encoding="utf-8"
+    )
+    _assert_refused_and_not_the_default(
+        _scope(one_product_profiles, product="beta"), "product-overrides-tenant-fact"
+    )
+
+
+def test_a_second_product_writing_fit_to_the_shared_ledger_is_refused(
+    one_product_profiles, tmp_path, monkeypatch
+) -> None:
+    from gtm_core import prospects_state as ps
+
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(one_product_profiles))
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path / "content"))
+    with pytest.raises(ps.LedgerFitRefused):
+        ps.upsert_latest(
+            "realshape",
+            [{"company": "Fictional Delta Co", "domain": "delta-fictional.example", "tier": "A"}],
+            "run",
+            product="beta",
+        )
+
+
+def test_a_sequence_the_map_cannot_place_is_unknown_and_never_the_default(
+    one_product_profiles, tmp_path, monkeypatch
+) -> None:
+    """The outcome side of the same rule: a reply is credited to a product only when a campaign map
+    or manifest says so. An unplaced sequence must not be counted as the default product's."""
+    from gtm_core import campaign_products as cp
+
+    content = tmp_path / "content"
+    seq = content / "realshape" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    (seq / "cells.toml").write_text(
+        '[[sequence]]\nid = "seq-x"\ncsv = "x.csv"\nspec = "x.md"\ncampaign = "unmapped-wave"\n'
+    )
+    (content / "realshape" / "plans" / "campaigns").mkdir(parents=True)
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(one_product_profiles))
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(content))
+    att = cp.attribute("realshape")
+    assert att.by_sequence == {"seq-x": cp.UNKNOWN} and att.gaps
+
+
+# --- the page-freshness check (status page freshness and provenance, 2026-10-02) ---------------
+#
+# `figures_stale_clause` and `verify_inventory` decide whether a status page may be called
+# fresh. Each decision below has a granting branch ("nothing wrong was found") that an absent or
+# malformed record must never reach.
+
+
+def _meta_report(page, **meta):
+    from gtm_core.page_inputs import Report
+
+    return Report(page, meta=dict(meta), meta_present=True)
+
+
+def test_a_page_with_no_inventory_is_stale_not_fresh(tmp_path) -> None:
+    """Missing inventory -> stale. A page nobody recorded the inputs for cannot be shown current."""
+    from gtm_core.page_inputs import verify_inventory
+
+    page = tmp_path / "email_campaign_status.html"
+    page.write_text("<html></html>", encoding="utf-8")
+    rep = verify_inventory(page, tmp_path)
+    assert rep.no_inventory and not rep.ok
+
+
+def test_an_inventory_with_no_meta_is_stale_not_fresh(tmp_path) -> None:
+    """Missing `meta` -> stale: "we cannot tell how old the figures were" is not "they were fine"."""
+    from gtm_core.email_campaign_dashboard import freshness
+    from gtm_core.page_inputs import Report
+
+    rep = Report(tmp_path / "p.html")  # meta_present defaults to False
+    clause = freshness.figures_stale_clause(rep, _NOW)
+    assert clause and "predates figure tracking" in clause
+
+
+@pytest.mark.parametrize("present", [None, "yes", "false", 1, 0, [], {}])
+def test_a_meta_whose_figures_present_is_not_a_boolean_is_never_read_as_nothing_to_judge(
+    tmp_path, present
+) -> None:
+    """`meta.figures_present` absent, or any type but a bool, used to fall into `not value ->
+    nothing to judge -> fresh` (red team F11): a truncated or hand-built `meta` read fresh on any
+    age. Only a recorded `False` means a tenant with no figures yet.
+    Catches: restoring `if not rep.meta.get("figures_present")` in `freshness.figures_stale_clause`."""
+    from gtm_core.email_campaign_dashboard import freshness
+
+    meta = {"figures_fetched": "2025-01-01"}
+    if present is not None:
+        meta["figures_present"] = present
+    clause = freshness.figures_stale_clause(_meta_report(tmp_path / "p.html", **meta), _NOW)
+    assert clause and "predates figure tracking" in clause
+
+
+def test_a_recorded_no_figures_is_the_one_value_that_is_nothing_to_judge(tmp_path) -> None:
+    """The other half, so the refusal above is not "convict everything": a tenant that has never
+    refreshed recorded `figures_present: false` and has no figures to be stale."""
+    from gtm_core.email_campaign_dashboard import freshness
+
+    rep = _meta_report(tmp_path / "p.html", figures_present=False, figures_fetched=None)
+    assert freshness.figures_stale_clause(rep, _NOW) is None
+
+
+@pytest.mark.parametrize(
+    "fetched",
+    ["2027-01-01", "2026-09-27T12:00:00Z", None, "", 12345, ["2026-09-25"], "wharrgarbl"],
+)
+def test_a_future_or_unusable_fetched_at_check_time_is_unknown_age_never_fresh(
+    tmp_path, fetched
+) -> None:
+    """A `fetched` more than a day after the CHECK's own clock is as untrustworthy as one that
+    does not parse: the age is unknown, and unknown counts as too old (§4.2). The raw value is
+    never echoed into the sentence.
+    Catches: widening the future tolerance in `health._figures_age_exact_days`, or treating a
+    `None` age as fresh in `figures_stale_clause`."""
+    from gtm_core.email_campaign_dashboard import freshness
+
+    rep = _meta_report(tmp_path / "p.html", figures_present=True, figures_fetched=fetched)
+    clause = freshness.figures_stale_clause(rep, _NOW)
+    assert clause and "carry no usable date" in clause
+    assert "wharrgarbl" not in clause
+
+
+# --- the sidecar is untrusted: absence of a tracking key is not "nothing to track" (round 2, I3) ---
+
+
+def _hand_inventory(tmp_path):
+    from gtm_core import page_inputs
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "a-hubspot.csv").write_text("x\n", encoding="utf-8")
+    page = root / "p.html"
+    page.write_text("<html></html>", encoding="utf-8")
+    inv = page_inputs.write_inventory(page, (root, ["*-hubspot.csv"]), scope="all")
+    return root, page, inv
+
+
+@pytest.mark.parametrize("value", ABSENT)
+@pytest.mark.parametrize("key", ["inputs", "globs", "page_sha256"])
+def test_a_tracking_key_that_is_absent_or_unusable_never_reads_as_nothing_to_track(
+    tmp_path, key, value
+) -> None:
+    """`inv.get("inputs", [])` / `inv.get("globs", [])` / `inv.get("page_sha256") and ...` turned a
+    missing key into the empty case — the granting branch. The four absent inputs every corpus
+    produces (nothing, empty, whitespace, an unheard-of word) are all stale for all three keys.
+    Catches: restoring any of the three defaults in `page_inputs.verify_inventory`."""
+    import json
+
+    from gtm_core import page_inputs
+
+    root, page, inv = _hand_inventory(tmp_path)
+    assert page_inputs.verify_inventory(page, root).ok, "the control: unmodified is fresh"
+    rec = json.loads(inv.read_text(encoding="utf-8"))
+    if value is None:
+        del rec[key]
+    else:
+        rec[key] = value
+    inv.write_text(json.dumps(rec), encoding="utf-8")
+    assert not page_inputs.verify_inventory(page, root).ok
+
+
+@pytest.mark.parametrize("value", ABSENT)
+@pytest.mark.parametrize("field", ["scope", "slugs"])
+@pytest.mark.parametrize(
+    "page", ["email_campaign_status.html", "campaign-open.html", "campaign-x.html"]
+)
+def test_a_sidecar_with_no_usable_scope_or_slugs_never_retires_its_page(page, field, value) -> None:
+    """Retirement exempts a page from the check, so it is the most permissive verdict there is and
+    may not be reached from an absent field (red team C1). With NO manifests at all — the
+    condition under which a sidecar naming a campaign reads "orphaned" — none of the absent
+    inputs retires any page, the rollup least of all.
+    Catches: returning RETIRED from `pages.scope_of` without the file-name agreement."""
+    from gtm_core.email_campaign_dashboard import pages
+
+    rec = {"scope": "campaign", "slugs": ["x"]}
+    if value is None:
+        del rec[field]
+    else:
+        rec[field] = value
+    found = pages.scope_of(rec, page, pages.Manifests([], ()))
+    assert found.kind != pages.RETIRED

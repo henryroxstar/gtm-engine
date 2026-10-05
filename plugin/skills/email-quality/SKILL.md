@@ -148,7 +148,8 @@ judge.score_emails(
   spec_path="content/<active>/prospects/sequences/<spec>.md",
   csv_path="content/<active>/prospects/sequences/ready-to-load.csv",
   out_path="content/<active>/prospects/evals/adjudication-<date>.jsonl",
-  profile="<active>")
+  profile="<active>",
+  product="<slug>")  # the run's product; omit on a company with one product
 ```
 
 **You do not choose the transport; it chooses itself, and records which it used.**
@@ -381,7 +382,7 @@ paragraph in judge mode.
 **Verdicts route; they never remove.** After `write-verdicts`, route the pool:
 
 ```bash
-uv run python -m gtm_core.prospects lanes route --profile <active> \
+uv run python -m gtm_core.prospects lanes route --profile <active> [--product <slug>] \
   --csv content/<active>/prospects/sequences/ready-to-load.csv \
   --records content/<active>/prospects/evals/judge/<records>.jsonl [--dry-run]
 ```
@@ -418,7 +419,7 @@ hand — not to resolve in favour of the verdict you preferred.
 ## Mode: `sheet` — the operator's blind labeling session
 
 ```bash
-uv run python -m gtm_core.build_eval_sheet --profile <active> --campaign <campaign> \
+uv run python -m gtm_core.build_eval_sheet --profile <active> [--product <slug>] --campaign <campaign> \
   --seed <campaign>-<YYYY-MM-DD> --duplicate 5 --include-drafts
 ```
 
@@ -456,7 +457,7 @@ one seat's replies to another. A drafted cell has no replies to attribute, so re
 corrupts live learning data to make a sheet look wider.
 
 **Drafting a cell is cheap and is the actual fix for thin coverage.** Ask which angles no spec has
-claimed (`uv run python -m gtm_core.messaging unused --profile <active>`), filter the send-ready
+claimed (`uv run python -m gtm_core.messaging unused --profile <active> [--product <slug>]`), filter the send-ready
 rows to those that resolve to one of them, write those rows to `rows.csv`, compose one touch
 against that angle, and lint to zero errors. A row `messaging resolve` refuses with
 `premise-unsupported` is re-cut or dropped — never accommodated by softening the body. Coverage
@@ -500,7 +501,7 @@ without it passes *hardest* exactly when the sealing step silently produced noth
 ## Mode: `apply` — the labels change the next run
 
 ```bash
-uv run python -m gtm_core.eval_writeback plan --profile <active> \
+uv run python -m gtm_core.eval_writeback plan --profile <active> [--product <slug>] \
   --labels <labels.jsonl> --internal <internal-<date>-<campaign>.jsonl>
 ```
 
@@ -509,7 +510,7 @@ join line. `0 disqualified` and `the join matched nothing` print identically, an
 `N labels joined to a row` count distinguishes them.
 
 ```bash
-uv run python -m gtm_core.eval_writeback apply --profile <active> \
+uv run python -m gtm_core.eval_writeback apply --profile <active> [--product <slug>] \
   --labels <labels.jsonl> --internal <internal-<date>-<campaign>.jsonl>
 ```
 

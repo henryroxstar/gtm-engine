@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .. import run_scope
 from ..paths import _safe_segment, resolve_knowledge_file, resolve_profiles_root
 from ..role_vocabulary import VocabularyError
 from ..role_vocabulary import load as load_vocabulary
@@ -484,11 +485,18 @@ def load(
 ) -> Registry:
     """This run's registry, or :class:`RegistryError` listing every defect.
 
+    Raises :class:`gtm_core.run_scope.ScopeError` when ``product`` is missing on a profile that has
+    a second product, or names one that may not be run.
+
     Each file resolves through :func:`gtm_core.paths.resolve_knowledge_file` — overlay,
     then product, then profile — so a registry may be overridden per product exactly like
     any other knowledge file.
     """
     root = profiles_root or resolve_profiles_root()
+    # The one choke point for messaging: every `messaging` verb, the angle writer, the eval sheet
+    # and the coverage report load a registry through here, so a dropped product on a profile
+    # with a second product refuses here instead of loading the default product's claims.
+    product = run_scope.require(profile, product, profiles_root=root).product
     errors: list[str] = []
 
     def _path(filename: str) -> Path:

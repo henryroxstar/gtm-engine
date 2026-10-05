@@ -4,7 +4,7 @@ import re
 import tomllib
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..paths import resolve_knowledge_file, resolve_profiles_root
@@ -85,6 +85,12 @@ class Premise:
     #: resolve or check it. Loaded as ``min_distinct = 0`` so every arity check passes by
     #: arithmetic; the resolver ranks such a premise LAST, after anything the row attests.
     attested_by_seat: bool = False
+    #: ``True`` when a registry source (``signal_obs``, ``attestation = "agentic"``) may attest this
+    #: premise by membership. It keeps a term-less premise loadable so a source can name it, and
+    #: asks MORE of the record, not less: ``min_distinct`` stays at least 1 and there are no terms,
+    #: so no row's own text satisfies it and it fails closed until a source does.
+    attested_by_source: bool = False
+    term_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def attested_by(self, text: str) -> set[str]:
         """Which of this premise's terms the text carries, as distinct terms."""
@@ -97,8 +103,21 @@ class Premise:
                 hits.add(term)
         return hits
 
+    def distinct_count(self, hits: set[str]) -> int:
+        """How many distinct terms (or groups, when ``term_groups`` is defined) are hit."""
+        if not self.term_groups:
+            return len(hits)
+        groups = set()
+        term_to_group = {}
+        for gname, gterms in self.term_groups.items():
+            for t in gterms:
+                term_to_group[t.lower()] = gname
+        for hit in hits:
+            groups.add(term_to_group.get(hit.lower(), hit.lower()))
+        return len(groups)
+
     def met_by(self, text: str) -> bool:
-        return len(self.attested_by(text)) >= self.min_distinct
+        return self.distinct_count(self.attested_by(text)) >= self.min_distinct
 
     def industry_hits(self, industry: str) -> set[str]:
         """Which ``industry_terms`` the account's industry field carries."""
@@ -151,7 +170,14 @@ def load_premise_vocab(
     the overlay rung: a tenant with a product-level premise vocabulary was silently served the
     profile-level one, and the two readers in this module disagreed about where a tenant's
     knowledge lives. The fix is the resolver, never a third rung added by hand here.
+
+    ``product`` goes through ``run_scope.require`` **before** the ``try`` below: a refusal is a
+    ``ValueError``, and inside the ``try`` it would read as "no vocabulary", which switches
+    ``premise-unsupported`` off for exactly the run that named no product.
     """
+    from .. import run_scope
+
+    product = run_scope.require(profile, product, profiles_root=profiles_root).product
     try:
         path = resolve_knowledge_file(
             profiles_root or resolve_profiles_root(),
@@ -173,23 +199,33 @@ def load_premise_vocab(
         industry_terms = frozenset(
             str(t).strip().lower() for t in (entry.get("industry_terms") or []) if str(t).strip()
         )
-        # `True` and nothing else: a premise that asks nothing of the record is a deliberate
-        # declaration, and this loader's lenient contract (a typo disarms a check) must not
-        # let a mistyped value arm the one premise every row attests.
+        term_groups_raw = entry.get("term_groups")
+        term_groups: dict[str, tuple[str, ...]] = {}
+        if isinstance(term_groups_raw, dict):
+            for gname, gterms in term_groups_raw.items():
+                if isinstance(gterms, (list, tuple)):
+                    term_groups[str(gname).strip().lower()] = tuple(
+                        str(t).strip().lower() for t in gterms if str(t).strip()
+                    )
+        group_terms = frozenset(t for gterms in term_groups.values() for t in gterms)
+        all_terms = terms | group_terms
         by_seat = entry.get("attested_by_seat") is True
-        if not terms and not industry_terms and not by_seat:
+        by_source = entry.get("attested_by_source") is True
+        if not all_terms and not industry_terms and not by_seat and not by_source:
             continue
         boundary = entry.get("attests_boundary")
         out[key.strip().lower()] = Premise(
             key=key.strip().lower(),
             min_distinct=0 if by_seat else max(1, int(entry.get("min_distinct", 1))),
-            terms=terms,
+            terms=all_terms,
             claim=str(entry.get("claim") or "").strip(),
             # A non-bool is "not said", not "false": this loader is lenient by contract
             # (a malformed file disables the check), and a typo must not arm a refusal.
             attests_boundary=boundary if isinstance(boundary, bool) else None,
             industry_terms=industry_terms,
             attested_by_seat=by_seat,
+            attested_by_source=by_source,
+            term_groups=term_groups,
         )
     return out
 
@@ -235,7 +271,9 @@ def capability_slug(label: str) -> str:
     return re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9]+", "-", (label or "").lower())).strip("-")
 
 
-def _knowledge_path(profile: str, profiles_root: Path | None, filename: str) -> Path | None:
+def _knowledge_path(
+    profile: str, profiles_root: Path | None, filename: str, product: str | None = None
+) -> Path | None:
     """One knowledge file's resolved path, or ``None`` when the profile cannot be resolved.
 
     The resolver is the source of truth for the rung ladder (CLAUDE.md); this only turns its
@@ -243,12 +281,16 @@ def _knowledge_path(profile: str, profiles_root: Path | None, filename: str) -> 
     which is what every opt-in reader in this module already means by a missing path.
     """
     try:
-        return resolve_knowledge_file(profiles_root or resolve_profiles_root(), profile, filename)
+        return resolve_knowledge_file(
+            profiles_root or resolve_profiles_root(), profile, filename, product=product
+        )
     except (OSError, ValueError):
         return None
 
 
-def capability_vocab(profile: str, profiles_root: Path | None = None) -> dict[str, str]:
+def capability_vocab(
+    profile: str, profiles_root: Path | None = None, product: str | None = None
+) -> dict[str, str]:
     """``slug -> label`` for the profile's capability groups.
 
     The vocabulary is **tenant knowledge**, never a list in this module — the same rule
@@ -273,12 +315,19 @@ def capability_vocab(profile: str, profiles_root: Path | None = None) -> dict[st
     vocabulary really is optional (``agent/mcp/judge/server.py:judge_context``) already catches
     and returns ``{}``, so scoring is not blocked by a tenant data defect either way.
     """
+    from .. import run_scope
     from ..messaging import registry as _registry
 
-    claims_path = _knowledge_path(profile, profiles_root, _registry.CLAIMS_FILE)
+    # A dropped product on a profile with a second product raises here, before either rung is
+    # read: the vocabulary is a *product's* capability groups, and the default's must not be
+    # offered to a run for another.
+    product = run_scope.require(profile, product, profiles_root=profiles_root).product
+    claims_path = _knowledge_path(profile, profiles_root, _registry.CLAIMS_FILE, product)
     if claims_path is not None and claims_path.is_file():
         groups: dict[str, str] = {}
-        for claim in _registry.load(profile, profiles_root=profiles_root).claims.values():
+        for claim in _registry.load(
+            profile, profiles_root=profiles_root, product=product
+        ).claims.values():
             slug = capability_slug(claim.group)
             if slug:
                 groups.setdefault(slug, claim.group)
@@ -286,7 +335,7 @@ def capability_vocab(profile: str, profiles_root: Path | None = None) -> dict[st
 
     try:
         path = resolve_knowledge_file(
-            profiles_root or resolve_profiles_root(), profile, "product.md"
+            profiles_root or resolve_profiles_root(), profile, "product.md", product=product
         )
         text = Path(path).read_text(encoding="utf-8")
     except (OSError, ValueError):
@@ -395,6 +444,7 @@ def premise_attestation(
     premise: Premise,
     *,
     evidence_fields: tuple[str, ...] = ("signal_evidence", "signal_clause", "why_now"),
+    source_ctx=None,
 ) -> Counter:
     """``{term -> how many rows attest the premise SOLELY via that term}``.
 
@@ -413,11 +463,13 @@ def premise_attestation(
     ``premise-vocab.toml``, so tightening them is the operator's call about their own
     messaging, not a change code should make silently.
     """
+    from .source_attest import source_attests
+
     solo: Counter = Counter()
     for r in rows:
-        # The same `hits_for` the gate itself uses. A second implementation of "what does
-        # this row attest" would drift from the first, and then this function would be
-        # reporting on a check nobody runs.
+        if source_ctx is not None and source_attests(r, premise, source_ctx):
+            solo["via=source"] += 1
+            continue
         hits = premise.hits_for(r, evidence_fields)
         if len(hits) == 1:
             solo[sorted(hits)[0]] += 1
@@ -429,8 +481,21 @@ def premise_unsupported(
     premise: Premise,
     *,
     evidence_fields: tuple[str, ...] = ("signal_evidence", "signal_clause", "why_now"),
+    source_ctx=None,
+    today=None,
+    profile: str | None = None,
+    sources_dir=None,
 ) -> list[PremiseFinding]:
     """Rows whose own research record cannot carry the premise the spec declares.
+
+    ``source_ctx`` (an ``AttestContext``) lets an agentic source list that names the row support a
+    premise whole (R2.5); ``None`` means no source list. The row's OWN recorded announcement
+    (``record_attests``) is a second route that reads neither switch: it applies only to a
+    premise that opts in with ``attested_by_source`` (today only ``agents-in-operation``) and only
+    when a stored capture of the cited page holds the quote, found through ``profile`` or
+    ``sources_dir``. So a tenant that has opted no premise in sees no change with the switches
+    closed, and one that has is given a verified route, not a trusted label. ``today`` is the
+    run's date. Pinned in ``tests/unit/test_source_attests.py``.
 
     Reads the row's RECORDED evidence, never the rendered body: the question is whether the
     research found enough to justify the claim, and a body that asserts it regardless is
@@ -438,6 +503,8 @@ def premise_unsupported(
     the clause and the raw notes gives the row every chance to attest before it fails —
     a false ERROR here deletes a good row, which is the expensive direction.
     """
+    from .source_attest import record_attests, source_attests  # circular: they need Premise
+
     out: list[PremiseFinding] = []
     for r in rows:
         # `hits_for` strips the account's own name before matching. A company literally
@@ -449,7 +516,12 @@ def premise_unsupported(
         # be genuine (its why_now names an announced enterprise partnership), so it changed no
         # live verdict — it closes the hazard before a row passes on its name alone.
         hits = premise.hits_for(r, evidence_fields)
-        if len(hits) < premise.min_distinct:
+        distinct = premise.distinct_count(hits) if hasattr(premise, "distinct_count") else len(hits)
+        if (
+            distinct < premise.min_distinct
+            and not source_attests(r, premise, source_ctx)
+            and not record_attests(r, premise, today, profile=profile, sources_dir=sources_dir)
+        ):
             out.append(
                 PremiseFinding(
                     email=(r.get("email") or "?").strip(),

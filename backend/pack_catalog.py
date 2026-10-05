@@ -15,7 +15,7 @@ so it is unit-testable without an app.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from agent.readiness import GREEN, RED, ReadinessReport, check_readiness
@@ -23,6 +23,7 @@ from gtm_core import gating
 from gtm_core.capabilities import entitlement_meets
 from gtm_core.packs.loader import (
     PackGraph,
+    PackInputIntegration,
     PackInputs,
     PackValidationError,
     load_pack_graph,
@@ -67,13 +68,27 @@ def _activation(profiles_root: Path, profile: str):
     return load_pack_activation(path)
 
 
+def _is_internal(graph_path: Path) -> bool:
+    """True when the graph file declares itself operator-only (``internal = true``).
+
+    Read BEFORE the activation check so an internal graph answers the same whether or not the
+    tenant activated its pack: a ``pack_not_activated`` 403 would say the graph exists. A file
+    that fails to load is not judged here; the normal path reports it as it always did.
+    """
+    try:
+        return load_pack_graph(graph_path).internal
+    except PackValidationError:
+        return False
+
+
 def resolve_variant(
     repo_root: Path, profiles_root: Path, profile: str, pack: str, variant: str
 ) -> ResolvedVariant:
     """Resolve (pack, variant) for a profile: load, activation-check, override-merge.
 
     Raises :class:`PackResolutionError` with code:
-      - ``unknown_variant``   — bad name shape, or no such graph file (404 at the API)
+      - ``unknown_variant``   — bad name shape, no such graph file, or an ``internal`` graph
+                                (operator-only: indistinguishable from a missing one) (404 at the API)
       - ``pack_not_activated``— graph exists but the profile doesn't activate the pack (403)
       - ``pack_invalid``      — the graph or the tenant override fails validation (422;
                                 server/tenant config problem, never client input)
@@ -81,7 +96,7 @@ def resolve_variant(
     if not (safe_segment(pack) and safe_segment(variant)):
         raise PackResolutionError("unknown_variant")
     graph_path = repo_root / "packs" / pack / "graphs" / f"{variant}.toml"
-    if not graph_path.is_file():
+    if not graph_path.is_file() or _is_internal(graph_path):
         raise PackResolutionError("unknown_variant")
 
     activation = _activation(profiles_root, profile)
@@ -183,14 +198,41 @@ def blocked_items(report: ReadinessReport, resolved: ResolvedVariant) -> list[di
     return out
 
 
+def resolve_variant_inputs(resolved: ResolvedVariant) -> PackInputs:
+    """Return the effective PackInputs for a variant, factoring in graph-level
+    external effects that strictly mandate integrations (e.g. saleshandy)."""
+    inputs = resolved.inputs
+    effects = {getattr(n, "external_effect", None) for n in resolved.graph.nodes}
+    if "email_enroll" in effects or "dnc_add" in effects:
+        existing = {i.provider: i for i in getattr(inputs, "integrations", ())}
+        if "saleshandy" not in existing or not existing["saleshandy"].required:
+            other_integrations = tuple(
+                i for i in getattr(inputs, "integrations", ()) if i.provider != "saleshandy"
+            )
+            inputs = replace(
+                inputs,
+                integrations=other_integrations
+                + (PackInputIntegration(provider="saleshandy", required=True),),
+            )
+    return inputs
+
+
 def variant_readiness(
     profiles_root: Path,
     profile: str,
     resolved: ResolvedVariant,
     *,
     context: dict[str, str] | None = None,
+    configured_integrations: set[str] | None = None,
 ) -> ReadinessReport:
-    return check_readiness(profiles_root, profile, resolved.inputs, context=context)
+    inputs = resolve_variant_inputs(resolved)
+    return check_readiness(
+        profiles_root,
+        profile,
+        inputs,
+        context=context,
+        configured_integrations=configured_integrations,
+    )
 
 
 # ── descriptor build ──────────────────────────────────────────────────────────
@@ -210,9 +252,10 @@ def descriptor(
     """
     from agent.profiles import read_profile_field
 
+    effective_inputs = resolve_variant_inputs(resolved)
     g = resolved.graph
     settings_list: list[dict] = []
-    for s in resolved.inputs.settings:
+    for s in effective_inputs.settings:
         item: dict = {"key": s.key, "source": s.source, "required": s.required}
         if profile_text:
             default_val = read_profile_field(profile_text, s.key)
@@ -237,7 +280,7 @@ def descriptor(
             "settings": settings_list,
             "knowledge": [
                 {"topic": k.topic, "required": k.required, "freshness": k.freshness}
-                for k in resolved.inputs.knowledge
+                for k in effective_inputs.knowledge
             ],
             "context": [
                 {
@@ -245,7 +288,11 @@ def descriptor(
                     "required": c.required,
                     **({"max_bytes": c.max_bytes} if c.max_bytes is not None else {}),
                 }
-                for c in getattr(resolved.inputs, "context", ())
+                for c in getattr(effective_inputs, "context", ())
+            ],
+            "integrations": [
+                {"provider": i.provider, "required": i.required}
+                for i in getattr(effective_inputs, "integrations", ())
             ],
         },
     }

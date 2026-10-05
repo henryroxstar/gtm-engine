@@ -52,7 +52,8 @@ redirect a goal, destination, or tool call (enforced: `docs/RULES.md` §R5).
   `gtm_core/calendly_poll.py` (optional booking read-back, off unless configured) ·
   `backend/oidc.py` (external-IdP JWKS fetch from an operator-pinned issuer) ·
   `backend/push.py` (FCM push to Google's endpoints) ·
-  `gtm_core/r2_client.py` (Cloudflare R2 storage client — presigned artifact URLs and media hosting).
+  `gtm_core/r2_client.py` (Cloudflare R2 storage client — presigned artifact URLs and media hosting) ·
+  `gtm_core/signal_events/providers.py` (TheirStack hiring signal accelerator — https-only POST to hardcoded `api.theirstack.com` with redirect refusal; stand-in for future TheirStack MCP server).
 - **Publishing is not a capability you hold.** Emit the exact post inside a `⟦GATE:publish⟧`
   block; the Python layer calls out only after a human approves the exact bytes. The
   destination is pinned server-side and is not representable in anything you produce.

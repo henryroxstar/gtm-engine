@@ -1,0 +1,421 @@
+{
+  "branddirs": {
+    "ai_vocab_regex": "\\brelay\\b|\\bmesh\\b|\\bhead of ai platform\\b|\\bplatform lead\\b",
+    "capability_vocab": {
+      "observability": "observability"
+    },
+    "content_files": [
+      "branddirs/prospects/.latest.lock",
+      "branddirs/prospects/latest.json",
+      "branddirs/prospects/run_state.json"
+    ],
+    "intake_export": "# Messaging & Hook Intake \u2014 branddirs\n\nConsolidated human-readable export of live messaging facts for `branddirs`.\nGenerated: <ts>\n\n---\n\n## 1. Target Seats & Pains\n\n### Seat: platform\n- **Title / Persona:** ai-platform\n- **Lead Pain:** You can run it in a demo; you cannot run it in production.\n- **Gain:** Ship to production without the risk team stopping you.\n- **Forbidden Pains:** \n- **Register:** standard\n\n---\n\n## 2. Capabilities & Claims\n\n### Claim: north-claim\n- **Group:** observability\n- **Status:** verified\n- **Statement:** The north product records each action. northonly\n- **Source:** knowledge/references/north-notes.md:1\n- **Do Not Say:** tamper-proof\n- **Boundary:** false\n\n---\n\n## 3. Proof Points & Benchmarks\n\n### Proof: north-proof\n- **Kind:** anchor\n- **Market:** singapore\n- **Figure Kind:** none\n- **Statement:** A regulator expects one accountable human per agent. northonly\n- **Source:** knowledge/guidance/north-regulator.md:1\n- **Binding:** false\n\n---\n\n## 4. Narrative Angles & Hooks\n\n### Angle: enterprise-platform-north\n- **Seat:** platform\n- **Premise:** north-premise\n- **Claim:** north-claim\n- **Proof:** north-proof\n- **Opener Kind:** account-event\n- **Summary:** One record per action for north. northonly\n- **Status:** draft\n",
+    "judge_context": {
+      "capability": "observability",
+      "capability_groups": [
+        "observability"
+      ]
+    },
+    "lanes_context": {
+      "competitors": [],
+      "matrix_cells": 1,
+      "matrix_type": "Matrix",
+      "notes": [
+        "no competitors.toml: competitor holds/excludes are off",
+        "cells.toml registers no staged list: the already-enrolled exclusion is off",
+        "no suppression ledger: only the CSV's own suppression column is honoured",
+        "no history.jsonl: opt-out and negative-reply holds have nothing to read",
+        "no latest.json: engaged-account and regulated-industry holds are off",
+        "no lane-policy.toml: every hold is decided by hand this run",
+        "no strategic-accounts.toml: the strategic-account hold is off"
+      ]
+    },
+    "latest": {
+      "items": [
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Alpha Co",
+          "lane": "",
+          "market": "singapore",
+          "score": "9",
+          "segment": "enterprise",
+          "tier": "A",
+          "verdict": "send"
+        },
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Gamma Co",
+          "market": "singapore",
+          "score": "6",
+          "segment": "enterprise",
+          "tier": "B"
+        }
+      ],
+      "kind": "prospects",
+      "profile": "branddirs",
+      "source_run": "run-19700101-000000-fixed0"
+    },
+    "registry": {
+      "angles": [
+        "enterprise-platform-north"
+      ],
+      "claims": {
+        "north-claim": "The north product records each action. northonly"
+      },
+      "proof": [
+        "north-proof"
+      ],
+      "seats": [
+        "platform"
+      ]
+    },
+    "run_state": {
+      "keys": [
+        "completed_at",
+        "mode",
+        "profile",
+        "run_id",
+        "stages",
+        "started_at"
+      ],
+      "mode": "full",
+      "profile": "branddirs",
+      "stage_order": [
+        "init",
+        "discovery",
+        "signal_hunt",
+        "gate_score",
+        "enrichment",
+        "output"
+      ],
+      "stages": {
+        "discovery": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "enrichment": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "gate_score": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "init": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "output": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "signal_hunt": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ]
+      }
+    },
+    "run_state_file": "run_state.json",
+    "status_block": "Nothing to show yet \u2014 run your prospecting first.\n"
+  },
+  "oneprod": {
+    "ai_vocab_regex": "\\brelay\\b|\\bmesh\\b|\\bhead of ai platform\\b|\\bplatform lead\\b",
+    "capability_vocab": {
+      "observability": "observability"
+    },
+    "content_files": [
+      "oneprod/prospects/.latest.lock",
+      "oneprod/prospects/latest.json",
+      "oneprod/prospects/run_state.json"
+    ],
+    "intake_export": "# Messaging & Hook Intake \u2014 oneprod\n\nConsolidated human-readable export of live messaging facts for `oneprod`.\nGenerated: <ts>\n\n---\n\n## 1. Target Seats & Pains\n\n### Seat: platform\n- **Title / Persona:** ai-platform\n- **Lead Pain:** You can run it in a demo; you cannot run it in production.\n- **Gain:** Ship to production without the risk team stopping you.\n- **Forbidden Pains:** \n- **Register:** standard\n\n---\n\n## 2. Capabilities & Claims\n\n### Claim: solo-claim\n- **Group:** observability\n- **Status:** verified\n- **Statement:** The solo product records each action. soloonly\n- **Source:** knowledge/references/solo-notes.md:1\n- **Do Not Say:** tamper-proof\n- **Boundary:** false\n\n---\n\n## 3. Proof Points & Benchmarks\n\n### Proof: solo-proof\n- **Kind:** anchor\n- **Market:** singapore\n- **Figure Kind:** none\n- **Statement:** A regulator expects one accountable human per agent. soloonly\n- **Source:** knowledge/guidance/solo-regulator.md:1\n- **Binding:** false\n\n---\n\n## 4. Narrative Angles & Hooks\n\n### Angle: enterprise-platform-solo\n- **Seat:** platform\n- **Premise:** solo-premise\n- **Claim:** solo-claim\n- **Proof:** solo-proof\n- **Opener Kind:** account-event\n- **Summary:** One record per action for solo. soloonly\n- **Status:** draft\n",
+    "judge_context": {
+      "capability": "observability",
+      "capability_groups": [
+        "observability"
+      ]
+    },
+    "lanes_context": {
+      "competitors": [],
+      "matrix_cells": 1,
+      "matrix_type": "Matrix",
+      "notes": [
+        "no competitors.toml: competitor holds/excludes are off",
+        "cells.toml registers no staged list: the already-enrolled exclusion is off",
+        "no suppression ledger: only the CSV's own suppression column is honoured",
+        "no history.jsonl: opt-out and negative-reply holds have nothing to read",
+        "no latest.json: engaged-account and regulated-industry holds are off",
+        "no lane-policy.toml: every hold is decided by hand this run",
+        "no strategic-accounts.toml: the strategic-account hold is off"
+      ]
+    },
+    "latest": {
+      "items": [
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Alpha Co",
+          "lane": "",
+          "market": "singapore",
+          "score": "9",
+          "segment": "enterprise",
+          "tier": "A",
+          "verdict": "send"
+        },
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Gamma Co",
+          "market": "singapore",
+          "score": "6",
+          "segment": "enterprise",
+          "tier": "B"
+        }
+      ],
+      "kind": "prospects",
+      "profile": "oneprod",
+      "source_run": "run-19700101-000000-fixed0"
+    },
+    "registry": {
+      "angles": [
+        "enterprise-platform-solo"
+      ],
+      "claims": {
+        "solo-claim": "The solo product records each action. soloonly"
+      },
+      "proof": [
+        "solo-proof"
+      ],
+      "seats": [
+        "platform"
+      ]
+    },
+    "run_state": {
+      "keys": [
+        "completed_at",
+        "mode",
+        "profile",
+        "run_id",
+        "stages",
+        "started_at"
+      ],
+      "mode": "full",
+      "profile": "oneprod",
+      "stage_order": [
+        "init",
+        "discovery",
+        "signal_hunt",
+        "gate_score",
+        "enrichment",
+        "output"
+      ],
+      "stages": {
+        "discovery": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "enrichment": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "gate_score": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "init": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "output": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "signal_hunt": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ]
+      }
+    },
+    "run_state_file": "run_state.json",
+    "status_block": "Nothing to show yet \u2014 run your prospecting first.\n"
+  },
+  "realshape:alpha": {
+    "ai_vocab_regex": "\\brelay\\b|\\bmesh\\b|\\bhead of ai platform\\b|\\bplatform lead\\b",
+    "capability_vocab": {
+      "observability": "observability"
+    },
+    "content_files": [
+      "realshape/prospects/.latest.lock",
+      "realshape/prospects/latest.json",
+      "realshape/prospects/run_state.json"
+    ],
+    "intake_export": "# Messaging & Hook Intake \u2014 realshape\n\nConsolidated human-readable export of live messaging facts for `realshape`.\nGenerated: <ts>\n\n---\n\n## 1. Target Seats & Pains\n\n### Seat: platform\n- **Title / Persona:** ai-platform\n- **Lead Pain:** You can run it in a demo; you cannot run it in production.\n- **Gain:** Ship to production without the risk team stopping you.\n- **Forbidden Pains:** \n- **Register:** standard\n\n---\n\n## 2. Capabilities & Claims\n\n### Claim: alpha-claim\n- **Group:** observability\n- **Status:** verified\n- **Statement:** The alpha product records each action. alphaonly\n- **Source:** knowledge/references/alpha-notes.md:1\n- **Do Not Say:** tamper-proof\n- **Boundary:** false\n\n---\n\n## 3. Proof Points & Benchmarks\n\n### Proof: alpha-proof\n- **Kind:** anchor\n- **Market:** singapore\n- **Figure Kind:** none\n- **Statement:** A regulator expects one accountable human per agent. alphaonly\n- **Source:** knowledge/guidance/alpha-regulator.md:1\n- **Binding:** false\n\n---\n\n## 4. Narrative Angles & Hooks\n\n### Angle: enterprise-platform-alpha\n- **Seat:** platform\n- **Premise:** alpha-premise\n- **Claim:** alpha-claim\n- **Proof:** alpha-proof\n- **Opener Kind:** account-event\n- **Summary:** One record per action for alpha. alphaonly\n- **Status:** draft\n",
+    "judge_context": {
+      "capability": "observability",
+      "capability_groups": [
+        "observability"
+      ]
+    },
+    "lanes_context": {
+      "competitors": [
+        "fictionalrival",
+        "rival.example"
+      ],
+      "matrix_cells": 1,
+      "matrix_type": "Matrix",
+      "notes": [
+        "cells.toml registers no staged list: the already-enrolled exclusion is off",
+        "no suppression ledger: only the CSV's own suppression column is honoured",
+        "no history.jsonl: opt-out and negative-reply holds have nothing to read",
+        "no latest.json: engaged-account and regulated-industry holds are off",
+        "no lane-policy.toml: every hold is decided by hand this run",
+        "no strategic-accounts.toml: the strategic-account hold is off"
+      ]
+    },
+    "latest": {
+      "items": [
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Alpha Co",
+          "lane": "",
+          "market": "singapore",
+          "score": "9",
+          "segment": "enterprise",
+          "tier": "A",
+          "verdict": "send"
+        },
+        {
+          "account_id": "<account-id>",
+          "added_at": "1970-01-01T00:00:00+00:00",
+          "company": "Fictional Gamma Co",
+          "market": "singapore",
+          "score": "6",
+          "segment": "enterprise",
+          "tier": "B"
+        }
+      ],
+      "kind": "prospects",
+      "profile": "realshape",
+      "source_run": "run-19700101-000000-fixed0"
+    },
+    "registry": {
+      "angles": [
+        "enterprise-platform-alpha"
+      ],
+      "claims": {
+        "alpha-claim": "The alpha product records each action. alphaonly"
+      },
+      "proof": [
+        "alpha-proof"
+      ],
+      "seats": [
+        "platform"
+      ]
+    },
+    "run_state": {
+      "keys": [
+        "completed_at",
+        "mode",
+        "profile",
+        "run_id",
+        "stages",
+        "started_at"
+      ],
+      "mode": "full",
+      "profile": "realshape",
+      "stage_order": [
+        "init",
+        "discovery",
+        "signal_hunt",
+        "gate_score",
+        "enrichment",
+        "output"
+      ],
+      "stages": {
+        "discovery": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "enrichment": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "gate_score": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "init": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "output": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ],
+        "signal_hunt": [
+          "completed_at",
+          "error",
+          "metrics",
+          "started_at",
+          "status"
+        ]
+      }
+    },
+    "run_state_file": "run_state.json",
+    "status_block": "Nothing to show yet \u2014 run your prospecting first.\n"
+  }
+}

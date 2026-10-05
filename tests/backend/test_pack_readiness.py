@@ -48,11 +48,19 @@ _FULL_KNOWLEDGE = {
 }
 
 
-def _provision(profiles_root: Path, *, knowledge: dict, profile_md: str = "brand_name: X\n"):
+def _provision(
+    profiles_root: Path,
+    *,
+    knowledge: dict,
+    profile_md: str = "brand_name: X\n",
+    active_packs: list[str] | None = None,
+):
     pdir = profiles_root / PROFILE
     (pdir / "knowledge").mkdir(parents=True, exist_ok=True)
     (pdir / "PROFILE.md").write_text(profile_md)
-    (pdir / "packs.toml").write_text('active = ["marketing"]\n')
+    active = active_packs or ["marketing"]
+    active_str = ", ".join(f'"{p}"' for p in active)
+    (pdir / "packs.toml").write_text(f"active = [{active_str}]\n")
     for topic, body in knowledge.items():
         (pdir / "knowledge" / f"{topic}.md").write_text(body)
 
@@ -320,3 +328,292 @@ def test_t9_ask_setting_missing_from_profile_never_blocks(client, ws_env):
     ):
         resp = client.post("/v1/runs", json=_run_body())  # brand_name provided in inputs
     assert resp.status_code == 202
+
+
+# ── T10: unconfigured workspace blocks pack catalog for external-effect packs ─
+
+
+def test_t10_catalog_unconfigured_workspace_blocks_prospecting(client, ws_env):
+    _provision(
+        ws_env.profiles_root,
+        knowledge=_FULL_KNOWLEDGE,
+        active_packs=["marketing", "prospecting"],
+    )
+    with patch(
+        "backend.services.integrations.get_workspace_configured_providers",
+        AsyncMock(return_value=set()),
+    ):
+        resp = client.get(f"/v1/packs?profile_name={PROFILE}")
+        assert resp.status_code == 200
+        d = next(p for p in resp.json() if p["variant"] == "prospect-outreach")
+        assert d["readiness"]["status"] == "blocked"
+        integration_items = [i for i in d["readiness"]["items"] if i["kind"] == "integration"]
+        assert len(integration_items) == 1
+        assert integration_items[0]["name"] == "saleshandy"
+        assert integration_items[0]["status"] == "blocked"
+        assert "Saleshandy API key is not configured" in integration_items[0]["reason"]
+        assert "Settings > Integrations" in integration_items[0]["reason"]
+
+        detail_resp = client.get(
+            f"/v1/packs/prospecting/prospect-outreach/readiness?profile_name={PROFILE}"
+        )
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["readiness"]["status"] == "blocked"
+        detail_items = [i for i in detail["readiness"]["items"] if i["kind"] == "integration"]
+        assert len(detail_items) == 1
+        assert detail_items[0]["name"] == "saleshandy"
+        assert detail_items[0]["status"] == "blocked"
+
+
+# ── T11: configured workspace renders ready status and input requirements ──────
+
+
+def test_t11_catalog_configured_workspace_readiness_ready(client, ws_env):
+    _provision(
+        ws_env.profiles_root,
+        knowledge=_FULL_KNOWLEDGE,
+        active_packs=["marketing", "prospecting"],
+    )
+    with patch(
+        "backend.services.integrations.get_workspace_configured_providers",
+        AsyncMock(return_value={"saleshandy"}),
+    ):
+        resp = client.get(f"/v1/packs?profile_name={PROFILE}")
+        assert resp.status_code == 200
+        d = next(p for p in resp.json() if p["variant"] == "prospect-outreach")
+        assert d["readiness"]["status"] == "ready"
+        assert d["inputs"]["integrations"] == [{"provider": "saleshandy", "required": True}]
+
+        detail_resp = client.get(
+            f"/v1/packs/prospecting/prospect-outreach/readiness?profile_name={PROFILE}"
+        )
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["readiness"]["status"] == "ready"
+        detail_integration = next(
+            i for i in detail["readiness"]["items"] if i["kind"] == "integration"
+        )
+        assert detail_integration["name"] == "saleshandy"
+        assert detail_integration["status"] == "ready"
+
+
+# ── T12: unconfigured run rejected synchronously with HTTP 422 pack_not_ready ─
+
+
+def test_t12_unconfigured_run_admission_refused_synchronously_422(client, ws_env):
+    _provision(
+        ws_env.profiles_root,
+        knowledge=_FULL_KNOWLEDGE,
+        active_packs=["marketing", "prospecting"],
+    )
+    scope_entered = MagicMock()
+    budget = AsyncMock(return_value=True)
+    body = {
+        "profile_name": PROFILE,
+        "pack": "prospecting",
+        "variant": "prospect-outreach",
+        "inputs": {},
+    }
+    with (
+        patch(
+            "backend.services.integrations.get_workspace_configured_providers",
+            AsyncMock(return_value=set()),
+        ),
+        patch_everywhere(SCOPE_MODULES, "workspace_scope", scope_entered),
+        patch_everywhere(BUDGET_MODULES, "acheck_budget", budget),
+    ):
+        resp = client.post("/v1/runs", json=body)
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["code"] == "pack_not_ready"
+    blocked_integrations = [b for b in detail["blocked"] if b["kind"] == "integration"]
+    assert len(blocked_integrations) == 1
+    assert blocked_integrations[0]["name"] == "saleshandy"
+    assert "Saleshandy API key is not configured" in blocked_integrations[0]["reason"]
+    scope_entered.assert_not_called()  # zero rows inserted in runs table
+    budget.assert_not_called()  # zero reservations / $0 spend
+
+
+# ── T13: surface agreement between catalog readiness and runtime preflight ────
+
+
+def test_t13_surface_agreement_catalog_admission_preflight(tmp_path):
+    from agent.readiness import GREEN
+    from backend.pack_catalog import ResolvedVariant, variant_readiness
+    from backend.services.runs.pack_executor import _check_pack_integrations_preflight
+    from gtm_core.packs.loader import PackInputs, load_pack_graph
+
+    pdir = tmp_path / "test-profile"
+    pdir.mkdir(parents=True)
+    (pdir / "PROFILE.md").write_text("company: Test\n", encoding="utf-8")
+
+    # 1. email_enroll (prospect-outreach):
+    email_graph = load_pack_graph(
+        REPO / "packs" / "prospecting" / "graphs" / "prospect-outreach.toml"
+    )
+    report_unconfigured = variant_readiness(
+        tmp_path,
+        "test-profile",
+        ResolvedVariant(graph=email_graph, inputs=PackInputs()),
+        configured_integrations=set(),
+    )
+    assert report_unconfigured.blocked is True
+
+    fake_cfg_unconfigured = SimpleNamespace(saleshandy_api_key=None)
+    preflight_unconfigured = _check_pack_integrations_preflight(email_graph, fake_cfg_unconfigured)
+    assert preflight_unconfigured is not None
+    assert preflight_unconfigured.code == "email_not_configured"
+
+    report_configured = variant_readiness(
+        tmp_path,
+        "test-profile",
+        ResolvedVariant(graph=email_graph, inputs=PackInputs()),
+        configured_integrations={"saleshandy"},
+    )
+    integration_items = [i for i in report_configured.items if i.kind == "integration"]
+    assert all(i.status == GREEN for i in integration_items)
+
+    fake_cfg_configured = SimpleNamespace(saleshandy_api_key="sh_live_key_xxx")
+    preflight_configured = _check_pack_integrations_preflight(email_graph, fake_cfg_configured)
+    assert preflight_configured is None
+
+    # 2. dnc_add (optout-suppress):
+    dnc_graph = load_pack_graph(REPO / "packs" / "inbound" / "graphs" / "optout-suppress.toml")
+    dnc_report_unconfigured = variant_readiness(
+        tmp_path,
+        "test-profile",
+        ResolvedVariant(graph=dnc_graph, inputs=PackInputs()),
+        configured_integrations=set(),
+    )
+    assert dnc_report_unconfigured.blocked is True
+    preflight_dnc_unconfigured = _check_pack_integrations_preflight(
+        dnc_graph, fake_cfg_unconfigured
+    )
+    assert preflight_dnc_unconfigured is not None
+    assert preflight_dnc_unconfigured.code == "dnc_not_configured"
+
+    dnc_report_configured = variant_readiness(
+        tmp_path,
+        "test-profile",
+        ResolvedVariant(graph=dnc_graph, inputs=PackInputs()),
+        configured_integrations={"saleshandy"},
+    )
+    dnc_items = [i for i in dnc_report_configured.items if i.kind == "integration"]
+    assert all(i.status == GREEN for i in dnc_items)
+    preflight_dnc_configured = _check_pack_integrations_preflight(dnc_graph, fake_cfg_configured)
+    assert preflight_dnc_configured is None
+
+
+def test_external_effects_force_required_integration(tmp_path):
+    """PRD §3.1: Even if inputs.toml declares required = false, external effect
+    nodes (email_enroll, dnc_add) strictly mandate required = True."""
+    from backend.pack_catalog import ResolvedVariant, variant_readiness
+    from gtm_core.packs.loader import PackInputIntegration, PackInputs, load_pack_graph
+
+    pdir = tmp_path / "test-profile"
+    pdir.mkdir(parents=True)
+    (pdir / "PROFILE.md").write_text("company: Test\n", encoding="utf-8")
+
+    graph = load_pack_graph(REPO / "packs" / "prospecting" / "graphs" / "prospect-outreach.toml")
+    # Declared with required=False
+    inputs = PackInputs(integrations=(PackInputIntegration(provider="saleshandy", required=False),))
+    resolved = ResolvedVariant(graph=graph, inputs=inputs)
+    report = variant_readiness(tmp_path, "test-profile", resolved, configured_integrations=set())
+    # Must be forced to blocked=True:
+    assert report.blocked is True
+    integration_item = next(i for i in report.items if i.kind == "integration")
+    assert integration_item.required is True
+    assert integration_item.status == "red"
+
+
+def test_graph_derived_integration_serialized_in_descriptor(tmp_path):
+    """PRD §3.1: Descriptors include graph-derived integrations in inputs.integrations."""
+    from backend.pack_catalog import descriptor, resolve_variant, variant_readiness
+
+    pdir = tmp_path / "test-profile"
+    pdir.mkdir(parents=True)
+    (pdir / "PROFILE.md").write_text("company: Test\n", encoding="utf-8")
+    (pdir / "packs.toml").write_text('active = ["inbound"]\n', encoding="utf-8")
+
+    resolved = resolve_variant(REPO, tmp_path, "test-profile", "inbound", "optout-suppress")
+    report = variant_readiness(tmp_path, "test-profile", resolved, configured_integrations=set())
+    d = descriptor(resolved, entitlement="pro_plus", readiness=report)
+    assert d["inputs"]["integrations"] == [{"provider": "saleshandy", "required": True}]
+
+
+# ── T6: secret sanitization — no ciphertext, IVs or keys in responses ─────────
+
+
+def test_t6_secret_sanitization_no_keys_in_responses(client, ws_env):
+    _provision(
+        ws_env.profiles_root,
+        knowledge=_FULL_KNOWLEDGE,
+        active_packs=["marketing", "prospecting"],
+    )
+    fake_secret = "sh_live_super_secret_api_key_12345"
+    with patch(
+        "backend.services.integrations.get_workspace_configured_providers",
+        AsyncMock(return_value={"saleshandy"}),
+    ):
+        listing_resp = client.get(f"/v1/packs?profile_name={PROFILE}")
+        detail_resp = client.get(
+            f"/v1/packs/prospecting/prospect-outreach/readiness?profile_name={PROFILE}"
+        )
+    for resp in (listing_resp, detail_resp):
+        assert fake_secret not in resp.text
+        assert '"encrypted_data"' not in resp.text
+        assert '"wrapped_dek"' not in resp.text
+        assert '"iv"' not in resp.text
+        assert '"tag"' not in resp.text
+
+
+# ── T8: vault/KEK fail-closed check ───────────────────────────────────────────
+
+
+def test_t8_vault_kek_fail_closed():
+    import asyncio
+
+    from backend.services.integrations import get_workspace_configured_providers
+
+    async def _test():
+        with patch("backend.services.integrations.get_kek", return_value=None):
+            pool = MagicMock()
+            providers = await get_workspace_configured_providers(pool, "test-ws-id")
+            assert providers == set()
+            pool.acquire.assert_not_called()
+
+    asyncio.run(_test())
+
+
+def test_gtm_fake_runs_environment_override(monkeypatch):
+    """Dev mode: GTM_FAKE_RUNS=1 returns simulated provider set."""
+    import asyncio
+
+    from backend.services.integrations import get_workspace_configured_providers
+
+    monkeypatch.setenv("GTM_FAKE_RUNS", "1")
+
+    async def _test():
+        pool = MagicMock()
+        providers = await get_workspace_configured_providers(pool, "test-ws-id")
+        assert providers == {"saleshandy", "apollo", "rocketreach", "syften"}
+        pool.acquire.assert_not_called()
+
+    asyncio.run(_test())
+
+
+# ── T9: decryption bypass — never decrypts during catalog browse ──────────────
+
+
+def test_t9_decryption_bypass_never_decrypts_on_catalog(client, ws_env, monkeypatch):
+    monkeypatch.setenv("VAULT_KEK", "0123456789abcdef0123456789abcdef")
+    _provision(
+        ws_env.profiles_root,
+        knowledge=_FULL_KNOWLEDGE,
+        active_packs=["marketing", "prospecting"],
+    )
+    with patch("backend.vault.decrypt") as mock_decrypt:
+        client.get(f"/v1/packs?profile_name={PROFILE}")
+        client.get(f"/v1/packs/prospecting/prospect-outreach/readiness?profile_name={PROFILE}")
+        mock_decrypt.assert_not_called()

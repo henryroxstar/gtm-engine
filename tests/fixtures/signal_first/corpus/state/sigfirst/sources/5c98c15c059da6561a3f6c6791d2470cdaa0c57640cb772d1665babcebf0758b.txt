@@ -1,0 +1,5 @@
+# Notes
+
+An engineering post explains how each agent action is recorded for review.
+
+More context follows on the next line.

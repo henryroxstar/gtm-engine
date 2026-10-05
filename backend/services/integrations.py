@@ -49,6 +49,11 @@ async def get_workspace_credentials(pool: Any, workspace_id: str) -> dict[str, s
     """Fetch and decrypt all integration credentials for a workspace."""
     kek = get_kek()
     if not kek:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "VAULT_KEK is not configured on the backend; returning empty credentials"
+        )
         return {}  # Degrade gracefully if the vault is unconfigured
 
     async with workspace_scope(pool, workspace_id) as conn:
@@ -72,3 +77,27 @@ async def get_workspace_credentials(pool: Any, workspace_id: str) -> dict[str, s
             )
 
     return creds
+
+
+async def get_workspace_configured_providers(pool: Any, workspace_id: str) -> set[str]:
+    """Fast metadata check for configured providers. Fails closed if vault KEK is unconfigured."""
+    import os
+
+    if os.environ.get("GTM_FAKE_RUNS") == "1":
+        return {"saleshandy", "apollo", "rocketreach", "syften"}
+
+    kek = get_kek()
+    if not kek:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "VAULT_KEK is not configured on the backend; returning empty providers set"
+        )
+        return set()
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT provider FROM encrypted_credentials WHERE workspace_id = $1::uuid",
+            workspace_id,
+        )
+    return {r["provider"] for r in rows}

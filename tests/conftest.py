@@ -203,3 +203,18 @@ def clean_db(live_db: dict[str, str]) -> dict[str, str]:
 
     asyncio.run(_truncate())
     return live_db
+
+
+@pytest.fixture
+def one_product_profiles(tmp_path: Path) -> Path:
+    """A private, writable copy of ``tests/fixtures/one_product/profiles`` (fictional tenants).
+
+    ``realshape`` is the live shape (the default product's files at profile level, a second product
+    under ``products/``), ``oneprod`` one product with no product files, ``branddirs`` three
+    product folders that hold only brand and product docs. A test mutates its own copy freely.
+    """
+    import shutil
+
+    dest = tmp_path / "profiles"
+    shutil.copytree(Path(__file__).parent / "fixtures" / "one_product" / "profiles", dest)
+    return dest

@@ -77,6 +77,29 @@ def _figures_age_exact_days(fetched, now: datetime) -> float | None:
     return None if age < -1 else max(age, 0.0)
 
 
+def figures_instant(fetched) -> str | None:
+    """The exact instant ``fetched`` names, as a normalised UTC ISO string
+    (``2026-09-25T12:00:00Z``), or None when unparseable.
+
+    The in-page banner's one input. It comes from :func:`_parse_fetched`, the parser every age on
+    the page uses, so the browser measures from the SAME instant Python does: a full timestamp
+    (what the writer stamps) and a ``+08:00`` offset both land on the right moment, where passing
+    only the calendar date made the browser count from UTC midnight and disagree by up to a day.
+    A bare date normalises to its midnight UTC, which is how it is already read. Whole seconds
+    unless the stamp carries a fraction, so the string is the same shape for every ordinary stamp.
+    """
+    when = _parse_fetched(fetched)
+    if when is None:
+        return None
+    try:
+        when = when.astimezone(UTC)
+    except OverflowError:  # year 1 / 9999 stamps whose UTC form is out of range: not a usable date
+        return None
+    return when.isoformat(timespec="milliseconds" if when.microsecond else "seconds").replace(
+        "+00:00", "Z"
+    )
+
+
 def figures_date(fetched) -> str | None:
     """The calendar date (``YYYY-MM-DD``) ``fetched`` names, or None when unparseable — the
     renderer's one source of truth for what to show, so a stray word or a malformed stamp
@@ -88,6 +111,54 @@ def figures_date(fetched) -> str | None:
     return None if when is None else when.date().isoformat()
 
 
+#: The five things a page can know about its sending figures' date, closed so a sixth has to
+#: name itself here before any surface can render it. ``dated`` is the only one that carries an
+#: age; every other one means "the age is unknown", which counts as too old to trust.
+FIGURES_STATES = ("dated", "none", "unreadable", "undated", "future")
+
+
+def figures_state(status: dict, now: datetime) -> dict:
+    """What every surface says about the sending figures' date — resolved ONCE, here.
+
+    The header, the page-wide strip, the per-campaign line, the sources table and
+    ``--check-fresh`` all answer "how old are these numbers?", and before this they each
+    re-derived it. ``page_warnings`` below reads the same ``now`` in the same call, so the
+    strip cannot say "over the limit" while the header prints an age under it.
+
+    ``age_days`` is the WHOLE-day count (rounded down) for display, so it never overstates;
+    ``over_limit`` is the strict ``>`` on FRACTIONAL days. At 7.5 days those disagree on
+    purpose — which is why the strip's wording is "over {limit} days" and never that count.
+    """
+    snap = status.get("snapshot") or {}
+    fetched = snap.get("fetched")
+    exact = _figures_age_exact_days(fetched, now)
+    day = figures_date(fetched)
+    if snap.get("unreadable"):
+        state = "unreadable"
+    elif fetched is None and not status.get("sequences"):
+        # The same predicate `page_warnings` uses to stay silent: nothing has ever been
+        # refreshed, which is a setup step, not a staleness warning.
+        state = "none"
+    elif exact is not None:
+        state = "dated"
+    else:
+        # `figures_date` parses a well-formed FUTURE date that `_figures_age_exact_days`
+        # refuses, which is the one way to tell "dated too far ahead to trust" from
+        # "unparseable". Both mean the age is unknown; they are different work to fix.
+        state = "future" if day else "undated"
+    return {
+        "state": state,
+        "date": day if state in ("dated", "future") else None,
+        "instant": figures_instant(fetched) if state == "dated" else None,
+        "age_days": figures_age_days(fetched, now) if state == "dated" else None,
+        "over_limit": exact is None or exact > FIGURES_MAX_AGE_DAYS,
+        "limit": FIGURES_MAX_AGE_DAYS,
+        "basis": snap.get("age_basis"),
+        "cause": snap.get("age_cause"),
+        "cause_ids": snap.get("age_ids") or [],
+    }
+
+
 def reconciliation_detail(reconciliation: dict) -> str:
     """The "missing from/extra in" clause for a genuine reconciliation mismatch — the one
     place that reads ``in_ledger_only``/``in_snapshot_only``, so the renderer never
@@ -95,11 +166,13 @@ def reconciliation_detail(reconciliation: dict) -> str:
     parts = []
     if reconciliation.get("in_ledger_only"):
         parts.append(
-            "missing from the live figures: " + ", ".join(reconciliation["in_ledger_only"])
+            "missing from the live figures: "
+            + ", ".join(map(str, reconciliation["in_ledger_only"]))
         )
     if reconciliation.get("in_snapshot_only"):
         parts.append(
-            "in the figures but not our records: " + ", ".join(reconciliation["in_snapshot_only"])
+            "in the figures but not our records: "
+            + ", ".join(map(str, reconciliation["in_snapshot_only"]))
         )
     return "; ".join(parts)
 
@@ -116,10 +189,16 @@ def page_warnings(status: dict, reconciliation: dict, sum_ok: bool, now: datetim
     # lists sequences. A readable snapshot with an old or missing date and zero current rows
     # (e.g. every sequence since retired) used to skip this check entirely and render as if
     # current.
-    if snap.get("fetched") is not None or status.get("sequences"):
-        age = _figures_age_exact_days(snap.get("fetched"), now)
-        if age is None or age > FIGURES_MAX_AGE_DAYS:
-            reasons.append("figures-old")
+    #
+    # The comparison is :func:`figures_state`'s `over_limit`, not a second one written here. Both
+    # existed for a day (2026-09-30) and a mutation pass found the duplicate: `>=` in one and `>`
+    # in the other, or a fail-open `is not None` in either, passed every test because nothing read
+    # both. Two implementations of "is this past the limit" is exactly the surface disagreement
+    # §4.5 refuses — the strip, the header, the sources table and `--check-fresh` all key off this
+    # one value.
+    fig = figures_state(status, now)
+    if fig["state"] != "none" and fig["over_limit"]:
+        reasons.append("figures-old")
     return reasons
 
 
@@ -198,6 +277,19 @@ def resolve_brand_palette(profile: str) -> dict[str, str]:
     return {}
 
 
+def _source_states(partial: dict, profile: str, content_root: Path | None) -> dict:
+    """:func:`provenance.source_states`, imported late — ``provenance`` reads ``config`` and this
+    module is what the model calls, so a module-level import would close the loop.
+
+    ``partial`` is deliberately not the whole model: the model does not exist yet when
+    ``page_extras`` runs, and the as-of readers need only the three keys already resolved there —
+    ``figures``, ``review_sheet`` and the pre-flight ``readiness`` that ``build_model`` passes in.
+    """
+    from .provenance import source_states
+
+    return source_states(partial, profile, content_root)
+
+
 def page_extras(
     profile: str,
     content_root: Path | None,
@@ -205,18 +297,35 @@ def page_extras(
     reconciliation: dict,
     sum_ok: bool,
     now: datetime,
+    readiness=None,
 ) -> dict:
     """The model keys ``build_model`` merges in with ONE call (``model.py`` sits at its §R10
     ceiling): ``warnings`` (:func:`page_warnings`), and the two operator worksheets the page
     links — ``eval_labeler`` and ``review_sheet`` — read here, so ``render_html`` opens nothing
     (PS20 P1.6). ``eval_labeler`` and ``review_sheet`` are profile-wide, like ``inbound``:
     ``scope_to_campaign`` leaves them as built. ``warnings`` is not — a scoped page recomputes
-    it with :func:`scoped_trust`."""
+    it with :func:`scoped_trust`. ``readiness`` is the pre-flight report ``build_model`` already
+    loaded; the sources table reads its own ``ran_at`` from it rather than opening the file again."""
+    figures = figures_state(status, now)
     return {
         "warnings": page_warnings(status, reconciliation, sum_ok, now),
+        # One clock, one answer (F1/F7). Every date and age on the page comes from here, so
+        # nothing re-reads `datetime.now()` at render time and no sentence changes overnight.
+        "figures": figures,
         "eval_labeler": eval_labeler(profile, content_root),
         "review_sheet": review_sheet(profile, content_root),
         "brand_palette": resolve_brand_palette(profile),
+        # F3 — resolved HERE because `render_html` opens nothing (PS20 P1.6) and a source's
+        # state is a question about the filesystem. Reads presence only: never an mtime.
+        "sources": _source_states(
+            {
+                "figures": figures,
+                "readiness": readiness,
+                "review_sheet": review_sheet(profile, content_root),
+            },
+            profile,
+            content_root,
+        ),
     }
 
 

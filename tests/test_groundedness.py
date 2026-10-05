@@ -7,6 +7,7 @@ Every company, person, URL and quote below is invented (docs/RULES.md R9).
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,7 @@ def _row(**kw):
         "company_domain": "halden.example",
         "signal_clause": "raised a Series B to expand its agent orchestration platform",
         "signal_source_url": "https://halden.example/news/series-b",
-        "signal_observed": "2026-07-02",
+        "signal_observed": (date.today() - timedelta(days=7)).isoformat(),
         "signal_evidence": (
             "Halden Systems raised a $40M Series B led by Northgate to expand its agent "
             "orchestration platform across Europe."

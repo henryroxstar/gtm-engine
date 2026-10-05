@@ -1,0 +1,6 @@
+[auto]
+trigger = "generic"
+[hold]
+regulated_domains = ["regulated.example"]
+regulated_industries = ["banking"]
+engaged_statuses = ["engaged"]

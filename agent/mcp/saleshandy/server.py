@@ -17,14 +17,16 @@ changes a sequence's status (no ``update_sequence_status``, no "resume", no
 
 Enrollment (``add_leads_to_sequence`` / ``import_prospects_to_sequence``) — a PII
 egress into a real, if paused, sequence — is a SECOND gate (A11), structurally
-different from send: the two tools stay *registered* here (so this module still works
-standalone), but ``agent/permissions.py`` denies them to the brain outright on every
-connector, and the pack graph's `sequence` node is instructed to never call them. The
-only real path to an enrollment call is Python — ``agent.email_dispatch.
-dispatch_approved_enrollment``, which imports the request functions
-(``_add_leads_to_sequence_request`` / ``_import_prospects_to_sequence_request``)
-directly and calls them with an explicitly-resolved key, entirely outside the MCP/tool
-surface — invoked only after an operator approves the pack graph's `sequence` gate.
+different from send. The two tools stay *registered* so an agent that tries one gets a
+plain-words explanation, but since 2026-10-02 (agent-surface load guards, A4) they
+**refuse unconditionally**: they never read the key and never reach Saleshandy. Before
+that, only ``agent/permissions.py`` stopped them, and that is a Claude Agent SDK
+callback which Antigravity, Cursor and Codex do not run. The only real path to an
+enrollment call is Python — ``agent.email_dispatch.dispatch_approved_enrollment``,
+which imports the request functions (``_add_leads_to_sequence_request`` /
+``_import_prospects_to_sequence_request``) directly and calls them with an
+explicitly-resolved key, entirely outside the MCP/tool surface — invoked only after an
+operator approves the pack graph's `sequence` gate.
 
 The inbox tools (``get_inbox_threads`` / ``get_thread``) are **read-only** — there is
 deliberately NO reply/send tool: a reply is drafted into a ``⟦GATE:reply⟧`` artifact
@@ -66,6 +68,8 @@ from urllib.parse import quote
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from gtm_core.refusal_copy import Refusal
+
 # --- Saleshandy wiring -------------------------------------------------------- #
 # Base URL confirmed against the official docs (developer.saleshandy.com):
 #   "All API requests should be made to: https://open-api.saleshandy.com/v1"
@@ -90,6 +94,23 @@ _HTTP_TIMEOUT_S = 30.0
 NOT_CONFIGURED = f"[saleshandy-error] {_API_KEY_ENV} is not set — wrapper cannot reach Saleshandy."
 
 mcp = FastMCP("saleshandy")
+
+#: What the two enrolment wrappers answer, always. Built once from the house refusal copy so the
+#: wording is the same plain-words shape every other stop in the engine uses. Carries no key and
+#: no recipient — it is returned to whatever agent asked, in any harness, whether or not that
+#: harness runs ``agent/permissions.py``. The ``[saleshandy-error]`` prefix keeps the module's
+#: "every failure is a string with this prefix" contract for callers that sniff for it.
+_ENROL_REFUSAL = (
+    "[saleshandy-error] "
+    + Refusal(
+        what="I haven't loaded anyone.",
+        why="loading people into a sequence only happens after you approve the exact list at the "
+        "send-cards review, and this tool would skip that review and the checks behind it",
+        next_step="approve the list at the review, and the engine loads it for you",
+        alternative="load it yourself in the Saleshandy screen",
+        cost="Nothing was loaded and nothing was spent.",
+    ).render()
+)
 
 
 def _headers(key: str) -> dict[str, str]:
@@ -758,16 +779,13 @@ async def add_email_accounts_to_sequence(sequence_id: str, email_account_ids: li
 
 # --- Enrollment request logic (shared by the MCP tool and the Python-only dispatcher) ----- #
 #
-# CRITICAL: these two request functions are the actual PII egress. As of the A11 gate fix,
-# the @mcp.tool() wrappers below are DENIED to the brain outright
-# (agent/permissions.py:_EXTERNAL_EFFECT_LEAVES) — they exist only so this module still works
-# as a standalone MCP server for other callers/tests, and because a brain call is refused by
-# the permission layer regardless of whether the tool is technically registered. The ONLY
-# caller that may actually reach a Saleshandy enrollment endpoint is
-# agent/email_dispatch.py's dispatch_approved_enrollment(), which imports
-# _add_leads_to_sequence_request/_import_prospects_to_sequence_request directly and supplies
-# an explicit api_key — never through the MCP/tool-call surface, so the brain never
-# initiates this call under any circumstance.
+# CRITICAL: these two request functions are the actual PII egress. The @mcp.tool() wrappers
+# further down REFUSE ALWAYS (A4, 2026-10-02), so nothing an agent can call reaches them. The
+# ONLY caller that may reach a Saleshandy enrollment endpoint is agent/email_dispatch.py's
+# dispatch_approved_enrollment(), which imports _add_leads_to_sequence_request/
+# _import_prospects_to_sequence_request directly and supplies an explicit api_key — never
+# through the MCP/tool-call surface, so the brain never initiates this call under any
+# circumstance. tests/agent/test_saleshandy_enrol_refusal.py pins both halves.
 
 
 async def _add_leads_to_sequence_request(
@@ -889,21 +907,14 @@ async def add_leads_to_sequence(
     tag_ids: list[str] | None = None,
     new_tags: list[str] | None = None,
 ) -> str:
-    """Enroll Saleshandy Lead Finder leads into a sequence step.
+    """REFUSES ALWAYS. Loading people into a sequence is not something an agent does.
 
-    DENIED to the brain by ``agent/permissions.py`` — calling this tool always fails
-    closed regardless of what it returns here. Kept registered so this module still
-    functions as a standalone MCP server for other callers/tests; the only real path to
-    an enrollment call is ``agent.email_dispatch.dispatch_approved_enrollment`` after an
-    operator approves the pack graph's `sequence` gate. See
-    ``_add_leads_to_sequence_request`` for the actual request logic.
+    People are loaded only after the operator approves the exact list at the send-cards
+    review; the engine's own dispatcher (``agent.email_dispatch``) then makes the call. This
+    tool stays registered only so an agent that tries it gets that explanation instead of
+    "unknown tool". It never reaches Saleshandy, with or without a key configured.
     """
-    key = os.environ.get(_API_KEY_ENV)
-    if not key:
-        return NOT_CONFIGURED
-    return await _add_leads_to_sequence_request(
-        key, lead_ids, sequence_id, step_id, tag_ids, new_tags
-    )
+    return _ENROL_REFUSAL
 
 
 @mcp.tool()
@@ -913,18 +924,11 @@ async def import_prospects_to_sequence(
     verify_prospects: bool = False,
     conflict_action: str = "",
 ) -> str:
-    """Import raw email prospects and enroll them at a sequence step.
+    """REFUSES ALWAYS. Loading people into a sequence is not something an agent does.
 
-    DENIED to the brain by ``agent/permissions.py`` — calling this tool always fails
-    closed regardless of what it returns here. Kept registered so this module still
-    functions as a standalone MCP server for other callers/tests; the only real path to
-    an enrollment call is ``agent.email_dispatch.dispatch_approved_enrollment`` after an
-    operator approves the pack graph's `sequence` gate. See
-    ``_import_prospects_to_sequence_request`` for the actual request logic.
+    People are loaded only after the operator approves the exact list at the send-cards
+    review; the engine's own dispatcher (``agent.email_dispatch``) then makes the call. This
+    tool stays registered only so an agent that tries it gets that explanation instead of
+    "unknown tool". It never reaches Saleshandy, with or without a key configured.
     """
-    key = os.environ.get(_API_KEY_ENV)
-    if not key:
-        return NOT_CONFIGURED
-    return await _import_prospects_to_sequence_request(
-        key, prospect_list, step_id, verify_prospects, conflict_action
-    )
+    return _ENROL_REFUSAL

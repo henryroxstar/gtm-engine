@@ -122,6 +122,12 @@ def _emit_stage_cost(usage_sink, spec, profile: str, stage_name: str, usage: dic
         pass  # nosec B110 — intentional best-effort swallow
 
 
+def _run_note_suffix(run_note: str | None) -> str:
+    """An operator run input the node's prompt refers to (today: a capture run's manifest id,
+    which is NOT the pack run id)."""
+    return f"\n\n{run_note}" if run_note else ""
+
+
 async def execute_stage(
     cfg: Config,
     profile: str,
@@ -135,6 +141,8 @@ async def execute_stage(
     gates: dict[str, bool] | None = None,
     run_id_stages: frozenset[str] | None = None,
     language: str | None = None,
+    capture_gate=None,
+    run_note: str | None = None,
 ) -> StageOutcome:
     """Run one pipeline stage by querying the brain with the stage's skill prompt.
 
@@ -153,6 +161,13 @@ async def execute_stage(
     declarations to enforce. Returns ``StageOutcome(SKIPPED)`` for a node with a declared
     ``external_effect`` (the publish/email-enrollment dispatch stages), and ``StageOutcome(OK)`` on
     a clean, non-gated run. Any exception becomes ``StageOutcome(FAILED)``.
+
+    ``run_note`` is one sentence appended to every stage prompt of a scoped run.
+
+    ``capture_gate`` (a pack graph's declared ``egress_scope``, built by the pack executor) scopes
+    Firecrawl for this stage. It is enforced by ``build_agent_options``' own default callback, which
+    refuses to share the call with a caller-supplied ``can_use_tool``, so a gated stage passes the
+    gate and no callback: the ``pipeline:<stage>`` denial label then reads ``headless-default``.
     """
     # A node with a declared external effect is a DISPATCH point, not brain work:
     # short-circuit it to SKIPPED so the brain never performs the effect itself —
@@ -190,6 +205,8 @@ async def execute_stage(
             "<run-id>, use exactly this value."
         )
 
+    prompt += _run_note_suffix(run_note)
+
     _roles = stage_roles if stage_roles is not None else _STAGE_ROLES
     role = _roles.get(stage_name, "brain_plan")
 
@@ -212,15 +229,22 @@ async def execute_stage(
         or a fallback (brain_cheap) — build_agent_options resolves whichever, so a
         DeepSeek failure transparently falls through to Claude Haiku.
         """
+        permission_kw: dict = (
+            {"capture_gate": capture_gate}
+            if capture_gate is not None
+            else {
+                "can_use_tool": permissions.make_headless_can_use_tool(
+                    on_deny=_deny_and_ledger, allowed_skills=allowed_skills
+                )
+            }
+        )
         options = build_agent_options(
             cfg,
             profile,
-            can_use_tool=permissions.make_headless_can_use_tool(
-                on_deny=_deny_and_ledger, allowed_skills=allowed_skills
-            ),
             role=spec.role,
             allowed_skills=allowed_skills,
             language=language,
+            **permission_kw,
         )
         chunks: list[str] = []
         print(f"[stage:{stage_name}] running on {spec.provider}/{spec.model} …", flush=True)

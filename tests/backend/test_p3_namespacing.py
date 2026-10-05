@@ -105,3 +105,21 @@ def test_byok_provider_keys_fail_closed_never_inherit_the_platform_key(tmp_path,
     )
     assert partial.saleshandy_api_key == "workspace-own-key"
     assert partial.apollo_api_key is None
+
+
+def test_build_agent_options_binds_the_run_profile_for_the_capture_hook(tmp_path, monkeypatch):
+    """R0.1: the capture hook resolves its profile from GTM_ACTIVE_PROFILE, so a headless run
+    files captures under the profile it was started for, with no desktop marker."""
+    pytest.importorskip("claude_agent_sdk")
+    monkeypatch.setenv("GTM_WORKSPACES_ROOT", str(tmp_path))
+    from agent.config import Config
+    from agent.session import build_agent_options
+
+    base = Config.from_env(repo_root=tmp_path)
+    prof = tmp_path / "profiles" / "template"
+    prof.mkdir(parents=True, exist_ok=True)
+    (prof / "PROFILE.md").write_text("# Template\n", encoding="utf-8")
+    cfg = dataclasses.replace(
+        base, content_root=tmp_path / "content", profiles_root=tmp_path / "profiles"
+    )
+    assert build_agent_options(cfg, "template").env["GTM_ACTIVE_PROFILE"] == "template"

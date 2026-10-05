@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from ..prospects_state import ACCOUNT_ID_FIELD
-from ..signal_record import JUDGE_COLUMNS, RECORD_COLUMNS, SIGNAL_COLUMN
+from ..signal_record import (
+    JUDGE_COLUMNS,
+    RECORD_COLUMNS,
+    SIGNAL_COLUMN,
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
+)
 
 # --- schema -----------------------------------------------------------------
 
@@ -113,6 +119,8 @@ MASTER_COLS = [
     "firmo_on",
     "researched_for_wave",
     "hook_cell",
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
 ]
 
 # Canonical field -> header variants seen across hubspot exports + the flat
@@ -157,6 +165,8 @@ _ALIASES = {
     "verdict_reason": ("GTM_Verdict_Reason", "Verdict Reason", "verdict_reason"),
     SIGNAL_COLUMN: ("GTM_Signal_Column", "Signal Column", SIGNAL_COLUMN),
     "hook_cell": ("GTM_Hook_Cell", "Hook Cell", "hook_cell"),
+    SIGNAL_FIT_COLUMN: ("GTM_Signal_Fit", "Signal Fit", SIGNAL_FIT_COLUMN),
+    SIGNAL_VIRALITY_COLUMN: ("GTM_Signal_Virality", "Signal Virality", SIGNAL_VIRALITY_COLUMN),
 }
 
 

@@ -10,7 +10,7 @@ from .. import prospect_paths
 from ..lane_verdicts import LANE_VERDICTS
 from ..merge_hygiene import blocks as mh_blocks
 from ..merge_hygiene import check_row as mh_check_row
-from ..page_inputs import write_inventory
+from ..page_inputs import write_inventory_or_warn
 from ..prospects_item import VocabularyRefusal, check_vocabulary
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_keys
 from ..suppression import load_index as load_suppression_index
@@ -573,7 +573,7 @@ def consolidate(
         _atomic_write_csv(ready_to_load_path(profile, content_root), ready)
         _atomic_write_csv(hand_send_path(profile, content_root), hand_send)
         _atomic_write_csv(needs_verification_path(profile, content_root), needs_verification)
-        write_inventory(
+        write_inventory_or_warn(
             master_canonical,
             (_prospects_dir(profile, content_root), ["prospects-*-hubspot.csv"]),
             scope="prospects_consolidate",
@@ -642,11 +642,17 @@ def consolidate(
     # Retention is the operator's explicit `python -m gtm_core.retention_sweep`, never a build step.
     try:
         if not dry_run:
-            # Every page that exists, not only the rollup: the scoped pages have no other
-            # automatic trigger, and a stale one is indistinguishable from a current one.
-            from ..email_campaign_dashboard.render import refresh_all as _refresh_gtm
+            # Every page that exists (a stale scoped page looks current); a failure is named.
+            from ..email_campaign_dashboard.render import refresh_all_reporting as _refresh_gtm
 
-            _refresh_gtm(profile, content_root)
-    except Exception as exc:  # noqa: BLE001
+            for page, why in _refresh_gtm(profile, content_root)[1]:
+                print(f"dashboard page not refreshed: {page}: {why}", file=sys.stderr)
+    # `SystemExit` is named EXPLICITLY beside `Exception` (2026-09-30, PRD F4). It derives from
+    # `BaseException`, so `except Exception` missed it — and every refusal in the dashboard
+    # package raises it: an unknown campaign slug, a `--scope open` that matches nothing, an
+    # unreadable sorted list. The one failure mode this tail actually meets was the one it let
+    # escape, aborting a consolidation whose own work was already written above and returning
+    # nothing to the caller.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         print(f"dashboard refresh skipped: {exc}", file=sys.stderr)
     return result

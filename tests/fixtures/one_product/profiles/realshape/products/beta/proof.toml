@@ -1,0 +1,8 @@
+[[proof]]
+id = "beta-proof"
+kind = "anchor"
+market = "singapore"
+figure_kind = "none"
+statement = "A regulator expects one accountable human per agent. zqbeta"
+source = "knowledge/guidance/beta-regulator.md:1"
+binding = false

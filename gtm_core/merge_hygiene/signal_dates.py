@@ -69,6 +69,49 @@ def signal_is_fresh(
     return 0 <= age <= max_age_days
 
 
+def signal_recency_score(
+    observed: datetime.date | datetime.datetime | str | None,
+    as_of: datetime.date | None = None,
+    why_now: str | None = None,
+    max_age_days: int | None = None,
+) -> float:
+    """Compute signal recency decay score [0.0, 1.0] from signal_observed or why_now."""
+    today = as_of or datetime.date.today()
+    dt: datetime.date | None = None
+
+    if isinstance(observed, datetime.datetime):
+        dt = observed.date()
+    elif isinstance(observed, datetime.date):
+        dt = observed
+    elif isinstance(observed, str) and observed.strip():
+        cleaned = observed.strip().split("T")[0]
+        try:
+            dt = datetime.date.fromisoformat(cleaned)
+        except ValueError:
+            dt = None
+
+    if dt is None and why_now:
+        dt = signal_latest_date(why_now)
+
+    if dt is None:
+        return 0.0
+
+    age = (today - dt).days
+    if age < 0:
+        return 0.0  # future dated signals fail-close
+    if age <= 7:
+        return 1.0  # Hot
+    if age <= 30:
+        return 0.8  # Warm
+    if age <= 90:
+        return 0.5  # Ambient
+    if age <= 180:
+        return 0.3  # Cool
+    if max_age_days is not None and age <= max_age_days:
+        return 0.1  # Cool / source-test window
+    return 0.0  # Stale
+
+
 def row_signal_freshness(
     row: dict,
     as_of: datetime.date | None = None,

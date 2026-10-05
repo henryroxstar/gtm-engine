@@ -5,6 +5,7 @@ import json
 
 from gtm_core import email_campaign_dashboard as gd
 from gtm_core import prospects_consolidate as pc
+from gtm_core.email_campaign_dashboard.config import FIGURES_MAX_AGE_DAYS
 from tests.contracts.test_dashboard_ps20_trust import _ago, _stats, _strip
 from tests.test_email_campaign_dashboard import _seed
 
@@ -57,10 +58,12 @@ def test_a_campaign_page_shows_a_records_gap_only_for_its_own_sequences(tmp_path
     _campaign(tmp_path, profile, "c2", "Campaign Two", ["S9"])  # in our records, not the figures
     _stats(tmp_path, profile, {"fetched": _ago(0), "sequences": [{"id": "S1", "sent": 1}]})
     m = gd.build_model(profile, tmp_path)
-    assert (m["reconciliation"]["in_ledger_only"], m["warnings"]) == (["S9"], ["records-disagree"])
+    # A listed sequence the figures lack has no known age, so it ages the pages that list it.
+    both = ["records-disagree", "figures-old"]
+    assert (m["reconciliation"]["in_ledger_only"], m["warnings"]) == (["S9"], both)
     assert _scoped(tmp_path, profile, "c1")["warnings"] == []
     c2 = _scoped(tmp_path, profile, "c2")
-    assert c2["warnings"] == ["records-disagree"]
+    assert c2["warnings"] == both
     assert c2["reconciliation"]["in_ledger_only"] == ["S9"]
     strip = _strip(gd.render_html(c2))
     assert "These numbers may be out of date" in strip and "Campaign Two" in strip
@@ -68,7 +71,10 @@ def test_a_campaign_page_shows_a_records_gap_only_for_its_own_sequences(tmp_path
 
 def test_an_old_or_unreadable_snapshot_is_every_pages(tmp_path):
     profile = _seed(tmp_path)
-    _stats(tmp_path, profile, {"fetched": _ago(3), "sequences": [{"id": "S1", "sent": 0}]})
+    # Past the limit, not merely "a few days": 3 days is FRESH since the limit became 7
+    # (2026-09-30), which made this assertion fail loudly rather than go quiet — the good case.
+    old = _ago(FIGURES_MAX_AGE_DAYS + 1)
+    _stats(tmp_path, profile, {"fetched": old, "sequences": [{"id": "S1", "sent": 0}]})
     assert _scoped(tmp_path, profile, "c1")["warnings"] == ["figures-old"]
     _stats(tmp_path, profile, "{broken")
     assert _scoped(tmp_path, profile, "c1")["warnings"] == ["unreadable"]

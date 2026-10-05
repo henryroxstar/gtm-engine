@@ -43,7 +43,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .signal_record import RECORD_COLUMNS, SIGNAL_COLUMN, check_record
+from .signal_record import (
+    RECORD_COLUMNS,
+    SIGNAL_COLUMN,
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
+    check_record,
+)
 
 __all__ = [
     "RECORD_INPUT_FIELDS",
@@ -67,7 +73,15 @@ __all__ = [
 #: it were writable by this path: a research pass is exactly where the row's own signal is
 #: first known, and ``load_records`` rejects anything not in this tuple by design -- so a
 #: typo'd or renamed field is a load-time error, never a silently dropped one.
-RECORD_INPUT_FIELDS = ("email", "signal_clause", SIGNAL_COLUMN, "hook_cell", *RECORD_COLUMNS)
+RECORD_INPUT_FIELDS = (
+    "email",
+    "signal_clause",
+    SIGNAL_COLUMN,
+    "hook_cell",
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
+    *RECORD_COLUMNS,
+)
 
 
 @dataclass(frozen=True)
@@ -193,6 +207,14 @@ def apply_records(
         res.fieldnames.append(SIGNAL_COLUMN)
     if "hook_cell" not in res.fieldnames and any("hook_cell" in rec for rec in records.values()):
         res.fieldnames.append("hook_cell")
+    if SIGNAL_FIT_COLUMN not in res.fieldnames and any(
+        SIGNAL_FIT_COLUMN in rec for rec in records.values()
+    ):
+        res.fieldnames.append(SIGNAL_FIT_COLUMN)
+    if SIGNAL_VIRALITY_COLUMN not in res.fieldnames and any(
+        SIGNAL_VIRALITY_COLUMN in rec for rec in records.values()
+    ):
+        res.fieldnames.append(SIGNAL_VIRALITY_COLUMN)
     mirror_to_why_now = "signal_clause" not in fieldnames and "why_now" in fieldnames
     seen: set[str] = set()
 
@@ -266,6 +288,10 @@ def write_list(res: BackfillResult, out_path: Path) -> None:
         check_cols.append(SIGNAL_COLUMN)
     if "hook_cell" in res.fieldnames:
         check_cols.append("hook_cell")
+    if SIGNAL_FIT_COLUMN in res.fieldnames:
+        check_cols.append(SIGNAL_FIT_COLUMN)
+    if SIGNAL_VIRALITY_COLUMN in res.fieldnames:
+        check_cols.append(SIGNAL_VIRALITY_COLUMN)
 
     for before, after in zip(res.rows, back, strict=True):
         for col in check_cols:
@@ -351,7 +377,7 @@ def promote_records(
             )
             continue
         item = dict(base)
-        for col in (*RECORD_COLUMNS, SIGNAL_COLUMN):
+        for col in (*RECORD_COLUMNS, SIGNAL_COLUMN, SIGNAL_FIT_COLUMN, SIGNAL_VIRALITY_COLUMN):
             value = str(rec.get(col) or "").strip()
             if value:
                 item[col] = value
@@ -425,6 +451,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--profile", help="active profile; required by --promote")
     ap.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
+    ap.add_argument(
         "--hook-matrix",
         type=Path,
         help="profile's hook-matrix.md -- validates any signal_column value against the "
@@ -432,6 +463,26 @@ def main(argv: list[str] | None = None) -> int:
         "Without it, signal_column is written unvalidated.",
     )
     args = ap.parse_args(argv)
+
+    product: str | None = None  # what --promote hands the ledger; set below once it is validated
+    if args.promote and args.profile:
+        from .prospects_state import _is_second_product, scoped_product
+
+        try:
+            product = scoped_product(args.profile, args.product)
+        except ValueError as exc:  # ScopeError: a dropped or unusable product
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if _is_second_product(args.profile, product):
+            # A signal record is fit: it would overwrite the default product's why-now, evidence
+            # and verdict on a row shared by both products. Refuse before anything is written.
+            print(
+                f"--promote for {product!r} is refused: a signal record is written onto the shared "
+                "account row and would replace the default product's. Keep this run's records in "
+                "its own files until the ledger holds fit per product.",
+                file=sys.stderr,
+            )
+            return 2
 
     as_of = datetime.date.fromisoformat(args.as_of) if args.as_of else None
     out_path = args.out_path or args.list_path.with_name(
@@ -476,7 +527,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"NOT PROMOTED {email}: {why}", file=sys.stderr)
         if items:
             out = upsert_latest(
-                args.profile, items, source_run=f"backfill-{args.records_path.stem}"
+                args.profile,
+                items,
+                source_run=f"backfill-{args.records_path.stem}",
+                product=product,
             )
             print(
                 f"promoted {len(items)} record(s) onto accounts in latest.json "

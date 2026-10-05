@@ -254,6 +254,13 @@ def _optout_line(m: dict) -> str:
     )
 
 
+def _fig(live: dict, field: str, value: int) -> str:
+    """A counter cell; a figure the loader refused (not a usable number) is a dash, never a 0."""
+    if field in (live.get("refused") or []):
+        return '<span class="muted">—</span>'
+    return f"{value:,}"
+
+
 def _sequence_results_table(c: dict) -> str:
     """Per-sequence live outcomes: contacted, replied, interested, not now, not interested,
     unsubscribed, out of office, bounces, bounce rate, meetings (tagged in sending tool), pilots."""
@@ -273,7 +280,7 @@ def _sequence_results_table(c: dict) -> str:
         unsubscribed = _int(live.get("unsubscribed", 0))
         ooo = _int(live.get("out_of_office", 0))
         if live.get("bounce_source") == "emails":
-            bounces = f"{_int(live.get('bounced', 0)):,}"
+            bounces = _fig(live, "bounced", _int(live.get("bounced", 0)))
         else:
             bounces = '<span class="muted">—</span>'
         br = _seq_bounce_rate(live)
@@ -281,16 +288,16 @@ def _sequence_results_table(c: dict) -> str:
         rows.append(
             f"<tr>"
             f"<td><strong>{_e(name)}</strong></td>"
-            f"<td class='num-cell'>{contacted:,}</td>"
-            f"<td class='num-cell'>{replied:,}</td>"
-            f"<td class='num-cell'>{interested:,}</td>"
-            f"<td class='num-cell'>{not_now:,}</td>"
-            f"<td class='num-cell'>{not_interested:,}</td>"
-            f"<td class='num-cell'>{unsubscribed:,}</td>"
-            f"<td class='num-cell'>{ooo:,}</td>"
+            f"<td class='num-cell'>{_fig(live, 'sent', contacted)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'replied', replied)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'interested', interested)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'not_now', not_now)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'not_interested', not_interested)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'unsubscribed', unsubscribed)}</td>"
+            f"<td class='num-cell'>{_fig(live, 'out_of_office', ooo)}</td>"
             f"<td class='num-cell'>{bounces}</td>"
             f"<td class='num-cell'>{br}</td>"
-            f"<td class='num-cell'>{meetings:,}</td>"
+            f"<td class='num-cell'>{_fig(live, 'meetings', meetings)}</td>"
             f"<td class='num-cell muted'>not tracked</td>"
             f"</tr>"
         )

@@ -151,6 +151,8 @@ def normalize_sweep(
     raw_hits: list[dict],
     segment: str = "startup",
     as_of: str | None = None,
+    profile: str | None = None,
+    product: str | None = None,
 ) -> dict:
     """Process all raw hits for a company, select the strongest usable 🔥 signal, or route to
     re-angle.
@@ -177,7 +179,9 @@ def normalize_sweep(
     stranger_subject: str | None = None
 
     for i, h in enumerate(raw_hits):
-        hit, reason, context_hit, stranger = _evaluate_hit(h, cleaned_co, segment, ref_date)
+        hit, reason, context_hit, stranger = _evaluate_hit(
+            h, cleaned_co, segment, ref_date, profile=profile, product=product
+        )
         if stranger and stranger_subject is None:
             stranger_subject = stranger
         if context_hit is not None:
@@ -233,7 +237,9 @@ def normalize_sweep(
             why_now = clause
             break
 
-    agent_kind = _determine_agent_kind(why_now + " " + chosen["evidence"])
+    agent_kind = _determine_agent_kind(
+        why_now + " " + chosen["evidence"], profile=profile, product=product
+    )
     verdict = "" if why_now else "re-angle"
     if why_now:
         verdict_reason = ""
@@ -345,6 +351,8 @@ def _cmd_normalize(args: argparse.Namespace) -> int:
             raw_hits=hits_data,
             segment=args.segment,
             as_of=args.as_of,
+            profile=args.profile,
+            product=args.product,
         )
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
@@ -387,6 +395,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     n_p.add_argument("--segment", default="startup", choices=list(VALID_SEGMENTS), help="Segment")
 
+    n_p.add_argument(
+        "--profile", default=None, help="Tenant profile whose vocabulary classifies agent kind"
+    )
+    n_p.add_argument(
+        "--product",
+        default=None,
+        help="Product this run is for; required once the profile has a second product",
+    )
     n_p.add_argument("--as-of", default=None, help="Reference date ISO YYYY-MM-DD")
     n_p.add_argument("--out", default=None, help="Output JSON path (defaults to stdout)")
 

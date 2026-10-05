@@ -989,8 +989,12 @@ HOSTED_ACCOUNT_VERBS = [
     "delete_sequence",
     "delete_domain",
     "revoke_domain",
-    "add_email_accounts_to_sequence",
 ]
+
+
+def test_add_email_accounts_to_sequence_allowed_for_sequence_staging():
+    assert classify_tool("mcp__saleshandy__add_email_accounts_to_sequence", {}) == "allow"
+    assert classify_tool(_HOSTED + "add_email_accounts_to_sequence", {}) == "allow"
 
 
 @pytest.mark.parametrize("leaf", HOSTED_ENROLL_VARIANTS)
@@ -1003,8 +1007,8 @@ def test_hosted_enroll_variants_denied_even_inside_email_context(leaf):
 
 @pytest.mark.parametrize("leaf", SEND_STATE_VERBS + HOSTED_ACCOUNT_VERBS)
 def test_send_state_and_account_verbs_denied_in_every_context(leaf):
-    """Activating a sequence IS sending — a person does it in the provider UI. Buying,
-    deleting and re-pointing mailboxes have no automated caller at all."""
+    """Activating a sequence IS sending — a person does it in the provider UI. Buying
+    and deleting have no automated caller at all."""
     assert classify_tool(_HOSTED + leaf, {}) == "deny"
     for ctx in _ALL_CONTEXTS:
         with ctx():

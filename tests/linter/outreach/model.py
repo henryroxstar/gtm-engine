@@ -380,7 +380,12 @@ RULE_CATALOGUE: dict[str, tuple[str, str]] = {
         "deliverability",
         "Copy contains an em dash — banned outright, not just above a density threshold",
     ),
-    "sign-off": ("brand", "Sign-off is missing or not the expected name"),
+    "sign-off": (
+        "brand",
+        "Sign-off is missing or not the expected name; under `signature_source: mailbox` the rule "
+        "inverts and flags a body that ends with the sign-off the mailbox already appends "
+        "(a double sign-off)",
+    ),
     "banned-word": ("brand", "Copy uses a phrase this profile has banned"),
     "banned-stem": ("brand", "Copy uses a banned word stem"),
     "named-case-study": ("brand", "Copy names one of our own case-study companies"),

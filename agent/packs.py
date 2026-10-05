@@ -15,6 +15,7 @@ from pathlib import Path
 from gtm_core.packs.loader import PackGraph, load_pack_graph
 
 from .config import Config
+from .egress_scope import build_scope_gate
 from .graph import Graph, Node
 from .pipeline import StageExecutor, StageOutcome
 from .pipeline_executor import execute_stage
@@ -59,6 +60,7 @@ def make_executor_from_pack(
     usage_sink=None,
     allowed_skills: frozenset[str] | None = None,
     language: str | None = None,
+    run_inputs: dict | None = None,
 ) -> StageExecutor:
     """Build a :class:`~agent.pipeline.StageExecutor` driven by a pack's own node metadata.
 
@@ -67,7 +69,23 @@ def make_executor_from_pack(
     news/journey cron path. ``usage_sink``/``allowed_skills``/``language`` are the backend's
     cost-metering, pack-reachability (A1) and per-request-language (A7) hooks; all default off,
     leaving the VPS path byte-identical.
+
+    ``run_inputs`` are the operator's run inputs (``python -m agent.source_capture`` today). A graph
+    that declares ``egress_scope`` gets its scope's gate built HERE, once, before any node runs, so
+    a run that cannot be scoped raises :class:`agent.egress_scope.EgressScopeError` before any model
+    call; the one gate is handed to every node's options (its page cap spans the run).
     """
+    scope_gate = (
+        build_scope_gate(pack.egress_scope, cfg, profile, run_inputs)
+        if pack.egress_scope is not None
+        else None
+    )
+    run_note = (
+        f"Capture manifest run id: {run_inputs['manifest_run_id']}. "
+        f"Its manifest file, the only file you may read, is {scope_gate.manifest_path}."
+        if scope_gate is not None and run_inputs and run_inputs.get("manifest_run_id")
+        else None
+    )
     prompts = {n.id: n.prompt for n in pack.nodes}
     stage_roles = {n.id: n.model_role for n in pack.nodes}
     # A10: which nodes declare an irreversible external effect. execute_stage
@@ -106,6 +124,8 @@ def make_executor_from_pack(
             gates=gates,
             run_id_stages=run_id_stages,
             language=language,
+            capture_gate=scope_gate,
+            run_note=run_note,
         )
 
     return _executor

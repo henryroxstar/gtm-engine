@@ -135,14 +135,29 @@ def test_listing_never_leaks_prompt_or_model_role(client, ws_env):
     assert '"prompt"' not in body
 
 
-def test_prospecting_missing_inputs_toml_tolerated(client, ws_env):
-    """Two shipped packs declare no inputs.toml — the catalog must not 500."""
+def test_missing_inputs_toml_tolerated(client, ws_env):
+    """Shipped packs declaring no inputs.toml must not 500."""
+    _provision(ws_env.profiles_root, packs_toml='active = ["solution-architecture"]\n')
+    got = client.get(f"/v1/packs?profile_name={PROFILE}").json()
+    assert [d["pack"] for d in got] == ["solution-architecture"]
+    assert got[0]["inputs"] == {
+        "settings": [],
+        "knowledge": [],
+        "context": [],
+        "integrations": [],
+    }
+    # No declared inputs ⇒ nothing can be missing ⇒ ready.
+    assert got[0]["readiness"]["status"] == "ready"
+
+
+def test_prospecting_inputs_declared(client, ws_env):
+    """Prospecting declares saleshandy integration input."""
     _provision(ws_env.profiles_root, packs_toml='active = ["prospecting"]\n')
     got = client.get(f"/v1/packs?profile_name={PROFILE}").json()
     assert [d["pack"] for d in got] == ["prospecting"]
-    assert got[0]["inputs"] == {"settings": [], "knowledge": [], "context": []}
-    # No declared inputs ⇒ nothing can be missing ⇒ ready.
-    assert got[0]["readiness"]["status"] == "ready"
+    assert got[0]["inputs"]["integrations"] == [{"provider": "saleshandy", "required": True}]
+    # Unconfigured workspace ⇒ saleshandy missing ⇒ blocked.
+    assert got[0]["readiness"]["status"] == "blocked"
 
 
 def test_descriptor_entitlement_lock():

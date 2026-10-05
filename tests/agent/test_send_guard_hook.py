@@ -49,12 +49,16 @@ def _run(tool_name: str) -> subprocess.CompletedProcess:
         "delete_sequence",
         "delete_domain",
         "revoke_domain",
-        "add_email_accounts_to_sequence",
     ],
 )
 def test_denied_leaves_exit_2(leaf):
     res = _run(_HOSTED + leaf)
     assert res.returncode == 2, res.stdout + res.stderr
+
+
+def test_add_email_accounts_allowed():
+    res = _run(_HOSTED + "add_email_accounts_to_sequence")
+    assert res.returncode == 0, res.stdout + res.stderr
 
 
 @pytest.mark.parametrize(

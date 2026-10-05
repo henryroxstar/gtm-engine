@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -107,8 +108,10 @@ monthly_tool_budget_usd: 50.0
 
     # 3. Simulate existing costs in costs.jsonl reaching near monthly cap
     costs_jsonl = prospects_dir / "costs.jsonl"
+    # First instant of the CURRENT month: a fixed date stops counting once the month rolls over.
+    month_start = datetime.now(UTC).strftime("%Y-%m-01T00:00:00Z")
     costs_jsonl.write_text(
-        '{"ts": "2026-09-01T00:00:00Z", "cost_usd": 45.0}\n',
+        f'{{"ts": "{month_start}", "cost_usd": 45.0}}\n',
         encoding="utf-8",
     )
 

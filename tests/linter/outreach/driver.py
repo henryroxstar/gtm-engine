@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gtm_core.merge_hygiene import check_row
+from gtm_core.signature_source import read_signature_source
 
 from .model import RULE_CATALOGUE, RULES_VERSION, EmailBlock, Touch, Violation
 from .parse import _MERGE_TAG_RE, DEFAULT_FIELD_LABELS, TAG_TO_COLUMN, render
@@ -97,6 +98,9 @@ def lint_merge_render(
     domain_aliases: set | None = None,
     require_dated_opener: bool = False,
     registry: Registry | None = None,
+    source_ctx=None,
+    profile: str | None = None,
+    signature_source: str | None = None,
 ) -> tuple[list[Violation], dict]:
     """Render every touch against every row and lint the results.
 
@@ -111,10 +115,16 @@ def lint_merge_render(
     which is how ``cta-unstaged-artifact`` was dead for months — so the CLI passes it whenever
     ``--profile`` is given rather than behind a flag of its own.
 
+    ``signature_source`` (``body`` | ``mailbox``) says whether the body or the mailbox closes the
+    email; left ``None`` it is read from the profile's PROFILE.md (``body`` when there is no
+    profile or the profile does not say), so every caller that passes ``profile`` gets it.
+
     ``gift_artifacts`` and ``hook_matrix`` were removed 2026-09-24 with the rules that read
     them. Both are still accepted by the CLI, and ignored with a printed notice, until the
     skills stop passing them.
     """
+    if signature_source is None:
+        signature_source = read_signature_source(profile) if profile else "body"
     v: list[Violation] = list(lint_merge_tags(touches, field_labels))
     if not touches:
         v.append(Violation("ERROR", "SPEC", "parse", "no touches found in spec"))
@@ -148,7 +158,7 @@ def lint_merge_render(
     v += lint_thread_repetition([(f"step {t.number}", t.subject, t.body) for t in touches])
     v += lint_same_company_divergence(touches, rows)
     v += lint_opener_dated(touches, require_dated_opener=require_dated_opener)
-    v += lint_premise(spec_text, rows, premise_vocab)
+    v += lint_premise(spec_text, rows, premise_vocab, source_ctx, profile=profile)
     # TEMPLATES, never the renders below: on this path the author's words and the row's are
     # separable, so `rules_derivation` gets only the first half. The pack path has no such
     # separation and relies on that module's one-directional argument instead.
@@ -188,6 +198,7 @@ def lint_merge_render(
                 signoff=signoff,
                 case_studies=case_studies,
                 banned_stems=banned_stems,
+                signature_source=signature_source,
             ):
                 if _is_data_borne(x, merged, t.body):
                     continue

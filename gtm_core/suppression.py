@@ -69,6 +69,7 @@ __all__ = [
     "PROVIDER_DNC_REASONS",
     "EVAL_DISQUALIFIED",
     "EVAL_WRONG_PERSON",
+    "COMPANY_REASONS",
 ]
 
 #: The ledger's columns. ``name``/``company_domain`` were added 2026-08-27 to carry the
@@ -88,6 +89,8 @@ EVAL_DISQUALIFIED = "eval-disqualified"
 #: Same shape, person-level: the label said this individual is not the right contact. The
 #: company may still be right, so this suppresses the address and never the account.
 EVAL_WRONG_PERSON = "eval-wrong-person"
+#: Reasons that represent an exclusion of the whole company, covering all contacts at that domain.
+COMPANY_REASONS = frozenset({"competitor", "customer", "partner", EVAL_DISQUALIFIED})
 
 
 @dataclass(frozen=True)
@@ -149,11 +152,12 @@ class LedgerIndex:
     historical row to a name.
     """
 
-    __slots__ = ("by_email", "by_person")
+    __slots__ = ("by_email", "by_person", "by_domain")
 
     def __init__(self, entries: Iterable[Suppression] = ()):
         self.by_email: dict[str, Suppression] = {}
         self.by_person: dict[str, Suppression] = {}
+        self.by_domain: dict[str, Suppression] = {}
         for entry in entries:
             self.add(entry)
 
@@ -162,25 +166,44 @@ class LedgerIndex:
             self.by_email.setdefault(k, entry)
         if k := entry.person:
             self.by_person.setdefault(k, entry)
+        if (d := _norm_domain(entry.company_domain)) and (
+            entry.reason in COMPANY_REASONS or (not entry.email and not entry.name)
+        ):
+            self.by_domain.setdefault(d, entry)
 
     def match(self, row: dict) -> Suppression | None:
-        """The ledger entry covering this row, or None. Person key wins."""
+        """The ledger entry covering this row, or None. Person key wins, then domain, then address."""
         if (k := row_person_key(row)) and (hit := self.by_person.get(k)):
             return hit
+        d = _norm_domain(row.get("company_domain"))
+        if not d and (em := (row.get("email") or "").strip().lower()):
+            if "@" in em:
+                d = _norm_domain(em.split("@", 1)[1])
+        if d:
+            if hit := self.by_domain.get(d):
+                return hit
+            parts = d.split(".")
+            for i in range(1, len(parts) - 1):
+                parent = ".".join(parts[i:])
+                if hit := self.by_domain.get(parent):
+                    return hit
         return self.by_email.get(email_key(row.get("email") or ""))
 
     def covers(self, entry: Suppression) -> bool:
-        """Is this person already held, under either key?"""
+        """Is this person or company already held, under either key?"""
+        d = _norm_domain(entry.company_domain)
+        is_company = entry.reason in COMPANY_REASONS or (not entry.email and not entry.name)
         return bool(
             (entry.person and entry.person in self.by_person)
             or email_key(entry.email) in self.by_email
+            or (is_company and d and d in self.by_domain)
         )
 
     def __len__(self) -> int:
-        return len(self.by_email) or len(self.by_person)
+        return len(self.by_email) or len(self.by_person) or len(self.by_domain)
 
     def __bool__(self) -> bool:
-        return bool(self.by_email or self.by_person)
+        return bool(self.by_email or self.by_person or self.by_domain)
 
 
 def _read_entries(path: Path) -> list[Suppression]:
@@ -201,7 +224,7 @@ def _read_entries(path: Path) -> list[Suppression]:
                 company_domain=(row.get("company_domain") or "").strip().lower(),
             )
             # A row with neither key is a comment or a blank line, not an exclusion.
-            if email or entry.person:
+            if email or entry.person or entry.company_domain:
                 out.append(entry)
     return out
 
@@ -348,14 +371,14 @@ def _norm_addr(value: object) -> str:
 def _norm_domain(value: object) -> str:
     """Fold a domain to the form an email address's domain part would take.
 
-    Strips the `@`/`.` a provider export puts in front of a domain entry, and a `www.`
-    host label: `www` is a conventional host, never an organisational boundary, and no
-    mail is delivered to it — so a DNC entry for `www.bracken.example` means the company,
-    and reading it as a different domain from `bracken.example` would leave everyone at
-    that company reachable. Matching NARROWER than the identity is the dangerous direction
-    for a suppression check (test plan section 4.3)."""
-    value = _norm_addr(value).lstrip("@").lstrip(".")
-    return value[4:] if value.startswith("www.") else value
+    Strips the scheme/path/port, `@`/`.` prefixes, trailing dots, and `www.` host label."""
+    v = _norm_addr(value)
+    if "://" in v:
+        v = v.split("://", 1)[1]
+    v = v.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    v = v.split(":", 1)[0]
+    v = v.lstrip("@").lstrip(".").rstrip(".")
+    return v[4:] if v.startswith("www.") else v
 
 
 def _unwrap_dnc_body(payload: dict) -> dict:

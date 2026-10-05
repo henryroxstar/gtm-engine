@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -383,6 +384,29 @@ def load_hooks(
     return HookBank(hooks=[], authoritative="hook-matrix.md")
 
 
+def _writable_hooks_path(profiles_root: Path, profile: str, product: str | None) -> Path:
+    """Where a write for ``product`` may land.
+
+    The bank falls back to the company's file when a product has none of its own. This writer is in
+    the closed ``profiles/`` set and must not replace the company's file on a second product's
+    behalf (red team F4): a second product writes its own copy, or the write is refused.
+    """
+    from . import run_scope
+
+    scope = run_scope.require(profile, product, profiles_root=profiles_root)
+    target = hooks_toml_path(profiles_root, profile, product=product)
+    if scope.writes_as_second:
+        own = profiles_root / profile / "products" / (scope.product or "") / target.name
+        if target.resolve() != own.resolve():
+            raise run_scope.ScopeError(
+                "product-file-missing",
+                f"{scope.product_display} has no {target.name} of its own, so this write would "
+                f"replace {scope.default_display or 'the default product'}'s. Copy the company "
+                f"file to products/{scope.product}/{target.name} first.",
+            )
+    return target
+
+
 def save_hooks(
     profiles_root: Path,
     profile: str,
@@ -394,7 +418,7 @@ def save_hooks(
 
     The immutability guard is enforced separately by callers that mutate a hook.
     """
-    target = hooks_toml_path(profiles_root, profile, product=product)
+    target = _writable_hooks_path(profiles_root, profile, product)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_render_toml(bank), encoding="utf-8")
     return target
@@ -734,7 +758,7 @@ def migrate_from_matrix(
     bank.migrated_from_sha = hashlib.sha256(matrix_path.read_bytes()).hexdigest()
     bank.authoritative = "hooks.toml (draft)"
 
-    target = hooks_toml_path(profiles_root, profile, product=product)
+    target = _writable_hooks_path(profiles_root, profile, product)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_render_toml(bank), encoding="utf-8")
     return target
@@ -773,6 +797,16 @@ def promote_hooks_toml(
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import run_scope
+
+    try:
+        return _main(argv)
+    except run_scope.ScopeError as exc:  # a dropped or unusable product: one line, not a traceback
+        print(f"[hooks] {exc}", file=sys.stderr)
+        return 2
+
+
+def _main(argv: list[str] | None = None) -> int:
     shared = argparse.ArgumentParser(add_help=False)
     shared.add_argument("--profile", required=True)
     shared.add_argument("--product", default=None)

@@ -613,3 +613,18 @@ def test_generic_premise_only_is_warn(tmp_path):
     hit_premise = [f for f in findings_premise if f.rule == "no-source-capture"]
     assert len(hit_premise) == 1
     assert hit_premise[0].level == "warn"
+
+
+def test_a_test_scoped_age_limit_replaces_the_segment_limit_only_when_given():
+    old = _row(signal_observed="2026-03-01", segment="enterprise")
+    assert "signal-stale" in _rules(check_record(old, as_of=AS_OF))
+    assert "signal-stale" not in _rules(check_record(old, as_of=AS_OF, signal_age_days=365))
+    too_old = _row(signal_observed="2025-01-01", segment="enterprise")
+    assert "signal-stale" in _rules(check_record(too_old, as_of=AS_OF, signal_age_days=365))
+
+
+def test_a_zero_day_limit_is_a_limit_not_unset():
+    """`0` once fell back to the segment limit through `or`; an explicit value must be honoured."""
+    yesterday = _row(signal_observed="2026-08-18", segment="enterprise")
+    assert "signal-stale" not in _rules(check_record(yesterday, as_of=AS_OF))
+    assert "signal-stale" in _rules(check_record(yesterday, as_of=AS_OF, signal_age_days=0))

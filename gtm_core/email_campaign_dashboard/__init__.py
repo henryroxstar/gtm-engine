@@ -26,7 +26,11 @@ they disagree, rather than rendering a confident page about sequences that no lo
 CLI::
 
     python -m gtm_core.email_campaign_dashboard --profile P \\
-        [--scope {campaign,open,all}] [--campaign SLUGS] [--check-fresh] [--no-stubs]
+        [--scope {campaign,open,all}] [--campaign SLUGS] [--check-fresh]
+        [--refresh-all] [--no-stubs]
+
+``--check-fresh`` with no ``--scope`` and no ``--campaign`` checks EVERY page under the
+profile; with either, exactly the one page that scope names.
 """
 
 from __future__ import annotations
@@ -50,6 +54,11 @@ from .config import (  # noqa: F401
 )
 from .forecast import _forecast_block, _lanes  # noqa: F401
 from .format import _barlist, _e, _i, _pct, _rate_of, _seat_label, _stat  # noqa: F401
+from .freshness import (  # noqa: F401
+    check_all_pages,
+    refresh_all,
+    refresh_all_reporting,
+)
 from .model import (  # noqa: F401
     _lint_records,
     _spec_copy,
@@ -90,5 +99,8 @@ __all__ = [
     "MODES",
     "page_path",
     "check_fresh",
+    "check_all_pages",
+    "refresh_all",
+    "refresh_all_reporting",
     "input_globs",
 ]

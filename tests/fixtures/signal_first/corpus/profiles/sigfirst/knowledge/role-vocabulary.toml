@@ -1,0 +1,9 @@
+default_persona = "ai-platform"
+segments = ["enterprise", "startup", "unspecified"]
+[[persona]]
+name = "ai-platform"
+cues = ["head of ai platform", "platform lead"]
+[[seat]]
+name = "platform"
+personas = ["ai-platform"]
+stakes = ["outage", "audit"]

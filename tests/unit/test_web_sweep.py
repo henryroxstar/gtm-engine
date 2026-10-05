@@ -25,7 +25,7 @@ def mock_get_ai_vocab_regex(monkeypatch):
         r"\bunattended agents?\b|\bconfused deputy\b|\bshadow ai\b",
         re.IGNORECASE,
     )
-    monkeypatch.setattr(web_sweep_hits, "get_ai_vocab_regex", lambda profile: regex)
+    monkeypatch.setattr(web_sweep_hits, "get_ai_vocab_regex", lambda profile, product=None: regex)
 
 
 from gtm_core.web_sweep import (
@@ -134,32 +134,29 @@ def test_generate_queries_rejects_a_toml_value_with_braces(
         generate_queries("Acme Robotics", profile="bad-tenant")
 
 
-def test_generate_queries_product_level_file_overrides_profile_level(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_generate_queries_second_product_reads_its_own_file_never_the_default_products(
+    one_product_profiles: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """PSK-019: vocabulary resolution is product-first, profile-fallback, via
-    gtm_core.paths.resolve_knowledge_file — never a hand-built profiles/... path."""
-    profiles_root = tmp_path / "profiles"
-    profile_knowledge = profiles_root / "multi-tenant" / "knowledge"
-    profile_knowledge.mkdir(parents=True)
-    (profile_knowledge / "web-sweep.toml").write_text(
-        '[queries]\nnewsroom = "(profile-level-term)"\n', encoding="utf-8"
+    """PSK-019: a second product reads ITS OWN web-sweep.toml, resolved through
+    gtm_core.paths.resolve_knowledge_file — never a hand-built profiles/... path, and never the
+    default product's file as a fallback (the run scope's rule: absence is not permission)."""
+    root = one_product_profiles / "realshape"
+    (root / "knowledge" / "web-sweep.toml").write_text(
+        '[queries]\nnewsroom = "(default-product-term)"\n', encoding="utf-8"
     )
-    product_knowledge = profiles_root / "multi-tenant" / "products" / "widgets"
-    product_knowledge.mkdir(parents=True)
-    (product_knowledge / "web-sweep.toml").write_text(
-        '[queries]\nnewsroom = "(product-level-term)"\n', encoding="utf-8"
+    (root / "products" / "beta" / "web-sweep.toml").write_text(
+        '[queries]\nnewsroom = "(second-product-term)"\n', encoding="utf-8"
     )
-    monkeypatch.setenv("GTM_PROFILES_ROOT", str(profiles_root))
+    monkeypatch.setenv("GTM_PROFILES_ROOT", str(one_product_profiles))
 
-    with_product = generate_queries("Acme Robotics", profile="multi-tenant", product="widgets")
-    without_product = generate_queries("Acme Robotics", profile="multi-tenant")
+    second = generate_queries("Acme Robotics", profile="realshape", product="beta")
+    default = generate_queries("Acme Robotics", profile="realshape", product="alpha")
 
-    assert '"Acme Robotics" (product-level-term)' == next(
-        q["query"] for q in with_product if q["type"] == "newsroom"
+    assert '"Acme Robotics" (second-product-term)' == next(
+        q["query"] for q in second if q["type"] == "newsroom"
     )
-    assert '"Acme Robotics" (profile-level-term)' == next(
-        q["query"] for q in without_product if q["type"] == "newsroom"
+    assert '"Acme Robotics" (default-product-term)' == next(
+        q["query"] for q in default if q["type"] == "newsroom"
     )
 
 

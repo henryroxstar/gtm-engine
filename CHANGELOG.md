@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-05
+
+### Added
+- **Signal-first prospecting mode and hiring accelerator.** Inverts discovery by starting with observable corporate milestones and intent triggers rather than fixed account lists. Integrates TheirStack intent signals with observable corporate events, frameworks, and job hiring clusters. Pre-satisfies candidate evidence from rolling ledgers at zero marginal cost.
+- **Signal observation registry (`gtm_core.signal_obs`).** Structured observation registry, precision grading, and source attestation tracking to monitor signal reliability and retire contradictory sources.
+- **Status page freshness and ledger verification.** Status pages now display in-page freshness banners, track figures age, attribute metrics to authoritative sources, and detect added or removed dossiers automatically.
+- **One-product-per-run execution scoping.** Enforces run scoping so multi-product profiles resolve knowledge and execute runs scoped cleanly to a single target product without shared-ledger contamination.
+
+### Changed
+- **Outreach & signal-grounded copy generation.** Enhanced persona enrichment and outreach generation to directly incorporate verified signal evidence, headlines, and snippets.
+- **Prospect skill codegen and sync.** Synchronized skill body templates across generator manifests ensuring repeatable multi-agent harness parity.
+
 ## [0.26.0] - 2026-09-28
 
 ### Added

@@ -81,6 +81,7 @@ from .signal_clean import (  # noqa: F401
     SIGNAL_SUBSTANCE_CHARS,
     _drop_trailing_provenance,
     _split_top_level,
+    is_synthetic_signal,
     signal_clause,
 )
 from .signal_dates import (  # noqa: F401

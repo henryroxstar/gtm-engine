@@ -789,3 +789,119 @@ def test_write_dnc_cache_writes_the_shape_consolidate_reads_and_refuses_an_empty
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"payload": {"dncListDetails": []}})))
     assert suppression.main(["write-dnc-cache", "--profile", "acme", "--out", str(out)]) == 1
     assert out.read_text(encoding="utf-8") == before
+
+
+def test_domain_only_suppression_admitted_and_applied(tmp_path):
+    p = _ledger_with(
+        tmp_path,
+        [
+            {
+                "email": "",
+                "name": "",
+                "company_domain": "bad-actor.test",
+                "reason": "competitor",
+                "date": "2026-10-04",
+                "note": "direct competitor",
+            }
+        ],
+    )
+    index = suppression.load_index(p)
+    assert index.match({"company_domain": "bad-actor.test"}) is not None
+    assert index.match({"company_domain": "bad-actor.test"}).reason == "competitor"
+    assert index.match({"company_domain": "BAD-ACTOR.TEST"}) is not None
+    assert index.match({"company_domain": "www.bad-actor.test"}) is not None
+    assert index.match({"company_domain": "@bad-actor.test"}) is not None
+    assert index.match({"company_domain": "friendly-client.example"}) is None
+
+    target = tmp_path / "pool.csv"
+    with target.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=["email", "company_domain", "suppression"])
+        w.writeheader()
+        w.writerow(
+            {"email": "alex@bad-actor.test", "company_domain": "bad-actor.test", "suppression": ""}
+        )
+        w.writerow(
+            {
+                "email": "sam@friendly-client.example",
+                "company_domain": "friendly-client.example",
+                "suppression": "",
+            }
+        )
+
+    marked, total = suppression.apply(target, index)
+    assert (marked, total) == (1, 2)
+    rows = list(csv.DictReader(target.open()))
+    assert rows[0]["suppression"] == "competitor"
+    assert rows[1]["suppression"] == ""
+
+
+def test_reconcile_dnc_ignores_competitor_and_customer_exclusions(tmp_path):
+    """Local exclusions (competitor, customer) must not be checked against provider DNC list."""
+    p = _ledger_with(
+        tmp_path,
+        [
+            {
+                "email": "",
+                "name": "",
+                "company_domain": "bad-actor.test",
+                "reason": "competitor",
+                "date": "2026-10-04",
+                "note": "direct competitor",
+            },
+            {
+                "email": "pat@customer-corp.example",
+                "name": "Pat",
+                "company_domain": "customer-corp.example",
+                "reason": "customer",
+                "date": "2026-10-04",
+                "note": "existing client",
+            },
+        ],
+    )
+    led = suppression.load(p)
+    findings = suppression.reconcile_dnc(led, provider_emails=["other@northwind.example"])
+    assert findings == []
+
+
+def test_domain_suppression_handles_company_name_and_schemes(tmp_path):
+    """Company name in exclusion does not disable domain suppression, and schemes/subdomains match."""
+    p = _ledger_with(
+        tmp_path,
+        [
+            {
+                "email": "",
+                "name": "Rival Inc",
+                "company_domain": "https://rival-corp.test/",
+                "reason": "competitor",
+                "date": "2026-10-04",
+                "note": "direct competitor",
+            },
+        ],
+    )
+    index = suppression.load_index(p)
+    assert "rival-corp.test" in index.by_domain
+
+    # Any employee at that domain matches
+    hit = index.match(
+        {"name": "Jane Doe", "company_domain": "rival-corp.test", "email": "jane@rival-corp.test"}
+    )
+    assert hit is not None
+    assert hit.reason == "competitor"
+
+    # Subdomain matches
+    hit_sub = index.match(
+        {
+            "name": "Alex",
+            "company_domain": "eng.rival-corp.test",
+            "email": "alex@eng.rival-corp.test",
+        }
+    )
+    assert hit_sub is not None
+    assert hit_sub.reason == "competitor"
+
+    # Missing company_domain in prospect row falls back to email domain
+    hit_em = index.match(
+        {"name": "Taylor", "company_domain": "", "email": "taylor@rival-corp.test"}
+    )
+    assert hit_em is not None
+    assert hit_em.reason == "competitor"

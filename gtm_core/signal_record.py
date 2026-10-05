@@ -68,6 +68,8 @@ __all__ = [
     "JUDGE_COLUMNS",
     "HOOK_CELL_COLUMN",
     "SIGNAL_COLUMN",
+    "SIGNAL_FIT_COLUMN",
+    "SIGNAL_VIRALITY_COLUMN",
     "RecordAudit",
     "has_record_columns",
     "missing_record_columns",
@@ -166,6 +168,11 @@ HOOK_CELL_COLUMN = "hook_cell"
 #: ``persona_of(title) x segment x signal_column`` removes that drift class by construction:
 #: there is no second copy of the persona to disagree with the title.
 SIGNAL_COLUMN = "signal_column"
+
+#: Three-dimensional signal quality scoring columns (R2.1).
+#: Deliberately NOT in :data:`RECORD_COLUMNS` to avoid breaking raw historical lists.
+SIGNAL_FIT_COLUMN = "signal_fit"
+SIGNAL_VIRALITY_COLUMN = "signal_virality"
 
 #: The MACHINE's opinion of a row, kept in its own columns so it can never be mistaken
 #: for the researcher's.
@@ -508,8 +515,40 @@ def _check_verdict_and_relation(row: dict, company: str, out: list[Finding]) -> 
         )
 
 
+def _check_quality_columns(row: dict, out: list[Finding]) -> None:
+    for col in (SIGNAL_FIT_COLUMN, SIGNAL_VIRALITY_COLUMN):
+        if col in row and row[col] is not None and str(row[col]).strip() != "":
+            raw_val = row[col]
+            rule_name = f"{col.replace('_', '-')}-invalid"
+            try:
+                val = int(raw_val)
+                if not (0 <= val <= 3):
+                    out.append(
+                        Finding(
+                            "block",
+                            col,
+                            rule_name,
+                            f"{raw_val!r} is out of range — must be an integer between 0 and 3",
+                        )
+                    )
+            except (ValueError, TypeError):
+                out.append(
+                    Finding(
+                        "block",
+                        col,
+                        rule_name,
+                        f"{raw_val!r} is not an integer",
+                    )
+                )
+
+
 def _check_observed_date(
-    row: dict, today: datetime.date, clause: str, why_now: str, out: list[Finding]
+    row: dict,
+    today: datetime.date,
+    clause: str,
+    why_now: str,
+    out: list[Finding],
+    signal_age_days: int | None = None,
 ) -> None:
     observed = _parse_observed(row.get("signal_observed") or "")
     if observed is None:
@@ -540,7 +579,7 @@ def _check_observed_date(
         kind = "structural"
     else:
         kind = "event"
-    limit = signal_age_limit(segment, kind)
+    limit = signal_age_days if signal_age_days is not None else signal_age_limit(segment, kind)
     if age < 0:
         out.append(
             Finding(
@@ -564,6 +603,7 @@ def check_record(
     lane: str | None = None,
     sources_dir: Path | str | None = None,
     profile: str | None = None,
+    signal_age_days: int | None = None,
 ) -> list[Finding]:
     """Validate one row's research record. Empty list means the record checks out.
 
@@ -585,6 +625,7 @@ def check_record(
     eff_profile = profile if profile is not None else row.get("profile")
 
     _check_verdict_and_relation(row, company, out)
+    _check_quality_columns(row, out)
 
     if not clause and not why_now:
         return out  # generic arc: no claim, nothing to source
@@ -623,7 +664,7 @@ def check_record(
             )
         )
 
-    _check_observed_date(row, today, clause, why_now, out)
+    _check_observed_date(row, today, clause, why_now, out, signal_age_days)
 
     evidence = (row.get("signal_evidence") or "").strip()
     if not evidence:
@@ -794,6 +835,7 @@ def audit_records(
     lane: str | None = None,
     sources_dir: Path | str | None = None,
     profile: str | None = None,
+    signal_age_days: int | None = None,
 ) -> RecordAudit:
     """Audit a whole list's research records.
 
@@ -810,7 +852,14 @@ def audit_records(
     for r in rows:
         a.checked += 1
         who = (r.get("email") or r.get("company") or "?").strip()
-        for f in check_record(r, as_of=as_of, lane=lane, sources_dir=sources_dir, profile=profile):
+        for f in check_record(
+            r,
+            as_of=as_of,
+            lane=lane,
+            sources_dir=sources_dir,
+            profile=profile,
+            signal_age_days=signal_age_days,
+        ):
             line = f"{f.rule}: {who} — {f.detail}"
             (a.errors if f.level == "block" else a.warnings).append(line)
     return a

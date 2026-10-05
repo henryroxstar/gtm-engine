@@ -249,6 +249,10 @@ def premise_cascade(
     premise,
     *,
     evidence_fields: tuple[str, ...] = ("signal_evidence", "signal_clause", "why_now"),
+    source_ctx=None,
+    profile: str | None = None,
+    today=None,
+    sources_dir=None,
 ) -> tuple[list[PremiseCheck], list[dict]]:
     """Split rows into ones the cheap tier settles and ones that need the judge.
 
@@ -270,16 +274,41 @@ def premise_cascade(
       framework), and only those are escalated. On the 2026-08-21 lists that is a small
       minority of rows, which is what keeps the judge affordable per-row rather than sampled.
     """
+    from .hook_coverage.source_attest import record_attests, source_attests
+
     settled: list[PremiseCheck] = []
     escalate: list[dict] = []
     for r in rows:
         email = (r.get("email") or "?").strip()
+        if source_attests(r, premise, source_ctx):
+            settled.append(
+                PremiseCheck(
+                    email,
+                    premise.key,
+                    "deterministic",
+                    True,
+                    "an agentic source list names the account",
+                )
+            )
+            continue
+        if record_attests(r, premise, today, profile=profile, sources_dir=sources_dir):
+            settled.append(
+                PremiseCheck(
+                    email,
+                    premise.key,
+                    "deterministic",
+                    True,
+                    "the account's own recorded announcement, found in its stored page",
+                )
+            )
+            continue
         evidence = " ".join(str(r.get(f) or "") for f in evidence_fields).strip()
         # `hits_for` is the one matcher every premise reader shares (2026-09-24): it strips
         # the account's own name and reads `industry_terms` off the row's industry field,
         # so this cascade settles the same rows the resolver and the render gate settle.
         hits = premise.hits_for(r, evidence_fields)
-        if len(hits) >= premise.min_distinct:
+        count = premise.distinct_count(hits) if hasattr(premise, "distinct_count") else len(hits)
+        if count >= premise.min_distinct:
             settled.append(
                 PremiseCheck(email, premise.key, "deterministic", True, f"attests {sorted(hits)}")
             )

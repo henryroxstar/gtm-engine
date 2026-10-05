@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+import json
+import re
+
+_YAML_SPECIAL = re.compile(r"[:,{}\[\]#&*!|>'\"%@`\n\\]")
+
+
+def _flow_scalar(text: object) -> str:
+    """A value that is safe inside a YAML flow mapping. Plain names stay byte-identical; one with a
+    colon, comma or brace is quoted, or the strict reader of this block (the run scope) refuses the
+    whole profile (red team F2)."""
+    value = str(text)
+    return json.dumps(value) if _YAML_SPECIAL.search(value) or value != value.strip() else value
+
 
 def _render_profile_md(
     company: dict,
@@ -29,7 +42,7 @@ def _render_profile_md(
     flagship_slug = flagship.get("slug", "") if flagship else ""
 
     products_yaml = "\n".join(
-        f"  - {{ slug: {p['slug']}, name: {p['name']}, "
+        f"  - {{ slug: {p['slug']}, name: {_flow_scalar(p['name'])}, "
         f"capabilities: [{', '.join(p.get('capabilities', []))}], "
         f"flagship: {'true' if p.get('flagship') else 'false'} }}"
         for p in products

@@ -260,6 +260,12 @@ uv run python -m gtm_core.prospects paths --profile <you>
   the next build. Fix facts on the account.
 - **Load only the two dated files** — one personalised, one generic. Everything else sits in a
   hidden pool folder.
+- **With more than one product set up for prospecting, every run is for exactly one.**
+  A product counts as set up once it has all its own targeting and messaging files. Until then it
+  is not offered, and a run for it stops and says what is missing. The first thing a run does is ask
+  which (the usual one is marked as recommended). A run for a second product tells you in one plain
+  sentence which settings it borrowed from the main product, and keeps its own export lists apart
+  from the main ones so the two never mix.
 - **Nothing is cleaned up automatically.** Archiving happens only when you ask, after a plan, and
   never while a campaign is unfinished.
 
@@ -416,6 +422,94 @@ the source. A funding round is never the opener; look for what the money *bought
 
 ---
 
+## 9b. How old are these numbers?
+
+The page answers this in its own first line, on every render — you do not have to go looking.
+
+**The header.** One line under the title: when the page was built, then where the sending figures
+came from and how old they were at that moment. *"Page built … · Sending figures from 2026-09-25
+(4 days old)."* It may instead say the figures carry no date, that they could not be read, or that
+there are none yet. Those are three different pieces of work, and the line says which one you have.
+
+**Each sequence has its own date.** The sending figures are kept one sequence at a time, each with
+the day it was fetched. The header's age is the oldest of the sequences the page covers, so one
+neglected sequence makes the whole page read old. A page for one campaign says which sequences it
+counted. A sequence whose date came from the file as a whole, not from its own fetch, is labelled so.
+
+**A counter that went down.** If a sequence's sent or delivered number is lower than at the last
+snapshot, the new number is kept and a short note sits on that sequence's row in the Emails tab. It
+stays until you next look at it. Check the sending tool if the drop is unexpected.
+
+**A dash instead of a number.** If the sending tool gave a figure that is not a usable number, the
+page shows a dash and leaves it out of the totals instead of guessing. That means not a number at
+all, negative, or far too large to be a count. A note under the table says so. Check that
+sequence in the sending tool.
+
+**The age is frozen.** It is how old the figures were when the page was built, not when you opened
+it. A page you open next week still shows last week's number. That is deliberate: it is a record
+of what was true at build.
+
+**The banner.** A page that was fresh when built can be old by the time you open it. When the
+figures were inside the limit at build, the page carries a hidden card. Your browser works out the
+age from today's date and shows the card once the figures pass the limit. It counts from the
+moment the figures were fetched, not from the build. If the date cannot be read, the card shows anyway and
+says the age is unknown. A saved copy or a screenshot will not show it, because nothing runs there,
+so the freshness check is still the answer for those.
+
+**The strip.** Past the limit, a single card above the tabs says so in one sentence and names the
+one command that fixes it. It never appears on figures inside the limit, and it is never more than
+one card: if the records also disagree, both sentences share it.
+
+**Where these numbers come from.** Under Operator notes there is a table of every source behind the
+page — what it is, the date it records about itself, and whether you can trust it. A source's date
+is always its own recorded date, never the time its file happened to be written: restoring a backup
+rewrites every file time at once, and a date that moves for that reason is worse than none. A source that is there but records no date is marked *present — it records
+no date*. It is never called old, because only the sending figures have an age limit. Beside
+it, a shorter list says which parts of the page are read from your own data on every render, which
+are published reference figures compiled in, and which read something a person or an agent typed.
+That last group is the one to read the header's date against.
+
+**Who writes the figures.** One command does, and it is the only supported writer. A hand edit is
+made visible, not prevented. The command refuses by name a payload that is not a list of
+sequences, each with a text id and whole-number counters. That includes a reply passed whole and
+the figures file itself fed back in. It also refuses a payload file saved too long ago or dated in
+the future, a profile that does not exist, and any payload that would leave the status page unable
+to read the file. A refusal leaves the file exactly as it was. The age test looks at when the
+payload file was saved, not when the figures were fetched, so it catches last week's export and
+proves nothing more. A sequence deleted in the sending tool leaves the file only when you ask it
+to. The file records a fingerprint of its own contents, so a hand edit of a file the command wrote
+shows up; that is a record, not a proof.
+
+**A re-dated sequence.** When a refresh brings a sequence whose figures are identical to the last
+record, the command still re-dates it and says so. That is information, not an error, because a
+paused sequence's figures do not move. It is also what an old copy of the file fed back in looks
+like, and that case cannot be told from a real fetch. If nothing was fetched, that date is not true.
+
+**The weekly routine, in order.** Refresh the sending figures for every current sequence in one
+pass; re-render every page; then check. Green with no strip is the state to publish from. The check
+enforces the age limit itself, so green means the figures are inside it, though not that they are
+from today. The first step is the refresh the sequencing skill does for you. The last two are the
+two phrases in the table below: *"refresh every status page"*, then
+*"is the status page still true?"*.
+
+**What the check tells you.** Run with no scope it covers every page, not just the rollup. Naming
+one page does not skip the age test: any form of the check goes red on figures past the limit, even
+when nothing on disk changed. The answers mean different things. *Stale* is fixed by one command.
+A *retired candidate* is a page whose every campaign is finished or was removed. The refresh skips
+it, nothing was deleted, nothing is counted against you, and nothing needs doing.
+
+A page the refresh cannot recover is named, with the exact command that clears it, and the refresh
+reports a failure until you act. That covers a page with no record of its inputs, a record that is
+damaged, unreadable or does not match the page's own name, and a page file you deleted whose record
+was left behind. It also covers a page that is a link, and a campaign file that cannot be read.
+Re-render it on its own, fix the file it names, or delete the page. A page that names some
+campaigns that are gone and some that are not is stale, not retired.
+
+If the figures are old, the refresh still re-renders everything. It then ends with a failure that
+says the figures are old. Refresh them from the sending tool, then run it again.
+
+---
+
 ## 10. Everything you can ask
 
 If a phrase does not land, say what you want and add *"— which command does that?"*.
@@ -424,6 +518,8 @@ If a phrase does not land, say what you want and add *"— which command does th
 |---|---|---|
 | **Where are we?** | *"where do I stand right now?"* | `uv run python -m gtm_core.prospects status --profile <you>` |
 | **The full status page** | *"refresh the prospecting status page"* | `uv run python -m gtm_core.email_campaign_dashboard --profile <you> --scope open` |
+| **Is every page current?** | *"is the status page still true?"* | `uv run python -m gtm_core.email_campaign_dashboard --profile <you> --check-fresh` |
+| **Make it current** | *"refresh every status page"* | `uv run python -m gtm_core.email_campaign_dashboard --profile <you> --refresh-all` |
 | **How many can I send today?** | *"how many can I send today?"* | reads the *Today* line — never a hand count |
 | **Refresh the checks** | *"run the prospecting checks again"* | `uv run python -m gtm_core.preflight_report --profile <you> --warn-only` |
 | **Which file is which?** | *"where do my prospecting files live?"* | `uv run python -m gtm_core.prospects paths --profile <you>` |

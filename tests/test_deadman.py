@@ -63,3 +63,19 @@ def test_only_profiles_filter(tmp_path: Path) -> None:
     _write_history(tmp_path / "b" / "history.jsonl", ["2026-06-26T09:00:00Z"])
     report = check(tmp_path, now=NOW, max_age_hours=192, only_profiles=["a"])
     assert [r["profile"] for r in report] == ["a"]
+
+
+def test_reserved_and_hidden_dirs_ignored(tmp_path: Path) -> None:
+    _write_history(tmp_path / "_system" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    _write_history(tmp_path / ".staging" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    _write_history(tmp_path / "_smoke" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    _write_history(tmp_path / "real_profile" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    report = check(tmp_path, now=NOW, max_age_hours=192)
+    assert [r["profile"] for r in report] == ["real_profile"]
+
+
+def test_exclude_profiles_filter(tmp_path: Path) -> None:
+    _write_history(tmp_path / "a" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    _write_history(tmp_path / "b" / "history.jsonl", ["2026-06-26T09:00:00Z"])
+    report = check(tmp_path, now=NOW, max_age_hours=192, exclude_profiles=["b"])
+    assert [r["profile"] for r in report] == ["a"]

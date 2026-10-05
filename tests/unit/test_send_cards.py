@@ -297,6 +297,24 @@ def test_r8_1_panel_verdict_absent_from_initial_dom_and_present_after_decision(s
     assert state["revealed_before_decision"] is False
 
 
+def test_r8_1_decision_radios_and_rewrite_note_are_wired_to_client_state(sample_cells):
+    """R8.2 says 'rewrite' carries a note. The rendered card must actually capture both:
+    each decision radio calls onDecisionChange, and the rewrite-note input calls
+    onNoteChange and is scoped to its own cell_id via data-cell — not a decorative,
+    unwired control (the 2026-09-29 regression this guards)."""
+    html_content = generate_cards_page(sample_cells)
+
+    assert "onDecisionChange('base:enterprise:technical:run500-tech', this.value)" in html_content
+    assert 'data-cell="base:enterprise:technical:run500-tech"' in html_content
+    assert 'oninput="onNoteChange(this)"' in html_content
+    assert "function onNoteChange(input)" in html_content
+    assert "s.note = input.value" in html_content
+
+    # The dead "Edit Voice Rules" alert affordance is gone, not merely hidden.
+    assert "Edit Voice Rules" not in html_content
+    assert "To permanently change tone" not in html_content
+
+
 def test_r8_1_export_records_revealed_before_decision(sample_cells):
     """R8.1: the export records revealed_before_decision."""
     # When user revealed panel verdict before deciding
@@ -383,6 +401,7 @@ def test_r8_3_apply_writes_draft_only_for_send_this_cell(tmp_path, sample_cells)
             "base:enterprise:technical:run500-tech": "send this cell",
             "base:startup:founder:run500-founder": "not this wave",
         },
+        revealed_before={"base:enterprise:technical:run500-tech": True},
         run_id="run-1234",
     )
     export_path = tmp_path / "export.json"
@@ -407,6 +426,7 @@ def test_r8_3_apply_unticked_members_excluded(tmp_path, sample_cells):
         unticked_members={
             "base:enterprise:technical:run500-tech": ["charles@babbage-engines.example.com"]
         },
+        revealed_before={"base:enterprise:technical:run500-tech": True},
         run_id="run-1234",
     )
     export_path = tmp_path / "export.json"
@@ -427,6 +447,7 @@ def test_r8_3_apply_suppressed_members_removed_and_listed(tmp_path, sample_cells
     export_data = send_cards.create_card_export(
         sample_cells,
         decisions={"base:enterprise:technical:run500-tech": "send this cell"},
+        revealed_before={"base:enterprise:technical:run500-tech": True},
         run_id="run-1234",
     )
     export_path = tmp_path / "export.json"
@@ -459,6 +480,7 @@ def test_r8_3_apply_draft_matches_step_6a_schema_and_carries_required_fields(
     export_data = send_cards.create_card_export(
         sample_cells,
         decisions={"base:enterprise:technical:run500-tech": "send this cell"},
+        revealed_before={"base:enterprise:technical:run500-tech": True},
         run_id="run-step6a",
     )
     export_path = tmp_path / "export.json"
@@ -625,3 +647,38 @@ def test_r8_4_gate2_preview_offered_when_compliant_and_lists_card_titles(tmp_pat
     preview = render_gate2_preview(draft, "demo", content_root=tmp_path)
     assert preview["offered"] is True
     assert preview["card_titles"] == ["Technical · API Gateway · Enterprise"]
+
+
+# ── CLI Tests: `generate` subcommand end-to-end ───────────────────────────────
+
+
+def test_cli_generate_writes_review_html_page(monkeypatch, tmp_path, sample_cells):
+    """`python -m gtm_core.send_cards generate --profile <p> --wave <w>` must actually
+    render the review page (R8.1), not just print a placeholder line."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+
+    cells_path = tmp_path / "demo" / "prospects" / "sequences" / "send-cards-wave-1.json"
+    cells_path.parent.mkdir(parents=True, exist_ok=True)
+    cells_path.write_text(json.dumps(sample_cells), encoding="utf-8")
+
+    rc = send_cards.main(["generate", "--profile", "demo", "--wave", "wave-1"])
+    assert rc == 0
+
+    out_path = tmp_path / "demo" / "prospects" / "sequences" / "send-cards-wave-1.html"
+    assert out_path.is_file()
+
+    html_content = out_path.read_text(encoding="utf-8")
+    assert "Ada Lovelace" in html_content
+    assert "Lovelace Analytics" in html_content
+    assert "base:enterprise:technical:run500-tech" in html_content
+
+
+def test_cli_generate_refuses_when_cells_file_missing(monkeypatch, tmp_path):
+    """No assembled cells file for this profile/wave -> refuse, never a silent no-op."""
+    monkeypatch.setenv("GTM_CONTENT_ROOT", str(tmp_path))
+
+    rc = send_cards.main(["generate", "--profile", "demo", "--wave", "no-such-wave"])
+    assert rc == 2
+
+    out_path = tmp_path / "demo" / "prospects" / "sequences" / "send-cards-no-such-wave.html"
+    assert not out_path.exists()

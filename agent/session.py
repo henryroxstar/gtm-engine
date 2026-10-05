@@ -83,6 +83,7 @@ def build_agent_options(
     role: str = "brain_plan",
     allowed_skills: frozenset[str] | None = None,
     language: str | None = None,
+    capture_gate=None,
 ):
     """Construct the ``ClaudeAgentOptions`` shared by sessions and one-shot runs.
 
@@ -120,12 +121,17 @@ def build_agent_options(
     # never the old blanket bypass. When a pack-reachability scope is supplied, the
     # default callback carries it too. Denials land in the profile's denials.jsonl
     # (P0-1) so a blocked call on any default-built path is a queryable record.
+    if capture_gate is not None and can_use_tool is not None:
+        # The gate lives in the default callback. A caller-supplied one would drop it silently,
+        # and a capture run with no allowlist is exactly what the gate exists to prevent.
+        raise ValueError("capture_gate cannot be combined with a caller-supplied can_use_tool")
     if can_use_tool is None:
         from .denial_log import make_denial_sink
 
         can_use_tool = permissions.make_headless_can_use_tool(
             on_deny=make_denial_sink(cfg, profile, "headless-default"),
             allowed_skills=allowed_skills,
+            capture_gate=capture_gate,
         )
 
     spec = resolve_model(role)
@@ -193,6 +199,9 @@ def build_agent_options(
         "GTM_CONTENT_ROOT": str(cfg.content_root),
         "GTM_PROFILES_ROOT": str(cfg.profiles_root),
         "GTM_RUNTIME": "headless",
+        # The Firecrawl capture hook files a page under THIS run's profile (R0.1); with no
+        # desktop marker on a headless host it would otherwise capture nothing.
+        "GTM_ACTIVE_PROFILE": profile,
     }
     # A7 per-request output language: skills read GTM_RUN_LANGUAGE. Pinned in the
     # subprocess env alongside the scoping vars (never the shared os.environ), so
@@ -210,6 +219,18 @@ def build_agent_options(
             }
         )
     options_kw["env"] = env_overrides
+
+    if capture_gate is not None:
+        # A gated capture run files and meters each page itself; see agent/capture_hook.py.
+        from claude_agent_sdk import HookMatcher
+
+        from .capture_hook import SCRAPE_MATCHER, make_capture_hook
+
+        options_kw["hooks"] = {
+            "PostToolUse": [
+                HookMatcher(matcher=SCRAPE_MATCHER, hooks=[make_capture_hook(cfg, profile)])
+            ]
+        }
 
     return ClaudeAgentOptions(**options_kw)
 

@@ -312,6 +312,7 @@ def register_sequence(
     campaign: str = "",
     lane: str = "",
     overlay: str | None = None,
+    pilot_size: int | None = None,
     content_root: Path | None = None,
 ) -> Path:
     """Register an approved sequence in ``cells.toml``.
@@ -350,6 +351,8 @@ def register_sequence(
         new_entry["lane"] = str(lane).strip().lower()
     if overlay and overlay.strip().lower() != BASE_OVERLAY:
         new_entry["overlay"] = overlay.strip().lower()
+    if pilot_size is not None:
+        new_entry["pilot_size"] = pilot_size
 
     updated = False
     for i, entry in enumerate(entries):
@@ -376,6 +379,11 @@ def register_sequence(
             lines.append(f"lane = {json.dumps(str(entry['lane']))}")
         if entry.get("overlay") and entry["overlay"] != BASE_OVERLAY:
             lines.append(f"overlay = {json.dumps(str(entry['overlay']))}")
+        # An optional ceiling for the campaign's first load (gtm_core.load_preconditions). Written
+        # back when present so re-registering a sequence (send-cards apply does, at every
+        # approval) cannot silently drop it. Absent, no line is written: bytes are unchanged.
+        if entry.get("pilot_size") is not None:
+            lines.append(f"pilot_size = {json.dumps(entry['pilot_size'])}")
         blocks.append("\n".join(lines))
 
     content = "\n\n".join(blocks) + "\n"

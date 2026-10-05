@@ -38,6 +38,7 @@ Stdlib only, read-only, no MCP call and no paid call.
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,7 +104,8 @@ class AngleResolution:
     #: on without knowing what was read is a silence with extra steps.
     segment: str = ""
     #: How the winning angle's premise was attested — ``record`` (the row's own evidence),
-    #: ``industry`` (the account's industry field alone, via `industry_terms`) or ``seat``
+    #: ``industry`` (the account's industry field alone, via `industry_terms`), ``source`` (an
+    #: agentic source list names the account, and the routing switch is open) or ``seat``
     #: (a premise that asks nothing of the record). Reported so an operator can see which
     #: rows the generic lane carries on the seat alone, and which on a fact.
     attestation: str = ""
@@ -149,6 +151,7 @@ def angle_for(
     profiles_root: Path | None = None,
     product: str | None = None,
     overlay: str | None = None,
+    today: datetime.date | None = None,
 ) -> AngleResolution:
     """The one angle this row is offered, or a refusal from :data:`REFUSALS`.
 
@@ -205,17 +208,42 @@ def angle_for(
     # it reads the same three evidence fields and strips the account's own name first, so a
     # company whose NAME contains a premise term — "Fernway Multi-Cloud" against the
     # `multi-cloud` premise — cannot attest that premise on its own letterhead.
+    # Source lists (R2.5): ``None`` unless BOTH switches are open, so with them closed every
+    # call below is the call it was before lists existed.
+    from ..signal_view import routing_context
+
+    lists = routing_context(profile, product, profiles_root=profiles_root)
     attested = {
         key
         for key, premise in vocabulary.items()
-        if not premise.attested_by_seat and not premise_unsupported([dict(row)], premise)
+        if not premise.attested_by_seat
+        and not premise_unsupported(
+            [dict(row)], premise, source_ctx=lists, today=today, profile=profile
+        )
     }
     # Which of those the row's own EVIDENCE attests, as opposed to its industry field alone:
     # an account-event opener needs an event at the account to open on, and a bank's
     # industry is not an event. Measured by re-asking with the industry blanked, through the
-    # same matcher, so the two answers cannot disagree about a term.
+    # same matcher, so the two answers cannot disagree about a term. A list naming the
+    # account is a dated public event at it, so it opens an account-event angle too.
     no_industry = {**dict(row), "industry": ""}
-    by_event = {key for key in attested if not premise_unsupported([no_industry], vocabulary[key])}
+    by_event = {
+        key
+        for key in attested
+        if not premise_unsupported(
+            [no_industry], vocabulary[key], source_ctx=lists, today=today, profile=profile
+        )
+    }
+    # Attested ONLY because a list names the account: the record alone would have refused it.
+    by_list = (
+        {
+            key
+            for key in attested
+            if premise_unsupported([dict(row)], vocabulary[key], today=today, profile=profile)
+        }
+        if lists is not None
+        else set()
+    )
     by_seat = {key for key, premise in vocabulary.items() if premise.attested_by_seat}
 
     matched = [a for a in live if a.premise in attested or a.premise in by_seat]
@@ -266,7 +294,9 @@ def angle_for(
     # runners-up are reported rather than dropped.
     eligible.sort(key=lambda pair: _offer_order(pair[0], attested=attested, by_event=by_event))
     winner, proof = eligible[0]
-    if winner.premise in by_event:
+    if winner.premise in by_list:
+        attestation = "source"
+    elif winner.premise in by_event:
         attestation = "record"
     elif winner.premise in attested:
         attestation = "industry"

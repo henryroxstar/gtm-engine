@@ -73,6 +73,32 @@ class CreditRateError(ValueError):
     """No honest credits→USD rate could be resolved. The message names what is missing."""
 
 
+#: Firecrawl bills one flat credit pool at a published per-credit price, the same for every tenant.
+#: 0.005 is DERIVED from hand-logged ledger rows (60 credits = $0.30), not read off the plan
+#: page, so the ledger rows it writes carry ``rate_basis`` and nobody mistakes them for
+#: measured spend. Signal-first P0 confirms it against the tenant's plan; change it here only.
+FIRECRAWL_USD_PER_CREDIT = 0.005
+FIRECRAWL_RATE_VERIFIED_ON = "2026-09-29"
+FIRECRAWL_RATE_BASIS = "derived-from-ledger-rows"
+
+
+#: A Firecrawl search is billed per block of ten results, before any page text is scraped from them.
+#: This is the published figure as last read, not a measurement: a search row that falls back to it
+#: says so (``credits_source = "estimate"``) and a response that reports its own credits wins.
+FIRECRAWL_SEARCH_CREDITS_PER_TEN_RESULTS = 2
+
+
+def firecrawl_search_credits_estimate(results: int) -> int:
+    """Credits for one search that returned ``results`` hits (at least one block of ten)."""
+    blocks = max(1, -(-int(results) // 10))
+    return blocks * FIRECRAWL_SEARCH_CREDITS_PER_TEN_RESULTS
+
+
+def firecrawl_credits_to_usd(credits: float) -> float:
+    """Firecrawl credits to USD, rounded to the ledger's 6dp (see ``CostRecord.to_jsonl_dict``)."""
+    return round(float(credits) * FIRECRAWL_USD_PER_CREDIT, 6)
+
+
 @dataclass(frozen=True)
 class Plan:
     """One row of the published consumer plan card.

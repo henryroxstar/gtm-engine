@@ -91,6 +91,7 @@ DEFAULT_GLOBS: tuple[str, ...] = (
     "gtm_core/prospect_guards.py",
     "gtm_core/account_folder.py",
     "gtm_core/preflight_report.py",
+    "gtm_core/signal_first_status.py",
 )
 
 

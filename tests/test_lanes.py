@@ -161,31 +161,19 @@ def test_lane_csv_headers_have_no_duplicate_columns(tmp_path):
 
 def test_hold_beats_every_other_lane():
     """A perfect personalised candidate on the adjacent-competitor list still holds."""
-    ctx = _ctx(
-        competitors={
-            org_token("vertex.example", "Vertex Systems"): CompetitorHit(
-                "adjacent", "Vertex (adjacent)"
-            )
-        }
-    )
+    ctx = _ctx(competitors={"vertex.example": CompetitorHit("adjacent", "Vertex (adjacent)")})
     r = _lane(_row(), [_rec("jordan.vance@vertex.example", "send")], ctx)
     assert r.lane == "hold" and r.trigger == "competitor-adjacent"
 
 
 def test_excluded_beats_hold():
-    ctx = _ctx(
-        competitors={org_token("vertex.example", "Vertex Systems"): CompetitorHit("adjacent", "x")}
-    )
+    ctx = _ctx(competitors={"vertex.example": CompetitorHit("adjacent", "x")})
     r = _lane(_row(suppression="out-of-market"), None, ctx)
     assert r.lane == "excluded" and r.trigger == "suppressed"
     r = _lane(
         _row(),
         None,
-        _ctx(
-            competitors={
-                org_token("vertex.example", "Vertex Systems"): CompetitorHit("direct", "x")
-            }
-        ),
+        _ctx(competitors={"vertex.example": CompetitorHit("direct", "x")}),
     )
     assert r.lane == "excluded" and r.trigger == "competitor-direct"
 
@@ -421,11 +409,7 @@ def test_write_state_carries_reason_additively(tmp_path):
 
 
 def test_competitor_and_partner_hold():
-    ctx = _ctx(
-        competitors={
-            org_token("vertex.example", "Vertex Systems"): CompetitorHit("si-channel", "x")
-        }
-    )
+    ctx = _ctx(competitors={"vertex.example": CompetitorHit("si-channel", "x")})
     assert _lane(_row(), None, ctx).trigger == "competitor-adjacent"
     assert _lane(_row(category_relation="partner")).trigger == "partner"
     assert _lane(_row()).lane != "hold"

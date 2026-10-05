@@ -32,10 +32,27 @@ options:
                         its own recorded scope. Only the profile rollup is
                         refreshed automatically, so the scoped pages go stale
                         silently — a stale page renders identically to a
-                        current one. Use this after changing the renderer,
-                        which no freshness check can see.
-  --check-fresh         do not render — report whether the page for this scope
-                        is still built from what is on disk now, and exit non-
-                        zero if not. A stale page renders identically to a
-                        current one, so rendering proves nothing about the one
-                        already sitting there.
+                        current one. This is the one remedy for a red --check-
+                        fresh. A page whose campaign no longer resolves is
+                        listed as a retired candidate and left as it is. Exits
+                        successfully only when --check-fresh would then be
+                        green: non-zero if any page failed or cannot be re-
+                        rendered (no recorded scope, a damaged sidecar, a
+                        deleted page file, a symlink), naming each with the
+                        command that clears it, and non-zero if the sending
+                        figures are too old (a re-render cannot refresh them).
+                        Cannot be combined with --check-fresh.
+  --check-fresh         do not render — report whether the pages are still
+                        built from what is on disk now, and exit non-zero if
+                        not. With no --scope and no --campaign this checks
+                        EVERY page under the profile, because the rollup is
+                        the only one anything re-renders on its own and the
+                        scoped pages go stale silently. It also goes red when
+                        the sending figures are older than the limit, which no
+                        amount of re-digesting can see; that holds for a named
+                        --scope or --campaign too, judged by the figures that
+                        page itself recorded. A named page is judged by the
+                        same rules as the all-pages form. --campaign goes with
+                        --scope campaign only and must name a campaign that
+                        has a manifest. The remedy is --refresh-all, then
+                        check again. Cannot be combined with --refresh-all.

@@ -194,6 +194,10 @@ jobs:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # tests/regression/test_signal_first_compat.py runs `git archive` on a pinned base
+          # commit, which a depth-1 checkout does not contain (exit 128 on main, 2026-10-02).
+          fetch-depth: 0
 
       - name: set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

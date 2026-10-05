@@ -818,6 +818,96 @@
         "title": "ApiKeyVerifyResponse",
         "type": "object"
       },
+      "CaseStudyResponse": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "customer": {
+            "title": "Customer",
+            "type": "string"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "problem": {
+            "title": "Problem",
+            "type": "string"
+          },
+          "promoted": {
+            "title": "Promoted",
+            "type": "boolean"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "staged": {
+            "title": "Staged",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer",
+          "problem",
+          "action",
+          "result",
+          "staged",
+          "promoted"
+        ],
+        "title": "CaseStudyResponse",
+        "type": "object"
+      },
+      "CaseStudyStageRequest": {
+        "properties": {
+          "action": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "auto_promote": {
+            "default": false,
+            "title": "Auto Promote",
+            "type": "boolean"
+          },
+          "customer": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Customer",
+            "type": "string"
+          },
+          "problem": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Problem",
+            "type": "string"
+          },
+          "result": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer",
+          "problem",
+          "action",
+          "result"
+        ],
+        "title": "CaseStudyStageRequest",
+        "type": "object"
+      },
       "CostSummaryResponse": {
         "properties": {
           "cap_usd": {
@@ -1113,6 +1203,137 @@
           "api_key"
         ],
         "title": "IntegrationPayload",
+        "type": "object"
+      },
+      "KnowledgeDiffResponse": {
+        "properties": {
+          "candidate_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha"
+          },
+          "diff": {
+            "title": "Diff",
+            "type": "string"
+          },
+          "has_changes": {
+            "title": "Has Changes",
+            "type": "boolean"
+          },
+          "staged": {
+            "title": "Staged",
+            "type": "boolean"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "diff",
+          "has_changes",
+          "staged"
+        ],
+        "title": "KnowledgeDiffResponse",
+        "type": "object"
+      },
+      "KnowledgePromoteRequest": {
+        "properties": {
+          "candidate_sha": {
+            "title": "Candidate Sha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_sha"
+        ],
+        "title": "KnowledgePromoteRequest",
+        "type": "object"
+      },
+      "KnowledgePromoteResponse": {
+        "properties": {
+          "refreshed": {
+            "title": "Refreshed",
+            "type": "string"
+          },
+          "status": {
+            "default": "promoted",
+            "title": "Status",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "refreshed"
+        ],
+        "title": "KnowledgePromoteResponse",
+        "type": "object"
+      },
+      "KnowledgeStageRequest": {
+        "properties": {
+          "content": {
+            "maxLength": 500000,
+            "title": "Content",
+            "type": "string"
+          },
+          "frontmatter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frontmatter"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "KnowledgeStageRequest",
+        "type": "object"
+      },
+      "KnowledgeTopicResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "frontmatter": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frontmatter"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "content"
+        ],
+        "title": "KnowledgeTopicResponse",
         "type": "object"
       },
       "LoginRequest": {
@@ -2017,6 +2238,22 @@
         "title": "RunResponse",
         "type": "object"
       },
+      "StagedTopicsResponse": {
+        "properties": {
+          "staged_topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Staged Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "staged_topics"
+        ],
+        "title": "StagedTopicsResponse",
+        "type": "object"
+      },
       "SubscriptionResponse": {
         "properties": {
           "entitlement": {
@@ -2049,6 +2286,143 @@
           "monthly_cost_cap_usd"
         ],
         "title": "SubscriptionResponse",
+        "type": "object"
+      },
+      "SuppressionAddRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SuppressionItem"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SuppressionAddRequest",
+        "type": "object"
+      },
+      "SuppressionEntryResponse": {
+        "properties": {
+          "company_domain": {
+            "title": "Company Domain",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "company_domain",
+          "reason",
+          "date",
+          "note"
+        ],
+        "title": "SuppressionEntryResponse",
+        "type": "object"
+      },
+      "SuppressionItem": {
+        "properties": {
+          "company_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Domain"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "reason": {
+            "default": "competitor",
+            "pattern": "^(competitor|customer|partner|eval-disqualified|role-mismatch)$",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "SuppressionItem",
+        "type": "object"
+      },
+      "SuppressionsListResponse": {
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "suppressions": {
+            "items": {
+              "$ref": "#/components/schemas/SuppressionEntryResponse"
+            },
+            "title": "Suppressions",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "suppressions",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "SuppressionsListResponse",
         "type": "object"
       },
       "TokenResponse": {
@@ -6993,6 +7367,1198 @@
         "summary": "Activate Profile",
         "tags": [
           "profiles"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/case-studies/stage": {
+      "post": {
+        "description": "Merge structured case study into candidate staging, with optional direct promote.",
+        "operationId": "stage_case_study_v1_profiles__profile_name__case_studies_stage_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseStudyStageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseStudyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stage Case Study",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/knowledge-staging": {
+      "get": {
+        "description": "List pending staged topics carrying unapproved candidate changes.",
+        "operationId": "get_staged_topics_v1_profiles__profile_name__knowledge_staging_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedTopicsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Staged Topics",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/knowledge/{topic}": {
+      "get": {
+        "description": "Retrieve live knowledge topic content and extracted frontmatter.",
+        "operationId": "get_knowledge_topic_v1_profiles__profile_name__knowledge__topic__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeTopicResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Topic",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/knowledge/{topic}/diff": {
+      "get": {
+        "description": "Unified diff between live file and staged candidate.",
+        "operationId": "diff_knowledge_topic_v1_profiles__profile_name__knowledge__topic__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDiffResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Diff Knowledge Topic",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/knowledge/{topic}/promote": {
+      "post": {
+        "description": "Promote a staged candidate topic to live profile truth.",
+        "operationId": "promote_knowledge_topic_v1_profiles__profile_name__knowledge__topic__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgePromoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePromoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promote Knowledge Topic",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/knowledge/{topic}/stage": {
+      "delete": {
+        "description": "Discard an unpromoted candidate update for a knowledge topic.",
+        "operationId": "discard_staged_topic_v1_profiles__profile_name__knowledge__topic__stage_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Discard Staged Topic V1 Profiles  Profile Name  Knowledge  Topic  Stage Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard Staged Topic",
+        "tags": [
+          "profile_knowledge"
+        ]
+      },
+      "post": {
+        "description": "Stage a candidate update for a knowledge topic.",
+        "operationId": "stage_knowledge_topic_v1_profiles__profile_name__knowledge__topic__stage_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeStageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Stage Knowledge Topic V1 Profiles  Profile Name  Knowledge  Topic  Stage Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stage Knowledge Topic",
+        "tags": [
+          "profile_knowledge"
+        ]
+      }
+    },
+    "/v1/profiles/{profile_name}/suppressions": {
+      "get": {
+        "description": "List local exclusions from the suppression ledger with pagination and filtering.",
+        "operationId": "list_suppressions_v1_profiles__profile_name__suppressions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Suppressions",
+        "tags": [
+          "suppressions"
+        ]
+      },
+      "post": {
+        "description": "Batch append proactive domain and person exclusions to the local ledger.",
+        "operationId": "add_suppressions_v1_profiles__profile_name__suppressions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_name",
+            "required": true,
+            "schema": {
+              "title": "Profile Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuppressionAddRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Suppressions V1 Profiles  Profile Name  Suppressions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Suppressions",
+        "tags": [
+          "suppressions"
         ]
       }
     },

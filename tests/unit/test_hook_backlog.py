@@ -292,6 +292,17 @@ def test_the_json_carries_the_full_list_not_an_excerpt(tmp_path, monkeypatch, ca
 REPO = Path(__file__).resolve().parents[2]
 
 
+def _default_product(name: str) -> str | None:
+    """The profile's default product when it has a second one, else ``None``.
+
+    A profile with a second product refuses a run that names none (``run_scope``); the live
+    matrix these tests read is the default product's, so name it. Discovered, never spelled."""
+    from gtm_core import run_scope
+
+    got = run_scope.resolve(name, interactive=True)
+    return got.default if isinstance(got, run_scope.Ask) else None
+
+
 def _live_profile() -> str:
     """A profile in this checkout with both a parseable matrix and a cells.toml, discovered
     rather than named (the de-brand release gate forbids a tenant token in tests/)."""
@@ -300,11 +311,16 @@ def _live_profile() -> str:
         if not (REPO / "content" / name / "prospects" / "sequences" / "cells.toml").is_file():
             continue
         try:
-            if backlog(name).cells_total:
+            if backlog(name, product=_default_product(name)).cells_total:
                 return name
         except BacklogUnreadable:  # pragma: no cover
             continue
     pytest.skip("no tenant matrix + cells.toml in this checkout")
+
+
+def _live_backlog():
+    name = _live_profile()
+    return backlog(name, product=_default_product(name))
 
 
 def test_the_live_matrix_holds_several_cells_behind_one_row_label():
@@ -336,7 +352,7 @@ def test_the_live_matrix_holds_several_cells_behind_one_row_label():
     a public repo — which neither the de-brand lint (no tenant token) nor the PII roster (not a
     third party's name) can see.
     """
-    b = backlog(_live_profile())
+    b = _live_backlog()
     assert b.unused, "the live matrix has no unused cell at all — nothing to control against"
     per_row: dict[str, list] = {}
     for cell in b.unused:
@@ -370,7 +386,7 @@ def test_the_live_backlog_accounts_for_every_matrix_cell():
     once or is genuinely argued — so a cell appended to both lists, or dropped from both, or
     a report reading a different file, is red.
     """
-    b = backlog(_live_profile())
+    b = _live_backlog()
     assert b.specs_read, "no specs read — the used side would be trivially empty"
     cells = list(_live_matrix_cells())
     assert b.cells_total == len(cells), "the report parsed a different matrix than this did"

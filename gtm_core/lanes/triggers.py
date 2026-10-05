@@ -7,7 +7,7 @@ never look at the free-text reason column, which is mostly email-body text.
 
 from __future__ import annotations
 
-from ..account_integrity import competitor_match
+from ..account_relation import COMPETITOR_ADJACENT, COMPETITOR_DIRECT, Relation
 from ..adjudication import Adjudication
 from ..adjudication.defects import defect_scope, normalize_defect_class
 from ..prospects_consolidate.confidence import _person_key, _row_to_record, org_token
@@ -20,6 +20,14 @@ Hit = tuple[str, str] | None
 
 def _email(row: dict) -> str:
     return (row.get("email") or "").strip().lower()
+
+
+def _relations(row: dict, ctx: RouterContext) -> list[Relation]:
+    """Everything the classifier says this row is, strongest first (one implementation, three
+    callers: this module, the enrolment gate, and the pool stamp)."""
+    return ctx.relations().classify_all(
+        row.get("company", ""), row.get("company_domain", ""), row.get("email", "")
+    )
 
 
 def _identity(row: dict) -> list[str]:
@@ -55,13 +63,8 @@ def already_enrolled(row: dict, ctx: RouterContext) -> Hit:
 
 
 def competitor_direct(row: dict, ctx: RouterContext) -> Hit:
-    hit = competitor_match(
-        row.get("company", ""),
-        row.get("company_domain", ""),
-        ctx.competitors,
-        email=row.get("email", ""),
-    )
-    return ("competitor-direct", hit.summary) if hit and hit.direct else None
+    rel = next((r for r in _relations(row, ctx) if r.kind == COMPETITOR_DIRECT), None)
+    return ("competitor-direct", rel.reason) if rel else None
 
 
 EXCLUDES = (suppressed, optout, already_enrolled, competitor_direct)
@@ -71,13 +74,8 @@ EXCLUDES = (suppressed, optout, already_enrolled, competitor_direct)
 
 
 def competitor_adjacent(row: dict, ctx: RouterContext, judge: Adjudication | None) -> Hit:
-    hit = competitor_match(
-        row.get("company", ""),
-        row.get("company_domain", ""),
-        ctx.competitors,
-        email=row.get("email", ""),
-    )
-    return ("competitor-adjacent", hit.summary) if hit and not hit.direct else None
+    rel = next((r for r in _relations(row, ctx) if r.kind == COMPETITOR_ADJACENT), None)
+    return ("competitor-adjacent", rel.reason) if rel else None
 
 
 def partner(row: dict, ctx: RouterContext, judge: Adjudication | None) -> Hit:
@@ -89,10 +87,12 @@ def regulator(row: dict, ctx: RouterContext, judge: Adjudication | None) -> Hit:
     rel = (row.get("category_relation") or "").strip().lower()
     if rel == CategoryRelation.REGULATOR:
         return "regulator", "category_relation=regulator"
-    domain = (row.get("company_domain") or "").strip().lower()
-    for suffix in ctx.regulated_suffixes:
-        if domain and (domain == suffix.lstrip(".") or domain.endswith(suffix)):
-            return "regulator", f"domain {domain} matches {suffix}"
+    # Every body kind holds here (exchange, standards, public health too): the hold sheet is where a
+    # person decides. An ending hit's reason is the string this trigger has always written, so a
+    # hold decision recorded earlier — keyed on trigger AND detail — still releases the row.
+    for rel in _relations(row, ctx):
+        if rel.is_body and rel.router_action == "hold":
+            return "regulator", rel.reason
     if ctx.regulated_industries:
         for key in _identity(row):
             industry = ctx.industries.get(key, "")

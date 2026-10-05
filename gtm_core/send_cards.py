@@ -34,6 +34,7 @@ from gtm_core.htmlpage import script_json
 from gtm_core.merge_hygiene.signal_dates import signal_age_limit
 from gtm_core.paths import resolve_content_root
 from gtm_core.prospect_paths import pool_dir, sequences_dir
+from gtm_core.send_cards_review_gate import refuse_unreviewed, render_apply_summary
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,11 @@ log = logging.getLogger(__name__)
 VALID_DECISIONS: frozenset[str] = frozenset({"send this cell", "not this wave", "rewrite"})
 
 NOT_DECIDED: str = "not decided"
+
+
+from .enrolments import label_for  # noqa: E402
+
+ATTRIBUTION_FIELDS = ("signal_class", "premise_via", "source_id")
 
 
 @dataclass
@@ -57,9 +63,19 @@ class CardMember:
     capture_date: str = ""
     signal_kind: str = "event"
     ticked: bool = True
+    #: What evidence the person was chosen on (R6.1): ``signal_class`` (a registry kind such as
+    #: ``source_list``), ``premise_via`` (``evidence``/``source``/...), ``source_id`` (the list).
+    #: All empty for a person chosen the old way, and then absent from the serialised card.
+    signal_class: str = ""
+    premise_via: str = ""
+    source_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        for key in ATTRIBUTION_FIELDS:
+            if not d[key]:
+                del d[key]
+        return d
 
 
 @dataclass
@@ -96,6 +112,7 @@ class ApplyResult:
     suppressed_removed: list[dict[str, Any]]
     unticked_excluded: list[dict[str, Any]]
     repair_rows: list[dict[str, Any]]
+    refused_cells: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ── R8.1 Card Generation ──────────────────────────────────────────────────────
@@ -146,6 +163,9 @@ def generate_cards(cells: list[dict[str, Any]]) -> list[Card]:
                     capture_date=rm.get("capture_date") or rm.get("source_date") or "",
                     signal_kind=rm.get("signal_kind") or "event",
                     ticked=bool(rm.get("ticked", True)),
+                    signal_class=rm.get("signal_class") or "",
+                    premise_via=rm.get("premise_via") or "",
+                    source_id=rm.get("source_id") or "",
                 )
             )
 
@@ -213,7 +233,12 @@ def _render_card_block(c: Card, profile: str, voice_content_html: str) -> str:
                 if m.source_url
                 else ""
             )
-            email_td += f"<td>{html.escape(m.opener)}</td><td>{src_link}</td><td>{html.escape(m.capture_date)}</td>"
+            label = (
+                f' <i class="evidence-class">({html.escape(label_for(m.signal_class))})</i>'
+                if m.signal_class
+                else ""
+            )
+            email_td += f"<td>{html.escape(m.opener)}{label}</td><td>{src_link}</td><td>{html.escape(m.capture_date)}</td>"
         rows_html.append(f"<tr>{email_td}</tr>")
 
     extra_cols = "<th>Opener</th><th>Source</th><th>Capture Date</th>" if c.is_personalised else ""
@@ -223,13 +248,13 @@ def _render_card_block(c: Card, profile: str, voice_content_html: str) -> str:
 </table>"""
 
     # Decision options: send this cell, not this wave, rewrite
+    cid_attr = html.escape(c.cell_id)
     decision_html = f"""<div class="decision-box">
   <b>Decision:</b>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="send this cell"> Approve Audience</label>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="not this wave"> Skip for now</label>
-  <label><input type="radio" name="dec-{html.escape(c.cell_id)}" value="rewrite"> Request rewrite</label>
-  <input type="text" placeholder="One-time tweak... (For permanent rules, edit voice.md)" style="width:380px; margin-left:10px;">
-  <span style="margin-left: 10px; font-size: 11px;"><a href="#" onclick="alert('To permanently change tone, run: open profiles/{html.escape(profile)}/voice.md'); return false;">Edit Voice Rules</a></span>
+  <label><input type="radio" name="dec-{cid_attr}" value="send this cell" onchange="onDecisionChange('{cid_attr}', this.value)"> Approve Audience</label>
+  <label><input type="radio" name="dec-{cid_attr}" value="not this wave" onchange="onDecisionChange('{cid_attr}', this.value)"> Skip for now</label>
+  <label><input type="radio" name="dec-{cid_attr}" value="rewrite" onchange="onDecisionChange('{cid_attr}', this.value)"> Request rewrite</label>
+  <input type="text" data-cell="{cid_attr}" oninput="onNoteChange(this)" placeholder="Note for rewrite..." style="width:380px; margin-left:10px;">
 </div>"""
 
     # Notice: initial DOM has empty container for verdicts (panel verdict absent initially)
@@ -356,14 +381,47 @@ def generate_cards_page(
 </head>
 <body>
 <header style="flex-wrap: wrap;">
-  <h1>Outreach Campaign Review</h1>
-  <span style="color:var(--muted)">Profile: __PROFILE__ · Wave: __STAMP__</span>
-  <p style="width: 100%; margin: 0; font-size: 13px; color: var(--muted);">Review the email template and recipient list below, then select your decision at the bottom to approve or skip.</p>
+  <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+    <div>
+      <h1 style="display:inline-block; margin-right:12px;">Outreach Campaign Review</h1>
+      <span style="color:var(--muted)">Profile: __PROFILE__ · Wave: __STAMP__</span>
+    </div>
+    <button onclick="downloadDecisions()" style="background:var(--accent); color:#fff; border:none; padding:8px 16px; border-radius:6px; font-weight:600; cursor:pointer;">📥 Download Decisions JSON</button>
+  </div>
+  <p style="width: 100%; margin: 8px 0 0 0; font-size: 13px; color: var(--muted);">Review the email template and recipient list below, select your decision for each card, then click "Download Decisions JSON" to save your review.</p>
 </header>
 <main id="cards-container">
 __CARDS_HTML__
 </main>
 <script>
+function downloadDecisions() {
+  const exportData = {
+    run_id: "__STAMP__",
+    wave: "__STAMP__",
+    cards: CARDS.map(c => {
+      const s = clientState[c.cell_id] || {};
+      return {
+        card_id: c.cell_id,
+        cell_id: c.cell_id,
+        title: c.title,
+        cohort: c.cohort,
+        seat: c.seat,
+        decision: s.decision || "not decided",
+        note: s.note || "",
+        revealed_before_decision: s.revealed_before_decision || false,
+        members: (c.members || []).map(m => ({
+          ...m,
+          ticked: !(s.unticked || []).includes(m.email)
+        }))
+      };
+    })
+  };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "send-cards-decisions-__STAMP__.json";
+  a.click();
+}
 const CARDS = __CARDS_JSON__;
 let clientState = {};
 for (const c of CARDS) {
@@ -386,6 +444,13 @@ function onTickChange(checkbox, cellId, email) {
   } else {
     s.unticked = s.unticked.filter(e => e !== em);
   }
+}
+
+function onNoteChange(input) {
+  const cid = input.dataset ? input.dataset.cell : "";
+  const s = clientState[cid];
+  if (!s) return;
+  s.note = input.value;
 }
 
 function onRevealVerdicts(cellId) {
@@ -543,6 +608,21 @@ def _compute_earliest_personalised_expiry(
     return min(expiries).isoformat()
 
 
+def _attribution(members: list[dict[str, Any]], prospect_rows: list[dict[str, str]]) -> list[dict]:
+    """Per-person evidence for the people actually going into the draft (R6.1), beside the rows.
+
+    Only people with some evidence are listed; a card with none adds no key at all, so a draft
+    chosen the old way is unchanged.
+    """
+    going = {r["Email"].strip().lower() for r in prospect_rows}
+    out = []
+    for m in members:
+        email = (m.get("email") or "").strip().lower()
+        if email in going and any(m.get(k) for k in ATTRIBUTION_FIELDS):
+            out.append({"email": email, **{k: str(m.get(k) or "") for k in ATTRIBUTION_FIELDS}})
+    return out
+
+
 def _process_send_cell(
     card: dict[str, Any],
     cell_id: str,
@@ -612,6 +692,9 @@ def _process_send_cell(
     }
     if expires_on:
         draft_payload["expires_on"] = expires_on
+    attribution = _attribution(members, prospect_rows)
+    if attribution:
+        draft_payload["attribution"] = attribution
 
     draft_filename = (
         f"{run_id_val}.enroll-draft.json"
@@ -689,6 +772,7 @@ def send_cards_apply(
     cards_list = data.get("cards", data) if isinstance(data, dict) else data
     if not isinstance(cards_list, list):
         raise ValueError("invalid card decisions export: expected list of cards")
+    cards_list, refused_cells = refuse_unreviewed(cards_list)
 
     run_id_val = (
         run_id
@@ -770,6 +854,7 @@ def send_cards_apply(
         suppressed_removed=suppressed_removed,
         unticked_excluded=unticked_excluded,
         repair_rows=repair_rows,
+        refused_cells=refused_cells,
     )
 
 
@@ -891,10 +976,7 @@ def main(argv: list[str] | None = None) -> int:
         profile = args.profile or "default"
         try:
             res = send_cards_apply(args.export, profile=profile, run_id=args.run_id)
-            print(
-                f"outreach-campaign apply: wrote {len(res.draft_paths)} draft(s), {len(res.repair_rows)} repair row(s)"
-            )
-            return 0
+            return render_apply_summary(res)
         except Exception as exc:
             print(f"REFUSED: {exc}", file=sys.stderr)
             return 2
@@ -902,7 +984,36 @@ def main(argv: list[str] | None = None) -> int:
     # default / generate
     profile = args.profile or "default"
     wave = args.wave or ""
-    print(f"Outreach campaign review for profile {profile}, wave {wave}")
+    if not wave:
+        print(
+            "REFUSED: --wave is required to generate the outreach campaign review page",
+            file=sys.stderr,
+        )
+        return 2
+
+    cells_path = sequences_dir(profile) / f"send-cards-{wave}.json"
+    if not cells_path.is_file():
+        print(f"REFUSED: cells file not found: {cells_path}", file=sys.stderr)
+        return 2
+
+    try:
+        cells_data = json.loads(cells_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"REFUSED: invalid cells file {cells_path}: {exc}", file=sys.stderr)
+        return 2
+
+    cells = cells_data.get("cards", cells_data) if isinstance(cells_data, dict) else cells_data
+    if not isinstance(cells, list):
+        print(
+            f"REFUSED: invalid cells file {cells_path}: expected a list of cells", file=sys.stderr
+        )
+        return 2
+
+    page_html = generate_cards_page(cells, stamp=wave, profile=profile)
+    out_path = args.out or (sequences_dir(profile) / f"send-cards-{wave}.html")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(page_html, encoding="utf-8")
+    print(f"outreach-campaign generate: wrote review page for {len(cells)} cell(s) to {out_path}")
     return 0
 
 

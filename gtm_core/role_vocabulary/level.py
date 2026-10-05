@@ -11,6 +11,37 @@ _ECON_RE = re.compile(
     re.IGNORECASE,
 )
 
+_CXO_RE = re.compile(
+    r"\b(ceo|cto|ciso|cio|cpo|cro|coo|cdo|cmo|cfo)\b"
+    r"|\bchief\s+[a-z\s&/,-]+\s+officer\b"
+    r"|\bchief\s+executive\b",
+    re.IGNORECASE,
+)
+_CXO_ANTI_CUE_RES = (
+    re.compile(r"\bchief\s+of\s+staff\b", re.IGNORECASE),
+    re.compile(r"\bchief\s+architect\b", re.IGNORECASE),
+    re.compile(r"\bprincipal\s+architect\b", re.IGNORECASE),
+    re.compile(r"\boffice\s+of\s+the\s+(ceo|cto|ciso|cio|executive)\b", re.IGNORECASE),
+    re.compile(r"\bassistant\b", re.IGNORECASE),
+    re.compile(r"\bdeputy\b", re.IGNORECASE),
+    re.compile(r"\bchief\s+infosec\s+office\b", re.IGNORECASE),
+)
+_VP_PREFIX_RE = re.compile(r"^(vice\s+president|svp|evp|vp)[\s,&/-]+", re.IGNORECASE)
+
+
+def is_cxo(title: str) -> bool:
+    """Return True if title represents C-suite leadership, rejecting anti-cues."""
+    t = (title or "").strip()
+    if not t:
+        return False
+    # Normalize acronym dots: e.g. "C.E.O." -> "CEO", "C.T.O." -> "CTO"
+    t_clean = re.sub(r"(?<=\b[a-zA-Z])\.(?=[a-zA-Z]|\s|$|[,\-/&])", "", t)
+    if any(ac.search(t) or ac.search(t_clean) for ac in _CXO_ANTI_CUE_RES):
+        return False
+    # Strip corporate rank prefixes (e.g. 'Vice President & CTO' -> 'CTO')
+    stripped = _VP_PREFIX_RE.sub("", t_clean)
+    return bool(_CXO_RE.search(t_clean) or _CXO_RE.search(stripped))
+
 
 def _has_anti_cue(t: str, seat: str, vocab: RoleVocabulary | None) -> bool:
     if "chief of staff" in t:

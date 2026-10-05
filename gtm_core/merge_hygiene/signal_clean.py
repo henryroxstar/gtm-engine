@@ -172,3 +172,8 @@ def signal_clause(why_now: str) -> str:
     if clause == original and not re.search(r"[.)\"'\d]$|[a-z]$", original):
         return ""
     return clause
+
+
+def is_synthetic_signal(why_now: str) -> bool:
+    """True if the signal is a synthetic tag (e.g., an intent score)."""
+    return bool(why_now and _INTENT_LABEL_RE.search(why_now))

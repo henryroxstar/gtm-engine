@@ -175,7 +175,7 @@ def _mark_contoso_a_direct_competitor(monkeypatch) -> None:
 
     real = lanes_cli.load_context
 
-    def fake(profile, *, as_of):
+    def fake(profile, *, as_of, product=None):
         ctx = real(profile, as_of=as_of)
         ctx.competitors = {
             org_token("contosofreight.example", "Contoso Freight"): CompetitorHit(

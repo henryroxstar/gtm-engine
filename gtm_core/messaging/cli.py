@@ -44,6 +44,7 @@ import json
 import sys
 from pathlib import Path
 
+from .. import run_scope
 from ..paths import PathConfig, _safe_segment, resolve_content_root, resolve_profiles_root
 from . import angle_status, matrix_view, registry, resolve
 
@@ -64,6 +65,7 @@ _MARKER_DELIMS = {"⟦": "[", "⟧": "]"}
 #: package and keeps its stack trace, because a bug rendered as advice is a bug nobody files.
 _OPERATOR_FIXABLE = (
     registry.RegistryError,
+    run_scope.ScopeError,
     angle_status.AngleStatusError,
     FileNotFoundError,
     UnicodeDecodeError,
@@ -192,7 +194,8 @@ def _cli_check(args: argparse.Namespace) -> int:
             registry.RegistryError(
                 f"{matrix_view.MATRIX_FILE}: out of date — it no longer matches "
                 f"{registry.ANGLES_FILE}; regenerate with "
-                f"`python -m gtm_core.messaging matrix --profile {profile}`"
+                f"`python -m gtm_core.messaging matrix --profile {profile}"
+                f"{f' --product {args.product}' if args.product else ''}`"
             ),
             args.json,
         )
@@ -230,6 +233,25 @@ def _cli_check(args: argparse.Namespace) -> int:
 # --- matrix ---------------------------------------------------------------------------
 
 
+def _confine_matrix_target(target: Path, root: Path, profile: str, product: str | None) -> None:
+    """The one file this writer may replace: the product's own matrix, or the company's for the
+    default product. Checked on the resolved path, after normalisation, as a second lock: a writer
+    in the closed ``profiles/`` set must not rely on every caller having named the product right."""
+    base = (root / profile).resolve()
+    scope = run_scope.require(profile, product, profiles_root=root)
+    allowed = (
+        base / "products" / (scope.product or "") / matrix_view.MATRIX_FILE
+        if scope.is_second_product
+        else None
+    )
+    resolved = target.resolve()
+    if base not in resolved.parents or (allowed is not None and resolved != allowed.resolve()):
+        raise registry.RegistryError(
+            f"{matrix_view.MATRIX_FILE}: refusing to write {resolved.name} outside "
+            f"{'the product folder' if allowed else 'this profile'}"
+        )
+
+
 def _cli_matrix(args: argparse.Namespace) -> int:
     """Regenerate ``hook-matrix.md`` — the sixth ``profiles/`` writer (``docs/RULES.md``).
 
@@ -254,6 +276,7 @@ def _cli_matrix(args: argparse.Namespace) -> int:
     try:
         profile, reg = _load(args)
         target = matrix_view.matrix_path(_profiles_root(args), profile, product=args.product)
+        _confine_matrix_target(target, _profiles_root(args), profile, args.product)
         state = matrix_view.write_matrix(reg, target)
     except _OPERATOR_FIXABLE as exc:
         return _fail(exc, args.json)
@@ -602,8 +625,28 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _scope_product(args: argparse.Namespace) -> int | None:
+    """Replace ``args.product`` with the product's slug, once, before any verb uses it.
+
+    Every verb here uses ``args.product`` twice: to load the registry and to find a path (the
+    matrix to compare or write, the angles file to edit). The registry load already maps a display
+    name to its slug, the path lookups did not, so a display name loaded the second product's
+    registry and then wrote its matrix over the company-level one (2026-09-29 red team).
+    Normalising here gives every later use one answer. Returns an exit code on refusal.
+    """
+    try:
+        scope = run_scope.require(_profile(args), args.product, profiles_root=_profiles_root(args))
+    except _OPERATOR_FIXABLE as exc:
+        return _fail(exc, getattr(args, "json", False))
+    args.product = scope.product
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    refused = _scope_product(args)
+    if refused is not None:
+        return refused
     if args.cmd == "check":
         return _cli_check(args)
     if args.cmd == "matrix":

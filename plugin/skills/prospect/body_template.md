@@ -16,14 +16,40 @@ Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) s
 
 ## Load context first
 
+> **Step 0 — which product is this run for? Decide it before anything else.** The *first* tool call of a
+> run is `python -m gtm_core.run_scope resolve --profile <active> [--product <slug>] [--unattended]` —
+> before the preflight and before any metered or MCP data call, so a question or a refusal spends nothing.
+> - **Exit 0, prints nothing** — this company has one product set up. Omit `--product` everywhere.
+> - **Exit 0, prints `product=<slug>`** — decided. The lines after it, down to `---`, go in the run header;
+>   the lines below `---` go in Details. Pass `--product <slug>` on every command below that takes it, for
+>   the whole run.
+> - **Exit 3** — more than one product could be meant. Ask ONE tappable question (`ask_question`) listing the
+>   options exactly as printed, recommended first, then run resolve again with `--product <answer>`.
+>   Unattended: never ask and never default — stop and report `product-required`.
+> - **Exit 2** — stop and show the message as written. Do not work around it.
+>
+> The product is an argument, never a memory: never infer it from a row, a file name or an earlier run, and
+> re-pass it on every command (each command is its own process, and one that drops it refuses on a company
+> with a second product).
+>
+> **A second product** is any product other than the company's default. The shared ledger holds one row per
+> account and no product, so a second product never changes a row that is already there: it may only ADD
+> companies nobody holds yet. Pass `--identity-only` to `prospects_import finalize`, so only identity and
+> contact fields reach `latest.json` and its tier, score, verdict and hook cell stay in the run's own files.
+> Skip `prospects_state mutate`, `lanes route` and `signal_backfill --promote` — each refuses a second product
+> until the ledger holds fit per product. A company fact you learn about an account that already exists
+> (its segment, size, country) goes in through `python -m gtm_core.firmographics apply`, which only
+> fills blanks. The `finalize` export lands in `prospects/by-product/<slug>/`, beside neither pool, and every
+> row carries `GTM_Account_ID` so the account can be joined back by id. The status block you paste is titled
+> "All products", because its numbers are every product's; say so in the header.
+
 > **Knowledge resolution (product-aware).** Wherever this skill loads a per-product knowledge file —
 > `icp-personas.md` or `market-scan-config.md` — resolve its path with
 > `python -m gtm_core.resolve_knowledge <file> --profile <active> [--product <slug>] [--overlay <slug>]` and read whatever
 > path it prints, instead of opening `knowledge/<file>` directly. The helper returns the product-level
 > file (`products/<slug>/<file>`) when present and falls back to the profile-level `knowledge/<file>`
-> otherwise. Pass `--product` when the run is bound to one product (the lead `default_product` from
-> PROFILE.md, or a product the operator named); omit it for profile-wide work — a profile that keeps one
-> shared knowledge pack always falls back to the profile level, so nothing changes for it.
+> otherwise. Pass the run's product (decided in Step 0 above) on every such read; on a company with one
+> product there is nothing to pass and nothing changes.
 >
 > **`--overlay` is for an experiment, and only when the operator named one.** An overlay
 > (`profiles/<active>/experiments/<slug>/`) replaces targeting files for the length of ONE run, so a
@@ -53,7 +79,7 @@ Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) s
 > Run:
 >
 > ```bash
-> uv run python -m gtm_core.prospects icp check --profile <active> --warn-only
+> uv run python -m gtm_core.prospects icp check --profile <active> [--product <slug>] --warn-only
 > ```
 >
 > and paste the one summary block into the run header. It reads the RESOLVED ICP, so pass
@@ -74,19 +100,23 @@ Produce a run of qualified accounts (default **10: 3 enterprise + 7 startup**) s
    - `references/discovery-and-budget.md` — Vibe filters, credit/budget model, enrichment depth, the 6-source signal sweep, the RocketReach Intentsify two-tier intent path, and the web-search fallback.
    - `references/intent-signals-catalog.md` — reference catalog of **every** buyer-intent signal captured from Vibe + RocketReach (facet/field, meaning, heat mapping, freshness, the weekly-snapshot capture path).
    - `references/heat-rescore.md` — the **Re-score mode** procedure: refresh `heat`/`intent_feeds` on existing `latest.json` accounts against today's intent, without new discovery.
+   - `references/static-mode.md` — the **Static-email mode** procedure: paste fixed copy + audience, unified exclusions cascade, region-schedule splitting, pilot sizing, and sequence_health reading.
    - `references/output-templates.md` — run header, per-account, Tier-A pack, QA checklist.
    - `references/hubspot-csv-map.md` — CSV columns + import settings.
-   - **The profile owns the ICP:** `profiles/<active>/knowledge/icp-personas.md` is the source of truth for this tenant's **gates + scoring rubric + segment thresholds** (some profiles put the rubric in a dedicated file it links, e.g. `buyer-intent-signals.md` — follow the link). Also read `case-studies.md` and the `hook-matrix.md` for facts/hooks.
+   - **The profile owns the ICP:** `icp-personas.md` (resolve it: `python -m gtm_core.resolve_knowledge icp-personas.md --profile <active> [--product <slug>]`) is the source of truth for this tenant's **gates + scoring rubric + segment thresholds** (some profiles put the rubric in a dedicated file it links, e.g. `buyer-intent-signals.md` — follow the link). Also read `case-studies.md` and the `hook-matrix.md` for facts/hooks.
    - **Vertical packs (if the profile ships them):** when the active profile has industry packs under `knowledge/industry/`, load the one matching an account's sector — `knowledge/industry/<vertical>.md` — for the industry overlay the generic ICP can't carry. Read its **"Prospecting signals & where to fish"** (where to source + which intent topics apply for that industry), **"Why now — urgency drivers"** + **"Regulatory & compliance landscape"** (the dated, industry-specific triggers that qualify a why-now and sharpen the ICP gate), and **"Matching proof shape" / "Email angles"** (the vertical-matched case study + hook). Cross-reference the pack's intent topics against `market-scan-config.md`. A profile with no `knowledge/industry/` simply skips this — nothing changes for it.
 
 ## Modes
 
+- **Signal-first mode ("signal sweep", "trigger run", "source by signal/intent"):** Inverts discovery by starting with observable corporate milestones and intent triggers rather than fixed account lists. The operator names a trigger token, framework, or event type (e.g. "companies hiring for LangGraph", "AI hiring clusters", "recent pilot announcements"). Run `python -m gtm_core.signal_events.cli sweep --profile <active>` (or probe candidate tokens via `gtm_core.signal_events.cli probe`). The companies attached to the resulting `BusinessEvent` records (from `content/<active>/signals/events-YYYY-MM.jsonl` or `unresolved_events.jsonl`) form the candidate pool. Skip cold discovery (Step 5); firmographics are enriched in Step 5.5; Step 6 is pre-satisfied by the event's verbatim snippet, source URL, and framework metadata at zero marginal cost. Proceeds directly to Gate & Score (Step 8), persona enrichment (Step 9), and personalized outreach drafting (Step 10).
+- **Account-first mode (default full run or List mode):** Traditional ABM / territory sourcing where accounts are selected first (via Step 5 ICP search or operator-supplied list in List mode) and qualified. In Step 6, the agent queries the rolling monthly ledger `content/<active>/signals/events-YYYY-MM.jsonl` for each target account before executing any live web sweeps.
 - **Full run (default):** 10 accounts per PROFILE markets and segment_mix.
-- **Proof mode (called by `setup`, or "quick sample"):** 3 accounts (1 enterprise + 2 startup), **web-search path only, 0 credits**, trimmed output. Skip enrichment and CSV; produce summary + score + one why-now + mapped case study per account (case study from `profiles/<active>/knowledge/case-studies.md`).
+- **Proof mode (called by `setup`, or "quick sample"):** 3 accounts (1 enterprise + 2 startup), **web-search path only, 0 credits**, trimmed output. Skip enrichment and CSV; produce summary + score + one why-now + mapped case study per account (case study from `case-studies.md`, resolved as above).
 - **Scoped run:** if the user names a market, segment, or count ("5 startups in Singapore"), honor it.
 - **Bulk run (operator states a large target, e.g. "300 accounts"):** standard mode's ~20–30-row `fetch-entities` intake per pass cannot reach a large target — use **bulk mode** instead (full funnel in `references/discovery-and-budget.md` §"Bulk mode"). Steps 1–4 (exclude set, preflight, budget pre-check auto-scaled, funnel sizing) below still apply; Steps 5–7 (discovery, why-now, the record) are replaced by that section's size→filter→export→ingest→score flow; Steps 8–9 (gate/score, enrichment) run the same rubric but **finalists-only enrichment and web-sweep confirmation**, not per-candidate; Step 10's `latest.json` merge happens via `python -m gtm_core.prospects_import finalize` (wraps the same safe merge-only writer + emits the HubSpot CSV in one call) instead of a hand-assembled items file. If any gate was relaxed for the run, set `qualification_path` (e.g. `intent-only-relaxed`) on every affected item — see the item shape in Step 10 below.
 - **Re-score mode ("refresh heat", "re-score my prospects", "update intent"):** no new discovery — refresh `heat` / `intent_feeds` on the accounts already in `content/<active>/prospects/latest.json` against *today's* intent, then re-rank Tier-A. Reuses this skill's intent fetch + heat axis; skips discovery, gating, enrichment, and outreach drafting. Full procedure in `references/heat-rescore.md`. Near-zero cost (intent checks are credit-free). Use after a tracked-topic change, for a periodic heat refresh, or to apply the scored heat axis to older runs.
 - **List mode (the operator supplies the accounts — "enrich and score this list", "score the accounts in this sheet", "we added some accounts, score them again"):** every other mode *finds* the universe; here it arrives from outside — a curated spreadsheet, a partner list, accounts colleagues added during an internal review. **Skip discovery entirely** and run the existing tail: sheet → CSV → `prospects_import ingest` → score on the same rubric (`gates-and-scoring.md`) → `prospects_import finalize`. Full procedure in `references/discovery-and-budget.md` §"List mode" — read it, because two defaults are wrong for a list you did not buy: **pass `--source curated-sheet`** (the default `vibe-export` logs per-row cost to `costs.jsonl`, which on a 400-row sheet fabricates ~$16 of spend against the §R2 cap), and expect **heat 0** until a Re-score pass fills it. List mode composes with the others: once the list is in `latest.json`, a later full/bulk run excludes those accounts through the normal exclude set, so the same company is never double-counted.
+- **Static-email mode (operator supplies fixed copy + target audience):** bypasses dynamic outreach generation; runs unified exclusion cascade (suppression, DNC, holds, existing sequence, regulator/competitor classifier, market gate, 1/company); preserves copy verbatim with named lint waivers; splits by send-windows.toml into paused regional sequences capped at pilot size. Full procedure in `references/static-mode.md`.
 
 ## Workflow
 
@@ -134,7 +164,7 @@ run `scripts/bootstrap.ps1` (Windows) or `bash scripts/bootstrap.sh` (mac/Linux)
 In a **new** shell, re-run the probe as `uv run python -m gtm_core.paths`. `uv` provisions its own
 Python 3.11+, so the alias never gets a vote.
 
-**Step 1 — Init, mode, & exclude set.** Run `python -m gtm_core.run_state --profile <active> start-stage --stage init` before reading state, and `... complete-stage --stage init` once this step is done — the run-state file this brackets is how a run that dies mid-step stays visible instead of silently disappearing (`prospects verify` reads it). Read the current state; do not consolidate yet.
+**Step 1 — Init, mode, & exclude set.** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage init` before reading state, and `... complete-stage --stage init` once this step is done — the run-state file this brackets is how a run that dies mid-step stays visible instead of silently disappearing (`prospects verify` reads it). Read the current state; do not consolidate yet.
 Consolidation runs **once per run, at Step 10** — nowhere else. It is cumulative over *every*
 `prospects-*-hubspot.csv` on disk, so that one run also folds in whatever a previous, interrupted
 run wrote and never consolidated — this step used to run the identical command for that reason,
@@ -149,8 +179,8 @@ enumerating CSVs. Confirm the mode (§Modes above) — **bulk mode** if the oper
 hand.** Run:
 
 ```bash
-uv run python -m gtm_core.preflight_report --profile <active> --warn-only
-uv run python -m gtm_core.prospects status --profile <active>
+uv run python -m gtm_core.preflight_report --profile <active> [--product <slug>] --warn-only
+uv run python -m gtm_core.prospects status --profile <active> [--product <slug>]
 ```
 
 The first command refreshes the checks' answer (free and network-free by contract; `--warn-only` so a failing list never stops the run) — the status block READS that answer, and says *unknown* rather than a number when the list changed after the checks last ran. Paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (if it exits 1 on an initial run with no routed state yet, paste its message verbatim — do not compose your own table). This is the same block Step 12 and
@@ -240,7 +270,7 @@ It returns the discovery target, per-stage expected counts, and lookups required
 
 **Per-stage tripwire (during the run).** After each stage call `gtm_core.funnel.check_stage(stage, actual_in, actual_out, plan)`. A stage below **70%** of its modelled yield returns `ok: false` — **STOP and report the projected delivery**, then re-size or widen. Never carry a silently smaller set forward. At run end call `record_actuals()` so the profile's `knowledge/funnel-yields.toml` self-corrects.
 
-**Step 5 — Cold discovery.** Run `python -m gtm_core.run_state --profile <active> start-stage --stage discovery` before this step and `... complete-stage --stage discovery` after it. One enterprise pass + one startup pass + one **in-market pass** (topic-intent filter) **per market**, plus the credit-free **RocketReach signal pre-flag pass** when signal search is available (paste-ready filters in `discovery-and-budget.md`). **Apollo's company search (`apollo_company_search` in-repo / `apollo_mixed_companies_search` hosted) is an OPTIONAL extra in-market pass** — it is metered per page — the rate is stated on the `apollo_company_search` tool itself, so read it there rather than assuming one (unlike RocketReach's free signal search), so gate it behind the Step 3 budget check and only run it when Vibe/RocketReach intent is absent, stale, or the profile explicitly wants Apollo's buying-intent topics cross-checked; it never replaces Vibe as the primary discovery engine. On the web path, build the candidate list by searching for ICP-matching companies per segment + market + the website keywords. Aim for a healthy candidate pool (≈2–3× the target) to survive gating. **Bulk mode:** skip this step's per-pass intake — follow `discovery-and-budget.md` §"Bulk mode" steps 1–6 instead (size → in-query filter passes → cost gate → export → `python -m gtm_core.prospects_import ingest`), which produces `candidates-<run-id>.json` in place of a Step 5 candidate list.
+**Step 5 — Cold discovery.** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage discovery` before this step and `... complete-stage --stage discovery` after it. One enterprise pass + one startup pass + one **in-market pass** (topic-intent filter) **per market**, plus the credit-free **RocketReach signal pre-flag pass** when signal search is available (paste-ready filters in `discovery-and-budget.md`). **Apollo's company search (`apollo_company_search` in-repo / `apollo_mixed_companies_search` hosted) is an OPTIONAL extra in-market pass** — it is metered per page — the rate is stated on the `apollo_company_search` tool itself, so read it there rather than assuming one (unlike RocketReach's free signal search), so gate it behind the Step 3 budget check and only run it when Vibe/RocketReach intent is absent, stale, or the profile explicitly wants Apollo's buying-intent topics cross-checked; it never replaces Vibe as the primary discovery engine. On the web path, build the candidate list by searching for ICP-matching companies per segment + market + the website keywords. Aim for a healthy candidate pool (≈2–3× the target) to survive gating. **Bulk mode:** skip this step's per-pass intake — follow `discovery-and-budget.md` §"Bulk mode" steps 1–6 instead (size → in-query filter passes → cost gate → export → `python -m gtm_core.prospects_import ingest`), which produces `candidates-<run-id>.json` in place of a Step 5 candidate list.
 
 
 **Step 5.5 — Firmographics before research.** Before searching for signals, ensure every candidate account has complete firmographics. A missing industry or employee count blocks segment checks and routing.
@@ -250,7 +280,7 @@ It returns the discovery target, per-stage expected counts, and lookups required
 4. Create a JSON payload with the resolved rows and run `uv run python -m gtm_core.firmographics apply --profile <active> --json <payload.json>`.
 5. If there are conflicts, it writes `firmographics-review-<ts>.csv`. Review the conflicts, mark `accept=yes` for the correct rows, and run `uv run python -m gtm_core.firmographics accept --profile <active> --review <csv>`.
 
-**Step 6 — "Why now" signal hunt (0 credits).** Run `python -m gtm_core.run_state --profile <active> start-stage --stage signal_hunt` before this step and `... complete-stage --stage signal_hunt` after it.
+**Step 6 — "Why now" signal hunt (0 credits).** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage signal_hunt` before this step and `... complete-stage --stage signal_hunt` after it.
 
 **Before you sweep, check whether the research already exists.** Step 4's "work the backlog before
 discovering" applies to signals too, and the sweep is the most expensive free thing this skill does.
@@ -267,6 +297,10 @@ the row, **321 already had a dossier on disk** — 159 of them with a source URL
 those is paying twice for a fact already bought. Verify the join per row before promoting: a URL in
 the dossier is not automatically the source for *this* clause.
 
+**First, check whether a verified signal already exists in the rolling ledger.**
+- If the run was initiated via **Signal-first mode**, the candidate row already carries its `BusinessEvent` evidence (source URL, headline, snippet, date, and frameworks) from `gtm_core.signal_events`; format it directly into the Step 7 record fields without re-querying.
+- In **Account-first mode**, check the rolling monthly signal ledger (`content/<active>/signals/events-YYYY-MM.jsonl`) for `<company>`. If the account already has recent verified events or a detected hiring cluster (`cluster_expansion` via `gtm_core.signal_events.cli.detect_clusters`), consume that record immediately—zero search queries, zero scraping tokens, and immediate grounding.
+
 Then run the standardized 6-source web sweep per candidate — the intent/trigger feeds pre-flag, the sweep **confirms and dates** (the 🔥 cites the public source, never the feed). Offload query generation and hit normalization to `gtm_core.web_sweep` to eliminate unstructured search thrashing:
 
 Generate deterministic queries across the 6 sources (the search vocabulary comes from the profile's `web-sweep.toml`, resolved product-first; neutral defaults when the profile has none):
@@ -281,7 +315,7 @@ Execute these queries using your available search tools. **Crucially, you MUST f
 Save the raw hits to a JSON **file** — an array of objects with `url`, `date` (`YYYY-MM-DD`), `type` (`newsroom|hiring|eng|regulatory|funding|incident`), `evidence`, and optionally `title`, `strength` (`H|M|L`), `subject` — then pass the file's **path** (or `-` for stdin, never inline JSON) to the normalizer, which validates HTTPS URLs, rejects search engines, enforces the freshness window (≤90d enterprise, ≤210d otherwise) and extracts the top 🔥 signal tagged `[type | date | URL | H/M/L]`:
 ```bash
 uv run python -m gtm_core.web_sweep normalize --company "<company>" --hits <hits.json> \
-  --segment <enterprise|startup>
+  --profile <active> [--product <slug>] --segment <enterprise|startup>
 ```
 
 **Always pass `--segment`** — without it the enterprise 90-day window is never applied. Read the whole result, not just the top signal: `rejected` says why each refused hit was refused (evidence that does not mention the account is `subject-mismatch`; `signal_subject` is the entity the evidence is *about*), and `context_hits` holds startup funding older than 210 days — background only, never the why-now, because the load gate refuses a `signal_observed` that old. **Exit 2 means every hit was mis-keyed — fix the keys and re-run; it is not a "nothing found".**
@@ -340,7 +374,7 @@ is, and the sweep concludes in plain language:
 <!-- /operator -->
 
 **Re-research that retires a signal an account already carries** records the negative as a state,
-not a sentence: `python -m gtm_core.prospects_state mutate --profile <active> --account <id> --set
+not a sentence: `python -m gtm_core.prospects_state mutate --profile <active> [--product <slug>] --account <id> --set
 signal_state=cleared`, plus the verdict as above, and blank the old clause and its provenance on
 the account. Blanking alone is not enough: a blank record means *no opinion* and never overwrites
 a row, so every pooled row would keep the old source, date, evidence and subject, and
@@ -383,7 +417,7 @@ recording one that cannot:
   research note, not an opener.
 
 **2. SELLABLE — does this fact attest a premise an argument can carry?** Check it against
-`profiles/<active>/knowledge/premise-vocab.toml`, which is the tenant's own list of what a body may
+`premise-vocab.toml` (resolve it: `python -m gtm_core.resolve_knowledge premise-vocab.toml --profile <active> [--product <slug>]`), which is the run's product's own list of what a body may
 assume the recipient's evidence establishes. A fact can be fresh, sourced, on-topic and about the
 right company and still be unusable, because no spec can rest on it.
 
@@ -406,6 +440,8 @@ Populate all six fields on every row that carries a `signal_clause` — they are
 | `signal_evidence` | a **verbatim span** of that source — the sentence the clause is a reduction *of*. Not your summary of it. This is what the clause gets checked against. |
 | `signal_subject` | the entity the fact is genuinely **about**. Usually the account. When it is the investor, the parent, the acquirer, or a same-named stranger, write that — the mismatch is the finding, and it can only fire if the truth is on the row. |
 | `signal_agent_kind` | `ai` \| `human` \| `none` \| `unclear` — what the word "agent" denotes here. An insurance carrier's agents are people; a staffing firm's are recruiters. Both read as an AI-agent buying signal to a regex **and to a hurried human**. `none` is the correct, common answer for a funding round. |
+| `signal_fit` | `0` \| `1` \| `2` \| `3` — wedge fit strength: `3` (wedge-direct / cross-org agent), `2` (wedge-adjacent / AI agent), `1` (sector-fit / enterprise scale), `0` (generic). Governs Touch 2 archetype routing and CxO gate admission. |
+| `signal_virality` | `0` \| `1` \| `2` \| `3` — social/industry echo intensity (defaults to `1` in Phase 1). |
 | `category_relation` | `prospect` \| `competitor` \| `regulator` \| `partner` \| `adjacent` \| `unclear` — what this account is to us. Decide it here, during research, against `profiles/<active>/knowledge/competitors.toml`. Deciding it at send time means deciding it never. **`regulator` is not a niche case**: a supervisory or standards body writes the rules a governance pitch appeals to, and on 2026-08-21 one was recorded `prospect` — the only value that fit — and staged on a clause describing the framework it had published itself. A fail-closed field cannot fail closed on a value it cannot say. |
 
 `unclear` is a legitimate value and it **blocks**. That is the point: it routes the row back to
@@ -448,7 +484,7 @@ axis checkable the way the persona axis already is:
 | `hook_cell` | the deterministic matrix cell coordinate (**segment\|signal**, e.g. `enterprise|security`), derived via `gtm_core.hook_cell.derive_hook_cell` from the row's `segment` and observed `signal_column`. If the signal is not found in the matrix for that segment, it gracefully falls back to `segment|generic`. If unresolvable or missing, the row routes to `hold` (`missing-hook-cell`). Recording this coordinate eliminates LLM hallucination and guesswork during drafting. |
 
 Resolve the matrix through `python -m gtm_core.resolve_knowledge hook-matrix.md --profile <active>
-[--product <slug>]` (product-first, profile-fallback per CLAUDE.md) rather than reading
+[--product <slug>]` (the run's product's own file; a second product with none refuses rather than falling back) rather than reading
 `knowledge/hook-matrix.md` directly, so the read stays product-aware.
 
 **Why this exists rather than more copy review.** Three defect classes were invisible for months —
@@ -462,9 +498,9 @@ source does not contain, a subject that is not the recipient — checked determi
 
 > **Verify attribution before a feed event becomes a why-now.** Vibe's `fetch-businesses-events` is a cheap way to batch this sweep (`match-business` → `fetch-businesses-events`, ~1 credit/row, far cheaper than one web search per account) — but its events are attributed loosely, and on 2026-08-12 **more than half of the candidates it returned were wrong or unverifiable**. Three failure modes, all seen in one run: a **name collision** (a health system drew a release from a *credit union* that shares one word of its name; a hospital operator drew a *similarly-named automation vendor*; a company drew news from its own *separately-listed spin-off*), a **partner's or vendor's news** filed under the account (one account drew its AI vendor's own product announcement), and a **product that does not exist** (a "launch" no primary source corroborates). Checking whether the account's name appears in the event text is necessary but **never sufficient** — substring matching is precisely what lets a same-word stranger pass as the account. Open the source for every why-now that will reach copy, and record the outcome as `VERIFIED`, `VERIFIED-CORRECTED`, or killed-with-reason. An unverified event is not a why-now; leave it out rather than quoting it.
 
-> **Interactive Chat Modals (`ask_question`) Restriction:** `ask_question` means your surface's structured question tool — see CLAUDE.md "Multi-Agent Tool Translation" (Claude Code: `AskUserQuestion`; unattended: never block, apply the step's stated unattended rule). The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g., credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-by-row or contact-level reviews. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
+> **Interactive Chat Modals (`ask_question`) Restriction:** `ask_question` means your surface's structured question tool — see CLAUDE.md "Multi-Agent Tool Translation" (Claude Code: `AskUserQuestion`; unattended: never block, apply the step's stated unattended rule). The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g., credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). The one named exception is Step 0: choosing the run's product, asked once per run. It is explicitly forbidden for row-by-row or contact-level reviews. All row-level triage must be routed to the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`).
 
-**Step 8 — Gate & score.** Run `python -m gtm_core.run_state --profile <active> start-stage --stage gate_score` before this step and `... complete-stage --stage gate_score` after it.
+**Step 8 — Gate & score.** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage gate_score` before this step and `... complete-stage --stage gate_score` after it.
 
 **Name the rubric you scored against, in the run header, before anything else in this step.** Not
 "the ICP rubric" — the file and the version, as the scorecard prints them. On 2026-09-21 a
@@ -480,7 +516,7 @@ unlock** instead, which is what keeps "we never researched this" distinguishable
 researched this and it is weak":
 
 ```bash
-uv run python -m gtm_core.scorecard score --profile <active> --items <rows.json>
+uv run python -m gtm_core.scorecard score --profile <active> [--product <slug>] --items <rows.json>
 ```
 
 **Every row in `<rows.json>` carries its `signal_agent_kind` from the Step 7 record; do not type
@@ -601,13 +637,13 @@ into, and a pipeline that is 100% generic has stopped doing research without any
 Reply rate **by lane** is already reported (`gtm_core.cells`, with a Wilson interval), so this is
 measurable — but only if generic never silently becomes the default.
 
-**Step 9 — Persona enrichment.** Run `python -m gtm_core.run_state --profile <active> start-stage --stage enrichment` before this step and `... complete-stage --stage enrichment` after it. For each finalist, identify the segment personas (`profiles/<active>/knowledge/icp-personas.md`). **How many seats to resolve is a property of the SEGMENT** — Enterprise up to 3 (champion, economic buyer, technical evaluator), Startup/Builder 1 (the founder is all three at once). **Resolve the champion FIRST, not the most senior person**: for Enterprise that is the Head of AI Platform / VP AI Eng / Dir Applied AI, with the CISO as co-signer, never the reverse — see `discovery-and-budget.md` § "Persona enrichment" for the depth table and the market evidence. **Contact resolution → RocketReach first** (when connected): resolve each seat's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the hosted connector). **Bulk exists only on the in-repo worker** (`rocketreach_bulk_lookup`, ≤25 finalists per call); the hosted connector has no bulk tool, so there call `person_lookup` once per finalist. Pass `linkedin_url` whenever you have it — RocketReach documents it as the most reliable identifier — else `name` + `current_employer` (+ `title` to disambiguate). **A hosted `person_lookup` can return `status: pending` with `retry_after_seconds`: wait that long and poll `check_person_status` before counting it as a miss** — pending is not a miss, and treating it as one pays a second source for a contact RocketReach was still resolving (the in-repo worker polls for you). See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping and the rate limits. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, call `enrich-prospects` with `enrichments: ["enrich-prospects-contacts"]` on the resulting table, then use the **new** `table_name` it returns for any export (the original fetch table carries no contact columns). **Batch the misses:** collect every RocketReach miss in the sweep, resolve their companies with `match-business`, and run **one** `fetch-entities` (`business_id` = all of them, persona `job_title`s, `max_per_company` = the segment's seat count) and **one** `enrich-prospects` — Vibe enriches a whole table per call, so that is one cost estimate and one approval instead of one pair per finalist. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete when its segment's seats are resolved: **Enterprise — the champion plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 the floor); **Startup/Builder — ≥1 champion/primary-buyer contact.** Resolving one exec per enterprise account and stopping is single-threading a committee deal, not completing it. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
+**Step 9 — Persona enrichment.** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage enrichment` before this step and `... complete-stage --stage enrichment` after it. For each finalist, identify the segment personas (`icp-personas.md`, resolved as above). **How many seats to resolve is a property of the SEGMENT** — Enterprise up to 3 (champion, economic buyer, technical evaluator), Startup/Builder 1 (the founder is all three at once). **Resolve the champion FIRST, not the most senior person**: for Enterprise that is the Head of AI Platform / VP AI Eng / Dir Applied AI, with the CISO as co-signer, never the reverse — see `discovery-and-budget.md` § "Persona enrichment" for the depth table and the market evidence. **Contact resolution → RocketReach first** (when connected): resolve each seat's **verified email + direct phone** via `rocketreach_lookup` (the in-repo VPS worker) or `person_lookup` (the hosted connector). **Bulk exists only on the in-repo worker** (`rocketreach_bulk_lookup`, ≤25 finalists per call); the hosted connector has no bulk tool, so there call `person_lookup` once per finalist. Pass `linkedin_url` whenever you have it — RocketReach documents it as the most reliable identifier — else `name` + `current_employer` (+ `title` to disambiguate). **A hosted `person_lookup` can return `status: pending` with `retry_after_seconds`: wait that long and poll `check_person_status` before counting it as a miss** — pending is not a miss, and treating it as one pays a second source for a contact RocketReach was still resolving (the in-repo worker polls for you). See `discovery-and-budget.md`'s "Surface note" for the full tool-name mapping and the rate limits. RocketReach **searches are credit-free; person lookups (a.k.a. exports) are the metered quota** — spend a lookup only to pull a finalist's contact, never a candidate's, and pace against the plan's remaining monthly allowance (`PROFILE.md` §"Connector plans & entitlements"). **Vibe is the mandatory next step, not an optional one, whenever RocketReach misses for a finalist** — a RocketReach `404`, a resolved contact with no valid/graded email, or no plausible named contact at all: before marking that finalist unverified/unresolved, run a Vibe `fetch-entities` (`entity_type: prospects`, filtered by the finalist's company + persona job title) and, on a match, call `enrich-prospects` with `enrichments: ["enrich-prospects-contacts"]` on the resulting table, then use the **new** `table_name` it returns for any export (the original fetch table carries no contact columns). **Batch the misses:** collect every RocketReach miss in the sweep, resolve their companies with `match-business`, and run **one** `fetch-entities` (`business_id` = all of them, persona `job_title`s, `max_per_company` = the segment's seat count) and **one** `enrich-prospects` — Vibe enriches a whole table per call, so that is one cost estimate and one approval instead of one pair per finalist. Vibe supplies firmographics + top-2 persona profiles + company intent this way. **If Vibe also misses (or Vibe isn't connected), Apollo is the next mandatory step before falling to web** — call Apollo's person-enrich tool for that finalist — `apollo_person_enrich` (in-repo worker) or `apollo_people_match` (hosted connector) — passing name/linkedin_url + organization_name or domain, or the bulk variant (`apollo_bulk_person_enrich` / `apollo_people_bulk_match`, ≤10 per call) when several finalists need it at once. **Tool names differ per surface; call whichever the session offers** (`discovery-and-budget.md` §"Apollo surface note"). If the call returns `error_code: API_INACCESSIBLE`, Apollo's plan has no API access — treat Apollo as absent for the rest of the run and go straight to the web path; that is a paywall, not a miss. Apollo charges 1 credit only on a match with an email (a miss is free) and **never reveals a phone number** — Apollo's phone reveal resolves asynchronously via a webhook this deployment has no inbound path for, so this integration doesn't request it; a finalist's phone, if ever needed, stays RocketReach-only. Skipping straight from a RocketReach or Vibe miss to "unresolved" without attempting the next source in line is a process gap, not a valid outcome — do this for every finalist, every run. `enrich-business` remains an escape hatch (≤3/run) for company-level gaps only. Only after **RocketReach, Vibe, and Apollo have all missed** (or are disconnected) does a contact fall to the **web path** (no paid source): pull names/titles from public LinkedIn / company pages and mark emails **unverified**. An account is complete when its segment's seats are resolved: **Enterprise — the champion plus at least one of {economic buyer, technical evaluator}** (3 is the target, 2 the floor); **Startup/Builder — ≥1 champion/primary-buyer contact.** Resolving one exec per enterprise account and stopping is single-threading a committee deal, not completing it. Run the **new-in-role check** on finalist personas (`job_change_signal` ≤3 months, or Vibe `current_role_months` 1–6, credit-free): mark hits 🆕 — they jump the Tier-A queue and take the hook matrix's new-in-role column.
 
-**Step 10 — Generate outputs.** Run `python -m gtm_core.run_state --profile <active> start-stage --stage output` before this step and `... complete-stage --stage output` after it. Run-level files under `content/<active>/prospects/`; per-account
+**Step 10 — Generate outputs.** Run `python -m gtm_core.run_state --profile <active> [--product <slug>] start-stage --stage output` before this step and `... complete-stage --stage output` after it. Run-level files under `content/<active>/prospects/`; per-account
 packs under `content/<active>/accounts/<canonical-slug>/`, per the rule in Step 1. **The bullets
 describe outputs; the command order is fixed: `prospects_import finalize` (merges `latest.json`,
 emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block (Step 12).**
-- `prospects-YYYYMMDD.md` — header + one section per account (per-account template). Pull the **recommended opening hook** from the hook matrix (don't free-write); map a case study from `profiles/<active>/knowledge/case-studies.md` — when the account is in a vertical with an industry pack, prefer that pack's **"Matching proof shape"** for the proof and seed the hook from its **"Email angles"** (industry-level `[bracketed]` fills only, never account-specific).
+- `prospects-YYYYMMDD.md` — header + one section per account (per-account template). Pull the **recommended opening hook** from the hook matrix (don't free-write); map a case study from `case-studies.md` (resolved as above) — when the account is in a vertical with an industry pack, prefer that pack's **"Matching proof shape"** for the proof and seed the hook from its **"Email angles"** (industry-level `[bracketed]` fills only, never account-specific).
 - `prospects-YYYYMMDD-hubspot.csv` — one row per contact, per the CSV map.
 - **Fold this run's emails into the loadable pool now — don't wait for the whole flow to finish.**
   Consolidating emailed contacts into a sequencer-ready list has historically been a manual,
@@ -640,7 +676,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
   re-applied under `gtm_core.locks.profile_lock`. The record's durable home is the **account**:
   ```bash
   python -m gtm_core.signal_backfill --list <list.csv> --records <records.json> \
-    --profile <active> --promote
+    --profile <active> [--product <slug>] --promote
   ```
   `--promote` writes each record onto its account in `latest.json` and reports any record whose row
   has no account rather than dropping it; the next `consolidate` carries it back onto every row.
@@ -665,7 +701,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
 - If appending to a local tracker spreadsheet, add the run's rows now.
 - **`content/<active>/prospects/latest.json`** — **MERGE this run's accounts in; never overwrite the file.** `latest.json` is the **cumulative** dashboard-state file: it holds every prior run's accounts *and* the operator's between-run `status` edits (disqualified/replied/do-not-contact). Writing only this run's items destroys all of that (a real incident — 2026-07-19). **Do not hand-write this file.** Pass the scorer's published items (`company`, `segment`, `market`, `score`, `tier`, `contact_name`, `contact_title`, the Step 7 record, `verdict`, `lane`) to `gtm_core.prospects_import finalize`:
   ```bash
-  python -m gtm_core.prospects_import finalize --profile <active> \
+  python -m gtm_core.prospects_import finalize --profile <active> [--product <slug>] [--identity-only] \
     --items <path-to-items.json> --source-run <run-id>
   ```
   Or stage them first via `python -m gtm_core.prospects_import stage-standard --items <items.json> --out <staged.json>` before merging. `finalize` normalises every item (`--standard` is accepted but is now a no-op), derives the canonical slug `id`, merges atomically into `latest.json` and emits `prospects-<run-id>-hubspot.csv`. **It fabricates nothing:** `verdict`, `category_relation`, `signal_subject`, `signal_agent_kind` and `lane` stay blank unless you supplied them, and the record gate then BLOCKs that row honestly — so supply them. A blank never overwrites a populated field, and `verdict` moves only when supplied, so re-discovering an account with a minimal item cannot erase what is on it. A `tier: drop` / `verdict: drop` item is recorded as `verdict: drop`, `lane: excluded`, never exported, and counted as `refused` in the JSON summary. `--source-run` is a bare segment (no `/`, no `..`); an invalid value prints one `ERROR:` line, exits 2 and writes nothing.
@@ -695,6 +731,8 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
     "signal_evidence": "<verbatim span of that source>",
     "signal_subject": "<the entity the fact is about>",
     "signal_agent_kind": "ai|human|none|unclear",
+    "signal_fit": 2,
+    "signal_virality": 1,
     "category_relation": "prospect|competitor|regulator|partner|adjacent|unclear",
     "signal_column": "<the matrix's signal column label for this account's own segment, verbatim>",
     "hook_cell": "<deterministic segment|signal coordinate derived via gtm_core.hook_cell.derive_hook_cell, e.g. enterprise|security>",
@@ -704,7 +742,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
     "lane_reason": "<why this lane — required for anything but `personalised`>"
   }
   ```
-  `id` = company name lowercased, non-ASCII stripped, spaces to hyphens (e.g. `acme-corp`). Tier-A accounts get `priority: high` by default. `heat` is 0–3 per the heat axis; `intent_feeds` lists which feed(s) fired (empty array if none); `new_in_role` is true when a 🆕 champion/economic buyer was found. If the merge is ever wrong, recover with `python -m gtm_core.prospects_state restore --profile <active>` (newest snapshot) — snapshots live in `content/<active>/prospects/.snapshots/`.
+  `id` = company name lowercased, non-ASCII stripped, spaces to hyphens (e.g. `acme-corp`). Tier-A accounts get `priority: high` by default. `heat` is 0–3 per the heat axis; `intent_feeds` lists which feed(s) fired (empty array if none); `new_in_role` is true when a 🆕 champion/economic buyer was found. If the merge is ever wrong, recover with `python -m gtm_core.prospects_state restore --profile <active> [--product <slug>]` (newest snapshot) — snapshots live in `content/<active>/prospects/.snapshots/`.
 
   **`lane` must reach `ready-to-load.csv`, or the routing decision is invisible where it is used.**
   `gtm_core.lanes route` writes its assignment to `evals/lanes-state.jsonl`, and the enrollment gate
@@ -715,7 +753,7 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
   judge runs later, in `email-quality`, so rows route as unjudged and the status block has real
   numbers from the first run. Add `--unattended` when nobody can answer Step 8's question:
   ```bash
-  python -m gtm_core.lanes route --profile <active> \
+  python -m gtm_core.lanes route --profile <active> [--product <slug>] \
     --csv content/<active>/prospects/sequences/ready-to-load.csv [--unattended]
   ```
   Pass `--records` only with the explicit file(s) the current `email-quality` pass wrote — **never
@@ -811,7 +849,11 @@ The `canonical_slug` field is `slug(company)`, not the account's folder — writ
   2. Invoke `draft-outreach` for that account's resolved contact, saved with the same naming
      convention Step 10 already uses (`prospects-YYYYMMDD-outreach-[company-slug].md`, same resolved
      folder) — this is what makes the draft automatically show up in the outreach-log rollup below with
-     zero new plumbing.
+     zero new plumbing. Ensure drafts follow the **4-type subject line rotation taxonomy** (Signal Trigger,
+     Friction Observation, Inquiry/Casual, Internal/Project; 1–4 lowercase words), route Touch 2 strictly
+     by `signal_fit` via `touch2_archetype_for_fit` (Fit 3 = Gift, Fit 2 = Friction Point, Fit 1 = Sanity Check,
+     Fit 0 = None), and adhere to conversational craft metrics (reading grade 6–8, ≥2 `you`/`your`, zero "I"
+     before line two, bodies ending cleanly with no manual sign-offs when sequencer signatures are active).
 - **Re-run the outreach log** after the loop so the rollup reflects every draft just generated:
   ```bash
   python -m gtm_core.outreach_log build --profile <active>
@@ -840,8 +882,8 @@ put it beside the same status block Step 1 opened with — never a bare number a
 whose-move-is-it and drifted out of sync with Step 13's own report. Run:
 
 ```bash
-uv run python -m gtm_core.preflight_report --profile <active> --warn-only
-uv run python -m gtm_core.prospects status --profile <active>
+uv run python -m gtm_core.preflight_report --profile <active> [--product <slug>] --warn-only
+uv run python -m gtm_core.prospects status --profile <active> [--product <slug>]
 ```
 
 and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table) — matching the block Step 1 opened the run with and the block Step 13 closes it with:
@@ -885,21 +927,24 @@ never meant that.
 ```bash
 # 1. render at the scope this run actually touched
 uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope open
-# 2. assert it is built from what is on disk NOW — exits non-zero if not
-uv run python -m gtm_core.email_campaign_dashboard --profile <active> --scope open --check-fresh
+# 2. assert EVERY page is built from what is on disk NOW — exits non-zero if not.
+#    No --scope on purpose: this run rendered one scope and the others are still on disk.
+uv run python -m gtm_core.email_campaign_dashboard --profile <active> --check-fresh
 ```
 
 **Pick the scope; do not default to the rollup.** `--scope open` renders the campaigns whose manifest says `status = "active"` — the right answer for a normal run. On a profile with **no campaign manifest at all** it falls back to everything (exit 0, one stderr note, the page is `email_campaign_status.html`) — report that note; when manifests exist but none is open it still refuses (exit 1) and names the alternatives: report the refusal, then re-run with the scope that fits the question. Use `--scope campaign --campaign <slug>[,<slug>]` when the run worked one named campaign, and `--scope all` only when the question really is profile-wide. A page scoped wrong is the failure this flag exists for: on 2026-09-04 a campaign with 8 planned emails and 4 people showed "0 of 990 emails · 51 people · 3 sequences", every number real and every number belonging to a different campaign.
 
-**Run the freshness check and report what it says.** It compares the page against a digest of every input it read, so it catches an input edited after the render *and* one that appeared since. This matters because **a stale page renders identically to a current one** — on 2026-09-05 a live page was seventeen hours behind `cells.toml` and looked perfectly current, and the first regeneration of that session was a byte-identical no-op that only a `grep` caught. If `--check-fresh` exits non-zero, re-render and say so; never report the page as current because the render command succeeded.
+**Run the freshness check with NO scope, and report what it says.** It compares every page against a digest of the inputs that page read, so it catches an input edited after the render *and* one that appeared since — and it also goes red when the sending figures are older than the limit, which no amount of re-digesting can see. Checking only the scope you just rendered is the failure it was widened to fix: that page was current by construction, while the siblings nobody re-rendered were not. This matters because **a stale page renders identically to a current one** — on 2026-09-05 a live page was seventeen hours behind `cells.toml` and looked perfectly current, and the first regeneration of that session was a byte-identical no-op that only a `grep` caught.
+
+On a red check the remedy is one command — `--refresh-all`, which re-renders every page that exists under its own recorded scope — then check again. Do not re-render one scope and call it done: the check now covers every page, and the rollup is the only one anything refreshes on its own. Two answers need something else: a *retired candidate* needs nothing (every campaign it names is finished or removed, `--refresh-all` skips it, nothing was deleted, it is not counted), and any other page the refresh cannot recover is named with the exact command and makes `--refresh-all` exit non-zero until you act on it: no inventory, a damaged one, a scope that disagrees with the page's own file name, a page file deleted while its record was left, a symlink, a campaign manifest that cannot be read, or campaigns of which only some are gone. Re-render that page with its own explicit `--scope`, fix the file it names, or delete the page, because there is no usable recorded scope to refresh it at. Any scoped form of the check also goes red on old figures. Old sending figures are refreshed in `email-sequence`, not by any render, so after a refresh `--refresh-all` also exits non-zero when the figures are old, and says to refresh them and run it again. Never report a page as current because the render command succeeded.
 
 **Do not read a refused tile as a zero.** Where a figure cannot be aggregated honestly across the scope the page renders `—` and a reason (a sending ceiling is shared infrastructure and is never summed; a forecast is refused outright when the campaigns run different cadences; a roster covering only some of them is not shown at all). That is the page declining to guess — quote the reason, do not substitute a number from one campaign.
 
 Then **close the run with the current status, same shape as Step 1 opened with.** Run:
 
 ```bash
-uv run python -m gtm_core.preflight_report --profile <active> --warn-only
-uv run python -m gtm_core.prospects status --profile <active>
+uv run python -m gtm_core.preflight_report --profile <active> [--product <slug>] --warn-only
+uv run python -m gtm_core.prospects status --profile <active> [--product <slug>]
 ```
 
 and paste the lede (the lines above 'For the record') inside the operator block; the tables and the page path go in Details (after Step 10 routed this run's rows the block carries real numbers; an exit 1 / "Nothing to show yet" after a run that produced rows means Step 10 was not completed — go back to it; never compose your own table):
@@ -946,6 +991,6 @@ A grouping key is a claim about identity — prove it before you group on it.
 - **Identity is stamped, not re-derived.** `latest.json` is the ledger of record and assigns each account an immutable `account_id`; consolidate stamps `pool_row_id` per person-row and joins the two. Quote those ids when referring to a row or an account across files, rather than re-deriving a key from a company name that six other places normalise differently. The pooled CSVs are **derived views** — never hand-edit one and expect the edit to survive a rebuild; change the ledger, or the suppression ledger, instead.
 - **The last wave has to have been read before the next one is staged.** `email-sequence` refuses to stage without a `positive_reply_rate` reading on file (`gtm_core.prospects wave-gate check`). This skill does not send, but it is what fills the next wave — a list built while the previous one is unmeasured is a list nobody can learn from.
 - **Drafts only:** outreach is never sent from this skill.
-- **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced as the *Yours* line at the top of the status block and the status page.
+- **No row-by-row chat modals (`ask_question` restricted):** The `ask_question` tool is strictly reserved for **global, binary pipeline states** (e.g. credit exhaustion, fallback provider activation, batch lane routing in Step 8, and batch dossier generation in Step 11). The one named exception is Step 0: choosing the run's product, asked once per run. It is explicitly forbidden for row-level reviews or contact-level triage — routing decisions belong in the Review Sheet (`lanes-hold-sheet.csv` / `latest.json`) and are surfaced as the *Yours* line at the top of the status block and the status page.
 - **Portable & private:** no live CRM; outputs are local files; no secret is read from or written to any file.
 - **Market-aware:** everything keys off PROFILE `target_markets` — never hardcode geographies.

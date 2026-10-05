@@ -16,6 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from gtm_core import run_scope
 from gtm_core.merge_hygiene import clean_company
 from gtm_core.paths import resolve_knowledge_file, resolve_profiles_root
 
@@ -67,6 +68,9 @@ def _load_query_vocab(
     """
     groups = dict(_NEUTRAL_QUERY_GROUPS)
     hiring_site = _DEFAULT_HIRING_SITE
+    # The search vocabulary is what a run *spends* on: a second product's queries built from the
+    # default product's terms would pay to hunt the wrong signals. A dropped product refuses.
+    product = run_scope.require(profile, product, profiles_root=profiles_root).product
     path = resolve_knowledge_file(profiles_root, profile, "web-sweep.toml", product=product)
     if not path.is_file():
         print(

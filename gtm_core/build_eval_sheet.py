@@ -65,6 +65,7 @@ from merge_render_linter import (  # noqa: E402
 from outreach.rules_derivation import _figures  # noqa: E402
 from outreach_pack_linter import seat_of  # noqa: E402
 
+from . import run_scope  # noqa: E402
 from .adjudication import collapsed_axes  # noqa: E402
 from .cells import load_cell_map  # noqa: E402
 from .eval_calibration import (  # noqa: E402
@@ -264,7 +265,10 @@ def load_live_rows(
 
 
 def _load_matrix_if_present(
-    profile: str, profiles_root: Path | None = None, overlay: str | None = None
+    profile: str,
+    profiles_root: Path | None = None,
+    overlay: str | None = None,
+    product: str | None = None,
 ) -> Matrix | None:
     """The profile's parsed hook-matrix, or ``None`` if it has none.
 
@@ -273,7 +277,7 @@ def _load_matrix_if_present(
     test) must fall back to the pre-existing spec-declared-cell behaviour exactly, not
     crash on a read of a file that was never there."""
     root = profiles_root or resolve_profiles_root()
-    path = resolve_knowledge_file(root, profile, "hook-matrix.md", overlay=overlay)
+    path = resolve_knowledge_file(root, profile, "hook-matrix.md", product=product, overlay=overlay)
     if not path.is_file():
         return None
     m = parse_matrix(path)
@@ -287,6 +291,7 @@ def all_live_rows(
     include_drafts: bool = False,
     profiles_root: Path | None = None,
     overlay: str | None = None,
+    product: str | None = None,
 ) -> tuple[list[dict], dict[str, list]]:
     """Every live row across every source, plus a ``spec_path -> touches`` map for
     rendering. One row dict per (recipient, source) — a recipient enrolled in only one
@@ -295,7 +300,8 @@ def all_live_rows(
     ``include_drafts`` adds the profile's drafted-but-unstaged cells
     (:func:`load_draft_sources`). Off by default: a caller measuring the live campaign
     must not silently pick up copy nobody ever sent."""
-    matrix = _load_matrix_if_present(profile, profiles_root, overlay=overlay)
+    product = run_scope.require(profile, product, profiles_root=profiles_root).product
+    matrix = _load_matrix_if_present(profile, profiles_root, overlay=overlay, product=product)
     sources = load_sources(profile, content_root, campaign=campaign)
     if include_drafts:
         sources = sources + load_draft_sources(profile, content_root)
@@ -928,7 +934,9 @@ def build_injected_golden_rows(
     return out, unusable
 
 
-def _load_premise_vocab(profile: str, *, overlay: str | None = None) -> dict | None:
+def _load_premise_vocab(
+    profile: str, *, overlay: str | None = None, product: str | None = None
+) -> dict | None:
     """The tenant's premise vocabulary, or ``None`` when it ships none.
 
     ``{}`` and ``None`` are the same thing to ``lint_premise`` — both switch the check off —
@@ -937,10 +945,10 @@ def _load_premise_vocab(profile: str, *, overlay: str | None = None) -> dict | N
     """
     from .hook_coverage import load_premise_vocab
 
-    return load_premise_vocab(profile, overlay=overlay) or None
+    return load_premise_vocab(profile, overlay=overlay, product=product) or None
 
 
-def _load_registry(profile: str, *, overlay: str | None = None):
+def _load_registry(profile: str, *, overlay: str | None = None, product: str | None = None):
     """The tenant's fact registry, or ``None`` with a loud reason on stderr.
 
     Same shape and the same argument as the linter CLI's ``_load_registry``: a tenant that
@@ -953,7 +961,7 @@ def _load_registry(profile: str, *, overlay: str | None = None):
     from .messaging.registry import load as _load
 
     try:
-        return _load(profile, overlay=overlay)
+        return _load(profile, overlay=overlay, product=product)
     except RegistryError as exc:
         first = str(exc).splitlines()[0] if str(exc) else "unreadable"
         print(
@@ -974,6 +982,7 @@ def build_golden_set(
     seed: str = "",
     include_drafts: bool = False,
     overlay: str | None = None,
+    product: str | None = None,
 ) -> tuple[list[GoldenRow], list[str]]:
     """Returns ``(rows, unusable_rules)`` — the second element names every recipe whose
     defect never became visible in a rendered touch 1, or that never raised the rule it
@@ -987,8 +996,14 @@ def build_golden_set(
     defect check asks it to. Either being absent narrows the sheet; neither is fatal, and
     the recipes that depended on it come back in ``unusable`` rather than going out
     unverified."""
+    product = run_scope.require(profile, product).product
     pool, touches_by_spec = all_live_rows(
-        profile, content_root, campaign=campaign, include_drafts=include_drafts, overlay=overlay
+        profile,
+        content_root,
+        campaign=campaign,
+        include_drafts=include_drafts,
+        overlay=overlay,
+        product=product,
     )
     if not pool:
         scope = f" campaign {campaign!r}" if campaign else ""
@@ -996,8 +1011,8 @@ def build_golden_set(
     real, chosen = build_real_golden_rows(pool, touches_by_spec, n_real, seed=seed)
     chosen_keys = {_row_key(row) for row in chosen}
     remaining = [row for row in pool if _row_key(row) not in chosen_keys]
-    premise_vocab = _load_premise_vocab(profile, overlay=overlay)
-    registry = _load_registry(profile, overlay=overlay)
+    premise_vocab = _load_premise_vocab(profile, overlay=overlay, product=product)
+    registry = _load_registry(profile, overlay=overlay, product=product)
     recipes = INJECTION_RECIPES + (registry_recipes(registry) if registry is not None else [])
     injected, unusable = build_injected_golden_rows(
         remaining,
@@ -1136,6 +1151,11 @@ def main(argv: list[str] | None = None) -> int:
         "outcomes, so nothing about them may be read as evidence about a live campaign.",
     )
     ap.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
+    ap.add_argument(
         "--overlay",
         default=None,
         help="resolve hook-matrix.md through this experiment overlay "
@@ -1167,6 +1187,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
     _safe_segment(args.profile, "profile")
+    try:
+        run_scope.require(args.profile, args.product)
+    except run_scope.ScopeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     rows, unusable = build_golden_set(
         args.profile,
@@ -1176,6 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         include_drafts=args.include_drafts,
         overlay=args.overlay,
+        product=args.product,
     )
     if args.duplicate:
         rows = add_duplicates(rows, args.duplicate)
@@ -1203,6 +1229,7 @@ def main(argv: list[str] | None = None) -> int:
         campaign=args.campaign,
         include_drafts=args.include_drafts,
         overlay=args.overlay,
+        product=args.product,
     )
     drawn_specs = {r.spec for r in rows}
     drawn = [row for row in pool_all if row["__spec"] in drawn_specs]

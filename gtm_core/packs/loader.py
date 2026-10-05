@@ -44,6 +44,16 @@ _VALID_MIN_ENTITLEMENTS = frozenset(e.value for e in Entitlement if e is not Ent
 # because nothing in this system may un-suppress a person who opted out.
 _ALLOWED_EXTERNAL_EFFECTS = frozenset({"publish", "email_enroll", "dnc_add"})
 
+# The closed set of graph-level ``egress_scope`` values. A scope names a gate the OPERATOR-side
+# runner must build and apply to every node of the graph (agent/egress_scope.py holds one builder
+# per member; tests/contracts/test_internal_pack_graphs.py asserts the two sets agree). A scope
+# narrows what a run may reach, never widens it. Widening this set needs its own builder.
+_ALLOWED_EGRESS_SCOPES = frozenset({"capture_manifest"})
+
+# The closed set of third-party integration providers admissible in [[integrations]] (BYOK).
+# Parity held by tests/contracts/test_integration_providers_agree.py against backend ProviderType.
+_VALID_INTEGRATION_PROVIDERS = frozenset({"saleshandy", "apollo", "rocketreach", "syften"})
+
 
 class PackValidationError(ValueError):
     """Raised when a pack graph or inputs file fails a named validation rule."""
@@ -96,6 +106,12 @@ class PackGraph:
     title: str | None = None
     description: str | None = None
     min_entitlement: str | None = None
+    # An operator-only graph: hidden from the pack catalog and refused by backend run dispatch
+    # (backend/pack_catalog.py), so only a VPS/cockpit/agent runner can run it. Strict bool.
+    internal: bool = False
+    # A declared egress scope (a member of _ALLOWED_EGRESS_SCOPES) the runner must enforce on
+    # every node. Only an internal graph may carry one: the backend builds no scope gate.
+    egress_scope: str | None = None
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -199,6 +215,30 @@ def validate_node_semantics(nodes: tuple[PackNode, ...]) -> None:
             )
 
 
+def _read_internal_and_scope(path: Path, raw: dict) -> tuple[bool, str | None]:
+    """The graph-level ``internal`` / ``egress_scope`` fields, strictly typed and closed-set."""
+    internal = raw.get("internal", False)
+    if not isinstance(internal, bool):
+        raise PackValidationError(
+            "invalid_internal", f"{path}: internal={internal!r} must be a bool (true or false)"
+        )
+    scope = raw.get("egress_scope")
+    if scope is None:
+        return internal, None
+    if not isinstance(scope, str) or scope not in _ALLOWED_EGRESS_SCOPES:
+        raise PackValidationError(
+            "unknown_egress_scope",
+            f"{path}: egress_scope={scope!r} not in {sorted(_ALLOWED_EGRESS_SCOPES)}",
+        )
+    if not internal:
+        raise PackValidationError(
+            "egress_scope_requires_internal",
+            f"{path}: egress_scope={scope!r} needs internal=true — only an operator-side runner "
+            "builds the scope's gate, so a graph the backend could run would run ungated",
+        )
+    return internal, scope
+
+
 def _build_node(raw: dict) -> PackNode:
     node_id = raw.get("id")
     if not node_id or not isinstance(node_id, str):
@@ -246,6 +286,8 @@ def load_pack_graph(path: Path) -> PackGraph:
             f"{path}: min_entitlement={min_entitlement!r} not in {sorted(_VALID_MIN_ENTITLEMENTS)}",
         )
 
+    internal, egress_scope = _read_internal_and_scope(path, raw)
+
     raw_nodes = raw.get("nodes", [])
     if not raw_nodes:
         raise PackValidationError("empty_graph", f"{path}: pack graph declares no nodes")
@@ -277,6 +319,8 @@ def load_pack_graph(path: Path) -> PackGraph:
         title=raw.get("title"),
         description=raw.get("description"),
         min_entitlement=min_entitlement,
+        internal=internal,
+        egress_scope=egress_scope,
     )
 
 
@@ -302,10 +346,17 @@ class PackInputContext:
 
 
 @dataclass(frozen=True)
+class PackInputIntegration:
+    provider: str
+    required: bool = True
+
+
+@dataclass(frozen=True)
 class PackInputs:
     settings: tuple[PackInputSetting, ...] = ()
     knowledge: tuple[PackInputKnowledge, ...] = ()
     context: tuple[PackInputContext, ...] = ()
+    integrations: tuple[PackInputIntegration, ...] = ()
 
 
 def capability_slugs_for_pack(pack: PackGraph) -> frozenset[str]:
@@ -399,8 +450,28 @@ def load_pack_inputs(path: Path) -> PackInputs:
             )
         )
 
+    integrations = []
+    for raw_i in raw.get("integrations", []):
+        provider = raw_i.get("provider")
+        if not provider:
+            raise PackValidationError(
+                "missing_provider", f"{path}: an integrations entry has no 'provider'"
+            )
+        if provider not in _VALID_INTEGRATION_PROVIDERS:
+            raise PackValidationError(
+                "unknown_provider",
+                f"integrations.{provider}: provider={provider!r} not in {sorted(_VALID_INTEGRATION_PROVIDERS)}",
+            )
+        integrations.append(
+            PackInputIntegration(
+                provider=provider,
+                required=bool(raw_i.get("required", True)),
+            )
+        )
+
     return PackInputs(
         settings=tuple(settings),
         knowledge=tuple(knowledge),
         context=tuple(context),
+        integrations=tuple(integrations),
     )

@@ -6,7 +6,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from ..merge_hygiene import row_signal_freshness
+from ..merge_hygiene import is_synthetic_signal, row_signal_freshness
 from .columns import MASTER_COLS
 from .confidence import _get, _score_num
 from .io import _atomic_write_csv_cols, _load_master
@@ -73,23 +73,29 @@ def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
     ready = _load_master(ready_to_load_path(profile, content_root))
     signal_rows: list[dict] = []
     generic_rows: list[dict] = []
+    refresh_rows: list[dict] = []
+    synthetic_rows: list[dict] = []
     stale_signal = 0
     for row in ready:
-        # One predicate, shared with the lane router (`gtm_core.lanes`), so the two can
-        # never disagree about which rows may open on "saw the news". Its docstring
-        # carries the `signal_observed`-first reasoning that used to live here.
         clause, fresh = row_signal_freshness(row)
+        why_now = str(row.get("why_now") or "").strip()
         if clause and fresh:
             signal_rows.append({**row, "signal_clause": clause})
+        elif clause and not fresh:
+            stale_signal += 1
+            refresh_rows.append({**row, "signal_clause": clause})
+        elif is_synthetic_signal(why_now):
+            synthetic_rows.append(row)
         else:
-            if clause:
-                stale_signal += 1
             generic_rows.append(row)
 
     pool_dir = _pool_dir(profile, content_root)
     seq_dir = _sequences_dir(profile, content_root)
     signal_path = pool_dir / "ready-to-load-signal.csv"
     generic_path = pool_dir / "ready-to-load-generic.csv"
+    refresh_path = pool_dir / "ready-to-load-refresh.csv"
+    synthetic_path = pool_dir / "ready-to-load-synthetic.csv"
+
     # A copy written before PS17 moved these under `.pool/` sits VISIBLY in `sequences/`
     # (the old layout). Archive it before writing the fresh one, or it is orphaned on disk
     # forever — the next line writes a new `pool_dir` copy but never touches the old path.
@@ -99,6 +105,8 @@ def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
     signal_cols = list(dict.fromkeys([*MASTER_COLS, "signal_clause"]))
     _atomic_write_csv_cols(signal_path, signal_rows, signal_cols)
     _atomic_write_csv_cols(generic_path, generic_rows, list(dict.fromkeys(MASTER_COLS)))
+    _atomic_write_csv_cols(refresh_path, refresh_rows, signal_cols)
+    _atomic_write_csv_cols(synthetic_path, synthetic_rows, list(dict.fromkeys(MASTER_COLS)))
 
     populated = sum(1 for r in ready if (r.get("why_now") or "").strip())
     result = {
@@ -107,13 +115,18 @@ def split_by_signal(profile: str, content_root: Path | None = None) -> dict:
         "why_now_populated": populated,
         "signal_led": len(signal_rows),
         "generic": len(generic_rows),
+        "refresh": len(refresh_rows),
+        "synthetic": len(synthetic_rows),
         "why_now_unusable": populated - len(signal_rows),
         "signal_stale_demoted": stale_signal,
         "signal_path": str(signal_path),
         "generic_path": str(generic_path),
+        "refresh_queue_path": str(refresh_path),
+        "synthetic_queue_path": str(synthetic_path),
     }
     print(
-        f"split[{profile}]: {result['signal_led']} signal-led · {result['generic']} generic "
+        f"split[{profile}]: {result['signal_led']} signal-led · {result['generic']} generic · "
+        f"{result['refresh']} refresh · {result['synthetic']} synthetic "
         f"({result['why_now_unusable']} of {populated} why_now values were not usable "
         f"as an opening clause)",
         file=sys.stderr,

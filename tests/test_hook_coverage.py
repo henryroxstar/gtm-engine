@@ -1328,6 +1328,10 @@ def test_a_product_level_vocab_wins_over_the_profile_level_one(tmp_path):
         'schema = 1\n[premise.ships-agents]\nmin_distinct = 1\nterms = ["agent"]\n',
         encoding="utf-8",
     )
+    (tmp_path / "acme" / "PROFILE.md").write_text(
+        "```\ndefault_product: widgets\nproducts:\n  - { slug: widgets, name: Widgets }\n```\n",
+        encoding="utf-8",
+    )  # the product is declared, or its folder is a product nobody listed and every run refuses
     (tmp_path / "acme" / "products" / "widgets").mkdir(parents=True)
     (tmp_path / "acme" / "products" / "widgets" / "premise-vocab.toml").write_text(
         'schema = 1\n[premise.ships-agents]\nmin_distinct = 2\nterms = ["agent", "assistant"]\n',
@@ -1357,14 +1361,16 @@ def test_a_product_with_no_vocab_of_its_own_falls_back_to_the_profile(tmp_path):
 
 def test_a_traversing_product_slug_is_refused_not_resolved(tmp_path):
     """The rung the resolver adds also brings its guard: a product segment is `_safe_segment`ed,
-    so a slug is a bare name or it is nothing. Returning `{}` rather than raising keeps this
-    consistent with every other unreadable-vocab case in this module."""
+    so a slug is a bare name or it is nothing. It raises rather than returning `{}`: the run
+    scope is asked FIRST, and a refusal that a vocabulary reader swallowed into "no vocabulary"
+    would read as a company with nothing to check (the audit's finding on this reader)."""
     (tmp_path / "acme" / "knowledge").mkdir(parents=True)
     (tmp_path / "acme" / "knowledge" / "premise-vocab.toml").write_text(
         'schema = 1\n[premise.ships-agents]\nmin_distinct = 1\nterms = ["agent"]\n',
         encoding="utf-8",
     )
-    assert load_premise_vocab("acme", tmp_path, product="../../etc") == {}
+    with pytest.raises(ValueError, match="unsafe product"):
+        load_premise_vocab("acme", tmp_path, product="../../etc")
 
 
 def test_declared_premise_reads_the_front_block():
@@ -2611,3 +2617,47 @@ def test_a_seat_attested_premise_asks_nothing_of_the_record(tmp_path):
         tmp_path, 'schema = 1\n[premise.empty]\nattested_by_seat = "yes"\nterms = []\n'
     )
     assert "empty" not in dropped
+
+
+def test_a_source_attested_premise_loads_but_no_record_text_attests_it(tmp_path):
+    """`attested_by_source = true` keeps a term-less premise in the vocabulary so a registry
+    source can name it, yet it asks something of the record: with no terms and arity 1, no row's
+    own text satisfies it, so it fails closed until a source attests it. Only a literal `true`."""
+    v = _vocab(
+        tmp_path,
+        "schema = 1\n[premise.in-operation]\nattested_by_source = true\nterms = []\n",
+    )
+    premise = v["in-operation"]
+    assert premise.attested_by_source and premise.min_distinct == 1 and not premise.attested_by_seat
+    row = {"email": "a@x.example", "signal_evidence": "deployed agents and AI agents"}
+    assert premise_unsupported([row], premise) != []
+    dropped = _vocab(
+        tmp_path, 'schema = 1\n[premise.empty]\nattested_by_source = "yes"\nterms = []\n'
+    )
+    assert "empty" not in dropped
+
+
+def test_term_groups_counts_groups_not_terms(tmp_path):
+    """R2.5b: min_distinct counts groups when term_groups is present.
+    A row naming 'Claude' and 'Anthropic' only is unsupported under term_groups
+    (1 group), while 'Claude' + 'Gemini' is supported (2 groups)."""
+    text = (
+        "schema = 1\n"
+        "[premise.multi-model]\n"
+        "min_distinct = 2\n"
+        "terms = ['gemini']\n"
+        "[premise.multi-model.term_groups]\n"
+        "anthropic = ['anthropic', 'claude']\n"
+    )
+    v = _vocab(tmp_path, text)
+    premise = v["multi-model"]
+    assert premise.min_distinct == 2
+    assert "anthropic" in premise.term_groups
+
+    # 1 group (both terms belong to anthropic group) -> unsupported
+    row1 = {"email": "a@x.example", "signal_evidence": "running Claude and Anthropic models"}
+    assert premise_unsupported([row1], premise) != []
+
+    # 2 distinct groups (anthropic + gemini) -> supported
+    row2 = {"email": "b@x.example", "signal_evidence": "running Claude and Gemini models"}
+    assert premise_unsupported([row2], premise) == []

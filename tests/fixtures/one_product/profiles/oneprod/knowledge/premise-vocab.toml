@@ -1,0 +1,6 @@
+schema = 1
+
+[premise.solo-premise]
+claim = "the reader runs more than one system soloonly"
+min_distinct = 2
+terms = ["relay", "mesh"]

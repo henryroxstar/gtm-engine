@@ -11,6 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from .. import run_scope
 from ..adjudication import read_records
 from ..prospects_consolidate.paths import _sequences_dir, ready_to_load_path
 from . import decisions as dec
@@ -83,6 +84,17 @@ def _cli_route(args) -> int:
 
 def _route_locked(args, as_of: datetime.date) -> int:
     try:
+        scope = run_scope.require(args.profile, args.product)
+    except run_scope.ScopeError as exc:
+        return _refuse(str(exc))
+    if scope.writes_as_second:
+        return _refuse(
+            f"lane routing for {scope.product_display} waits for the per-product ledger: routing "
+            "writes one shared decisions file and one lane pool per company, so a second "
+            "product's lanes would overwrite the default product's. Route the default product, "
+            "or keep this run's cohort in its own files until that lands."
+        )
+    try:
         previous = dec.read_state(dec.state_path(args.profile))
     except dec.StateError as exc:
         return _refuse(f"{exc} — repair or remove that line, then route again")
@@ -101,7 +113,7 @@ def _route_locked(args, as_of: datetime.date) -> int:
         return 2
     rows = _read_csv(args.csv)
     records = [r for p in args.records for r in read_records(p)]
-    ctx = load_context(args.profile, as_of=as_of)
+    ctx = load_context(args.profile, as_of=as_of, product=args.product)
     prior = dec.read_decisions(dec.decisions_path(args.profile))
     if not args.records:
         print(
@@ -214,6 +226,11 @@ def main(argv: list[str] | None = None) -> int:
 
     rp = sub.add_parser("route", help="route every pooled row to exactly one lane")
     rp.add_argument("--profile", required=True)
+    rp.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
     rp.add_argument("--csv", required=True, type=Path, help="the pooled list (ready-to-load.csv)")
     rp.add_argument(
         "--records",

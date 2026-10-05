@@ -52,6 +52,8 @@ def active_skills_for_profile(
             continue
         for graph_path in sorted(graphs_dir.glob("*.toml")):
             graph = load_pack_graph(graph_path)
+            if graph.internal:  # operator-only: never part of what a tenant's runs may reach
+                continue
             skills.update(n.skill for n in graph.nodes if n.skill is not None)
     return frozenset(skills)
 

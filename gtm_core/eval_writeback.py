@@ -55,7 +55,13 @@ from pathlib import Path
 from .eval_calibration import Label, read_labels
 from .paths import _safe_segment
 from .prospect_paths import suppression_ledger
-from .prospects_state import _identity_key, load_latest, set_status
+from .prospects_state import (
+    _identity_key,
+    _is_second_product,
+    load_latest,
+    scoped_product,
+    set_status,
+)
 from .suppression import EVAL_DISQUALIFIED, EVAL_WRONG_PERSON, Suppression, append
 
 __all__ = [
@@ -325,6 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     ):
         s = sub.add_parser(name, help=helptext)
         s.add_argument("--profile", required=True)
+        s.add_argument(
+            "--product",
+            default=None,
+            help=(
+                "the product this eval was run for (required when the company has a second "
+                "product; a second product's eval cannot disqualify an account)"
+            ),
+        )
         s.add_argument("--labels", required=True, type=Path)
         s.add_argument(
             "--internal",
@@ -352,6 +366,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
     _safe_segment(args.profile, "profile")
+    try:
+        product = scoped_product(args.profile, args.product)
+    except ValueError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
 
     labels = read_labels(args.labels)
     internal = _read_internal(args.internal)
@@ -383,6 +402,16 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if product is not None and _is_second_product(args.profile, product):
+        # A disqualification is account-wide, so a second product's eval cannot make one. Refuse
+        # before the suppression ledger is touched rather than half-apply.
+        print(
+            f"\nREFUSED: an eval run for {product!r} may not apply: a disqualification retires "
+            "the account for the default product too.",
+            file=sys.stderr,
+        )
+        return 2
 
     stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     # The canonical ledger, beside the lists it protects. This default used to be
@@ -429,6 +458,7 @@ def main(argv: list[str] | None = None) -> int:
             updates,
             reason=EVAL_DISQUALIFIED,
             source=f"eval-{stamp}",
+            product=product,
         )
         print(
             f"latest.json: {summary['changed']} changed, {summary['unchanged']} already set, "

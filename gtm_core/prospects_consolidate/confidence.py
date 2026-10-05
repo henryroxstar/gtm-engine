@@ -4,7 +4,12 @@ import re
 
 from ..merge_hygiene import bare_host, clean_company, clean_first_name, clean_last_name, clean_title
 from ..prospects_state import _norm as _norm_company
-from ..signal_record import RECORD_COLUMNS, SIGNAL_COLUMN
+from ..signal_record import (
+    RECORD_COLUMNS,
+    SIGNAL_COLUMN,
+    SIGNAL_FIT_COLUMN,
+    SIGNAL_VIRALITY_COLUMN,
+)
 from .columns import column_value
 
 # Apollo's `email_status` / `contact_email_status` vocabulary is exactly four values —
@@ -191,5 +196,14 @@ def _row_to_record(row: dict, src: str) -> dict:
         # `prospect` skill writes. Judge columns and the stamped ids are deliberately
         # NOT here: those are assigned downstream, and letting a source export set them
         # would let an input claim it had already been judged.
-        **{col: _get(row, col) for col in (*RECORD_COLUMNS, SIGNAL_COLUMN, "hook_cell")},
+        **{
+            col: _get(row, col)
+            for col in (
+                *RECORD_COLUMNS,
+                SIGNAL_COLUMN,
+                "hook_cell",
+                SIGNAL_FIT_COLUMN,
+                SIGNAL_VIRALITY_COLUMN,
+            )
+        },
     }

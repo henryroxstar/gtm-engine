@@ -26,7 +26,7 @@
             "type": "object",
             "required": ["kind", "name", "status"],
             "properties": {
-              "kind": { "type": "string", "enum": ["setting", "knowledge", "context"], "description": "Which input class the item belongs to. Open-world." },
+              "kind": { "type": "string", "enum": ["setting", "knowledge", "context", "integration"], "description": "Which input class the item belongs to. Open-world." },
               "name": { "type": "string", "description": "Settings key or knowledge topic (matches inputs.settings[].key / inputs.knowledge[].topic)." },
               "status": { "type": "string", "enum": ["ready", "degraded", "blocked"], "description": "Open-world." },
               "reason": { "type": "string", "description": "Optional human-readable sentence; never an absolute path." }
@@ -93,6 +93,17 @@
               "name": { "type": "string", "description": "Context input name, bare segment." },
               "required": { "type": "boolean", "default": false },
               "max_bytes": { "type": "integer", "description": "Per-item byte cap; absent = global default." }
+            }
+          }
+        },
+        "integrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["provider"],
+            "properties": {
+              "provider": { "type": "string", "description": "BYOK integration provider name, e.g. 'saleshandy'." },
+              "required": { "type": "boolean", "default": true }
             }
           }
         }

@@ -63,6 +63,7 @@ _KNOWN_CODES = frozenset(
         "no_password_credential",
         "profile_already_exists",
         "run_already_terminal",
+        "staged_candidate_exists",
         # 429
         "too_many_concurrent_runs",
         "too_many_streams",

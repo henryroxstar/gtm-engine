@@ -27,28 +27,43 @@ def record_asserted(
     profile: str,
     *,
     provider: str,
-    sequence_id: str,
+    sequence_id: str | None,
     status: str,
     attested: list[str],
     detail: list[str],
+    overall: str | None = None,
+    failed_checks: list[str] | None = None,
+    step_ids: list[str] | None = None,
 ) -> None:
     """Append a ``capability_asserted`` row: was this sequence checked, and when.
 
     Written for a FAIL as well as a pass — a refused staging attempt is exactly the event
     somebody later wants to find, and "no row" would make a refusal indistinguishable from
     a run that never happened. Answerable from ``ledger_cli`` with no provider call.
+
+    ``status`` is the capability check's own verdict. ``overall`` is the verdict of the WHOLE
+    preflight (postal address, opt-out, market as well), which is what the CLI's exit code
+    reports; ``gtm_core.load_preconditions`` refuses a load when either failed. ``step_ids`` are
+    the sequence's step ids, so a hosted import that names only a step can be traced back to the
+    sequence it loads. All three are written only when given, so a caller that predates them
+    produces the row it always did. A ``sequence_id`` of None records a check that was bound to
+    no sequence: it is on the ledger but satisfies no load.
     """
-    _ledgers(profile).append_history(
-        {
-            "event": "capability_asserted",
-            "skill": "email-compliance",
-            "provider": provider,
-            "sequence_id": sequence_id,
-            "status": status,
-            "attested": sorted(attested),
-            "detail": detail,
-        }
-    )
+    row: dict[str, Any] = {
+        "event": "capability_asserted",
+        "skill": "email-compliance",
+        "provider": provider,
+        "sequence_id": sequence_id,
+        "status": status,
+        "attested": sorted(attested),
+        "detail": detail,
+    }
+    if overall is not None:
+        row["overall"] = overall
+        row["failed_checks"] = list(failed_checks or [])
+    if step_ids:
+        row["step_ids"] = list(step_ids)
+    _ledgers(profile).append_history(row)
 
 
 def record_autoset(

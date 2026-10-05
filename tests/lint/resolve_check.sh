@@ -15,7 +15,8 @@ SKILLS="$ROOT/plugin/skills"
 # with RESOLVE_PROFILE=<name>. Keep in sync with tests/smoke/skill_manifest.sh.
 RESOLVE_PROFILE="${RESOLVE_PROFILE:-_template}"
 PROFILE="$RESOLVE_PROFILE"
-PRODUCT="${RESOLVE_PRODUCT:-$(ls "$ROOT/profiles/$PROFILE/products" 2>/dev/null | head -1)}"
+# A product is a FOLDER. A file beside them (the template's products/README.md sorts first) is not one.
+PRODUCT="${RESOLVE_PRODUCT:-$(cd "$ROOT/profiles/$PROFILE/products" 2>/dev/null && ls -d -- */ 2>/dev/null | head -1 | tr -d /)}"
 # Scan the generated SKILL.md + prompt bodies under plugin/skills/ AND the canonical
 # manifests under gtm_core/skills/ (a path ref authored in a manifest must resolve too).
 SCAN=("$SKILLS"); [ -d "$ROOT/gtm_core/skills" ] && SCAN+=("$ROOT/gtm_core/skills")

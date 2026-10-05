@@ -31,6 +31,7 @@ FATE_WORDS: dict[str, str] = {
     "not_scored": "not yet scored",
     "not_admitted": "scored for a different kind of email",
     "judge_dropped": "removed by the email judge",
+    "cxo_triaged": "triaged from enrollment (CxO signal quality)",
     "set_aside": "waiting on you or set aside",
     "suppressed": "asked not to be contacted",
     "not_sorted": "not yet sorted",

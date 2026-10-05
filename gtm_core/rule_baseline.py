@@ -89,6 +89,7 @@ def baseline_predictions(
     # `--hook-matrix` do not die at argparse mid-migration; delete both when they stop.
     artifact_file: Path | None = None,
     hook_matrix: Path | None = None,
+    product: str | None = None,
 ) -> dict[str, bool]:
     """``row_id -> predicted send_it`` from the deterministic rule fleet.
 
@@ -131,7 +132,9 @@ def baseline_predictions(
         case_studies=_load_bans(case_study_file) if case_study_file else (),
         banned_stems=_load_bans(stem_file) if stem_file else (),
         spec_text=spec_text,
-        premise_vocab=_load_premise_vocab(profile) if profile else None,
+        premise_vocab=_load_premise_vocab(profile, product)
+        if profile
+        else None,  # refuses a dropped product
         domain_aliases=_load_domain_aliases(profile) if profile else None,
     )
     errored = {
@@ -169,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ban-file", type=Path)
     ap.add_argument("--case-study-file", type=Path)
     ap.add_argument("--stem-file", type=Path)
+    ap.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required with --profile once the profile has a second product",
+    )
     ap.add_argument("--artifact-file", type=Path)
     ap.add_argument("--hook-matrix", type=Path)
     ap.add_argument("--out", required=True, type=Path, help="JSONL of {row_id, send_it}")
@@ -185,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         stem_file=args.stem_file,
         artifact_file=args.artifact_file,
         hook_matrix=args.hook_matrix,
+        product=args.product,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(

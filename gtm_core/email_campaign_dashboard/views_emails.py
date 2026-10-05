@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import figure_ages
 from .aggregate import sequence_word
 from .config import TAB_LABELS
 from .format import _e, _i, _seat_label, figure_span, section
@@ -191,6 +192,13 @@ def _details(m: dict, msg: dict, sid: str) -> str:
     )
 
 
+def _fall_note(m: dict, sid: str) -> str:
+    note = figure_ages.fall_note(m, sid)
+    if not note:
+        return ""
+    return f'<div class="muted" data-figure="email-fall-{_e(sid)}">{_e(note)}</div>'
+
+
 def _row(m: dict, msg: dict, go: tuple[dict, set, bool]) -> str:
     rows, current, readable = go
     sid = msg["sequence_id"]
@@ -213,7 +221,8 @@ def _row(m: dict, msg: dict, go: tuple[dict, set, bool]) -> str:
         f'<td class="num-cell">{figure_span(f"email-people-{sid}", people)}</td>'
         f'<td class="num-cell">{figure_span(f"email-steps-{sid}", len(msg.get("copy") or []))}</td>'
         f"<td>{_checks(msg.get('lint') or {})}</td>"
-        f'<td><span class="pill" data-figure="email-word-{_e(sid)}">{_e(word)}</span></td>'
+        f'<td><span class="pill" data-figure="email-word-{_e(sid)}">{_e(word)}</span>'
+        f"{_fall_note(m, sid)}</td>"
         "</tr>" + _details(m, msg, sid)
     )
 

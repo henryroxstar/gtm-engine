@@ -5,7 +5,7 @@ import json
 import sys
 from dataclasses import asdict
 
-from ..paths import resolve_knowledge_file, resolve_profiles_root
+from .. import run_scope
 from .audit import audit_campaign
 from .backlog import BacklogUnreadable, backlog, render_backlog
 from .config import MIN_ARGUMENTS, MIN_RECIPIENTS, MIN_SEGMENT_FIT, MIN_SIGNAL_ATTESTATION
@@ -24,6 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--profile", required=True, help="active profile (tenant)")
     p.add_argument("--campaign", default="", help="campaign slug from cells.toml (default: all)")
+    p.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for. Required once the profile has a second product: "
+        "the matrix and capability groups are the product's own",
+    )
     p.add_argument(
         "--overlay",
         default=None,
@@ -97,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--warn-only", action="store_true", help="report findings but exit 0")
     args = p.parse_args(argv)
 
+    try:
+        run_scope.require(args.profile, args.product)
+    except run_scope.ScopeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
     if args.backlog:
         if args.min_recipients != MIN_RECIPIENTS:
             # Refuse rather than ignore. A run that passed --min-recipients and got a report
@@ -109,7 +121,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         try:
-            b = backlog(args.profile, include_drafts=args.include_drafts, overlay=args.overlay)
+            b = backlog(
+                args.profile,
+                include_drafts=args.include_drafts,
+                overlay=args.overlay,
+                product=args.product,
+            )
         except BacklogUnreadable as exc:
             # Named error, never a partial report: a backlog computed from a half-read
             # cells.toml lists live cells as unused, and a drafter acts on it.
@@ -137,8 +154,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.matrix_only:
         matrix = parse_matrix(
-            resolve_knowledge_file(
-                resolve_profiles_root(), args.profile, "hook-matrix.md", overlay=args.overlay
+            run_scope.product_file(
+                args.profile,
+                run_scope.require(args.profile, args.product),
+                "hook-matrix.md",
+                overlay=args.overlay,
             ),
             profile=args.profile,
         )
@@ -164,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         include_drafts=args.include_drafts,
         include_packs=args.include_packs,
         overlay=args.overlay,
+        product=args.product,
     )
     if args.json:
         print(json.dumps(unresolved_json(cov), indent=1, ensure_ascii=False))

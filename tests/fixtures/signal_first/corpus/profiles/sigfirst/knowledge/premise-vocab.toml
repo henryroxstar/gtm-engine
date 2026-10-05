@@ -1,0 +1,9 @@
+schema = 1
+[premise.relay-premise]
+claim = "the reader runs more than one system"
+min_distinct = 2
+terms = ["relay", "mesh"]
+industry_terms = ["freight"]
+[premise.seat-premise]
+claim = "the reader owns the platform"
+attested_by_seat = true

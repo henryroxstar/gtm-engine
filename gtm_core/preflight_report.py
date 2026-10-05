@@ -64,6 +64,7 @@ from . import (
     hook_coverage,
     list_fit,
     merge_hygiene,
+    run_scope,
     signal_record,
     suppression,
 )
@@ -164,6 +165,9 @@ class _Inputs:
     #: one live profile reported 972 ``verdict-missing`` errors over 508 rows. Multiset, not a
     #: set: a CSV genuinely carrying the same person twice is a finding, not a duplicate.
     record_seen: Counter = field(default_factory=Counter)
+    #: The product this run is for, or ``None``. Once the profile has a second product a check that
+    #: reads a product-scoped file refuses without it (``run_scope``); it is never a skip.
+    product: str | None = None
 
 
 def _skip(name: str, why: str) -> CheckResult:
@@ -383,7 +387,19 @@ def _run_suppression(i: _Inputs) -> CheckResult:
 def _run_hook_coverage(i: _Inputs) -> CheckResult:
     try:
         c = hook_coverage.audit_campaign(
-            i.profile, content_root=i.content_root, profiles_root=i.profiles_root
+            i.profile,
+            content_root=i.content_root,
+            profiles_root=i.profiles_root,
+            product=i.product,
+        )
+    except run_scope.ScopeError as exc:
+        # A dropped product is not "not configured": skipping here would switch this gate off,
+        # silently, for exactly the profiles that have a second product.
+        return CheckResult(
+            name="hook_coverage",
+            status=FAIL,
+            detail="no product named for a profile with more than one",
+            errors=[f"product-required: {exc}"],
         )
     except (FileNotFoundError, ValueError) as exc:
         # No matrix or no cells.toml is "not configured", not "broken".
@@ -617,6 +633,7 @@ def run_preflight(
     acked: tuple[str, ...] = (),
     budget: int = WARN_BUDGET,
     as_of: datetime.date | None = None,
+    product: str | None = None,
 ) -> PreflightReport:
     """Run the whole deterministic roster for one profile. Never raises on a check."""
     croot = content_root if content_root is not None else resolve_content_root()
@@ -633,6 +650,7 @@ def run_preflight(
         fieldnames=fieldnames,
         acked=acked,
         budget=budget,
+        product=product,
     )
     results: list[CheckResult] = []
     for check in ROSTER:
@@ -794,6 +812,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Run every deterministic content gate as a precondition. Costs nothing.",
     )
     p.add_argument("--profile", required=True)
+    p.add_argument(
+        "--product",
+        default=None,
+        help="product this run is for; required once the profile has a second product",
+    )
     p.add_argument("--content-root", default=None, type=Path)
     p.add_argument("--profiles-root", default=None, type=Path)
     p.add_argument(
@@ -828,6 +851,7 @@ def main(argv: list[str] | None = None) -> int:
         content_root=args.content_root,
         profiles_root=args.profiles_root,
         acked=tuple(args.ack),
+        product=args.product,
         budget=args.budget,
         as_of=args.as_of,
     )

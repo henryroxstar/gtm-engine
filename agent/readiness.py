@@ -22,6 +22,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from gtm_core import knowledge_meta
 from gtm_core.packs.loader import PackInputs
@@ -32,6 +33,13 @@ from .profiles import profile_dir, read_profile_field
 GREEN = "green"
 YELLOW = "yellow"
 RED = "red"
+
+PROVIDER_DISPLAY_NAMES = {
+    "saleshandy": "Saleshandy",
+    "apollo": "Apollo",
+    "rocketreach": "RocketReach",
+    "syften": "Syften",
+}
 
 #: Freshness policies with a bounded window. "evergreen" (not listed here) never stales.
 _FRESHNESS_WINDOW_DAYS = {"90d": 90}
@@ -48,10 +56,10 @@ def _knowledge_age_days(path: Path, now: float) -> float:
 
 @dataclass(frozen=True)
 class ReadinessItem:
-    """One settings key or knowledge topic's readiness verdict."""
+    """One settings key, knowledge topic, context input, or integration readiness verdict."""
 
-    kind: str  # "setting" | "knowledge"
-    name: str  # settings key or knowledge topic
+    kind: str  # "setting" | "knowledge" | "context" | "integration"
+    name: str  # settings key, knowledge topic, or provider name
     status: str  # GREEN | YELLOW | RED
     required: bool
     detail: str = ""
@@ -80,6 +88,7 @@ def check_readiness(
     product: str | None = None,
     now: float | None = None,
     context: dict[str, str] | None = None,
+    configured_integrations: set[str] | dict[str, Any] | None = None,
 ) -> ReadinessReport:
     """Diff ``inputs`` against ``profile``'s PROFILE.md + knowledge/ corpus.
 
@@ -155,5 +164,35 @@ def check_readiness(
             )
         else:
             items.append(ReadinessItem("context", c.name, GREEN, c.required))
+
+    active_integrations = (
+        set(configured_integrations.keys())
+        if isinstance(configured_integrations, dict)
+        else set(configured_integrations or ())
+    )
+    for i in getattr(inputs, "integrations", ()):
+        display = PROVIDER_DISPLAY_NAMES.get(i.provider, i.provider.capitalize())
+        if i.provider in active_integrations:
+            items.append(ReadinessItem("integration", i.provider, GREEN, i.required))
+        elif i.required:
+            items.append(
+                ReadinessItem(
+                    "integration",
+                    i.provider,
+                    RED,
+                    True,
+                    detail=f"{display} API key is not configured — add it in Settings > Integrations",
+                )
+            )
+        else:
+            items.append(
+                ReadinessItem(
+                    "integration",
+                    i.provider,
+                    YELLOW,
+                    False,
+                    detail=f"Optional: {display} API key is not configured",
+                )
+            )
 
     return ReadinessReport(items=tuple(items))

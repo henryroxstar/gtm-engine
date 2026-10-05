@@ -34,8 +34,13 @@ _ENROLL_DRAFT = {
 @pytest.fixture(autouse=True)
 def _live_copy_matches():
     """These tests are about which draft the CLI verb resolves and dispatches; the
-    pre-enrollment read-back of the live sequence is tested in test_email_dispatch.py."""
-    with patch("agent.email_dispatch._live_copy_refusal", AsyncMock(return_value=None)):
+    pre-enrollment read-back of the live sequence is tested in test_email_dispatch.py, and the
+    records rule (compliance check on file, digest, pilot) in test_email_dispatch_preconditions.py,
+    so it is held open here exactly as test_email_dispatch.py holds it open."""
+    with (
+        patch("agent.email_dispatch._live_copy_refusal", AsyncMock(return_value=None)),
+        patch("agent.email_dispatch._load_refusal", lambda *_a, **_k: None),
+    ):
         yield
 
 

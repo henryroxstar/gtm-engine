@@ -29,8 +29,9 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import run_scope
 from ..cells import cells_map_path, load_cell_map
-from ..paths import resolve_knowledge_file, resolve_profiles_root
+from ..paths import resolve_profiles_root
 from .config import draft_cell_dirs
 from .declared import declared_cell, load_registry_or_reason, resolve_declared_cell
 from .matrix import Matrix, UnknownHookCell, parse_matrix
@@ -178,6 +179,7 @@ def backlog(
     include_drafts: bool = False,
     overlay: str | None = None,
     registry=None,
+    product: str | None = None,
 ) -> Backlog:
     """Every cell in the tenant's matrix that no spec declares.
 
@@ -192,11 +194,15 @@ def backlog(
     read sends a drafter to write copy that already exists.
     """
     roots = profiles_root or resolve_profiles_root()
+    scope = run_scope.require(profile, product, profiles_root=roots)
+    product = scope.product
     if registry is None:
-        registry, reason = load_registry_or_reason(profile, roots, overlay=overlay)
+        registry, reason = load_registry_or_reason(profile, roots, overlay=overlay, product=product)
         if reason:
             print(reason, file=sys.stderr)
-    path = resolve_knowledge_file(roots, profile, "hook-matrix.md", overlay=overlay)
+    path = run_scope.product_file(
+        profile, scope, "hook-matrix.md", profiles_root=roots, overlay=overlay
+    )
     matrix = parse_matrix(path, profile=profile)
     out = Backlog(
         matrix_path=path,

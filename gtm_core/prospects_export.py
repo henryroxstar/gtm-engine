@@ -36,11 +36,18 @@ from gtm_core.signal_record import Verdict
 NEVER_EXPORTED_STATUSES = RETIRED_STATUSES | {"replied"}
 
 
-def exclusion_reason(account: dict) -> str:
-    """Why nothing at this ledger account may be exported — ``""`` when it may."""
+def exclusion_reason(account: dict, *, company_facts_only: bool = False) -> str:
+    """Why nothing at this ledger account may be exported — ``""`` when it may.
+
+    ``company_facts_only`` is a second product's export. The ledger row's ``verdict`` is the
+    default product's judgment, so it never decides another product's cohort; only the
+    account-wide statuses (retired, replied) do, because those are facts about the company.
+    """
     status = str(account.get("status") or "").strip().lower()
     if status in NEVER_EXPORTED_STATUSES:
         return f"status is {status}"
+    if company_facts_only:
+        return ""
     if str(account.get("verdict") or "").strip().lower() == Verdict.DROP:
         return "verdict is drop"
     return ""
@@ -50,9 +57,18 @@ class RunExport:
     """One run's CSV: planned against the merged accounts, written after the ledger."""
 
     def __init__(
-        self, items: list[dict], columns: Sequence[str], render: Callable[[dict], list[Any]]
+        self,
+        items: list[dict],
+        columns: Sequence[str],
+        render: Callable[[dict], list[Any]],
+        *,
+        second_product: bool = False,
     ) -> None:
         self.items = items
+        #: A second product's export: judged only on company-wide statuses, and every row carries
+        #: the ``account_id`` of the ledger row it belongs to, so the per-product ledger (Layer C)
+        #: can join this run's view of the account back by id rather than by a spelling.
+        self.second_product = second_product
         self._columns, self._render = columns, render
         self.rows: list[list[Any]] = []
         self.refused = 0  # the item itself is a recorded refusal
@@ -65,12 +81,14 @@ class RunExport:
                 self.refused += 1
                 continue
             company = str(account.get("company") or item.get("company") or "")
-            why = exclusion_reason(account)
+            why = exclusion_reason(account, company_facts_only=self.second_product)
             if why:
                 self.excluded.append((company, why))
                 continue
             row = new_account_defaults(item)
             row.update(company=company, domain=str(account.get("domain") or ""))
+            if self.second_product:
+                row["account_id"] = str(account.get("account_id") or "")
             try:
                 self.rows.append(self._render(row))
             except (AttributeError, TypeError, ValueError) as exc:
