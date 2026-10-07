@@ -153,6 +153,48 @@ def _promised_vs_actual(targets: dict, actuals: dict) -> dict:
     return out
 
 
+#: The published reply-rate benchmark an automatic goal uses, by the campaign's ``segment``
+#: (labels in ``email_campaign_dashboard.config.BENCHMARKS``, never a typed rate here).
+_AUTO_RATE = {
+    "enterprise": "SaaS selling to enterprise",
+    "startup": "SaaS selling to SaaS",
+    "builder": "SaaS selling to SaaS",
+}
+
+#: Campaign order on every tab: sending first, finished last; file order within a state.
+_STATE_ORDER = ("active", "started", "paused", "staged", "none", "unknown")
+FINISHED_STATES = ("completed", "closed", "finished", "done", "archived")
+
+
+def _auto_targets(m: dict, seqs: list[dict]) -> tuple[dict, dict]:
+    """Goals for a campaign whose manifest declares none, from what is actually loaded: the
+    people in its current sequences, their emails (people x each sequence's step count, only
+    when every sequence's count is known — a guessed count is a wrong goal), and replies at
+    the published benchmark for its audience. ``({}, {})`` when nobody is loaded."""
+    from gtm_core.email_campaign_dashboard.config import BENCHMARKS
+
+    loaded = [
+        (_int(s["live"].get("loaded")), s["live"].get("steps") or s.get("steps")) for s in seqs
+    ]
+    people = sum(n for n, _ in loaded)
+    if not people:
+        return {}, {}
+    seg = str(m.get("segment") or "").strip().lower()
+    label = _AUTO_RATE.get(seg, _AUTO_RATE["enterprise"])
+    rate = next(b["low"] for b in BENCHMARKS if b["label"] == label)
+    targets = {"prospects": people, "reply_rate": rate, "replies": round(people * rate)}
+    how = {
+        "prospects": f"{people:,} people loaded in the current sequences",
+        "reply_rate": f"published benchmark, {label}"
+        + ("" if seg in _AUTO_RATE else " (no audience recorded, so the enterprise rate)"),
+        "replies": f"{people:,} people x {rate:.1%}",
+    }
+    if all(steps for _, steps in loaded):
+        targets["emails"] = sum(n * steps for n, steps in loaded)
+        how["emails"] = " + ".join(f"{n:,} x {steps}" for n, steps in loaded) + " emails"
+    return targets, how
+
+
 #: PS20 P3.1 — the sequencer's own reply-label vocabulary (kept by ``_normalize_seq`` in
 #: ``prospects_dashboard.py``), summed alongside the existing send/reply keys. ``bounced``
 #: and ``delivered`` are NOT here — they are an EMAIL count, a different unit from ``sent``
@@ -229,6 +271,12 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
             statuses.append(live.get("status"))
             enriched_seqs.append(row)
 
+        written = m.get("targets") or {}
+        targets, derivation = (
+            (written, m.get("targets_derivation", {}))
+            if written
+            else _auto_targets(m, enriched_seqs)
+        )
         campaigns.append(
             {
                 "slug": slug,
@@ -237,7 +285,9 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
                 "plan_md": m.get("plan_md", ""),
                 "plan_html": m.get("plan_html", ""),
                 "product": m.get("product", ""),
-                "targets": m.get("targets", {}),
+                "targets": targets,
+                # True when the goals above were derived from what is loaded, not written.
+                "targets_auto": bool(targets) and not written,
                 "sequences": enriched_seqs,
                 "archived": archived_seqs,
                 "archived_actuals": archived_totals,
@@ -248,8 +298,7 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
                 # call an archived-only campaign "staged".
                 "state": (
                     str(m.get("status") or "").strip().lower()
-                    if str(m.get("status") or "").strip().lower()
-                    in ("completed", "closed", "finished", "done", "archived")
+                    if str(m.get("status") or "").strip().lower() in FINISHED_STATES
                     else go_live(
                         statuses,
                         totals["sent"],
@@ -258,10 +307,13 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
                     )
                 ),
                 "actuals": totals,
-                "promised_vs_actual": _promised_vs_actual(m.get("targets", {}), totals),
+                "promised_vs_actual": _promised_vs_actual(targets, totals),
                 # Optional blocks — a campaign without them renders exactly as before.
                 "targets_superseded": m.get("targets_superseded", {}),
-                "targets_derivation": m.get("targets_derivation", {}),
+                "targets_derivation": derivation,
+                # The operator's own words for the Results card (e.g. why a figure is what
+                # it is). Shown as written; it is theirs, not a finding of this code.
+                "results_note": str(m.get("results_note") or ""),
                 # Where this campaign's OWN accounts live (run-export globs, relative to the
                 # prospects dir). Carried through so a campaign-scoped page can count its own
                 # roster instead of the shared pool. Absent for a campaign that declares none.
@@ -272,6 +324,8 @@ def build_campaigns(profile: str, content_root: Path | None = None) -> dict:
         )
 
     unlinked_sequences = [s for s in staged if s["sequence_id"] not in matched_ids]
+    rank = {s: n for n, s in enumerate(_STATE_ORDER)}
+    campaigns.sort(key=lambda c: rank.get(c["state"], len(rank)))
 
     return {
         "profile": profile,

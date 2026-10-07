@@ -128,11 +128,6 @@ MUTATIONS: list[tuple[str, object, set[Triple]]] = [
         {("SD2", "coverage gap COV-11", "error")},
     ),
     (
-        "sd3-quality-requirements",
-        lambda t: _rename(t, "### A9. Quality requirements", "### A9. Targets"),
-        {("SD3", "quality requirements absent", "warn")},
-    ),
-    (
         "sd4-glossary",
         lambda t: _rename(t, "### A10. Glossary", "### A10. Terms"),
         {("SD4", "glossary absent", "warn")},

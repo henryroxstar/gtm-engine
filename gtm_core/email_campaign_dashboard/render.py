@@ -18,6 +18,7 @@ from .config import (
     input_globs,
     page_title,
 )
+from .delivery import delivery_strip
 from .filters import script_block
 from .format import _e, _tiles_reset
 from .freshness import (
@@ -84,11 +85,11 @@ def _warnings_strip(m: dict) -> str:
 def render_html(m: dict) -> str:
     _tiles_reset()  # the recorder holds exactly one page: this one
     title = _e(page_title(m))
-    # A page-level banner shows on every tab. Only the warnings strip earns that: the eval
-    # round waiting to be labelled is a Maintenance line on Operator notes (PS20 P1.6), and
-    # the review sheet is linked from the lede's "Yours" line (PS15) — both read by the
-    # model (`health.page_extras`), because this function opens no file.
-    banners = _warnings_strip(m) + stale_banner(m)
+    # A page-level banner shows on every tab. Only the warnings and delivery-risk strips earn
+    # that: the eval round waiting to be labelled is a Maintenance line on Operator notes (PS20
+    # P1.6), and the review sheet is linked from the lede's "Yours" line (PS15) — both read by
+    # the model (`health.page_extras`), because this function opens no file.
+    banners = _warnings_strip(m) + delivery_strip(m) + stale_banner(m)
 
     panels = {
         "overview": _overview_view(m),

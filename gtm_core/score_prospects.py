@@ -19,16 +19,25 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Any
 
 from gtm_core.prospects_merge import is_blank
-from gtm_core.score_heat import _evaluate_heat_detailed, _parse_signal_date_ordinal, evaluate_heat
+from gtm_core.score_heat import (
+    DEFAULT_CEILINGS,
+    DEFAULT_TIER_A_THRESHOLDS,
+    _evaluate_heat_detailed,
+    _format_score,
+    _parse_bool,
+    _parse_signal_date_ordinal,
+    _resolve_segment_params,
+    _rubric_score,
+    evaluate_heat,
+)
 
-# `evaluate_heat` moved to gtm_core.score_heat (§R10 split); re-imported and listed in
-# __all__ so `from gtm_core.score_prospects import evaluate_heat` keeps resolving.
+# `evaluate_heat` and scoring helpers moved to gtm_core.score_heat (§R10 split);
+# re-imported and listed in __all__ so external callers keep resolving.
 __all__ = [
     "BELOW_THRESHOLD_REASON",
     "DEFAULT_CEILINGS",
@@ -41,18 +50,6 @@ __all__ = [
     "score_candidate",
     "sort_key_finalist",
 ]
-
-# Default ceilings per segment (from gates-and-scoring.md)
-DEFAULT_CEILINGS: dict[str, int] = {
-    "enterprise": 12,
-    "startup": 10,
-}
-
-# Default Tier-A thresholds (~70% of ceiling)
-DEFAULT_TIER_A_THRESHOLDS: dict[str, int] = {
-    "enterprise": 8,
-    "startup": 7,
-}
 
 DEFAULT_PUBLISH_THRESHOLD: int = 6
 
@@ -67,89 +64,6 @@ BELOW_THRESHOLD_REASON = "below publish threshold"
 #: third bucket, because sweeping them into ``dropped`` would stamp them ``verdict: drop`` with
 #: reason "below publish threshold", which is a sentence about a number they never had.
 UNSCORED_TIER = "unscored"
-
-_TRUE_WORDS = frozenset({"true", "yes", "1"})
-
-
-def _resolve_segment_params(
-    segment: str,
-    ceiling: int | None,
-    tier_a_threshold: int | None,
-    warned_segments: set[str] | None,
-) -> tuple[int, int]:
-    """Resolve the ceiling and Tier-A threshold for a segment.
-
-    An unrecognised segment still gets a value (the startup-shaped default), but PSK-027
-    means that fallback is never silent: the first row of a distinct unknown segment in a
-    run prints one warning naming what was used.
-    """
-    ceiling_fell_back = ceiling is None and segment not in DEFAULT_CEILINGS
-    tier_a_fell_back = tier_a_threshold is None and segment not in DEFAULT_TIER_A_THRESHOLDS
-
-    c = ceiling if ceiling is not None else DEFAULT_CEILINGS.get(segment, 10)
-    t_a = (
-        tier_a_threshold
-        if tier_a_threshold is not None
-        else DEFAULT_TIER_A_THRESHOLDS.get(segment, round(c * 0.7))
-    )
-
-    if (ceiling_fell_back or tier_a_fell_back) and warned_segments is not None:
-        if segment not in warned_segments:
-            warned_segments.add(segment)
-            print(
-                f"Warning: unknown segment {segment!r} — falling back to "
-                f"ceiling={c}, tier_a_threshold={t_a}",
-                file=sys.stderr,
-            )
-
-    return c, t_a
-
-
-def _coerce_finite_score(value: Any, label: str) -> float:
-    """Validate a rubric fit score is a real, finite number (PSK-009, §R5).
-
-    Untrusted (LLM-authored) input must never be silently scored 0 — a non-numeric or
-    non-finite (NaN/inf) value is a defect to surface, not a value to guess past.
-    """
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"candidate {label!r} has a non-numeric score: {value!r}") from exc
-    if math.isnan(numeric) or math.isinf(numeric):
-        raise ValueError(f"candidate {label!r} has a non-finite score: {value!r}") from None
-    return numeric
-
-
-def _format_score(value: float) -> int | float:
-    return int(value) if value.is_integer() else round(value, 1)
-
-
-def _parse_bool(value: Any) -> bool:
-    """``"false"`` is False. Real bools pass through; ``true``/``yes``/``1`` are True; anything
-    else — a list, ``"maybe"`` — is False, never a crash (§R5: the row is LLM-authored)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int | str):
-        return str(value).strip().lower() in _TRUE_WORDS
-    return False
-
-
-def _rubric_score(res: dict[str, Any], label: str) -> float:
-    """The pre-heat rubric score, from ``base_score`` | ``fit_score`` | ``score``.
-
-    ``base_score`` is what this scorer wrote last time and ``fit_score`` is what the researcher
-    supplies. When both are present and DIFFER, the researcher has corrected the rubric score
-    since the last pass, and the correction wins — it used to be ignored forever. When they
-    agree nothing was corrected, and either one is the same number. ``score`` is read last: on
-    a scored row it already has heat in it (PSK-003).
-    """
-    stored, supplied = res.get("base_score"), res.get("fit_score")
-    if supplied is not None:
-        return _coerce_finite_score(supplied, label)
-    if stored is not None:
-        return _coerce_finite_score(stored, label)
-    fallback = res.get("score")
-    return _coerce_finite_score(0 if fallback is None else fallback, label)
 
 
 def score_candidate(
@@ -209,18 +123,21 @@ def score_candidate(
     if topics_fired:
         res["intent_topics_fired"] = topics_fired
 
-    res["heat"] = heat
+    kinetic_boost = 3 if _parse_bool(res.get("kinetic_chain_completed")) else 0
+    effective_heat = heat + kinetic_boost
+
+    res["heat"] = effective_heat
     if is_elevated and heat == 0:
         res["intent_elevated"] = True
     if unscored:
         res["intent_unscored"] = True
 
     res["base_score"] = _format_score(base_score_num)
-    total_score = min(base_score_num + heat, float(c))
+    total_score = min(base_score_num + effective_heat, float(c))
     res["score"] = _format_score(total_score)
 
-    # Assign Tier and Priority
-    if res["score"] >= t_a:
+    # Assign Tier and Priority: completed kinetic chain guarantees Tier-A qualification if at/above publish_threshold
+    if res["score"] >= t_a or (kinetic_boost > 0 and res["score"] >= publish_threshold):
         res["tier"] = "A"
         res["priority"] = "high"
     elif res["score"] >= publish_threshold:

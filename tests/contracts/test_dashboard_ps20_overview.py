@@ -8,6 +8,7 @@ from gtm_core.email_campaign_dashboard.aggregate import _scope_figures
 from gtm_core.email_campaign_dashboard.config import SECTIONS
 from gtm_core.email_campaign_dashboard.format import scope_label
 from gtm_core.email_campaign_dashboard.health import figures_date
+from gtm_core.prospect_lede import GO_LIVE_WORDS
 from tests.contracts.dashboard_page import classes, elements, section, section_ids, visible_text
 from tests.contracts.test_dashboard_ps20_trust import _fig, _fixture_10_24_1, _manifest, _stats
 from tests.test_email_campaign_dashboard import _seed
@@ -41,7 +42,8 @@ def test_the_lede_then_the_campaigns_then_the_terminals_two_blocks(tmp_path):
 def test_one_line_per_campaign_read_off_the_figures(tmp_path):
     m = gd.build_model(_fixture_10_24_1(tmp_path), tmp_path)
     lines = section(vo._overview_view(m), "campaign-lines")
-    assert _fig(lines, "campaign-word-c1") == "started"
+    # The operator's words for the state, not its id (2026-10-06).
+    assert _fig(lines, "campaign-word-c1") == GO_LIVE_WORDS["started"]
     assert (
         _fig(lines, "campaign-contacted-c1") == "10"
     )  # current only: the retired run's 24 is not here
@@ -67,7 +69,7 @@ def test_an_unreadable_snapshot_reads_unknown_never_zero(tmp_path):
     _stats(tmp_path, profile, "{broken")
     lines = section(vo._overview_view(gd.build_model(profile, tmp_path)), "campaign-lines")
     assert (_fig(lines, "campaign-word-c1"), _fig(lines, "campaign-contacted-c1")) == (
-        "unknown",
+        GO_LIVE_WORDS["unknown"],
         "—",
     )
     assert _fig(lines, "campaign-replied-c1") == "—"  # refused replies never read 0
@@ -83,7 +85,7 @@ def test_a_blank_title_falls_back_to_the_slug(tmp_path):
     for title in (None, ""):
         _c1(m)["title"] = title
         text = visible_text(section(vo._overview_view(m), "campaign-lines"))
-        assert "c1 started" in text and "None" not in text, title
+        assert f"c1 {GO_LIVE_WORDS['started']}" in text and "None" not in text, title
 
 
 def test_a_title_is_escaped_and_one_reads_singular(tmp_path):

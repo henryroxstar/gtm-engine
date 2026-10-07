@@ -56,6 +56,7 @@ _RESOLVERS: dict[str, tuple[str, ...]] = {
     ),
     "hooks.toml": ("gtm_core/hooks.py",),
     "premise-vocab.toml": ("gtm_core/hook_coverage/premise.py",),
+    "kinetic-chains.toml": ("gtm_core/signal_events/kinetic.py",),
 }
 
 #: Overlayable files with no resolver outside experiments.py. They are admitted by the allowlist

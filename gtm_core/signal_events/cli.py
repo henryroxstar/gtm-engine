@@ -18,6 +18,7 @@ from gtm_core.merge_hygiene import clean_company
 from gtm_core.paths import _safe_segment, resolve_content_root, resolve_profiles_root
 
 from .contracts import BusinessEvent, event_dedup_hash
+from .kinetic import render_hook_preview
 from .providers import ZeroCostATSSweep, build_ats_query, get_provider
 
 logger = logging.getLogger(__name__)
@@ -134,27 +135,6 @@ def detect_clusters(events: list[BusinessEvent]) -> dict[str, dict[str, Any]]:
             if clean_name_key and clean_name_key != primary_key:
                 clusters[clean_name_key] = cluster_data
     return clusters
-
-
-def render_hook_preview(event: BusinessEvent) -> str:
-    frameworks_str = (
-        f" expanding its {', '.join(event.meta['frameworks'])} agent pipelines"
-        if event.meta.get("frameworks")
-        else " scaling autonomous workflows"
-    )
-    pain_str = f" and tackling {event.meta['pain_cue']}" if event.meta.get("pain_cue") else ""
-    hook = (
-        f"Saw {event.company_name} is{frameworks_str}{pain_str}—are you seeing delegation security "
-        f"become a hurdle as you move out of sandbox pilots?"
-    )
-
-    return (
-        f"Target: {event.company_name} ({event.source_url})\n"
-        f"Role:   {event.headline}\n"
-        f'Hook:   "{hook}"\n'
-        f"[NOTE: Hook preview only. Full 5-slot message (claims, proof points, CTA, word limits) "
-        f"is drafted downstream via draft-outreach during prospect Step 8 using active angles.toml]"
-    )
 
 
 def _stage_token_safely(
@@ -454,6 +434,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to JSON file containing search hits (or '-' for stdin)",
     )
 
+    p_detect = sub.add_parser("detect-chains", help="Detect completed kinetic chains")
+    p_detect.add_argument("--profile", required=True)
+    p_detect.add_argument("--product", default=None)
+    p_detect.add_argument("--overlay", default=None)
+    p_detect.add_argument("--days", type=int, default=90)
+
     args = parser.parse_args(argv)
     hits = None
     if getattr(args, "hits_file", None):
@@ -483,6 +469,15 @@ def main(argv: list[str] | None = None) -> int:
                 max_events=args.max_events,
                 hits=hits,
                 kind=args.kind,
+            )
+        elif args.command == "detect-chains":
+            from .kinetic import run_detect_chains_cli
+
+            return run_detect_chains_cli(
+                profile=args.profile,
+                product=args.product,
+                overlay=args.overlay,
+                days=args.days,
             )
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)

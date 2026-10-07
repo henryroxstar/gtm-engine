@@ -51,6 +51,11 @@ skill's call; only firmographic/heat filtering and set materialization move into
    - **Heat pass** = the same firmographic filters **plus** `business_intent_topics`. Marks in-market
      accounts; the inline per-topic score (≥75) sets heat, exactly as in standard mode's in-market
      pass.
+   - **Keep the two passes separate — don't put `events` and `business_intent_topics` in one
+     fetch.** A stacked run came back with 2 events across 30 accounts (2026-10-05); the cause was not
+     isolated, but separate passes are what the guidance above already prescribes. Union the passes
+     afterwards. Why the two signals are
+     not interchangeable: `intent-signals-catalog.md` §"Vibe events vs intent".
 3. **Preview + cost estimate.** Take the free 5-row preview per cell to sanity-check the filters and
    read `database_total`, then call `estimate-cost`. Auto-scale the export size to roughly
    `target × 1.5–2` (accounting for expected attrition through gating), prioritized by intent score
@@ -364,9 +369,16 @@ Auth: `APOLLO_API_KEY` (Doppler-injected, in-repo worker) or the hosted OAuth co
 | `has_website` | `true` |
 | `company_country_code` | one ISO code per market pass (from PROFILE `target_markets`) |
 | `linkedin_category` | populate from autocomplete (industries below) |
-| `website_keywords` | `["AI agent", "agentic", "agent governance", "AI governance", "MCP", "verifiable credentials"]` |
-| `events` (optional, sparing) | `["new_funding_round", "merger_and_acquisitions", "outages_and_security_breaches", "employee_joined_company", "new_partnership"]`, last 90 days |
+| `website_keywords` | `["AI agent", "agentic", "agent governance", "AI governance", "MCP", "verifiable credentials"]` — **thin and inconsistent on enterprise**: on 2026-10-05 statistics reported 26 matches for US/SG financial + health 1001+ and the fetch returned 2. Don't let it gate an enterprise pass; check named accounts with the `enrich-business-website-keywords` enrichment instead (`intent-signals-catalog.md` §"Vibe events vs intent") |
+| `events` (optional, sparing) | `["new_funding_round", "merger_and_acquisitions", "outages_and_security_breaches", "employee_joined_company", "new_partnership"]`, last 90 days. Add `company_award` when you are scanning event text for agent evidence — that is where one bank's agent-platform mention arrived |
 | `number_of_results` | `20` |
+
+**Size category labels before you use them.** Run `fetch-entities-statistics` (free) on the cell
+first and read `business_categories_per_location`. On 2026-10-05 `hospitals and health care` was
+well over half of a US+SG financial-plus-health enterprise pool, so a mixed pass returned mostly
+hospitals; run financial and health cells separately. Autocomplete can also offer a near-empty label
+beside the real one (`insurance carriers` held a handful of companies where `insurance` held
+hundreds) — the statistics call shows which is which.
 
 ### Startup filters
 | Filter | Value |

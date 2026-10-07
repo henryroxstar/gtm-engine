@@ -779,3 +779,26 @@ def test_a_sidecar_with_no_usable_scope_or_slugs_never_retires_its_page(page, fi
         rec[field] = value
     found = pages.scope_of(rec, page, pages.Manifests([], ()))
     assert found.kind != pages.RETIRED
+
+
+@pytest.mark.parametrize("value", (*ABSENT, "yes", "true", False))
+def test_a_sequencer_unsubscribe_flag_that_is_not_exactly_yes_records_no_opt_out(
+    value: object, tmp_path
+) -> None:
+    """An unsubscribe row becomes an open opt-out that can reach a permanent, add-only DNC list, so
+    the granting value is a closed list of one (2026-10-06) and anything else records nothing."""
+    from gtm_core import sequencer_unsubscribes as su
+
+    seq = tmp_path / "p" / "prospects" / "sequences"
+    seq.mkdir(parents=True)
+    (seq / "cells.toml").write_text(
+        '[[sequence]]\nid = "S1"\ncsv = "a.csv"\nspec = "a.md"\n', encoding="utf-8"
+    )
+    row = {"Sequence Id": "S1", "Step Number": 1, "Recipient Email": "a@example.test"}
+    if value is not None:
+        row["Unsubscribed"] = value
+    assert su.plan("p", [row], tmp_path).new == []
+    # the instrument: the same row with the one granting value IS recorded, so the test above
+    # cannot pass because plan() records nothing at all
+    row["Unsubscribed"] = "Yes"
+    assert [c.email for c in su.plan("p", [row], tmp_path).new] == ["a@example.test"]

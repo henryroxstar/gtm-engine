@@ -9,6 +9,14 @@ Backwards compatible: ledgers written before the chain existed have a leading ru
 chained record onward (its ``prev_sha256`` must match the hash of the immediately preceding raw
 line, or ``"GENESIS"`` when it is the very first line of the file).
 
+Accepted gaps: a row that was appended unchained *after* the chain started (a hand-written append
+that bypassed ``Ledgers``) is a break. When such a row is known and documented, it may be listed in
+a sidecar ``<ledger>.accepted-gaps.json`` — ``{"accepted": [{"line": N, "sha256": "<hash of the
+raw line>", "reason": "..."}]}``. An entry excuses exactly that row at exactly that line and only
+the "missing prev_sha256" finding: an edited or moved row, an entry that matches nothing, or an
+unreadable sidecar is itself a break, and a hash mismatch is never excusable. Accepted rows are
+always reported, so acceptance is never silent. The ledger itself is never rewritten.
+
 Pure stdlib; reads raw lines only (no ``Ledgers`` dependency), so it verifies any JSONL file.
 
 Usage::
@@ -37,10 +45,31 @@ class VerifyResult:
     total_lines: int = 0
     chained_from: int | None = None  # 1-indexed line where the chain starts; None if unchained
     breaks: list[tuple[int, str]] = field(default_factory=list)  # (line_no, reason)
+    accepted: list[tuple[int, str]] = field(default_factory=list)  # (line_no, documented reason)
 
     @property
     def ok(self) -> bool:
         return not self.breaks
+
+
+def accepted_gaps_path(path: Path) -> Path:
+    """The sidecar listing documented unchained rows for ``path``."""
+    return path.with_name(path.name + ".accepted-gaps.json")
+
+
+def _load_accepted(path: Path) -> dict[int, tuple[str, str]]:
+    """``{line: (sha256, reason)}`` from the sidecar; ``{}`` when there is none. Raises on a bad one."""
+    side = accepted_gaps_path(path)
+    if not side.is_file():
+        return {}
+    data = json.loads(side.read_text(encoding="utf-8"))
+    out: dict[int, tuple[str, str]] = {}
+    for entry in data["accepted"]:
+        line, sha, reason = entry["line"], entry["sha256"], entry["reason"]
+        if not (isinstance(line, int) and isinstance(sha, str) and isinstance(reason, str)):
+            raise ValueError("accepted entry needs int line, str sha256, str reason")
+        out[line] = (sha, reason)
+    return out
 
 
 def verify_chain(path: Path) -> VerifyResult:
@@ -49,6 +78,13 @@ def verify_chain(path: Path) -> VerifyResult:
     if not path.is_file():
         result.breaks.append((0, "file not found"))
         return result
+    try:
+        accepted = _load_accepted(path)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # Fail closed: an unreadable list must not excuse anything, and must not pass quietly.
+        result.breaks.append((0, f"accepted-gaps file unreadable ({type(exc).__name__})"))
+        accepted = {}
+    unmatched = dict(accepted)
 
     prev_raw: str | None = None
     started = False  # have we reached the first chained record yet?
@@ -72,7 +108,11 @@ def verify_chain(path: Path) -> VerifyResult:
 
             declared = record.get("prev_sha256") if isinstance(record, dict) else None
             if declared is None:
-                if started:
+                pinned = unmatched.get(line_no)
+                if started and pinned and pinned[0] == _line_sha256(raw):
+                    del unmatched[line_no]
+                    result.accepted.append((line_no, pinned[1]))
+                elif started:
                     # A chained region must not regress to unchained records.
                     result.breaks.append((line_no, "missing prev_sha256 after chain started"))
                 prev_raw = raw
@@ -92,6 +132,8 @@ def verify_chain(path: Path) -> VerifyResult:
                 )
             prev_raw = raw
 
+    for line_no in sorted(unmatched):
+        result.breaks.append((line_no, "accepted gap no longer matches this line"))
     return result
 
 
@@ -116,7 +158,12 @@ def main(argv: list[str] | None = None) -> int:
             if result.chained_from
             else "no chained records (legacy file)"
         )
-        print(f"OK — {result.total_lines} lines, chain intact ({span}).")
+        accepted = (
+            f"; {len(result.accepted)} accepted gap(s) listed in {accepted_gaps_path(Path(args.path))}"
+            if result.accepted
+            else ""
+        )
+        print(f"OK — {result.total_lines} lines, chain intact ({span}{accepted}).")
     else:
         print(f"BREAK — {len(result.breaks)} issue(s) in {args.path}:", file=sys.stderr)
         for line_no, reason in result.breaks:

@@ -207,6 +207,29 @@ def _apply(incoming: list[tuple[dict, str]], rows: list[dict], meta: dict, stamp
     return notes
 
 
+def _stamp_status(incoming: list[tuple[dict, str]], list_files: list[Path]) -> str | None:
+    """Put the sending tool's own active/paused flag and step count on each incoming row.
+
+    ``get_sequence_stats`` carries neither, so without this every campaign with sends read
+    "started" whatever its real state. ``list_sequences`` carries both; a sequence missing from
+    it keeps no status, because a missing flag is not proof of paused. The reason, or None."""
+    from gtm_core.sequencer_stats_read import PayloadError, list_rows
+
+    flags: dict[str, dict] = {}
+    for p in list_files:
+        try:
+            raw = json.loads(Path(p).read_text(encoding="utf-8"))
+            flags.update({r["id"]: r for r in list_rows(raw, Path(p).name)})
+        except (OSError, ValueError, PayloadError) as exc:
+            return f"{printable(Path(p).name)}: {printable(str(exc))}"
+    for seq, _ in incoming:
+        if flag := flags.get(row_id(seq)):
+            seq["status"] = "active" if flag["active"] else "paused"
+            if isinstance(flag.get("steps"), list):
+                seq["steps"] = len(flag["steps"])
+    return None
+
+
 def _page_refusal(why: str) -> str:
     return (
         f"REFUSED: the merged {FILE_NAME} would not read on the status page — {why}. "
@@ -225,6 +248,7 @@ def write(
     replace: bool = False,
     prune: bool = False,
     now: datetime | None = None,
+    sequences: list[Path] | None = None,
 ) -> tuple[bool, list[str]]:
     """Merge the payload files' sequences into the snapshot. ``(ok, lines for the operator)``."""
     from gtm_core.email_campaign_dashboard.health import figures_age_days
@@ -239,7 +263,7 @@ def write(
         return False, [f"REFUSED: {problem}"]
     path = stats_path(profile, content_root)
     incoming, why = load_payloads(payload_files, now, path)
-    if why:
+    if why or (why := _stamp_status(incoming, sequences or [])):
         return False, [f"REFUSED: {why}"]
     with ledger_lock(path, create=True):
         raw, problem = _read(path)
@@ -344,6 +368,12 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--fetched")
     w.add_argument("--replace", action="store_true")
     w.add_argument("--prune", action="store_true")
+    w.add_argument(
+        "--sequences",
+        type=Path,
+        action="append",
+        help="the saved list_sequences reply: stamps each row active/paused and its step count",
+    )
     f = sub.add_parser("forget")
     f.add_argument("--id", required=True)
     a = sub.add_parser("ack")
@@ -359,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
             fetched=args.fetched,
             replace=args.replace,
             prune=args.prune,
+            sequences=args.sequences,
         )
     elif args.cmd == "forget":
         ok, lines = forget(args.profile, args.id, content_root=root)

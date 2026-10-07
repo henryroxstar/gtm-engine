@@ -291,3 +291,51 @@ def test_a_tier_c_account_stays_on_the_list(tmp_path: Path) -> None:
                         "tier": "C", "score": 51}])  # fmt: skip
     assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 0
     assert _ready(tmp_path) == ["rowan.pike@contosofreight.example"]
+
+
+@pytest.mark.parametrize("status", ["opt-out", "optout", "closed_lost"])
+def test_an_account_the_send_gate_refuses_is_never_built_into_the_list(
+    tmp_path: Path, status: str
+) -> None:
+    """The build and the send gate must agree on which accounts are closed to sending.
+
+    The gate refused a whole batch over three colleagues of an opted-out account, while the
+    page told the operator "the next list build removes them by itself" — and the build kept
+    them, because it knew only the three retired statuses. A list the gate will refuse on the
+    first row is a list nobody can send.
+    """
+    from gtm_core.enrollment_gate import BLOCKED_ACCOUNT_STATUSES, DEFAULT_ENGAGED_STATUSES
+
+    _export(tmp_path, [ROWAN])
+    _ledger(tmp_path, [{"company": "Contoso Freight", "domain": "contosofreight.example",
+                        "status": status}])  # fmt: skip
+
+    assert pc.consolidate(PROFILE, content_root=tmp_path)["disqualified_excluded"] == 1
+    assert _ready(tmp_path) == []
+    # Every status the gate blocks is either closed here or held by the router as engaged.
+    from gtm_core.prospects_state import CLOSED_TO_SENDING
+
+    assert BLOCKED_ACCOUNT_STATUSES == CLOSED_TO_SENDING | DEFAULT_ENGAGED_STATUSES
+
+
+def test_a_removal_lifted_from_the_ledger_is_lifted_from_the_list(tmp_path: Path) -> None:
+    """The pool's `suppression` column is a cache of the ledger, re-derived every sweep.
+
+    It used to be add-only: once an `eval-disqualified` mark landed on a pooled row it stayed
+    there even after the ledger stopped covering that person, so correcting the ledger — the
+    2026-10-06 fix that stopped a one-person removal blocking the whole company — re-admitted
+    nobody. A row the ledger no longer covers must come back.
+    """
+    from gtm_core import prospect_paths
+    from gtm_core.suppression import Suppression, append
+
+    _export(tmp_path, [ROWAN])
+    ledger = prospect_paths.suppression_ledger(PROFILE, tmp_path)
+    append(ledger, [Suppression(email="", reason="eval-disqualified",
+                                company_domain="contosofreight.example")])  # fmt: skip
+    pc.consolidate(PROFILE, content_root=tmp_path)
+    assert _ready(tmp_path) == []
+
+    ledger.write_text(ledger.read_text(encoding="utf-8").splitlines()[0] + "\n", encoding="utf-8")
+    pc.consolidate(PROFILE, content_root=tmp_path)
+    assert _ready(tmp_path) == ["rowan.pike@contosofreight.example"]

@@ -4,8 +4,12 @@ PRD 2026-10-02 (Static-Email Mode):
 1. Applies every exclusion in ONE deterministic path:
    - Suppression ledger (.pool/suppression.csv)
    - DNC cache
-   - Held / opt-out accounts (account ledger latest.json)
-   - Already enrolled in any sequence (cells.toml registered lists)
+   - Opted-out, closed and in-conversation accounts (latest.json) — the enrollment gate's own
+     check, which a static list (never --require-verdict) would otherwise skip
+   - Already emailed (SENT rows + sequences/contacted-*.csv) and already enrolled in a live
+     sequence (cells.toml lists, minus DRAFT-* and history-deleted ids) — both read through
+     the lane router's loaders, so static mode and the router agree
+   - Existing customers / case-study companies (knowledge/outreach-case-studies.txt)
    - The new regulator / competitor classifier (gtm_core.account_relation)
    - One person per company (account deduplication)
 2. Enforces safe follow-up defaults:
@@ -19,6 +23,7 @@ PRD 2026-10-02 (Static-Email Mode):
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,9 +34,13 @@ from .account_relation import (
     RelationIndex,
 )
 from .account_relation_load import load_index
-from .cells import load_cell_map
-from .prospect_paths import pool_dir, suppression_ledger
+from .enrollment_gate import account_block_status, load_blocked_accounts
+from .lanes.context import load_enrolled, load_prior_contacts
+from .paths import resolve_content_root, resolve_knowledge_file, resolve_profiles_root
+from .prospect_paths import sequences_dir, suppression_ledger
 from .prospects_consolidate import org_token
+from .prospects_consolidate.confidence import _person_key, _row_to_record
+from .prospects_state import latest_path
 from .static_windows import SendWindows
 
 
@@ -40,6 +49,8 @@ class StaticFilterResult:
     kept: list[dict[str, Any]] = field(default_factory=list)
     excluded: list[tuple[dict[str, Any], str]] = field(default_factory=list)
     counts_by_reason: dict[str, int] = field(default_factory=dict)
+    #: Loader notes worth showing the operator (e.g. a registered list missing on disk).
+    notes: list[str] = field(default_factory=list)
 
 
 def _load_suppressed_keys(profile: str, content_root: Path | None = None) -> set[str]:
@@ -56,29 +67,50 @@ def _load_suppressed_keys(profile: str, content_root: Path | None = None) -> set
     return keys
 
 
-def _load_enrolled_emails(profile: str, content_root: Path | None = None) -> set[str]:
-    enrolled: set[str] = set()
-    cells = load_cell_map(profile, content_root)
-    p_dir = pool_dir(profile, content_root)
-    for c in cells:
-        csv_name = (
-            c.get("csv") or c.get("csv_name")
-            if isinstance(c, dict)
-            else getattr(c, "csv_name", getattr(c, "csv", ""))
-        )
-        if not csv_name:
+#: The tenant's customer / case-study roster: one company name per line, ``#`` comments. The same
+#: file the outreach linter's ``named-case-study`` rule reads, so a name added there for the copy
+#: check also keeps the company out of a cold audience. Tenant-wide (``product_manifest``).
+CUSTOMER_ROSTER = "outreach-case-studies.txt"
+
+
+class AccountLedgerError(ValueError):
+    """``latest.json`` is present but cannot be read. Its opt-out and in-conversation statuses
+    are exactly what the filter could not see, so it refuses rather than running without them."""
+
+
+class CustomerRosterError(ValueError):
+    """The customer roster is present but cannot be read. A roster partly read is a customer
+    that gets a cold email, so the filter refuses rather than running without it."""
+
+
+def _load_customer_patterns(profile: str, profiles_root: Path | None = None) -> list[re.Pattern]:
+    """Word-bounded patterns for each roster name, as written and with its spaces removed (so
+    ``acme widgets`` also catches the one-label domain ``acmewidgets.example``). An absent file
+    means the tenant has declared no customers; a present, unreadable one refuses."""
+    path = resolve_knowledge_file(
+        profiles_root or resolve_profiles_root(), profile, CUSTOMER_ROSTER
+    )
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise CustomerRosterError(f"{path}: cannot read the customer roster ({exc})") from exc
+    pats: list[re.Pattern] = []
+    for line in text.splitlines():
+        name = " ".join(line.strip().lower().split())
+        if not name or name.startswith("#"):
             continue
-        c_path = p_dir.parent / csv_name
-        if not c_path.is_file():
-            c_path = p_dir / csv_name
-        if c_path.is_file():
-            with open(c_path, encoding="utf-8", errors="replace") as f:
-                reader = csv.DictReader(f)
-                for r in reader:
-                    em = (r.get("email") or "").strip().lower()
-                    if em:
-                        enrolled.add(em)
-    return enrolled
+        for variant in {name, name.replace(" ", "")}:
+            pats.append(re.compile(r"(?<!\w)" + re.escape(variant) + r"(?!\w)"))
+    return pats
+
+
+def _is_customer(patterns: list[re.Pattern], company: str, *hosts: str) -> bool:
+    # A host's dots and hyphens are word separators: ``mail.acme.example`` and
+    # ``acme-widgets.example`` read as ``mail acme example`` and ``acme widgets example``.
+    texts = [company.lower(), *(re.sub(r"[.\-]", " ", h) for h in hosts if h)]
+    return any(p.search(t) for p in patterns for t in texts)
 
 
 def filter_static_audience(
@@ -95,7 +127,16 @@ def filter_static_audience(
         index = load_index(profile, profiles_root)
 
     suppressed = _load_suppressed_keys(profile, content_root)
-    already_enrolled = _load_enrolled_emails(profile, content_root)
+    root = content_root or resolve_content_root()
+    prior_emails, prior_people = load_prior_contacts(profile, root)
+    already_enrolled, res.notes = load_enrolled(profile, root, sequences_dir(profile, root))
+    customers = _load_customer_patterns(profile, profiles_root)
+    try:
+        blocked_keys, blocked_emails = load_blocked_accounts(profile, root)
+    except (OSError, ValueError) as exc:
+        raise AccountLedgerError(
+            f"{latest_path(profile, root)}: cannot read the account ledger ({exc})"
+        ) from exc
 
     seen_companies: set[str] = set()
 
@@ -117,7 +158,17 @@ def filter_static_audience(
             res.counts_by_reason["suppressed"] = res.counts_by_reason.get("suppressed", 0) + 1
             continue
 
-        # 3. Already enrolled in any sequence
+        # 3. Already emailed — what protects a deleted sequence's recipients, since a deleted
+        # sequence's cells.toml list no longer counts as enrolled (step 4)
+        pk = _person_key(_row_to_record(r, "pool"))
+        if email in prior_emails or (pk and pk in prior_people):
+            res.excluded.append((r, "already-contacted"))
+            res.counts_by_reason["already-contacted"] = (
+                res.counts_by_reason.get("already-contacted", 0) + 1
+            )
+            continue
+
+        # 4. Already enrolled in a live sequence
         if email in already_enrolled:
             res.excluded.append((r, "already-enrolled"))
             res.counts_by_reason["already-enrolled"] = (
@@ -125,7 +176,22 @@ def filter_static_audience(
             )
             continue
 
-        # 4. Regulator / Competitor classifier
+        # 5. Account opted out, closed, held or already in conversation (enrollment gate rule)
+        if status := account_block_status(r, blocked_keys, blocked_emails):
+            reason = "account-" + status.replace(" ", "-")
+            res.excluded.append((r, reason))
+            res.counts_by_reason[reason] = res.counts_by_reason.get(reason, 0) + 1
+            continue
+
+        # 6. Existing customer / case-study company
+        if _is_customer(customers, company, domain, email_domain):
+            res.excluded.append((r, "existing-customer"))
+            res.counts_by_reason["existing-customer"] = (
+                res.counts_by_reason.get("existing-customer", 0) + 1
+            )
+            continue
+
+        # 7. Regulator / Competitor classifier
         rel = index.classify(company, domain, email)
         if rel is not None:
             if rel.kind in REFUSE_KINDS or rel.kind == COMPETITOR_DIRECT:
@@ -139,7 +205,7 @@ def filter_static_audience(
                 res.counts_by_reason[reason] = res.counts_by_reason.get(reason, 0) + 1
                 continue
 
-        # 5. One person per company
+        # 8. One person per company
         tok = org_token(domain, company)
         if tok:
             if tok in seen_companies:

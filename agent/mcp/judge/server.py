@@ -57,6 +57,7 @@ from .scoring import (
     parse_verdict,
     parse_verdict_array,
     select_backend,
+    staged_summary,
 )
 
 mcp = FastMCP("judge-worker")
@@ -443,6 +444,9 @@ async def score_emails(
         # `rubrics` says "full" across a change to what "full" MEANS; this does not. More
         # than one value in a pooled comparison is the confound, stated.
         "rubric_versions": _tally(rec.rubric_version for rec in records),
+        # The voice check (advisory; it never moved a verdict above). `rows_checked` below
+        # `scored` means some replies carried no readable voice answer — not that they read clean.
+        "voice": staged_summary(records),
         "verdicts_by_rubric": {
             r: _tally(
                 ("unscored" if rec.unscored else rec.verdict) for rec in records if rec.rubric == r

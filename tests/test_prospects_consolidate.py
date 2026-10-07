@@ -2671,6 +2671,22 @@ def test_a_cleared_signal_blanks_the_whole_signal_group_on_the_rows(tmp_path):
     assert res["signal_cleared_conflicts"] == 1  # the ledger still carries a clause
 
 
+@pytest.mark.parametrize("relation", ["prospect", "competitor", "regulator"])
+def test_a_clear_keeps_what_the_account_is(tmp_path, relation):
+    """Research finding no signal says nothing about whether the company is a buyer, a competitor
+    or a regulator. Blanking that left a cleared buyer refused for `relation-unresolved`, and
+    would have lifted the hold on a cleared competitor."""
+    _stale_row(tmp_path)
+    _latest_with_record(tmp_path, signal_state="cleared", category_relation=relation)
+
+    pc.consolidate("acme", content_root=tmp_path)
+    (row,) = _ready_rows(tmp_path)
+
+    assert row["category_relation"] == relation
+    rest = [c for c in _SIGNAL_GROUP if c != "category_relation"]
+    assert {col: row[col] for col in rest} == dict.fromkeys(rest, "")
+
+
 def test_a_blank_record_is_still_no_opinion(tmp_path):
     """Negative control: without the explicit state, an empty record blanks nothing."""
     _stale_row(tmp_path)

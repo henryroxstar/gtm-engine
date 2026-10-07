@@ -905,3 +905,34 @@ def test_domain_suppression_handles_company_name_and_schemes(tmp_path):
     )
     assert hit_em is not None
     assert hit_em.reason == "competitor"
+
+
+def test_removing_one_person_never_removes_their_colleagues():
+    """A hold-sheet "suppress" names one person (`eval-disqualified`, with an email and a name).
+
+    From 2026-10-04 that reason sat in COMPANY_REASONS, so every such entry also blocked the
+    whole domain: an operator who removed a senior duplicate to keep the junior colleague lost
+    both, and the tool reported "retiring 0 account(s)" while it happened. Closing a whole
+    company is a different act — the account's ledger status, or a domain-only entry.
+    """
+    idx = suppression.LedgerIndex(
+        [
+            Suppression(
+                email="pat.senior@fabrikam.example",
+                reason="eval-disqualified",
+                name="Pat Senior",
+                company_domain="fabrikam.example",
+            )
+        ]
+    )
+    removed = {"first": "Pat", "last": "Senior", "email": "pat.senior@fabrikam.example",
+               "company_domain": "fabrikam.example"}  # fmt: skip
+    colleague = {"first": "Lee", "last": "Junior", "email": "lee.junior@fabrikam.example",
+                 "company_domain": "fabrikam.example"}  # fmt: skip
+    assert idx.match(removed) is not None
+    assert idx.match(colleague) is None
+    # Control: an entry with no person is a company exclusion and still covers everyone.
+    company = suppression.LedgerIndex(
+        [Suppression(email="", reason="eval-disqualified", company_domain="fabrikam.example")]
+    )
+    assert company.match(colleague) is not None

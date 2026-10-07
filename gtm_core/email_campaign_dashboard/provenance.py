@@ -373,7 +373,7 @@ SECTION_KIND: dict[str, str] = {
     "voice-of-market": "agent-written",  # reads only the hand-recorded outcomes file
     # Insights
     "small-numbers": "live",
-    "learnings": "live",
+    "learnings": "agent-written",  # Replies by Seat / by Hook read the typed snapshot
     "angle-heatmap": "live",
     "sentiment-triage": "agent-written",  # reads only the hand-recorded outcomes file
     # Operator notes — the group ids

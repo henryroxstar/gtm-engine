@@ -389,7 +389,20 @@ Close with the evidence log: every number's basis, date, and source, in the same
 
 **HTML companion.** Emit `case-study-<account-slug>-<YYYY-MM-DD>.html` next to the `.md`, per
 [references/html-companion.md](references/html-companion.md). Self-contained, brand-coloured, light
-and dark, with a print stylesheet. The `.md` stays the source of truth.
+and dark, with a print stylesheet. The `.md` stays the source of truth: create the page once from
+the shell, then render the `.md` into it, and render again after **every** edit to the `.md`:
+
+```bash
+uv run python -m gtm_core.design_render content/<active>/accounts/<account-slug>/case-study-<account-slug>-<YYYY-MM-DD>.md
+```
+
+It writes the HTML into the page and inlines relative `.svg`/`.png` images, so the page opens with
+**no network access** — on a customer network that blocks public script hosts, or as an emailed
+attachment. Markup the page does not allow (scripts, inline `<svg>`, event-handler attributes) is
+left out and named in the render's output. Never hand-edit the rendered HTML in the `.html` — the
+next render overwrites it, and until then the two disagree. A companion made with the earlier
+pattern (it loads `marked` and `DOMPurify` from a CDN) is refused: re-create it once from the
+shell, then render.
 
 **Word.** Compose a `case-study-spec.json` from
 [references/case-study-spec-template.json](references/case-study-spec-template.json) — fill every
@@ -498,6 +511,13 @@ checklist to send to the customer's comms/legal contact.
 8. **Voice.** Run the profile's voice rules and ban list over the prose. No adjective-quotes, no
    unsourced round numbers, no feature list posing as a solution section, no hedge words, and the
    profile's spelling convention applied throughout.
+
+9. **Companion current.** Checks 1–8 edit the `.md` — cuts for the page cap, claim fixes, voice.
+   Render again, then confirm the HTML matches it (exit 1 means it does not):
+
+   ```bash
+   uv run python -m gtm_core.design_render content/<active>/accounts/<account-slug>/case-study-<account-slug>-<YYYY-MM-DD>.md --check
+   ```
 
 ---
 

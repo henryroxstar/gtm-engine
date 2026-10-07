@@ -39,6 +39,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 
 from gtm_core.adjudication import Adjudication, stratum_of
@@ -52,11 +55,13 @@ from .rubric import (  # noqa: F401  (re-exported: the public seam)
     _SHAPE,
     _SIGNAL_FREE_NOTE,
     _SYSTEM,
+    MAX_STAGED,
     REQUIRES_SIGNAL,
     RUBRIC_FULL,
     RUBRIC_ITEMS,
     RUBRIC_SEAT_ONLY,
     SIGNAL_FREE_LANES,
+    VOICE_KINDS,
     _batch_prompt,
     _lane_note,
     _prompt,
@@ -73,7 +78,11 @@ ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", _SPEC.base_url).rstrip("/")
 ANTHROPIC_VERSION = "2023-06-01"
 JUDGE_MODEL = _SPEC.model
 _HTTP_TIMEOUT_S = 60.0
-_MAX_OUTPUT_TOKENS = 512
+#: A cap, not a charge — only generated tokens are billed. Raised from 512 on 2026-10-06 when the
+#: reply gained the voice check's `staged` list (up to five quoted phrases): a reply cut off by
+#: the cap is unparseable, and an unparseable reply makes the row UNSCORED, which would let an
+#: advisory check cost a row its verdict.
+_MAX_OUTPUT_TOKENS = 768
 
 _INPUT_USD_PER_1K, _OUTPUT_USD_PER_1K = resolve_rates(
     _SPEC, env_input="HAIKU_INPUT_USD_PER_1K", env_output="HAIKU_OUTPUT_USD_PER_1K"
@@ -108,6 +117,29 @@ SDK_BATCH_ROWS = _sdk_batch_rows()
 _VERDICTS = {"send", "re-angle", "drop"}
 
 
+def _clean_staged(raw: object) -> list[dict] | None:
+    """The voice check's answer, validated. ``None`` when there is no readable answer.
+
+    Advisory, so a malformed list never costs the row its verdict — but it is not read as
+    "clean" either: ``None`` (no answer) and ``[]`` (answered, nothing found) stay distinct.
+    Each item must name a kind from the closed :data:`VOICE_KINDS` and quote a non-empty
+    phrase; anything else is dropped rather than coerced. Whether the phrase is actually in
+    the email is checked later, in :func:`build_record`, which holds the body.
+    """
+    if not isinstance(raw, list):
+        return None
+    kept: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        phrase = item.get("phrase")
+        kind = str(item.get("kind") or "").strip().lower()
+        if not isinstance(phrase, str) or not phrase.strip() or kind not in VOICE_KINDS:
+            continue
+        kept.append({"phrase": phrase.strip(), "kind": kind})
+    return kept[:MAX_STAGED]
+
+
 def _clean(parsed: object) -> dict | None:
     """Coerce one parsed object into a verdict dict, or None if it is not one."""
     if not isinstance(parsed, dict):
@@ -125,6 +157,7 @@ def _clean(parsed: object) -> dict | None:
         "defect_class": str(parsed.get("defect_class") or "").strip().lower(),
         "evidence": str(parsed.get("evidence") or "").strip(),
         "note": str(parsed.get("note") or "").strip(),
+        "staged": _clean_staged(parsed.get("staged")),
     }
 
 
@@ -303,6 +336,41 @@ def grounding_flags(report, *, corpus_present: bool) -> str:
     return ";".join(parts) if parts else "clean"
 
 
+_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+
+
+def _norm_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.translate(_QUOTES)).strip().casefold()
+
+
+def _grounded_staged(staged: list[dict] | None, subject: str, body: str) -> list[dict] | None:
+    """Keep only the flags whose phrase is actually in this email.
+
+    The judge is told to quote exactly; a phrase the email does not contain is a flag the
+    judge invented, and recording it would put words in the sender's mouth. Case,
+    whitespace and curly quotes are ignored, because models straighten quotes when they copy.
+    The match is on whole words: "scalable" is not in an email that says "unscalable".
+    """
+    if staged is None:
+        return None
+    text = _norm_text(f"{subject}\n{body}")
+    return [
+        f
+        for f in staged
+        if re.search(rf"(?<!\w){re.escape(_norm_text(f['phrase']))}(?!\w)", text) is not None
+    ]
+
+
+def staged_summary(records: Iterable[Adjudication]) -> dict:
+    """How many rows the voice check answered for, how many it flagged, and which kinds."""
+    checked = [r for r in records if r.staged is not None]
+    return {
+        "rows_checked": len(checked),
+        "rows_flagged": sum(1 for r in checked if r.staged),
+        "by_kind": dict(Counter(f["kind"] for r in checked for f in r.staged)),
+    }
+
+
 def build_record(
     row: dict,
     *,
@@ -350,7 +418,10 @@ def build_record(
             unscored=True,
             **common,
         )
-    return Adjudication(**verdict, **common)
+    return Adjudication(
+        **(verdict | {"staged": _grounded_staged(verdict.get("staged"), subject, body)}),
+        **common,
+    )
 
 
 def load_rows(spec_path: str, csv_path: str, touches: str) -> tuple[list[dict], list, list[str]]:

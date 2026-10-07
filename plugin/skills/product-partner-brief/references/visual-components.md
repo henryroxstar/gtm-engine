@@ -32,8 +32,9 @@ table,pre,.mermaid,details,blockquote,.exec,.outcome,.controls,.phases,figure.sh
 :scope > .ladder,:scope > .quad,:scope > .cover
 ```
 
-Because the markdown is rendered through DOMPurify, hand-authored HTML blocks in the `.md` survive
-sanitisation as long as they use plain elements and `class` attributes — which these do. Author them
+Because the markdown passes `design_render`'s allowlist when the page is rendered, hand-authored
+HTML blocks in the `.md` survive as long as they use plain elements and `class` attributes — which
+these do. Author them
 directly in the Markdown source; the `.md` stays readable because each component degrades to a
 sensible list or table when read as plain text.
 

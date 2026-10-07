@@ -209,6 +209,10 @@ def main(argv: list[str] | None = None) -> int:
         for i, a in enumerate(shown, 1):
             cls = f"  [{a.defect_class}]" if a.defect_class else ""
             print(f"  {i:3}. {a.score} {a.verdict:9} {a.email}{cls}")
+            if a.staged:
+                # Advisory: the voice check never moved this row's verdict (see Adjudication.staged).
+                flags = "; ".join(f'{f["kind"]} "{f["phrase"]}"' for f in a.staged)
+                print(f"         voice: {flags}")
         return 0
 
     if args.cmd == "tally":

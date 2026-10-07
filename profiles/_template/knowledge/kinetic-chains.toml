@@ -1,0 +1,7 @@
+# Kinetic Chain definitions for sequential buying intent signals.
+# Defines directed graph cascades across structural events.
+
+[chains.mandate]
+events = ["regulatory", "cluster_expansion"]
+max_duration_days = 90
+description = "Regulatory enforcement or compliance mandate followed by AI hiring cluster expansion"

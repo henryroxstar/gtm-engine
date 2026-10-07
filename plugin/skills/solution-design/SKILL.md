@@ -577,17 +577,23 @@ Save as **`solution-design-[company]-[YYYY-MM-DD].md`** in the account folder
 `content/<active>/accounts/<account-slug>/` (see CLAUDE.md "Per-account outputs"; Mermaid embedded).
 
 **Always also emit a self-contained HTML companion** (`solution-design-[company]-[YYYY-MM-DD].html`)
-using `references/html-companion.md` — it guarantees the diagrams and components draw in any
-browser, as a polished, readable document. **The `.md` is the single source.** Create the `.html`
-once from the template, then after **every** `.md` edit re-render it:
+using `references/html-companion.md` — it draws the components and image diagrams in any browser,
+as a polished, readable document. **The `.md` is the single source.** Create the `.html` once from
+the template, then after **every** `.md` edit re-render it:
 
 ```bash
 uv run python -m gtm_core.design_render content/<active>/accounts/<slug>/solution-design-[company]-[YYYY-MM-DD].md
 ```
 
-It re-embeds the `.md` into the companion and inlines relative `.svg`/`.png` images. Never hand-edit
-the markdown embedded in the `.html` — the next render overwrites it, and until then the two
-disagree.
+It renders the `.md` to HTML inside the companion and inlines relative `.svg`/`.png` images, so the
+page opens with **no network access** — on a customer network that blocks public script hosts, or as
+an emailed attachment. The one exception is a ```mermaid``` block: it draws only where the page can
+reach the Mermaid host and otherwise shows as code, so a diagram that must draw everywhere belongs in
+an `.svg` file referenced as an image. Markup the page does not allow (scripts, inline `<svg>`,
+event-handler attributes) is left out and named in the render's output. Never hand-edit the rendered
+HTML in the `.html` — the next render overwrites it, and until then the two disagree. A companion
+made from the earlier template (it loads `marked` from a CDN) is refused: re-create it once from the
+template, then render.
 
 **Three audiences, three files — not one scroll.** One document serving an exec, an architect and
 our own deal notes serves none of them. Emit the split by default; do not offer it as an extra:

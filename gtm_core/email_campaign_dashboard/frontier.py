@@ -188,6 +188,7 @@ def calculate_angle_heatmap(
     Resolves human-readable narrative opening angles when sequence sources are provided.
     """
     matrix: dict[tuple[str, str], int] = {}
+    reply_matrix: dict[tuple[str, str], int] = {}
     personas_set: set[str] = set()
     hooks_set: set[str] = set()
     total_replies = 0
@@ -229,6 +230,7 @@ def calculate_angle_heatmap(
         # metric never switched from "Planned Prospects" to "Replies".
         replies = int(c.get("replied") or 0)
         total_replies += replies
+        reply_matrix[(p, h)] = reply_matrix.get((p, h), 0) + replies
         # A genuinely empty cell (sendable == 0, e.g. every recipient suppressed) must stay 0,
         # not become 1 — `or 1` on the whole expression turned a real zero into a phantom
         # planned prospect.
@@ -239,8 +241,10 @@ def calculate_angle_heatmap(
 
     personas = sorted(personas_set)
     hooks = sorted(hooks_set)
-    max_val = max(matrix.values()) if matrix else 1
     has_replies = total_replies > 0
+    # 2026-10-06: the label switched to "Replies" while every cell still held PLANNED counts.
+    matrix = reply_matrix if has_replies else matrix
+    max_val = max(matrix.values()) if matrix else 1
     metric_label = "Replies" if has_replies else "Planned Prospects"
 
     cells_data = [

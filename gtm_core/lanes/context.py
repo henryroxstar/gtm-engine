@@ -217,12 +217,18 @@ def _deleted_sequences(history: Path) -> set[str]:
     return gone
 
 
-def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) -> None:
+def load_enrolled(profile: str, root: Path, seq_dir: Path) -> tuple[dict[str, str], list[str]]:
     """email → sequence id for every list registered with a REAL sequence id the provider
-    still has. A ``DRAFT-*`` entry is a list that was never staged — its rows are enrolled
-    nowhere, and counting them excluded 81 judged rows from the pool on the first real
-    routing run. A list whose sequence ``history.jsonl`` records as deleted is the same
-    fact arrived at later (:func:`_deleted_sequences`)."""
+    still has, plus the notes worth surfacing. A ``DRAFT-*`` entry is a list that was never
+    staged — its rows are enrolled nowhere, and counting them excluded 81 judged rows from the
+    pool on the first real routing run. A list whose sequence ``history.jsonl`` records as
+    deleted is the same fact arrived at later (:func:`_deleted_sequences`).
+
+    The one enrolled-set reader: static mode (:mod:`gtm_core.static_pipeline`) calls it too, so
+    the two paths cannot disagree about who is in a sequence. A deleted sequence that DID send
+    is not protected here — :func:`load_prior_contacts` covers its recipients."""
+    enrolled: dict[str, str] = {}
+    notes: list[str] = []
     drafts = 0
     deleted = 0
     gone = _deleted_sequences(root / profile / "history.jsonl")
@@ -235,7 +241,7 @@ def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) 
             continue
         csv_path = seq_dir / src["csv"] if not Path(src["csv"]).is_absolute() else Path(src["csv"])
         if not csv_path.is_file():
-            ctx.notes.append(
+            notes.append(
                 f"registered enrolled list for sequence {src['sequence_id']!r} is missing on disk: {src['csv']}"
             )
             continue
@@ -243,26 +249,44 @@ def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) 
             for row in csv.DictReader(fh):
                 email = (row.get("email") or "").strip().lower()
                 if email:
-                    ctx.enrolled.setdefault(email, str(src["sequence_id"]))
+                    enrolled.setdefault(email, str(src["sequence_id"]))
     if drafts:
-        ctx.notes.append(
+        notes.append(
             f"{drafts} DRAFT-* list(s) in cells.toml were never staged and do not count as enrolled"
         )
     if deleted:
-        ctx.notes.append(
+        notes.append(
             f"{deleted} registered list(s) in cells.toml belong to sequences history.jsonl "
             "records as deleted from the provider and do not count as enrolled"
         )
+    return enrolled, notes
 
 
-def _load_contacted(ctx: RouterContext, seq_dir: Path) -> None:
+def _load_enrolled(ctx: RouterContext, profile: str, root: Path, seq_dir: Path) -> None:
+    enrolled, notes = load_enrolled(profile, root, seq_dir)
+    for email, seq_id in enrolled.items():
+        ctx.enrolled.setdefault(email, seq_id)
+    ctx.notes.extend(notes)
+
+
+def _load_contacted(seq_dir: Path) -> set[str]:
     """``contacted-*.csv`` — every row IS a contact (no status column), unlike the SENT scan."""
+    emails: set[str] = set()
     for path in sorted(seq_dir.glob("contacted-*.csv")):
         with path.open(newline="", encoding="utf-8", errors="ignore") as fh:
             for row in csv.DictReader(fh):
                 email = (row.get("email") or "").strip().lower()
                 if email:
-                    ctx.prior_emails.add(email)
+                    emails.add(email)
+    return emails
+
+
+def load_prior_contacts(profile: str, root: Path) -> tuple[set[str], set[str]]:
+    """``(emails, person_keys)`` already emailed: ``sequences/*.csv`` rows marked ``SENT`` plus
+    every ``contacted-*.csv`` row. This, not ``cells.toml``, is what protects the recipients of
+    a sequence that sent and was later deleted. Shared with static mode."""
+    emails, people = _load_sent(profile, root)
+    return emails | _load_contacted(_sequences_dir(profile, root)), people
 
 
 def load_context(
@@ -282,11 +306,10 @@ def load_context(
     ctx.competitors = load_competitors(profile, profiles_root)
     if not ctx.competitors:
         ctx.notes.append("no competitors.toml: competitor holds/excludes are off")
-    emails, people = _load_sent(profile, root)
+    emails, people = load_prior_contacts(profile, root)
     ctx.prior_emails |= emails
     ctx.prior_people |= people
     seq_dir = _sequences_dir(profile, root)
-    _load_contacted(ctx, seq_dir)
     _load_enrolled(ctx, profile, root, seq_dir)
     if not ctx.enrolled:
         ctx.notes.append(

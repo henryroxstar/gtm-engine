@@ -127,6 +127,13 @@ FIGURES_MAX_AGE_DAYS = 7
 #: not 0.031), so this constant is a percentage too, and the comparison is a plain ``>``.
 BOUNCE_RISK_PCT = 3
 
+#: 2026-10-06 — an unsubscribe rate (people who unsubscribed / people contacted, both PEOPLE)
+#: STRICTLY above this percentage draws the ``unsub-rate`` risk pill and the page's delivery
+#: strip (``delivery.py``). Cold email normally runs under it; a batch that ran at 20% sat on
+#: this page for a week with nothing on it saying so. A percentage, compared with a plain ``>``,
+#: exactly like ``BOUNCE_RISK_PCT``.
+UNSUB_RISK_PCT = 2
+
 #: PS20 P1.5 — the only reasons a WARN colour may give (``data-warn``). Warn means one thing:
 #: a number on this page cannot be trusted. Closed, so a new warning has to name itself here
 #: before it can render (``tests/contracts/test_dashboard_colour_reasons.py``).
@@ -151,6 +158,7 @@ RISK_REASONS: tuple[str, ...] = (
     "do-not-contact",
     "unread-reply",  # a reply this system could not read may be an opt-out
     "bounce-rate",
+    "unsub-rate",  # unsubscribes above UNSUB_RISK_PCT: the sending domains' reputation
     "do-not-load",
     "re-push",  # starting now would send copy that was already replaced
     "blocking-check",

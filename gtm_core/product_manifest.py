@@ -40,6 +40,7 @@ SHARED_BY_DEFAULT: dict[str, str] = {
     "case-studies.md": "case studies",
     "hooks.toml": "hook library",
     "market-scan-config.md": "market scan settings",
+    "kinetic-chains.toml": "kinetic chain rules",
 }
 
 #: Facts about the company, or safety and voice rules, that no product may override. A copy under

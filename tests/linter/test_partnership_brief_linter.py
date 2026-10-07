@@ -182,3 +182,10 @@ def test_html_catches_img_without_alt():
 def test_html_accepts_scoped_headers_and_alt_text():
     html = '<h2>a</h2><h3>b</h3><table><th scope="col">a</th></table><img src="x.png" alt="y">'
     assert not [f for f in lint_html(html) if f.level == "ERROR"]
+
+
+def test_html_flags_a_page_that_was_never_rendered():
+    page = '<div id="content"><!-- design_render:start -->\n<!-- design_render:end --></div>'
+    assert "not-rendered" in {f.rule for f in lint_html(page)}
+    rendered = page.replace("\n", "\n<h2>a</h2><h3>b</h3>\n")
+    assert "not-rendered" not in {f.rule for f in lint_html(rendered)}

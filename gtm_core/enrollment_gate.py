@@ -22,7 +22,7 @@ from .account_exclusion_keys import (
     row_account_keys,
 )
 from .prospect_paths import evals_dir
-from .prospects_state import RETIRED_STATUSES, latest_path, load_latest
+from .prospects_state import CLOSED_TO_SENDING, latest_path, load_latest
 from .refusal_copy import Refusal
 
 #: Accounts in latest.json that mean "already in conversation" (PS6)
@@ -31,9 +31,7 @@ DEFAULT_ENGAGED_STATUSES = frozenset(
 )
 
 #: Statuses in latest.json that must never be enrolled
-BLOCKED_ACCOUNT_STATUSES = (
-    RETIRED_STATUSES | DEFAULT_ENGAGED_STATUSES | {"opt-out", "optout", "closed_lost"}
-)
+BLOCKED_ACCOUNT_STATUSES = CLOSED_TO_SENDING | DEFAULT_ENGAGED_STATUSES
 
 
 def _refuse_parked_lanes(rows: list[dict], want: str) -> str | None:
@@ -357,6 +355,30 @@ def _row_identity_keys(r: dict) -> list[str]:
     return row_account_keys(r)
 
 
+def load_blocked_accounts(
+    profile: str, content_root: Path | None = None
+) -> tuple[dict[str, str], dict[str, str]]:
+    """``(blocked_keys, blocked_emails)`` → status, for every retired, engaged or held account in
+    ``latest.json``. Raises ``OSError``/``ValueError`` when the ledger is present but unreadable;
+    an absent ledger is an empty one (``load_latest``'s contract). Shared with static mode
+    (:mod:`gtm_core.static_pipeline`), whose lists never pass ``--require-verdict``."""
+    items = load_latest(profile, content_root).get("items", [])
+    malformed = sum(1 for it in items if not isinstance(it, dict))
+    if malformed:
+        raise ValueError(f"{malformed} ledger entr(ies) are not JSON objects")
+    return _extract_blocked_lookups(items)
+
+
+def account_block_status(
+    row: dict, blocked_keys: dict[str, str], blocked_emails: dict[str, str]
+) -> str | None:
+    """The blocking account status this row joins to, or ``None``."""
+    em = (row.get("email") or row.get("contact_email") or "").strip().lower()
+    if st := blocked_emails.get(em):
+        return st
+    return next((blocked_keys[k] for k in _row_identity_keys(row) if k in blocked_keys), None)
+
+
 def check_account_status(
     rows: list[dict], profile: str, content_root: Path | None = None
 ) -> str | None:
@@ -369,10 +391,7 @@ def check_account_status(
     present-but-unreadable = an error), and a tenant with no ledger has no retired accounts.
     """
     try:
-        items = load_latest(profile, content_root).get("items", [])
-        malformed = sum(1 for it in items if not isinstance(it, dict))
-        if malformed:
-            raise ValueError(f"{malformed} ledger entr(ies) are not JSON objects")
+        blocked_keys, blocked_emails = load_blocked_accounts(profile, content_root)
     except (OSError, ValueError) as exc:  # ValueError covers JSON + unicode decode errors
         return (
             f"REFUSED: account ledger unreadable ({latest_path(profile, content_root).name}: "
@@ -381,17 +400,10 @@ def check_account_status(
             f"ledger before enrolling"
         )
 
-    blocked_keys, blocked_emails = _extract_blocked_lookups(items)
-
     blocked_rows: list[tuple[str, str]] = []
     for r in rows:
         em = (r.get("email") or r.get("contact_email") or "").strip().lower()
-        st = blocked_emails.get(em)
-        if not st:
-            for k in _row_identity_keys(r):
-                if k in blocked_keys:
-                    st = blocked_keys[k]
-                    break
+        st = account_block_status(r, blocked_keys, blocked_emails)
         if st:
             blocked_rows.append((em or r.get("company", ""), st))
 

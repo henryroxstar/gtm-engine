@@ -9,8 +9,24 @@ No behaviour changed by the split.
 
 from __future__ import annotations
 
+import math
+import sys
 from datetime import date
 from typing import Any
+
+# Default ceilings per segment (from gates-and-scoring.md)
+DEFAULT_CEILINGS: dict[str, int] = {
+    "enterprise": 12,
+    "startup": 10,
+}
+
+# Default Tier-A thresholds (~70% of ceiling)
+DEFAULT_TIER_A_THRESHOLDS: dict[str, int] = {
+    "enterprise": 8,
+    "startup": 7,
+}
+
+_TRUE_WORDS = frozenset({"true", "yes", "1"})
 
 HIGH_INTENT_THRESHOLD: int = 75
 ELEVATED_INTENT_MIN: int = 60
@@ -154,3 +170,84 @@ def _parse_signal_date_ordinal(value: Any) -> int | None:
         return date.fromisoformat(text).toordinal()
     except (ValueError, TypeError):
         return None
+
+
+def _resolve_segment_params(
+    segment: str,
+    ceiling: int | None,
+    tier_a_threshold: int | None,
+    warned_segments: set[str] | None,
+) -> tuple[int, int]:
+    """Resolve the ceiling and Tier-A threshold for a segment.
+
+    An unrecognised segment still gets a value (the startup-shaped default), but PSK-027
+    means that fallback is never silent: the first row of a distinct unknown segment in a
+    run prints one warning naming what was used.
+    """
+    ceiling_fell_back = ceiling is None and segment not in DEFAULT_CEILINGS
+    tier_a_fell_back = tier_a_threshold is None and segment not in DEFAULT_TIER_A_THRESHOLDS
+
+    c = ceiling if ceiling is not None else DEFAULT_CEILINGS.get(segment, 10)
+    t_a = (
+        tier_a_threshold
+        if tier_a_threshold is not None
+        else DEFAULT_TIER_A_THRESHOLDS.get(segment, round(c * 0.7))
+    )
+
+    if (ceiling_fell_back or tier_a_fell_back) and warned_segments is not None:
+        if segment not in warned_segments:
+            warned_segments.add(segment)
+            print(
+                f"Warning: unknown segment {segment!r} — falling back to "
+                f"ceiling={c}, tier_a_threshold={t_a}",
+                file=sys.stderr,
+            )
+
+    return c, t_a
+
+
+def _coerce_finite_score(value: Any, label: str) -> float:
+    """Validate a rubric fit score is a real, finite number (PSK-009, §R5).
+
+    Untrusted (LLM-authored) input must never be silently scored 0 — a non-numeric or
+    non-finite (NaN/inf) value is a defect to surface, not a value to guess past.
+    """
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"candidate {label!r} has a non-numeric score: {value!r}") from exc
+    if math.isnan(numeric) or math.isinf(numeric):
+        raise ValueError(f"candidate {label!r} has a non-finite score: {value!r}") from None
+    return numeric
+
+
+def _format_score(value: float) -> int | float:
+    return int(value) if value.is_integer() else round(value, 1)
+
+
+def _parse_bool(value: Any) -> bool:
+    """``"false"`` is False. Real bools pass through; ``true``/``yes``/``1`` are True; anything
+    else — a list, ``"maybe"`` — is False, never a crash (§R5: the row is LLM-authored)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | str):
+        return str(value).strip().lower() in _TRUE_WORDS
+    return False
+
+
+def _rubric_score(res: dict[str, Any], label: str) -> float:
+    """The pre-heat rubric score, from ``base_score`` | ``fit_score`` | ``score``.
+
+    ``base_score`` is what this scorer wrote last time and ``fit_score`` is what the researcher
+    supplies. When both are present and DIFFER, the researcher has corrected the rubric score
+    since the last pass, and the correction wins — it used to be ignored forever. When they
+    agree nothing was corrected, and either one is the same number. ``score`` is read last: on
+    a scored row it already has heat in it (PSK-003).
+    """
+    stored, supplied = res.get("base_score"), res.get("fit_score")
+    if supplied is not None:
+        return _coerce_finite_score(supplied, label)
+    if stored is not None:
+        return _coerce_finite_score(stored, label)
+    fallback = res.get("score")
+    return _coerce_finite_score(0 if fallback is None else fallback, label)

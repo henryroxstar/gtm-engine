@@ -4,12 +4,13 @@
     "agent/publish.py": "bb4ce416afd15a8e09b12af6ed0b317f2f3ff78c7d55a0cc07982e896cad3c5d",
     "agent/signal_dispatch.py": "895bef9989f90ad9bf90fabc181936337c4c3a564467e1911c0f1f39384d5d68",
     "gtm_core/cells.py": "dd561bf2b10771fa372c363ce66bbbd6efbc79f5639fbf40a0867fda013f3784",
-    "gtm_core/enrollment_gate.py": "7928d0df74091b00f2549610366f44e95b3ff35a3cb35f8041402ebc24992075",
+    "gtm_core/enrollment_gate.py": "e67082a080bf3c73406441bdf015f2b70c24559a297f8e1a6cd09d8c9c8e5a42",
     "gtm_core/paths.py::resolve_knowledge_file": "61ee6eb8fecaf4b6517e631407bb160f589247d84ebc9f76baaab1c63bd0ef53",
     "gtm_core/prospects_merge.py": "7004e41c90aced705e306ebfe80c996ea1c8f3ff8633798601fc6901ad486bbb",
     "gtm_core/signals.py": "51434906c50a02b06202398b8cc270cdc3b2f017602efdae643265df2c15349b"
   },
   "reasons": {
-    "gtm_core/cells.py": "2026-10-02 send-safety hardening: a registered sequence may carry an optional pilot_size, written back on re-registration. No cell id, key or default moved."
+    "gtm_core/cells.py": "2026-10-02 send-safety hardening: a registered sequence may carry an optional pilot_size, written back on re-registration. No cell id, key or default moved.",
+    "gtm_core/enrollment_gate.py": "2026-10-07 PRD-043: use CLOSED_TO_SENDING status set and expose load_blocked_accounts/account_block_status for static pipeline."
   }
 }

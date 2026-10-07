@@ -8,9 +8,8 @@ from .model import ERROR, WARN, Finding, Section
 # Dimensions that carry their own rule rather than being reported through SD2, so a
 # document with no Quality Requirements gets one loud finding instead of a warning lost in
 # a list. Keyed on `guid` — the stable identity — never on `id`, which may be renumbered.
-_QUALITY_REQUIREMENTS = "1ec44d20-3347-463c-8cda-b44307bb76e0"  # COV-10
 _GLOSSARY = "bb61d433-042b-4747-8209-2e991a8b2cdf"  # COV-12
-_OWN_RULE = {_QUALITY_REQUIREMENTS: "SD3", _GLOSSARY: "SD4"}
+_OWN_RULE = {_GLOSSARY: "SD4"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -135,7 +134,7 @@ def _sd1(sections: list[Section]) -> list[Finding]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-# SD2 / SD3 / SD4 — coverage
+# SD2 / SD4 — coverage (SD3, quality requirements, retired 2026-10-06)
 # ══════════════════════════════════════════════════════════════════════════════════════
 #
 # Matching is on HEADINGS, never on body prose. That is the point: this asks whether the
@@ -160,8 +159,8 @@ def _missing(sections: list[Section]) -> list[Dimension]:
 def _severity_of(guid: str) -> str:
     """The severity coverage.toml declares for a dimension.
 
-    Read, never hardcoded — SD3 previously carried `ERROR` in its own body, so downgrading
-    COV-10 in the taxonomy changed nothing. A rule that ignores the file it is derived from
+    Read, never hardcoded — the retired SD3 once carried `ERROR` in its own body, so downgrading
+    its dimension in the taxonomy changed nothing. A rule that ignores the file it is derived from
     is a second source of truth.
     """
     for dimension in dimensions():
@@ -203,24 +202,6 @@ def _sd2(sections: list[Section]) -> list[Finding]:
             )
         )
     return out
-
-
-def _sd3(sections: list[Section]) -> list[Finding]:
-    missing = {d.guid for d in _missing(sections)}
-    if _QUALITY_REQUIREMENTS not in missing:
-        return []
-    return [
-        Finding(
-            "SD3",
-            "quality requirements absent",
-            _severity_of(_QUALITY_REQUIREMENTS),
-            0,
-            "no availability, latency, throughput or recovery figures anywhere",
-            "add a quality-requirements section with a figure per attribute — this is the "
-            "first thing the customer's architect interrogates, and stating service levels "
-            "only in the commercial proposal puts them in the wrong document",
-        )
-    ]
 
 
 def _sd4(sections: list[Section]) -> list[Finding]:

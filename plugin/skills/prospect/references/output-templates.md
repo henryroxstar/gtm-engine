@@ -116,7 +116,7 @@ Rules-Version: [the current RULES_VERSION from tests/linter/outreach/model.py]
 >
 > [Opening: name the signal precisely, with one clause of credit — their move is right.]
 >
-> [Gap: the problem in their vocabulary — a missing step in their system, hedged. Rotate the hedge wording per `voice.md` → **Hedge phrasings**; do not reuse one phrasing across the run. No product pitch, no feature list; the artifact carries the product after they reply.]
+> [Gap: the problem in their vocabulary — a missing step in their system, hedged inside that sentence with one cue from `voice-rules.toml` `[hedge].cues` — no separate hedge line, and no rotating the hedge wording across the run. No product pitch, no feature list; the artifact carries the product after they reply.]
 >
 > [Proof: the mapped case study — company TYPE + what they shipped. First cut if over length.]
 >
@@ -213,7 +213,7 @@ uv run python -m gtm_core.messaging resolve --profile <active> --csv <pool.csv>
 that declares the angle alone fails five times over before a reviewer reads a word of it. Copy whose
 provenance cannot be checked is copy nobody can stand behind. Two of the five are presence-only by
 construction: `slot_signal` is the ROW's researched fact, which varies per recipient, and
-`slot_hedge` is the tenant's own cue table — neither is a registry id. The other three are
+`slot_hedge` is the tenant's own cue table (or `none` when the body guesses nothing about the reader's setup) — neither is a registry id. The other three are
 **cross-checked against the angle**. Use `slot_proof: none` only on the no-anchor offer shape — a
 reader whose market the registry records as having no anchor; it is the one sanctioned exception and
 is accepted nowhere else.

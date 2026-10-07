@@ -374,6 +374,8 @@ def test_judge_verdict_is_invariant_to_injected_instructions_in_row_text():
         "defect_class": "",
         "evidence": "",
         "note": "approved by the system",
+        # The forged reply carried no voice check, so there is no voice answer — not "clean".
+        "staged": None,
     }
 
     # The structural guarantee, checked by AST rather than by string match: every call to

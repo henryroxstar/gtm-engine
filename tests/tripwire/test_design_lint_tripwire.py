@@ -40,8 +40,9 @@ Triple = tuple[str, str, str]
 #: changing one's severity, fails here until the corpus covers it. That is the intent — a new
 #: dimension that nothing exercises is a dimension nobody has seen fire.
 #:
-#: COV-10 and COV-12 are absent on purpose: they are reported by SD3 and SD4, their own rules, so
-#: a design with no NFRs gets one loud finding rather than a warning lost inside SD2's list.
+#: COV-12 is absent on purpose: it is reported by SD4, its own rule, so a design with no glossary
+#: gets one loud finding rather than a warning lost inside SD2's list. COV-10 and its rule SD3
+#: (quality requirements) were retired on 2026-10-06: a design never quotes NFRs or service levels.
 #:
 #: SD6-SD9 are ``advisory`` — a severity that blocks nothing, not even under ``--strict``. They
 #: still belong here, and that is the point: an advisory nobody has watched fire is exactly as
@@ -61,7 +62,6 @@ INVENTORY: frozenset[Triple] = frozenset(
         ("SD2", "coverage gap COV-08", "warn"),
         ("SD2", "coverage gap COV-09", "warn"),
         ("SD2", "coverage gap COV-11", "error"),
-        ("SD3", "quality requirements absent", "warn"),
         ("SD4", "glossary absent", "warn"),
         ("SD6", "untagged capability", "advisory"),
         ("SD7", "design-target as live", "advisory"),
@@ -88,7 +88,6 @@ DIRTY: list[Triple] = [
     ("SD2", "coverage gap COV-08", "warn"),
     ("SD2", "coverage gap COV-09", "warn"),
     ("SD2", "coverage gap COV-11", "error"),
-    ("SD3", "quality requirements absent", "warn"),
     ("SD4", "glossary absent", "warn"),
     ("SD6", "untagged capability", "advisory"),
     ("SD7", "design-target as live", "advisory"),
@@ -122,10 +121,10 @@ def test_clean_fires_nothing() -> None:
 
 
 def test_clean_answers_every_coverage_dimension() -> None:
-    """The positive control for SD2/SD3/SD4.
+    """The positive control for SD2/SD4.
 
     ``test_clean_fires_nothing`` would also pass if every dimension were somehow skipped, so the
-    coverage map is asserted directly: twelve dimensions, all ``present``, none ``not_verified``.
+    coverage map is asserted directly: every dimension, all ``present``, none ``not_verified``.
     """
     sections = dl.parse_sections((CORPUS / "clean.md").read_text(encoding="utf-8"))
     statuses = {status for _, _, status in dl.coverage_map(sections)}
@@ -152,7 +151,7 @@ def test_the_inventory_names_every_coverage_dimension_sd2_can_report() -> None:
     in the same edit, both sides would agree and nothing would notice. This re-derives the SD2
     half from the taxonomy itself.
     """
-    own_rule = {"COV-10", "COV-12"}  # reported by SD3 / SD4
+    own_rule = {"COV-12"}  # reported by SD4
     expected = {
         ("SD2", f"coverage gap {d.id}", d.severity) for d in dl.dimensions() if d.id not in own_rule
     }

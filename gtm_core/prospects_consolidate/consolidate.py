@@ -13,8 +13,10 @@ from ..merge_hygiene import check_row as mh_check_row
 from ..page_inputs import write_inventory_or_warn
 from ..prospects_item import VocabularyRefusal, check_vocabulary
 from ..prospects_state import ACCOUNT_ID_FIELD, _identity_keys
+from ..suppression import EVAL_DISQUALIFIED
 from ..suppression import load_index as load_suppression_index
 from .accounts import (
+    ACCOUNT_FACT_COLUMNS,
     SIGNAL_GROUP_COLUMNS,
     _account_id_index,
     _account_item_of,
@@ -431,6 +433,10 @@ def consolidate(
                 signal_cleared_rows += 1
             for col in SIGNAL_GROUP_COLUMNS:
                 row[col] = ""
+            # What the account IS survives a clear: the ledger's own value, or blank.
+            own = account_records.get(str(row.get(ACCOUNT_ID_FIELD) or "").strip(), {})
+            for col in ACCOUNT_FACT_COLUMNS:
+                row[col] = own.get(col, "")
 
     # Re-derive the suppression cache from the LEDGER on every sweep, before the master
     # is written. The two columns are in MASTER_COLS now, so they survive the projection;
@@ -445,6 +451,12 @@ def consolidate(
             row["suppression"] = hit.reason
             row["suppression_date"] = hit.date
             ledger_marked += 1
+        elif row.get("suppression") == EVAL_DISQUALIFIED:
+            # An eval removal is the ledger's alone to make, so one it no longer holds is
+            # lifted here. Add-only marking left a corrected ledger re-admitting nobody: the
+            # 2026-10-06 fix to company-wide matching freed 181 colleagues on paper and none
+            # on the list. Other reasons stay sticky — they can arrive from outside the ledger.
+            row["suppression"] = row["suppression_date"] = ""
 
     lanes_stamped = _stamp_lanes(all_rows, profile, content_root)
 

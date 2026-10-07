@@ -23,6 +23,7 @@ from ..prospects_state import load_latest
 from . import figure_ages
 from .aggregate import _scope_figures
 from .config import resolve_seat_coverage
+from .delivery import sending_split_for
 from .format import _rate_of
 from .frontier import list_ready_to_send_accounts, parse_campaign_history
 from .health import capability_rows_for, list_rows, page_extras, page_go_live, scoped_trust
@@ -143,7 +144,7 @@ def inbound_health(profile: str, content_root: Path | None = None) -> dict:
     The point of surfacing these is that a sweep or a sync that quietly stopped looks
     identical to one that is working — the same failure `prospecting_runs` exists to catch.
     """
-    from gtm_core.optout_sets import optout_sets
+    from gtm_core.optout_sets import link_optouts, optout_sets
     from gtm_core.prospects_import import _ledgers
 
     latest: dict = {"capability": None, "dnc": None, "unreadable_recent": []}
@@ -166,6 +167,7 @@ def inbound_health(profile: str, content_root: Path | None = None) -> dict:
         optout_detected=len(detected),
         optout_dnc_added=len(detected & added),
         optout_unattributable=unattributable,
+        optout_by_link=link_optouts(history),
         unreadable=len(unreadable),
     )
 
@@ -440,6 +442,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
     # GO-LIVE IS EVIDENCE, NEVER A DEFAULT (UX-05) — `health.page_go_live` (PS20 T1.10).
     figures = _scope_figures({"campaigns": campaigns, "status": status})
     go_live_status = page_go_live(campaigns, status, figures["contacted"][0])
+    sending = sending_split_for(profile, content_root, routed, status)
     now = datetime.now(UTC)
     generated_at = now.strftime("%Y-%m-%d %H:%M UTC")
     # Computed once for `reconciliation`/`warnings` below — skipped when unreadable, so an
@@ -513,5 +516,7 @@ def build_model(profile: str, content_root: Path | None = None) -> dict:
             sheet=_sheet_name(profile, content_root),
             now=generated_at,
             go_live=go_live_status,
+            sending=sending,
         ),
+        "sending_split": sending,
     }

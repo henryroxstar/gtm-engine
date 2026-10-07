@@ -1034,3 +1034,46 @@ def test_a_payload_an_hour_ahead_of_the_clock_is_refused(tmp_path):
     f = _payload(tmp_path, "a.json", _row("S1"), mtime=NOW + timedelta(hours=1))
     ok, lines = _write(tmp_path, [f])
     assert not ok and "ahead of this machine's clock" in lines[0]
+
+
+def _bare(sid, sent=10):
+    """A ``get_sequence_stats`` row as the tool returns it: no status at all."""
+    row = _row(sid, sent)
+    del row["status"]
+    return row
+
+
+def _list_reply(tmp_path, *rows):
+    p = tmp_path / "payloads" / "list.json"
+    p.parent.mkdir(exist_ok=True)
+    p.write_text(json.dumps({"message": "ok", "payload": list(rows)}), encoding="utf-8")
+    return p
+
+
+def test_the_list_reply_stamps_each_sequence_active_or_paused_with_its_step_count(tmp_path):
+    """The figures fetch carries no active/paused flag, so every campaign read "started". The
+    sending tool's own sequence list carries it; the writer joins it on the id."""
+    f = _payload(tmp_path, "a.json", _bare("S1"), _bare("S2"), _bare("S3"))
+    lst = _list_reply(
+        tmp_path,
+        {"id": "S1", "title": "one", "active": True, "steps": [{}, {}]},
+        {"id": "S2", "title": "two", "active": False, "steps": [{}]},
+    )
+    ok, lines = _write(tmp_path, [f], fetched=MON, sequences=[lst])
+    assert ok, lines
+    rows = {r["sequenceId"]: r for r in _doc(tmp_path)["sequences"]}
+    assert (rows["S1"]["status"], rows["S1"]["steps"]) == ("active", 2)
+    assert (rows["S2"]["status"], rows["S2"]["steps"]) == ("paused", 1)
+    # Absent from the list: no status is guessed.
+    assert "status" not in rows["S3"] and "steps" not in rows["S3"]
+    norm = _normalize_seq(rows["S1"])
+    assert (norm["status"], norm["steps"]) == ("active", 2)
+    assert _normalize_seq(rows["S3"])["steps"] == 0  # not known: no emails goal is built on it
+
+
+def test_a_list_row_without_a_true_false_active_refuses_the_write(tmp_path):
+    f = _payload(tmp_path, "a.json", _bare("S1"))
+    lst = _list_reply(tmp_path, {"id": "S1", "title": "one", "active": "yes"})
+    ok, lines = _write(tmp_path, [f], fetched=MON, sequences=[lst])
+    assert not ok and "REFUSED" in lines[0] and "active" in lines[0]
+    assert not _path(tmp_path).exists()

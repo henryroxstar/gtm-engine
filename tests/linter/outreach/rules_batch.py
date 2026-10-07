@@ -178,7 +178,7 @@ def lint_body_homogeneity(
     The same 6-gram ceiling `lint_pack` applies *within* one multi-recipient pack, applied
     *across* the files of one run. Note the hedge whitelist is deliberately NOT used here: the
     2026-07-19 run opened 46 of 50 gaps with the same hedge wording, and whitelisting it is
-    exactly what let that through. Hedging is mandatory; one scripted wording is not.
+    exactly what let that through. A hedge sits inside the sentence that guesses; a script never.
 
     `shared_phrases` is the ONE deliberate exemption, and it exists because this rule polices
     *personalisation*, not vocabulary. A batch describes one product and cites the same reference

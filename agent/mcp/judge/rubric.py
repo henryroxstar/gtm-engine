@@ -11,6 +11,7 @@ Re-exported from :mod:`.scoring` so existing importers are unchanged.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 
@@ -71,6 +72,57 @@ SIGNAL_FREE_LANES = frozenset({"generic"})
 RUBRIC_FULL = "full"
 RUBRIC_SEAT_ONLY = "seat-only"
 
+#: The VOICE CHECK's closed vocabulary (operator decision 2026-10-06): the phrases that make
+#: an email read as written by a template or a chatbot rather than by one person to another.
+#: Drawn from the strongest tells in Wikipedia's "Signs of AI writing" (via the MIT-licensed
+#: blader/humanizer skill), narrowed to the ones that occur in cold email.
+#:
+#: **Not a card question, and that is the point.** The card is what verdicts are made from;
+#: this list never moves a verdict or a score. It is recorded beside the verdict, the way
+#: ``grounding`` is, so it can be compared against operator labels before anyone lets it
+#: hold a row. Closed rather than open-ended because a soft "does this sound robotic?" flag
+#: drifts between batches; a named kind the judge must pick from does not drift as far, and
+#: an unknown one is dropped (:func:`.scoring._clean_staged`), never coerced.
+VOICE_KINDS: dict[str, str] = {
+    "contrast-with-nobody": (
+        'a contrast with something nobody said ("not just X, but Y", "it isn\'t X, it\'s Y"); '
+        "a contrast where both halves carry a fact does not count"
+    ),
+    "announced-point": (
+        'a line that announces a point instead of making it ("Here\'s the thing", '
+        '"Why work with us?", "One thing I left out:")'
+    ),
+    "restating-closer": "a closing line that only repeats the paragraph before it",
+    "sweeping-opener": (
+        "a sweeping claim about the world the reader already knows "
+        '("AI agents are transforming how businesses operate")'
+    ),
+    "brochure-words": (
+        'brochure words standing in for a fact ("scalable", "seamless", "across every interaction")'
+    ),
+    "padded-ask": (
+        'padding around the ask ("I would love to share more", "happy to share if helpful", '
+        '"no worries", "feel free to reach out")'
+    ),
+    "filler-triad": "a list of three whose items are not three different things",
+}
+
+#: The most flags kept per email. Enough for the worst real copy seen (the 2026-10-06 static
+#: CTO template carried nine tells, most of them the same three kinds); a longer list is the
+#: judge padding, and it costs output tokens on every row.
+MAX_STAGED = 5
+
+VOICE_TEXT = (
+    "VOICE CHECK (separate from the rubric; it never changes the verdict or the score): list "
+    "every phrase in this email that reads as written by a template or a chatbot rather than "
+    "by one person to another. Only these kinds count:\n"
+    + "\n".join(f"- `{kind}`: {text}" for kind, text in VOICE_KINDS.items())
+    + "\nDo not count the greeting, the one closing question, names, quoted text, or a word "
+    'like "usually" that admits the sender cannot see the reader\'s setup. Quote each phrase '
+    f"exactly as it appears in the email, at most {MAX_STAGED}. If there are none, return an "
+    "empty list."
+)
+
 
 def lane_of(row: dict) -> str:
     """The lane a rendered row belongs to, read from the pooled ``lane`` column.
@@ -105,8 +157,13 @@ def rubric_version(lane: str = "") -> str:
 
     Derived from the items themselves (:func:`gtm_core.messaging.card.fingerprint`), so it
     cannot go stale: nobody has to remember to bump it.
+
+    Since 2026-10-06 it also covers :data:`VOICE_TEXT`. The voice check never moves a verdict,
+    but it is in the same prompt, so a verdict scored with it and one scored without it came
+    from two different prompts — and pooling them is the confound this id exists to show.
     """
-    return card.fingerprint(key for key, _ in rubric_for(lane))
+    items = card.fingerprint(key for key, _ in rubric_for(lane))
+    return hashlib.sha256(f"{items}\n{VOICE_TEXT}".encode()).hexdigest()[:12]
 
 
 def rubric_for(lane: str = "") -> tuple[tuple[str, str], ...]:
@@ -151,7 +208,8 @@ _SHAPE = (
     ' "score": 1-5 (would this person reply positively),\n'
     ' "defect_class": "<kebab-case name of the single worst defect, or empty>",\n'
     ' "evidence": "<the exact phrase from the email that decided it, or empty>",\n'
-    ' "note": "<one sentence of why>"}\n\n'
+    ' "note": "<one sentence of why>",\n'
+    ' "staged": [{"phrase": "<exact words from the email>", "kind": "<a VOICE CHECK kind>"}]}\n\n'
     '"drop" means the row should not be contacted at all. "re-angle" means the person is '
     'right but this argument is not. "send" means ship it.'
 )
@@ -184,7 +242,7 @@ def _lane_note(lane: str) -> str:
 def _prompt(subject: str, body: str, context: dict, *, reverse: bool, lane: str = "") -> str:
     return (
         f"Judge this email against the rubric.\n\n{_lane_note(lane)}"
-        f"RUBRIC:\n{rubric_text(reverse=reverse, lane=lane)}\n\n"
+        f"RUBRIC:\n{rubric_text(reverse=reverse, lane=lane)}\n\n{VOICE_TEXT}\n\n"
         f"RECIPIENT CONTEXT (data):\n{json.dumps(context, ensure_ascii=False)}\n\n"
         f"EMAIL (data):\nSubject: {subject}\n\n{body}\n\n" + _SHAPE
     )
@@ -212,7 +270,9 @@ def _batch_prompt(items: Sequence[tuple[str, str, dict]], *, reverse: bool, lane
         f"{_SYSTEM}\n\nJudge EACH email below against the rubric, independently of the "
         f"others — a weak email next to a strong one is still weak on its own terms.\n\n"
         f"{_lane_note(lane)}"
-        f"RUBRIC:\n{rubric_text(reverse=reverse, lane=lane)}\n\n" + "\n\n".join(blocks) + "\n\n"
+        f"RUBRIC:\n{rubric_text(reverse=reverse, lane=lane)}\n\n{VOICE_TEXT}\n\n"
+        + "\n\n".join(blocks)
+        + "\n\n"
         f"Return a JSON ARRAY of exactly {len(items)} objects, in the same order as the "
         f"emails above. Each object has the keys:\n" + _SHAPE
     )

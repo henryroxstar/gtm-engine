@@ -708,3 +708,136 @@ def test_the_lede_carries_no_counting_discrepancies():
     """Operator direction: internal workings stay out of the lede."""
     out = _lede(_ready())
     assert "Check:" not in out and "maintains your setup" not in out
+
+
+def test_the_held_back_lines_say_every_reason_must_be_cleared_and_keep_the_warning_pile():
+    """Each reason fails the WHOLE batch on its own, so the operator needs to hear that all of
+    them must be cleared — and the warning pile, appended last, must survive the line cap."""
+    classes = [
+        ("signal-stale", 4, "row"),
+        ("no-dossier", 3, "account"),
+        ("relation-unresolved", 2, "row"),
+        ("competitor-domain", 2, "row"),
+        (rd.WARNING_BUDGET, 80, "warning"),
+    ]
+    lines = ld._reason_lines(classes)
+    text = "\n".join(lines)
+    assert "more than a person can review" in text
+    assert "all of them have to be cleared" in text
+    one = ld._reason_lines([("signal-stale", 4, "row")])
+    assert not any("all of them" in ln for ln in one)
+
+
+def test_readiness_keeps_the_warning_budget_reason_past_the_top_five():
+    because = [{"rule": f"r{i}", "count": 9 - i, "unit": "row"} for i in range(6)]
+    because.append({"rule": rd.WARNING_BUDGET, "count": 80, "unit": "warning"})
+    kept = rd.cap_reasons(because)
+    assert len(kept) == 5 and kept[-1]["rule"] == rd.WARNING_BUDGET
+
+
+# --- the warning pile, by class: what would release a held batch ----------------------
+
+
+def test_a_batch_held_by_its_warning_pile_records_each_class(root):
+    """The count alone says the batch is held; only the classes say what would release it."""
+    _stage(root, [_row(lane="generic", email="rani@acme-holdings.example")])
+    rep = pr.run_preflight(PROFILE, content_root=root, profiles_root=root, as_of=_AS_OF, budget=0)
+    pr.write_report(rep, content_root=root)
+    r = rd.load_readiness(PROFILE, root)
+    assert r.fates["refused"] == 1
+    budget, pile = r.warnings["generic"]
+    assert budget == 0
+    assert ("domain-mismatch", 1) in pile
+
+
+def test_a_report_without_warning_classes_reads_as_none_recorded(root):
+    _stage(root, [_row(lane="generic")])
+    r = _check(root)
+    assert r.state == "ok" and r.warnings == {}
+
+
+@pytest.mark.parametrize(
+    "warnings", ["x", [{"rule": 3, "count": 1}], [{"rule": "domain-mismatch", "count": -1}]]
+)
+def test_a_malformed_warning_list_is_unreadable(root, warnings):
+    path = rd.report_path(PROFILE, root)
+    path.parent.mkdir(parents=True)
+    lane = {"lane": "generic", "fates": {"refused": 1}, "warnings": warnings, "warn_budget": 15}
+    block = {"rows": 1, "fates": {**dict.fromkeys(rd.FATES, 0), "refused": 1}, "lanes": [lane]}
+    path.write_text(json.dumps({"ran_at": "2026-09-01T00:00:00+00:00", "readiness": block}))
+    assert rd.load_readiness(PROFILE, root).state == "unreadable"
+
+
+def _held(**over) -> rd.Readiness:
+    base = {
+        "fates": {**dict.fromkeys(rd.FATES, 0), "refused": 10},
+        "refusals": [
+            ("generic", 10, [("signal-stale", 2, "row"), (rd.WARNING_BUDGET, 20, "warning")])
+        ],
+        "warnings": {"generic": (15, [("relation-adjacent", 4), ("domain-mismatch", 16)])},
+    }
+    return _ready(**{**base, **over})
+
+
+def test_the_sorted_label_says_refused_once_the_checks_refused_it():
+    from gtm_core.email_campaign_dashboard.format import status_label
+
+    def label(r):
+        return status_label({"readiness": r}, "ready_to_send")
+
+    assert label(_held()) == "Sorted — checks refused"
+    assert label(_ready()) == "Sorted — not yet checked"
+    assert label(_held(state="stale")) == "Sorted — not yet checked"
+    partial = _held(fates={**dict.fromkeys(rd.FATES, 0), "refused": 10, "admitted": 3})
+    assert label(partial) == "Sorted — 10 refused by the checks"
+    # only the sorted bucket changes; the others keep their words
+    assert status_label({"readiness": _held()}, "waiting_on_you") == "Waiting on you"
+
+
+def test_the_meter_tiles_and_each_row_say_the_same_word():
+    """One rule in three places: a page that says "refused" in the meter and "not yet
+    checked" in the table below it is the confusion this label exists to end."""
+    from gtm_core.email_campaign_dashboard import format as fmt
+    from gtm_core.email_campaign_dashboard import views_lede as vl
+
+    m = {
+        "readiness": _held(),
+        "prospect_status": {
+            "available": True,
+            "total": 10,
+            "counts": {"ready_to_send": 10},
+            "by_email": {"p1@acme.example": "ready_to_send"},
+        },
+    }
+    assert fmt._row_status(m, "p1@acme.example") == "Sorted — checks refused"
+    meter = vl._lede_meter_html(m, [])
+    assert "Sorted — checks refused" in meter and "not yet checked" not in meter
+
+
+def test_the_release_card_lists_the_operators_decisions_and_the_limit():
+    from gtm_core.email_campaign_dashboard import views_lede as vl
+
+    html = vl._actions_required_card({"readiness": _held(), "profile": "acme"})
+    assert 'data-release-batch="generic"' in html
+    assert "Release the general batch (10 contacts held)" in html
+    assert "20 warnings against a limit of 15, so at least 5 must be" in html
+    # largest first, each as a choice, never the class id
+    assert html.index("on a different domain") < html.index("close to what we sell")
+    assert "domain-mismatch" not in html.replace('data-release-batch="generic"', "")
+    assert "Claude&#x27;s part, not yours" in html or "Claude's part, not yours" in html
+
+
+def test_no_release_card_from_an_answer_that_cannot_be_trusted():
+    from gtm_core.email_campaign_dashboard import views_lede as vl
+
+    assert "data-release-batch" not in vl._actions_required_card(
+        {"readiness": _held(state="stale")}
+    )
+    assert "data-release-batch" not in vl._actions_required_card({"readiness": _ready()})
+
+
+def test_every_warning_decision_is_in_the_operators_own_words():
+    from tests.lint import operator_vocabulary as ov
+
+    text = "\n".join(" ".join(pair) for pair in ld.WARNING_DECISIONS.values())
+    assert ov.findings(text) == []

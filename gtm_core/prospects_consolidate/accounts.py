@@ -10,7 +10,7 @@ from ..account_exclusion_keys import (
 )
 from ..prospects_state import (
     ACCOUNT_ID_FIELD,
-    RETIRED_STATUSES,
+    CLOSED_TO_SENDING,
     _identity_key,
     _identity_keys,
     latest_path,
@@ -317,6 +317,13 @@ SIGNAL_GROUP_COLUMNS = (
     SIGNAL_VIRALITY_COLUMN,
 )
 
+#: The columns inside the signal group that say what the ACCOUNT is, not what the signal said.
+#: A clear means research found no qualifying signal; it never means the company stopped being
+#: a prospect, a competitor or a regulator. Blanking it on every rebuild left a cleared buyer
+#: with no relation, which the repair lane refuses (`relation-unresolved`), and would have let
+#: a cleared competitor or regulator lose the label that holds it back.
+ACCOUNT_FACT_COLUMNS = frozenset({"category_relation"})
+
 #: ``signal_state`` on a ledger account: the one value that says research LOOKED and found no
 #: qualifying signal, as opposed to a blank record, which says nothing. Closed on purpose —
 #: any other value is ignored, so a negative result can never be free text (with a date in
@@ -369,7 +376,8 @@ def _account_record_index(profile: str, content_root: Path | None) -> dict[str, 
         record = {
             col: str(item.get(col) or "").strip()
             for col in _INHERITED_RECORD_COLUMNS
-            if str(item.get(col) or "").strip() and not (cleared and col in SIGNAL_GROUP_COLUMNS)
+            if str(item.get(col) or "").strip()
+            and not (cleared and col in SIGNAL_GROUP_COLUMNS and col not in ACCOUNT_FACT_COLUMNS)
         }
         if record:
             index[account_id] = record
@@ -396,7 +404,7 @@ def _disqualified_account_keys(profile: str, content_root: Path | None) -> set[s
     """
     keys: set[str] = set()
     for item in _ledger_items(profile, content_root):
-        retired = str(item.get("status") or "").strip().lower() in RETIRED_STATUSES
+        retired = str(item.get("status") or "").strip().lower() in CLOSED_TO_SENDING
         if retired or account_hold_reason(item):
             keys.update(ledger_account_keys(item))
     return keys

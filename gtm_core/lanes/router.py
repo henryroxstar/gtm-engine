@@ -170,9 +170,16 @@ def _verdict_lane(
 
 
 def _apply_decision(
-    routed: Routed, trigger: str, detail: str, ctx: RouterContext, decisions: dict
+    routed: Routed,
+    trigger: str,
+    detail: str,
+    ctx: RouterContext,
+    decisions: dict,
+    *,
+    policy: bool = True,
 ) -> bool:
-    """A recorded decision or a policy line for (trigger, account) answers the hold."""
+    """A recorded decision or (when ``policy``) a policy line for (trigger, account) answers
+    the hold."""
     dom = (routed.row.get("company_domain") or "").strip().lower()
     comp = (routed.row.get("company") or "").strip().lower()
     cand = ((trigger, k) for k in (account_key(routed.row), f"d:{dom}", f"c:{comp}") if k)
@@ -188,7 +195,7 @@ def _apply_decision(
     if rec and rec.get("decision") == "send":
         routed.decided = f"decided:send:{trigger}"
         return True
-    choice = ctx.policy_auto.get(trigger)
+    choice = ctx.policy_auto.get(trigger) if policy else None
     if choice:
         routed.lane = _DECISION_LANE[choice]
         routed.decided = f"policy:{choice}:{trigger}"
@@ -246,7 +253,12 @@ def route_row(
     if unattended and routed.lane in UNATTENDED_TRIGGERS:
         routed.trigger = UNATTENDED_TRIGGERS[routed.lane]
         routed.detail = f"unattended mode fail-closed for {routed.lane} lane candidate"
-        routed.lane = "hold"
+        # The fail-close stands in for an absent human, so only a human's recorded answer for
+        # THIS account opens it — never a blanket `[auto]` policy line.
+        if not _apply_decision(
+            routed, routed.trigger, routed.detail, ctx, decisions or {}, policy=False
+        ):
+            routed.lane = "hold"
 
     return routed
 

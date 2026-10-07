@@ -24,6 +24,7 @@ from typing import Any
 
 from ..power import detectable_lift, wilson
 from .aggregate import _scope_figures
+from .delivery import groups
 
 
 def _e(val: Any) -> str:
@@ -94,8 +95,9 @@ def _build_finding_card(
 
 def _pct_ci(successes: int, n: int) -> str:
     """ "{rate}% (95% CI lo-hi%)", or "—" with no denominator. A CI this wide IS the
-    finding at low volume — it replaces a badge that used to declare a winner early."""
-    if not n:
+    finding at low volume — it replaces a badge that used to declare a winner early. More
+    successes than ``n`` is not a proportion (a snapshot can say so): a dash, not a crash."""
+    if not n or not 0 <= successes <= n:
         return "—"
     ci = wilson(successes, n)
     pct = 100 * successes / n
@@ -236,17 +238,6 @@ def _seat_fit_finding(m: dict[str, Any]) -> tuple[str, str]:
         "classified by title.",
         "gtm_core.hook_coverage persona classifier over the sequences' own declared seat",
     )
-
-
-def _cells_by(m: dict[str, Any], field: str) -> list[tuple[str, int, int]]:
-    """[(value, sent, replied), …] over ``m[\"cells\"][\"cells\"]``, grouped by ``field``."""
-    out: dict[str, list[int]] = {}
-    for c in (m.get("cells") or {}).get("cells") or []:
-        key = str(c.get(field) or "unknown")
-        acc = out.setdefault(key, [0, 0])
-        acc[0] += int(c.get("sent") or 0)
-        acc[1] += int(c.get("replied") or 0)
-    return [(k, v[0], v[1]) for k, v in out.items()]
 
 
 def _why_now_finding(m: dict[str, Any]) -> tuple[str, str]:
@@ -425,7 +416,7 @@ def strategic_lenses_html(m: dict[str, Any] | None = None) -> str:
             lens_name="Targeting & ICP",
             title="Replies by Seat",
             question="Reply rate for each seat argued to, at the volume sent so far:",
-            groups=_cells_by(m, "seat"),
+            groups=groups(m, "seat"),
             baseline=baseline,
             note="Review the seat/hook breakdown below for the full cell table.",
             cmd="/draft-outreach",
@@ -457,7 +448,7 @@ def strategic_lenses_html(m: dict[str, Any] | None = None) -> str:
             lens_name="Messaging & Hooks",
             title="Replies by Hook",
             question="Reply rate for each hook sent, at the volume sent so far:",
-            groups=_cells_by(m, "variant"),
+            groups=groups(m, "angle"),
             baseline=baseline,
             note="Review the angle heatmap below for the full hook breakdown.",
             cmd="#angle-heatmap",

@@ -223,7 +223,30 @@ def _lane_readiness(
             )
     else:
         fates["admitted"] = vstats.kept
-    return {"lane": lane, "rows": len(rows), "fates": fates, "refused_because": because[:5]}
+    out = {
+        "lane": lane,
+        "rows": len(rows),
+        "fates": fates,
+        "refused_because": cap_reasons(because),
+    }
+    if audit.failed and audit.warn_verdict.blocked:
+        # The pile, by class: what the operator must accept, fix or remove. The count alone
+        # says the batch is held; only the classes say what decision would release it.
+        out["warn_budget"] = budget
+        out["warnings"] = [
+            {"rule": c.rule, "count": c.count} for c in audit.warn_verdict.classes if not c.acked
+        ]
+    return out
+
+
+def cap_reasons(because: list[dict], cap: int = 5) -> list[dict]:
+    """The first ``cap`` reasons, always keeping the warning pile: it is appended last, and a
+    cap that drops it tells the operator the errors are the whole story when they are not."""
+    kept = because[:cap]
+    pile = [b for b in because if b.get("rule") == WARNING_BUDGET]
+    if pile and pile[0] not in kept:
+        kept = because[: cap - 1] + pile[:1]
+    return kept
 
 
 def verify_readiness_conservation(readiness: dict) -> bool:
@@ -332,6 +355,10 @@ class Readiness:
     #: gate refused it on, ranked. Showing only the largest would imply that fixing it unblocks
     #: the batch; on the first live run a batch of 413 was held by one error AND a warning pile.
     refusals: list[tuple[str, int, list[tuple[str, int, str]]]] = field(default_factory=list)
+    #: ``batch -> (warning limit, [(class, count), …])`` for a batch held by its warning pile:
+    #: the unaccepted classes, so a page can name the decisions that would release it. Absent
+    #: in a report written before it existed — never read as "no warnings".
+    warnings: dict[str, tuple[int, list[tuple[str, int]]]] = field(default_factory=dict)
     problem: str = ""
 
     @property
@@ -356,7 +383,22 @@ def _int(v: object) -> int:
 _UNITS = frozenset({"row", "account", "warning"})
 
 
-def _parse(block: object) -> tuple[int, dict[str, int], list]:
+def _parse_warnings(lane: dict) -> tuple[int, list[tuple[str, int]]] | None:
+    """A batch's stored warning classes, strictly; ``None`` when the report carries none."""
+    raw = lane.get("warnings")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValueError("a warning list is malformed")
+    classes = []
+    for entry in raw:
+        if not isinstance(entry, dict) or not isinstance(entry.get("rule"), str):
+            raise ValueError("a warning entry is malformed")
+        classes.append((entry["rule"], _int(entry.get("count"))))
+    return _int(lane.get("warn_budget")), classes
+
+
+def _parse(block: object) -> tuple[int, dict[str, int], list, dict]:
     """Strictly validate the stored block. Any wrong shape raises — it is data (§R5)."""
     if not isinstance(block, dict):
         raise ValueError("readiness is not an object")
@@ -369,9 +411,12 @@ def _parse(block: object) -> tuple[int, dict[str, int], list]:
     if not isinstance(lanes, list):
         raise ValueError("readiness batches are missing")
     refusals: list[tuple[str, int, list[tuple[str, int, str]]]] = []
+    warnings: dict[str, tuple[int, list[tuple[str, int]]]] = {}
     for lane in lanes:
         if not isinstance(lane, dict) or not isinstance(lane.get("lane"), str):
             raise ValueError("a readiness batch is malformed")
+        if (pile := _parse_warnings(lane)) is not None:
+            warnings[lane["lane"]] = pile
         lane_fates = lane.get("fates")
         if not isinstance(lane_fates, dict):
             raise ValueError("a readiness batch has no fates")
@@ -394,7 +439,7 @@ def _parse(block: object) -> tuple[int, dict[str, int], list]:
             refusals.append((lane["lane"], refused, classes))
     if sum(fates.values()) != rows:
         raise ValueError("readiness fates do not add up to the list")
-    return rows, fates, refusals
+    return rows, fates, refusals, warnings
 
 
 def load_readiness(profile: str, content_root: Path | None = None) -> Readiness:
@@ -413,7 +458,7 @@ def load_readiness(profile: str, content_root: Path | None = None) -> Readiness:
             return Readiness(state="none")
         if isinstance(block, dict) and "error" in block:
             return Readiness(state="unreadable", problem=str(block["error"])[:200])
-        rows, fates, refusals = _parse(block)
+        rows, fates, refusals, warnings = _parse(block)
         ran_at = report.get("ran_at")
         if not isinstance(ran_at, str):
             raise ValueError("the report has no run time")
@@ -424,4 +469,6 @@ def load_readiness(profile: str, content_root: Path | None = None) -> Readiness:
         and block.get("as_of") == _today().isoformat()
     )
     state = "ok" if current else "stale"
-    return Readiness(state=state, ran_at=ran_at, rows=rows, fates=fates, refusals=refusals)
+    return Readiness(
+        state=state, ran_at=ran_at, rows=rows, fates=fates, refusals=refusals, warnings=warnings
+    )

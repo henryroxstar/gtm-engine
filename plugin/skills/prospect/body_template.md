@@ -761,7 +761,12 @@ emits the HubSpot CSV) → `consolidate` → `lanes route` → the status block 
   does.  Routing a subset CSV carries every other row's record forward (it prints `carried forward N
   record(s)`); `--replace-all` is the explicit wholesale rewrite.
   
-  If the `lanes route` command flags any enterprise rows for `champion-missing` (because the account lacks a champion in a wedge seat), the operator must resolve this on the generated hold sheet (choices: `send anyway`, `find a champion`, `skip this contact`).
+  **Automated hold resolution & upfront defaults:**
+  To maintain pipeline momentum without stalling in manual review:
+  - **Competitor Auto-Exclusion:** Accounts classified as `competitor` or `adjacent` are excluded by default directly into `content/<active>/prospects/.pool/suppression.csv` (`reason = "competitor"`). No manual hold approval is required.
+  - **Multi-Contact Seat Disambiguation (`duplicate-contact`):** For accounts with multiple contacts, check their resolved seats against `role-vocabulary.toml`. If contacts resolve to distinct seats (e.g., CISO in `security` and VP in `architect`, `cto`, or `ai-platform`), route both so each receives tailored messaging. If contacts share a seat, prioritize the wedge champion or primary evaluator and suppress the duplicate.
+  - **Enterprise Cross-Org Hooks (`missing-hook-cell`):** When accounts exhibit a valid signal/premise (e.g., `cross-org-agents`), ensure the appropriate angles are registered in `angles.toml` and regenerate `hook-matrix.md` so accounts route cleanly to their coordinate.
+  - **Automated Champion Discovery (`champion-missing`):** When an enterprise account lacks a champion in wedge seats, run credit-free RocketReach search (`rocketreach_person_search`) or Vibe search for VP/Director/Head titles in InfoSec, Architecture, or AI Platform before routing. If found, enrich and add the champion to the pool. When an account has an economic buyer with upfront operator approval, advance the contact to the `generic` lane (`decision: generic`) rather than holding the account.
 
   Then report where the list stands with the status block (Step 13). Never hand-write a `lane` value into a pooled CSV — those files
   are rebuilt, so the edit is discarded on the next consolidate, exactly as with a corrected `why_now`

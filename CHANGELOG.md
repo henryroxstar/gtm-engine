@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-07
+
+### Added
+- **Sequencer unsubscribes to opt-out gate.** Automatically syncs external sequencer unsubscribe events into the central DNC registry and suppression sets, ensuring cross-channel suppression parity.
+- **Delivery health risk monitoring.** Email campaign dashboard now features proactive delivery risk indicators and unsubscribe rate warnings to protect sending domains.
+- **Offline diagram and HTML companion rendering.** Visual components and diagrams render offline using styled vectors and embedded tokens, preventing blank screens on restricted networks.
+
+### Fixed
+- **Product manifest and regression golden pins.** Classified kinetic sequence cascade configuration in product manifest and synced enrollment gate golden pins.
+- **Solution-design HTML companions open with no network access.** The page used to fetch its
+  markdown renderer from a public CDN when opened, so on a network that blocks script hosts, or
+  opened offline from an email, it came up blank. `design_render` now renders the document into
+  the page itself, through an allowlist that keeps scripts and event handlers out. Mermaid blocks
+  still draw where their host is reachable and otherwise show as readable code. A companion made
+  from the earlier template is refused until it is re-created once from the current one.
+- **Case-study HTML companions open with no network access too.** The case-study page still
+  rendered its markdown in the reader's browser, with `marked` and `DOMPurify` fetched from a
+  public CDN, so it came up blank on the same networks. It is now the solution-design page without
+  the contents rail and without Mermaid, rendered by the same `design_render` and the same
+  allowlist, and it references nothing outside the file. A case-study page made the earlier way is
+  refused until it is re-created once from the current shell.
+- **Solution-design plates and screenshots survive being emailed alone.** A figure written as a raw
+  `<img src="…">` kept its relative path, so it showed a broken image once the `.html` left its
+  folder. `design_render` now embeds a relative `.png` or `.svg` there, as it already did for
+  markdown images, and refuses one that lies outside the design's folder or is over 5 MB.
+
 ## [0.27.0] - 2026-10-05
 
 ### Added

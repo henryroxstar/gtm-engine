@@ -70,6 +70,10 @@ dependencies = [
   # defusedxml.ElementTree is a drop-in ET replacement that disables external
   # entity/DTD resolution, closing the XXE surface (semgrep use-defused-xml).
   "defusedxml>=0.7.1",
+  # gtm_core/design_render renders a solution design's markdown to HTML when it writes the
+  # companion, so the page needs no script from a CDN to open. Already resolved in uv.lock via
+  # rich; declaring it explicitly changes no resolution and adds no wheel.
+  "markdown-it-py>=4.0",
 ]
 
 [project.optional-dependencies]

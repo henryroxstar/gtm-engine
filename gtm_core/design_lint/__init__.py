@@ -10,7 +10,6 @@ already state, made executable.
 |------|--------|
 | SD1  | the three-tier read is present and in order |
 | SD2  | every coverage dimension has a section that answers it |
-| SD3  | quality requirements are stated (availability, latency, throughput, recovery) |
 | SD4  | a glossary exists |
 | SD6  | every row of a capability matrix says how ready it is |
 | SD7  | a design-target is not written as though it ships |
@@ -66,7 +65,7 @@ from .cli import main
 from .model import ADVISORY, ERROR, WARN, Finding, Section
 from .parse import UnparseableDesign, document_text, parse_sections
 from .rules_claims import _sd6, _sd7, _sd8, _sd9
-from .rules_coverage import _sd1, _sd2, _sd3, _sd4, satisfied_by
+from .rules_coverage import _sd1, _sd2, _sd4, satisfied_by
 from .rules_integrity import _sd12, _sd13
 from .text import bullet_count, claim_units, plain, sentences, significant, table_rows, topic_terms
 
@@ -96,7 +95,6 @@ __all__ = [
     "_sd12",
     "_sd13",
     "_sd2",
-    "_sd3",
     "_sd4",
     "_sd6",
     "_sd7",

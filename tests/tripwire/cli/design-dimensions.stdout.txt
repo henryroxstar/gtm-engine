@@ -25,9 +25,6 @@ COV-08  Crosscutting concerns  [warn] (arc42 §8)
 COV-09  Decisions  [warn] (arc42 §9)
     asks:      Which choices were made, when, and what did each one cost us?
     answered:  A trade-offs section carrying a decision record per material choice
-COV-10  Quality requirements  [warn] (arc42 §10)
-    asks:      What must be true of it in production — availability, latency, throughput, recovery?
-    answered:  A quality-requirements section with a figure per attribute
 COV-11  Risks and open questions  [error] (arc42 §11)
     asks:      What could still go wrong, and what is genuinely undecided?
     answered:  A2 Open questions and dependencies, plus the V1/V2 cut

@@ -155,21 +155,10 @@ match = ["decision", "trade-off", "tradeoff", "alternatives considered"]
 severity = "warn"
 source = "arc42 §9"
 
-[[dimensions]]
-id = "COV-10"
-guid = "1ec44d20-3347-463c-8cda-b44307bb76e0"
-name = "Quality requirements"
-category = "assurance"
-question = "What must be true of it in production — availability, latency, throughput, recovery?"
-satisfied_by = "A quality-requirements section with a figure per attribute"
-match = ["quality requirement", "non-functional", "service level", "slo", "sla"]
-# WARN, and permanently so — founder decision 2026-09-22. Measured: EVERY real design in the
-# workspace lacked NFRs, the conformant ones included, so at `error` this dimension blocked
-# every design there was. (No count: this file ships publicly and the corpus is private
-# customer work. `--calibrate` prints the numbers on the operator's own machine.) The consequence accepted with it: nothing enforces
-# quality requirements. Do not "restore" this to error without reversing that decision.
-severity = "warn"
-source = "arc42 §10"
+# COV-10 "Quality requirements" (arc42 §10) — RETIRED 2026-10-06, operator decision: a solution
+# design never quotes non-functional requirements, service levels or commercial terms. Those are
+# commitments for the commercial process, and a figure in a design reads as an offer. Its rule, SD3,
+# went with it. The id and guid stay unused so no later dimension can inherit them.
 
 [[dimensions]]
 id = "COV-11"

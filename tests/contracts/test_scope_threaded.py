@@ -96,8 +96,10 @@ NEEDS_NO_SCOPE: dict[str, str] = {
     "backend/routers/onboard.py::_ingest": "onboarding family",
     "backend/routers/onboard.py::_re_extract": "onboarding family",
     "gtm_core/paths.py::resolve_knowledge_file": "the resolver itself",
+    "gtm_core/signal_events/kinetic.py::detect_chains_for_profile": "kinetic-chains.toml is tenant-level and passes product through to resolve_knowledge_file",
     "gtm_core/run_scope.py::_check_second_product": "the manifest check itself",
     "gtm_core/run_scope.py::product_file": "the scope's own resolver; refuses a fallback",
+    "gtm_core/static_pipeline.py::_load_customer_patterns": "outreach-case-studies.txt is a company fact",
 }
 
 #: Product-aware today (takes ``product``) but does not yet refuse its omission, or a

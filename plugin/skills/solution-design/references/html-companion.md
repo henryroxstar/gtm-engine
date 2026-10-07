@@ -2,12 +2,15 @@
 
 Markdown viewers show the design's inline HTML components as raw tags and ```mermaid``` blocks as
 literal code. So `solution-design` always emits a **self-contained HTML companion** next to each
-`.md` — `marked.js` renders the doc, a small vanilla script upgrades the components, and
-`mermaid.js` draws any remaining Mermaid block. **The `.md` is the single source**: the companion is
-created once from the template below and thereafter only re-rendered from the `.md` by
-`gtm_core.design_render`. Marked's output is passed through **DOMPurify** and inserted with
-`insertAdjacentHTML` (a safe DOM method), so the page passes the repo's security hook on the headless
-Write path.
+`.md`. `gtm_core.design_render` renders the doc to HTML when it writes the page, so **nothing is
+fetched to open it**: the page reads the same offline, from an email attachment, and on a customer
+network that blocks public script hosts. A small vanilla script upgrades the components, and
+`mermaid.js` draws any remaining Mermaid block *if* its host is reachable — if not, the block stays a
+readable code listing and the rest of the page is untouched. **The `.md` is the single source**: the
+companion is created once from the template below and thereafter only re-rendered from the `.md` by
+`gtm_core.design_render`, which passes the HTML through an allowlist before writing it (see Notes),
+so nothing in the markdown can run script in the reader's browser — the one exception is Mermaid,
+which renders a diagram block under its own `securityLevel:"strict"` where its host is reachable.
 
 **Design read:** a customer-facing solution-overview document for business, compliance and
 technical buyers — *editorial / premium-docs* language (think Stripe or Linear docs). Refined
@@ -135,8 +138,9 @@ class NODE_B1,NODE_B2 suiteB
 ## Visual-component layer
 
 Each component is written as plain block-level HTML **in the Markdown**, so it degrades to readable
-text in a no-CSS viewer. DOMPurify keeps structural tags, `class`, `style` (custom properties such as
-`--d`, `--lanes`) and `data-*` attributes. One per section (Rule 0).
+text in a no-CSS viewer. The render keeps structural tags and the `class`, `style` (custom properties
+such as `--d`, `--lanes`), `role`, `aria-*` and `data-*` attributes; anything else is left out of the
+page and named in the render's output. One per section (Rule 0).
 
 | Component | Markup | Use it for | Page |
 |---|---|---|---|
@@ -182,17 +186,18 @@ text in a no-CSS viewer. DOMPurify keeps structural tags, `class`, `style` (cust
 
 1. **Once per file:** write the template below to `solution-design-<company>-<date>.html` next to
    the `.md` (headless: the Write tool), with the four `__BRAND_*__` markers substituted (Brand
-   binding) and `__TITLE__` set to the doc's H1. Leave `__MD__` in place.
-2. **Render** — embeds the `.md` into the `<script type="text/markdown" id="src">` block and inlines
-   every relative `.svg`/`.png` image as a data URI:
+   binding) and `__TITLE__` set to the doc's H1. Leave the two `design_render` markers inside
+   `<div id="content">` in place — the render writes between them.
+2. **Render** — renders the `.md` to HTML between the markers and inlines every relative
+   `.svg`/`.png` image as a data URI:
 
    ```bash
    uv run python -m gtm_core.design_render content/<active>/accounts/<slug>/solution-design-<company>-<date>.md
    ```
 
    Pass `--html <path>` when the companion is not the `.md`'s sibling of the same stem.
-3. **After every `.md` edit, render again.** Never hand-edit the markdown embedded in the `.html`:
-   the next render overwrites it, and until then the two files disagree.
+3. **After every `.md` edit, render again.** Never hand-edit the HTML between the markers: the next
+   render overwrites it, and until then the two files disagree.
 4. **Before delivery**, confirm nothing drifted — exits non-zero if the `.html` no longer matches:
 
    ```bash
@@ -200,6 +205,10 @@ text in a no-CSS viewer. DOMPurify keeps structural tags, `class`, `style` (cust
    ```
 
 Edit the template's CSS or script only to change the page's design — never to change content.
+
+A companion made from the **earlier template** — one that still loads `marked` from a CDN, so it opens
+blank wherever that host is blocked — has no markers, and `design_render` refuses it (exit 2). Re-create
+it once from the template below, Brand binding included, then render.
 
 ## The template
 
@@ -209,8 +218,6 @@ Edit the template's CSS or script only to change the page's design — never to 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>__TITLE__</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
  /* ---- tokens ----
     THE ACCENTS BELOW ARE NEUTRAL PLACEHOLDERS AND MUST BE REPLACED. See "Brand binding":
@@ -578,17 +585,15 @@ Edit the template's CSS or script only to change the page's design — never to 
 <a class="skip" href="#content">Skip to content</a>
 <div class="app">
  <aside class="side"><nav class="toc" id="toc" aria-label="On this page"><p class="toc-h">On this page</p></nav></aside>
- <main class="doc"><div id="content"></div>
-  <footer class="foot">Rendered view — the source of truth is the <code>.md</code> file; re-render with <code>gtm_core.design_render</code>.</footer>
+ <main class="doc"><div id="content"><!-- design_render:start -->
+<!-- design_render:end --></div>
+  <footer class="foot">Rendered view — the source of truth is the <code>.md</code> file; re-render it with <code>design_render</code>.</footer>
  </main>
 </div>
-<script type="text/markdown" id="src">
-__MD__
-</script>
 <script type="module">
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+// The document is already in the page (design_render writes it). This script only upgrades it, and
+// never imports anything statically: one unreachable host in a static import stops the whole script.
 const content=document.getElementById("content");
-content.insertAdjacentHTML("beforeend", DOMPurify.sanitize(marked.parse(document.getElementById("src").textContent)));
 const slug=s=>s.toLowerCase().replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-").slice(0,60)||"s";
 // hero = first h1 (+ its meta paragraph); other h1 = tier dividers
 const h1=content.querySelector("h1");
@@ -634,8 +639,8 @@ content.querySelectorAll("table.cov").forEach(t=>{
     if(th.dataset.own)td.dataset.own=th.dataset.own;
     if(th.classList.contains("split"))td.classList.add("split");}));});
 // motion: a [data-anim] component plays once when scrolled into view. Reduced motion — and any
-// renderer that never scrolls — gets the final state (.static). CSS classes only: DOMPurify strips
-// SVG <animate>, so there is no other way to move anything on this page.
+// renderer that never scrolls — gets the final state (.static). CSS classes only: design_render
+// drops scripts and inline SVG (SMIL with it), so there is no other way to move anything on this page.
 const anims=[...content.querySelectorAll("[data-anim]")];
 if(matchMedia("(prefers-reduced-motion: no-preference)").matches){
   const ao=new IntersectionObserver((es,o)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("play");o.unobserve(e.target);}});},{threshold:.35});
@@ -661,24 +666,32 @@ content.querySelectorAll(".lanes").forEach((ln,k)=>{
       p.setAttribute("marker-end",`url(#${id})`);svg.appendChild(p);}
     ln.prepend(svg);};
   new ResizeObserver(draw).observe(ln);});
-// mermaid (theme-aware + tinted to --accent so diagrams read as part of the brand)
-content.querySelectorAll("pre code.language-mermaid").forEach(c=>{const d=document.createElement("div");d.className="mermaid";d.textContent=c.textContent;c.closest("pre").replaceWith(d);});
-const css=getComputedStyle(document.documentElement),v=n=>css.getPropertyValue(n).trim();
-const dark=matchMedia("(prefers-color-scheme: dark)").matches;
-mermaid.initialize({startOnLoad:false,theme:dark?"dark":"neutral",securityLevel:"strict",
-  themeVariables:{primaryColor:v("--surface-2"),primaryBorderColor:v("--accent"),primaryTextColor:v("--strong"),
-    lineColor:v("--accent"),secondaryColor:v("--surface-3"),tertiaryColor:v("--surface"),
-    fontFamily:v("--sans")||"system-ui",fontSize:"15px"}});
-await mermaid.run({querySelector:".mermaid"});
-// a11y: a mermaid SVG is unlabelled by default — give each diagram an accessible name from the
-// "How to read it:" paragraph the doc already writes beneath it, so it is not silent to a reader.
-content.querySelectorAll(".mermaid").forEach((d,i)=>{
-  const svg=d.querySelector("svg");if(!svg)return;
-  let desc="";for(let n=d.nextElementSibling;n&&!/^H[1-4]$/.test(n.tagName);n=n.nextElementSibling){
-    if(n.tagName==="P"&&/how to read it/i.test(n.textContent)){desc=n.textContent.replace(/^\s*how to read it:?\s*/i,"").trim();break;}}
-  const name=desc||("Diagram "+(i+1)+" — see the surrounding text for the description.");
-  svg.setAttribute("role","img");svg.setAttribute("aria-label",name);
-  d.setAttribute("role","group");d.setAttribute("aria-label","Diagram "+(i+1));});
+// mermaid (theme-aware + tinted to --accent so diagrams read as part of the brand). Imported only
+// when the doc has a Mermaid block, inside a try, and not awaited by anything else on the page: if
+// the host is blocked, offline or slow, each block simply stays a readable code listing.
+const mmd=[...content.querySelectorAll("pre code.language-mermaid")];
+if(mmd.length)(async()=>{
+  let mermaid;
+  try{({default:mermaid}=await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"));}
+  catch(e){console.warn("Mermaid could not be loaded; its diagrams stay as code.",e);return;}
+  mmd.forEach(c=>{const d=document.createElement("div");d.className="mermaid";d.textContent=c.textContent;c.closest("pre").replaceWith(d);});
+  const css=getComputedStyle(document.documentElement),v=n=>css.getPropertyValue(n).trim();
+  const dark=matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({startOnLoad:false,theme:dark?"dark":"neutral",securityLevel:"strict",
+    themeVariables:{primaryColor:v("--surface-2"),primaryBorderColor:v("--accent"),primaryTextColor:v("--strong"),
+      lineColor:v("--accent"),secondaryColor:v("--surface-3"),tertiaryColor:v("--surface"),
+      fontFamily:v("--sans")||"system-ui",fontSize:"15px"}});
+  await mermaid.run({querySelector:".mermaid"});
+  // a11y: a mermaid SVG is unlabelled by default — give each diagram an accessible name from the
+  // "How to read it:" paragraph the doc already writes beneath it, so it is not silent to a reader.
+  content.querySelectorAll(".mermaid").forEach((d,i)=>{
+    const svg=d.querySelector("svg");if(!svg)return;
+    let desc="";for(let n=d.nextElementSibling;n&&!/^H[1-4]$/.test(n.tagName);n=n.nextElementSibling){
+      if(n.tagName==="P"&&/how to read it/i.test(n.textContent)){desc=n.textContent.replace(/^\s*how to read it:?\s*/i,"").trim();break;}}
+    const name=desc||("Diagram "+(i+1)+" — see the surrounding text for the description.");
+    svg.setAttribute("role","img");svg.setAttribute("aria-label",name);
+    d.setAttribute("role","group");d.setAttribute("aria-label","Diagram "+(i+1));});
+})();
 // motion-gated reveal (content stays visible if JS/motion is off)
 if(matchMedia("(prefers-reduced-motion: no-preference)").matches){
   const io=new IntersectionObserver((es,o)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");o.unobserve(e.target);}});},{rootMargin:"0px 0px -6% 0px",threshold:.04});
@@ -834,7 +847,10 @@ same owner everywhere in the doc.
 - **Plate / product screenshot.** `<figure class="plate"><img src="plate-cover.png" alt="Decorative plate — abstract, no information content."></figure>` ·
   `<figure class="shot"><img src="ss-<surface>.png" alt="…"><figcaption>…</figcaption></figure>`
   (screenshots from `profiles/<active>/knowledge/brand/product-screenshots/`, see its `INDEX.md`).
-  Copy the file next to the `.md` and reference it relatively; `design_render` inlines it.
+  Copy the file next to the `.md` and reference it relatively; `design_render` inlines it, so the
+  `.html` still shows it when it is sent without the folder. That holds for a relative `.png` or
+  `.svg` only — convert any other type first — and an image outside the `.md`'s folder or over
+  5 MB refuses the render (exit 2).
 
 ## Notes
 
@@ -844,8 +860,8 @@ same owner everywhere in the doc.
   `1.` / `A3.`). Any later `# H1` renders as a mono divider — the customer overview has none.
 - **Every diagram needs a "How to read it:" paragraph directly beneath it.** The script harvests that
   sentence as a Mermaid SVG's `aria-label`; for an image, write the same content into its alt text.
-- **Motion.** DOMPurify strips SVG `<animate>` (and all SMIL and `<script>`), so nothing inside the
-  markdown can move itself: motion is a CSS class the page script toggles on a `[data-anim]`
+- **Motion.** `design_render` drops `<script>` and inline `<svg>` (SMIL `<animate>` with it), so
+  nothing inside the markdown can move itself: motion is a CSS class the page script toggles on a `[data-anim]`
   component (`.play` when scrolled into view). `prefers-reduced-motion`, and any renderer that never
   scrolls, get `.static` — the final state — and print forces the final state too. Only add
   `data-anim` where the motion reveals an order the static version cannot show.
@@ -866,15 +882,25 @@ same owner everywhere in the doc.
   components — not decoration.
 - Component blocks are `max-width:none` so they use the full column while running prose stays at the
   44 rem measure. That contrast is deliberate: a component reads as a distinct object, not a paragraph.
-- The markdown lives inside `<script type="text/markdown" id="src">` (not a JS template literal) so
-  backticks, `$SECRET:` and code fences need no escaping. The only thing to guard is a literal
-  `</script>` in the doc — never write one.
-- Rendered HTML is `DOMPurify.sanitize`d and inserted with `insertAdjacentHTML`; all enhancement
-  (hero, TOC, exec panel, table wrapping, coverage colours, swimlane connector, diagram labelling,
-  reveals) uses safe DOM methods (`createElement`/`createElementNS`/`setAttribute`/`textContent`) —
-  no raw HTML-string sink, so the repo's `security-guidance` hook allows the headless brain to author
-  it via the Write tool.
-- Mermaid blocks still render client-side (theme from `prefers-color-scheme`, tinted with `--accent`,
-  `securityLevel:"strict"`), but prefer a rendered SVG image (SKILL Step 4) so the diagram also draws
-  in a plain viewer, an email client and a PDF. Mermaid edge labels: prefer the spaced dotted-label
-  form `A -. label .-> B`.
+- **The page carries the rendered HTML, not the markdown.** `design_render` renders the `.md`
+  (CommonMark plus GFM tables and `~~strikethrough~~`) and writes the result between the
+  `design_render:start` / `design_render:end` markers, so backticks, `$SECRET:`, code fences and a
+  literal `</script>` need no escaping. Write links as `[text](url)`, `<https://…>` or
+  `<name@example.com>`: a bare URL or email address in prose stays plain text, not a link.
+- **The rendered HTML passes an allowlist before it is written** — the page has no sanitizer of its
+  own, and a design can carry text lifted from untrusted research. Tags and attributes outside the
+  list are left out and named in the render's output; `<script>`, `<style>`, `<iframe>`, inline
+  `<svg>` and similar go with their content, as do comments. Links and images keep only `http`,
+  `https`, `mailto`, `tel` and relative URLs, plus `data:image/…` for images. An inline `<svg>` is
+  therefore never drawn: render the diagram to an `.svg` file and reference it as an image, which
+  `design_render` inlines.
+- The page script adds nothing as an HTML string: all enhancement (hero, TOC, exec panel, table
+  wrapping, coverage colours, swimlane connector, diagram labelling, reveals) uses safe DOM methods
+  (`createElement`/`createElementNS`/`setAttribute`/`textContent`) — no raw HTML-string sink, so the
+  repo's `security-guidance` hook allows the headless brain to author it via the Write tool.
+- **Mermaid blocks draw only where the page can reach the Mermaid host.** The script imports it
+  lazily, inside a `try`, and only when the doc has a Mermaid block (theme from
+  `prefers-color-scheme`, tinted with `--accent`, `securityLevel:"strict"`); offline or blocked, each
+  block stays a readable code listing and nothing else on the page changes. So prefer a rendered SVG
+  image (SKILL Step 4): it draws everywhere — a plain viewer, an email client, a PDF, a locked-down
+  network. Mermaid edge labels: prefer the spaced dotted-label form `A -. label .-> B`.

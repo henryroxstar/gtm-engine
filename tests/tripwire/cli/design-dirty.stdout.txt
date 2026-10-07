@@ -18,14 +18,13 @@ dirty.md
       → order is exec summary → Tier 1 → Tier 2; the appendix comes last so the customer copy can drop it whole
   ✗ [SD12 count drift] section 2: “Three limits worth stating:” introduces 2, not 3
       → re-count after every cut — merging two bullets into one leaves the number wrong and nothing else notices
-  WARNINGS — 7 finding(s) across 7 class(es), within the readability budget of 15. Needs one explicit operator acknowledgment.
+  WARNINGS — 6 finding(s) across 6 class(es), within the readability budget of 15. Needs one explicit operator acknowledgment.
 
   [UNACKED] SD13 diagram without walkthrough: 1/5 sections (20.0%)
   [UNACKED] SD2 coverage gap COV-02: 1/5 sections (20.0%)
   [UNACKED] SD2 coverage gap COV-07: 1/5 sections (20.0%)
   [UNACKED] SD2 coverage gap COV-08: 1/5 sections (20.0%)
   [UNACKED] SD2 coverage gap COV-09: 1/5 sections (20.0%)
-  [UNACKED] SD3 quality requirements absent: 1/5 sections (20.0%)
   [UNACKED] SD4 glossary absent: 1/5 sections (20.0%)
 
   Judgement calls — these block nothing, and there is no lint-ok to write for
@@ -50,8 +49,8 @@ dirty.md
     · document: “present” is done by us and by the principal, in section 5 — “we present it when the wallet is offline.” · “The customer presents a session reference;”
         → say which one acts, and if the operator acts because the tooling cannot yet make the principal the actor, say that and give the V2 path (Step 2). Two correct sentences about two different operations read alike to this rule — if that is the case here, they are worth distinguishing in the prose too
 
-  Coverage: 0/12 dimensions answered
-    not answered: COV-01 Goals and the problem · COV-02 Constraints · COV-03 Context and scope · COV-04 Solution strategy · COV-05 Building blocks · COV-06 Runtime behaviour · COV-07 Deployment · COV-08 Crosscutting concerns · COV-09 Decisions · COV-10 Quality requirements · COV-11 Risks and open questions · COV-12 Glossary
+  Coverage: 0/11 dimensions answered
+    not answered: COV-01 Goals and the problem · COV-02 Constraints · COV-03 Context and scope · COV-04 Solution strategy · COV-05 Building blocks · COV-06 Runtime behaviour · COV-07 Deployment · COV-08 Crosscutting concerns · COV-09 Decisions · COV-11 Risks and open questions · COV-12 Glossary
 
   Errors block delivery. Warnings do not, but they are graded: read them,
   then either fix or say why not, and where one is genuinely wrong about a

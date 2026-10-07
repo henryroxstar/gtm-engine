@@ -202,23 +202,11 @@ _Fixed and not ours to choose — separate from A1's assumptions. One line each,
 
 - …
 
-## A9. Quality requirements
-
-| Attribute | Target | Owner |
-|---|---|---|
-| Availability | …% over … | … |
-| Latency | … ms at the …th percentile | … |
-| Throughput | … sustained, … burst | … |
-| Recovery | RPO … · RTO … | … |
-| Residency | … | … |
-
-_A figure or "not yet agreed" (and then an A2 open question). Never "fast" or "highly available"._
-
-## A10. Deployment topology
+## A9. Deployment topology
 
 _Where each component runs, in whose tenancy, and every boundary crossed. Diagram + a line per hop._
 
-## A11. Glossary
+## A10. Glossary
 
 | Term | What it means here |
 |---|---|

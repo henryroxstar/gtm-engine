@@ -19,9 +19,10 @@ from .aggregate import (
     sending_tiles,
     sent_heading,
 )
-from .config import BOUNCE_RISK_PCT, TAB_LABELS
+from .config import BOUNCE_RISK_PCT, TAB_LABELS, UNSUB_RISK_PCT
+from .delivery import live_rate, rollup_html, table_order, unsent_line
 from .forecast import _lanes, when_done
-from .format import _e, _stat, figure_span, section
+from .format import _e, _stat, figure_span, section, state_word
 from .frontier import (
     derive_sentiment_triage,
     render_angle_heatmap_section,
@@ -124,22 +125,25 @@ def _people(n: int) -> str:
     return "person" if n == 1 else "people"
 
 
-def _goal_row(slug: str, k: str, v: dict, readable: bool) -> str:
+def _goal_row(slug: str, k: str, v: dict, readable: bool, how: str = "") -> str:
     """One goal row. A percentage only where the units match: the snapshot counts PEOPLE
     contacted, so an ``emails`` goal is shown in its own unit beside that figure, with no
     percentage and no "N of M" (PS20 P1.4). The mark carries the campaign's slug: one card
     per campaign, so one name never holds two values."""
     actual = f"{v['actual']:,}" if readable else "—"
+    label = _e(k) + (
+        f" <span class='note' title='{_e(how)}' data-goal-auto>(auto)</span>" if how else ""
+    )
     if k == "emails":
         shown = f"{actual} {_people(v['actual'])} contacted"
         return (
-            f"<tr><td>{_e(k)}</td><td class='num-cell'>{v['target']:,} emails</td>"
+            f"<tr><td>{label}</td><td class='num-cell'>{v['target']:,} emails</td>"
             f'<td class="num-cell" colspan="2">{figure_span(f"goal-emails-{slug}", shown)}'
             "</td></tr>"
         )
     pct = f"{v['pct']}%" if readable else "—"
     return (
-        f"<tr><td>{_e(k)}</td><td class='num-cell'>{v['target']:,}</td>"
+        f"<tr><td>{label}</td><td class='num-cell'>{v['target']:,}</td>"
         f"<td class='num-cell'>{actual}</td><td class='num-cell muted'>{pct}</td></tr>"
     )
 
@@ -237,20 +241,37 @@ def _seq_bounce_rate(live: dict) -> str:
     return text
 
 
-def _optout_line(m: dict) -> str:
-    """The Results tab's opt-out figure (PRD P1.5): N people asked not to be contacted;
-    M of N on the do-not-contact list."""
+def _optout_line(m: dict, c: dict) -> str:
+    """The Results tab's opt-out figure (PRD P1.5): N people asked not to be contacted, by reply
+    or by the unsubscribe link; M of N on the do-not-contact list. Counted profile-wide. The
+    sending tool's own unsubscribe count for THIS campaign is a different figure, so the line
+    says how many of those the ledger has not recorded as opt-outs yet (3 against 49 sat on
+    one page unexplained on 2026-10-06; the link opt-outs only reach the ledger when
+    ``gtm_core.sequencer_unsubscribes`` is run)."""
     inbound = m.get("inbound") or {}
     detected = int(inbound.get("optout_detected") or 0)
     unattributable = int(inbound.get("optout_unattributable") or 0)
+    by_link = inbound.get("optout_by_link") or {}
+    unsub = int((c.get("actuals") or {}).get("unsubscribed") or 0)
+    mine = {str(s.get("sequence_id") or s.get("id") or "") for s in c.get("sequences") or []}
+    unrecorded = max(0, unsub - sum(n for sid, n in by_link.items() if sid in mine))
+    tool = (
+        f" The sending tool counts {unsub:,} {_people(unsub)} as unsubscribed from this "
+        f"campaign; {unrecorded:,} {'is' if unrecorded == 1 else 'are'} not recorded as opt-outs yet."
+        if unrecorded
+        else ""
+    )
     if not detected and not unattributable:
-        return ""
+        return f"<p>{tool.strip()}</p>" if tool else ""
     added = int(inbound.get("optout_dnc_added") or 0)
     person_word = "person" if detected == 1 else "people"
     unattr_clause = f" ({unattributable} unattributable)" if unattributable else ""
+    linked = sum(by_link.values())
+    split = f" ({detected - linked:,} by reply, {linked:,} by unsubscribe link)" if linked else ""
     return (
         f"<p><span class='pill risk' data-risk='opted-out'>{detected}</span> {person_word} "
-        f"asked not to be contacted; {added} of {detected} on the do-not-contact list{unattr_clause}.</p>"
+        f"asked not to be contacted; {added} of {detected} on the do-not-contact list"
+        f"{unattr_clause}{split}, across every campaign.{tool}</p>"
     )
 
 
@@ -262,10 +283,12 @@ def _fig(live: dict, field: str, value: int) -> str:
 
 
 def _sequence_results_table(c: dict) -> str:
-    """Per-sequence live outcomes: contacted, replied, interested, not now, not interested,
-    unsubscribed, out of office, bounces, bounce rate, meetings (tagged in sending tool), pilots."""
-    seqs = c.get("sequences") or []
-    if not seqs:
+    """Per-sequence live outcomes: contacted, replied, reply rate, interested, not now, not
+    interested, unsubscribed, unsubscribe rate, out of office, bounces, bounce rate, meetings
+    (tagged in sending tool), pilots. Worst unsubscribe rate first; sequences that have
+    contacted nobody fold into one line under the table (``delivery.table_order``)."""
+    seqs, unsent = table_order(c.get("sequences") or [])
+    if not seqs and not unsent:
         return ""
     rows = []
     for s in seqs:
@@ -290,10 +313,12 @@ def _sequence_results_table(c: dict) -> str:
             f"<td><strong>{_e(name)}</strong></td>"
             f"<td class='num-cell'>{_fig(live, 'sent', contacted)}</td>"
             f"<td class='num-cell'>{_fig(live, 'replied', replied)}</td>"
+            f"<td class='num-cell'>{live_rate(live, 'replied')}</td>"
             f"<td class='num-cell'>{_fig(live, 'interested', interested)}</td>"
             f"<td class='num-cell'>{_fig(live, 'not_now', not_now)}</td>"
             f"<td class='num-cell'>{_fig(live, 'not_interested', not_interested)}</td>"
             f"<td class='num-cell'>{_fig(live, 'unsubscribed', unsubscribed)}</td>"
+            f"<td class='num-cell'>{live_rate(live, 'unsubscribed', UNSUB_RISK_PCT, 'unsub-rate')}</td>"
             f"<td class='num-cell'>{_fig(live, 'out_of_office', ooo)}</td>"
             f"<td class='num-cell'>{bounces}</td>"
             f"<td class='num-cell'>{br}</td>"
@@ -306,16 +331,18 @@ def _sequence_results_table(c: dict) -> str:
         "<th>Sequence</th>"
         "<th class='num-cell'>Contacted</th>"
         "<th class='num-cell'>Replied</th>"
+        "<th class='num-cell'>Reply rate</th>"
         "<th class='num-cell'>Interested</th>"
         "<th class='num-cell'>Not now</th>"
         "<th class='num-cell'>Not interested</th>"
         "<th class='num-cell'>Unsubscribed</th>"
+        "<th class='num-cell'>Unsubscribe rate</th>"
         "<th class='num-cell'>Out of office</th>"
         "<th class='num-cell'>Bounces</th>"
         "<th class='num-cell'>Bounce rate</th>"
         "<th class='num-cell'>Meetings <span class='note'>(tagged in the sending tool)</span></th>"
         "<th class='num-cell'>Pilots</th>"
-        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>{unsent_line(unsent)}"
     )
 
 
@@ -324,7 +351,24 @@ def _campaign_card(c: dict, own: dict | None, m: dict | None = None) -> str:
     contacted anyone, or what it will learn before that. The sentence and the earlier-run
     line sit before the goal table."""
     slug, readable = c.get("slug", "?"), own is not None
-    rows = "".join(_goal_row(slug, k, v, readable) for k, v in c["promised_vs_actual"].items())
+    how = c.get("targets_derivation") or {} if c.get("targets_auto") else {}
+    rows = "".join(
+        _goal_row(slug, k, v, readable, str(how.get(k, "")) if c.get("targets_auto") else "")
+        for k, v in c["promised_vs_actual"].items()
+    )
+    auto = (
+        "<p class='note' data-goal-auto>Goals marked auto are worked out from the people loaded "
+        "and a published reply-rate benchmark for this audience; hover one to see how. "
+        "Write goals into the campaign file to replace them.</p>"
+        if c.get("targets_auto")
+        else ""
+    )
+    note = (
+        f"<p class='note' data-results-note><strong>Operator note.</strong> "
+        f"{_e(c['results_note'])}</p>"
+        if c.get("results_note")
+        else ""
+    )
     earlier = (
         f"<p class='note'><strong>Earlier run.</strong> An earlier run contacted "
         f"{own['earlier']:,} more {_people(own['earlier'])}, not counted here.</p>"
@@ -342,15 +386,17 @@ def _campaign_card(c: dict, own: dict | None, m: dict | None = None) -> str:
         tail = (
             f"<p>{figure_span(f'results-contacted-{slug}', n)} {_people(n)} contacted · "
             f"{figure_span(f'results-replied-{slug}', r)} {'reply' if r == 1 else 'replies'}</p>"
-            + _optout_line(m or {})
+            + _optout_line(m or {}, c)
             + _sequence_results_table(c)
         )
     else:
         tail = _before_block(c)
     return (
-        f'<div class="card" data-campaign="{_e(slug)}"><h2>{_e(c["title"])}</h2>'
+        f'<div class="card" data-campaign="{_e(slug)}"><h2>{_e(c["title"])} '
+        f'<span class="pill" data-state="{_e(c.get("state", ""))}">'
+        f"{_e(state_word(c.get('state', '')))}</span></h2>"
         "<p class='note'>What this campaign promised, and where it actually is: "
-        f"{_e(sent_heading(own).lower())}.</p>{earlier}{goals}{tail}</div>"
+        f"{_e(sent_heading(own).lower())}.</p>{note}{earlier}{goals}{auto}{tail}</div>"
     )
 
 
@@ -501,7 +547,7 @@ def _results_view(m: dict) -> str:
     return (
         section("results-figures", figures_html)
         + _voice_of_market(m)
-        + section("campaign-results", cards)
+        + section("campaign-results", cards + rollup_html(m))
         + section("when-we-know", _when_we_know(m, before, unknown if contacted is None else None))
     )
 

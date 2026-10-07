@@ -153,3 +153,45 @@ def test_agreement_open_candidates_equals_detected_or_unreadable_minus_added():
     assert unattributable == 1
     assert "sky@example.com" not in detected
     assert "sky@example.com" not in candidates
+
+
+# --- link_optouts: how many open opt-outs arrived by unsubscribe link, per sequence ----------
+
+
+def _link_row(email, seq, **kw):
+    return {
+        "event": "optout_detected",
+        "source": "sequencer_unsubscribe",
+        "email": email,
+        "sequence_id": seq,
+        **kw,
+    }
+
+
+def test_link_optouts_counts_distinct_addresses_per_sequence():
+    from gtm_core.optout_sets import link_optouts
+
+    rows = [
+        _link_row("a@x.example", "S1"),
+        _link_row(" A@X.example ", "S1"),  # same person, padded and upper-cased
+        _link_row("b@x.example", "S1"),
+        _link_row("a@x.example", "S2"),
+    ]
+    assert link_optouts(rows) == {"S1": 2, "S2": 1}
+
+
+def test_link_optouts_ignores_reply_rows_other_events_and_rows_it_cannot_attribute():
+    from gtm_core.optout_sets import link_optouts
+
+    rows = [
+        {"event": "optout_detected", "email": "a@x.example", "sequence_id": "S1"},  # a reply
+        {
+            "event": "dnc_added",
+            "source": "sequencer_unsubscribe",
+            "email": "b@x.example",
+            "sequence_id": "S1",
+        },
+        _link_row("", "S1"),  # no address
+        _link_row("c@x.example", ""),  # no sequence
+    ]
+    assert link_optouts(rows) == {}

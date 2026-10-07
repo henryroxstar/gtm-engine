@@ -47,9 +47,26 @@ def read_records(path: Path) -> list[Adjudication]:
                 rubric_version=d.get("rubric_version", ""),
                 grounding=d.get("grounding", ""),
                 calibrated=(None if raw_calibrated is None else bool(raw_calibrated)),
+                staged=_read_staged(d.get("staged")),
             )
         )
     return out
+
+
+def _read_staged(raw: object) -> list[dict] | None:
+    """The voice check's flags as written, or ``None``. A list or nothing: a hand-edited
+    record that put a string here has no readable voice answer, and reading it as one would
+    invent flags. Items that are not ``{phrase: str, kind: str}`` are dropped, so a junk
+    entry cannot crash a reader (``rank`` formats every item)."""
+    if not isinstance(raw, list):
+        return None
+    return [
+        {"phrase": i["phrase"], "kind": i["kind"]}
+        for i in raw
+        if isinstance(i, dict)
+        and isinstance(i.get("phrase"), str)
+        and isinstance(i.get("kind"), str)
+    ]
 
 
 def write_records(records: Iterable[Adjudication], path: Path) -> Path:

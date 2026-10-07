@@ -53,6 +53,31 @@ POPULATED_M: dict[str, Any] = {
         "rows": [{"country": "US"}, {"country": "US"}, {"country": "CA"}],
     },
     "seat_fit": {"total": 20, "matched": 15, "elsewhere": 3, "unresolved": 2},
+    # Replies by Seat / by Hook read the sending tool's per-sequence figures (2026-10-06), the
+    # same ones the Results tab shows, so the populated model carries sequences with them.
+    "campaigns": {
+        "campaigns": [
+            {
+                "slug": "c1",
+                "sequences": [
+                    {
+                        "sequence_id": "s-a",
+                        "title": "Run · Hook A · CEO",
+                        "live": {"sent": 12, "replied": 3},
+                    },
+                    {
+                        "sequence_id": "s-b",
+                        "title": "Run · Hook B · CTO",
+                        "live": {"sent": 9, "replied": 1},
+                    },
+                ],
+            }
+        ]
+    },
+    "messages": [
+        {"sequence_id": "s-a", "audience": [{"seat": "ceo"}]},
+        {"sequence_id": "s-b", "audience": [{"seat": "cto"}]},
+    ],
     "cells": {
         "cells": [
             {"seat": "ceo", "variant": "hook-a", "sent": 12, "replied": 3, "sendable": 12},

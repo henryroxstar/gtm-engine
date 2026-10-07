@@ -569,3 +569,79 @@ def test_dead_renderer_is_gone():
         assert not hasattr(cd, name), name
     assert callable(cd.build_campaigns) and callable(cd._load_manifests)
     assert callable(cd._experiment_block) and callable(cd._campaigns_dir)
+
+
+def _flat(sid, loaded, sent=0, status="", steps=None):
+    row = {"id": sid, "name": f"Name {sid}", "status": status, "loaded": loaded, "sent": sent}
+    if steps is not None:
+        row["steps"] = steps
+    return row
+
+
+def test_campaigns_come_back_active_first_and_finished_last(tmp_path):
+    """Every tab reads this one list, so sorting it here is what puts the campaigns that are
+    sending at the top of Overview and Results alike. Within a state, file order holds."""
+    p = "acme"
+    _write_manifest(
+        tmp_path, p, "a-done", 'slug="a-done"\ntitle="A"\nstatus="completed"\nsequences=["s1"]\n'
+    )
+    _write_manifest(tmp_path, p, "b-paused", 'slug="b-paused"\ntitle="B"\nsequences=["s2"]\n')
+    _write_manifest(tmp_path, p, "c-live", 'slug="c-live"\ntitle="C"\nsequences=["s3"]\n')
+    _write_manifest(tmp_path, p, "d-empty", 'slug="d-empty"\ntitle="D"\n')
+    _write_stats(
+        tmp_path,
+        p,
+        [_flat("s1", 5, 5, "paused"), _flat("s2", 5, 5, "paused"), _flat("s3", 5, 5, "active")],
+    )
+    camps = cd.build_campaigns(p, content_root=tmp_path)["campaigns"]
+    assert [(c["slug"], c["state"]) for c in camps] == [
+        ("c-live", "active"),
+        ("b-paused", "paused"),
+        ("d-empty", "none"),
+        ("a-done", "completed"),
+    ]
+
+
+def test_a_campaign_without_goals_gets_automatic_ones_from_what_is_loaded(tmp_path):
+    p = "acme"
+    _write_manifest(
+        tmp_path, p, "auto", 'slug="auto"\ntitle="Auto"\nsegment="startup"\nsequences=["s1","s2"]\n'
+    )
+    _write_stats(tmp_path, p, [_flat("s1", 30, steps=2), _flat("s2", 20, steps=3)])
+    c = cd.build_campaigns(p, content_root=tmp_path)["campaigns"][0]
+    t = c["targets"]
+    assert c["targets_auto"] is True
+    assert (t["prospects"], t["emails"]) == (50, 30 * 2 + 20 * 3)
+    assert t["reply_rate"] == 0.024  # the published SaaS-to-SaaS benchmark: a startup audience
+    assert t["replies"] == round(50 * 0.024)
+    assert set(c["targets_derivation"]) >= {"prospects", "emails", "reply_rate", "replies"}
+    assert c["promised_vs_actual"]["emails"]["target"] == 120
+
+
+def test_automatic_goals_never_guess_a_missing_step_count_or_override_a_written_goal(tmp_path):
+    p = "acme"
+    _write_manifest(tmp_path, p, "a", 'slug="a"\ntitle="A"\nsequences=["s1","s2"]\n')
+    _write_manifest(
+        tmp_path, p, "b", 'slug="b"\ntitle="B"\nsequences=["s3"]\n[targets]\nemails = 7\n'
+    )
+    _write_stats(tmp_path, p, [_flat("s1", 30, steps=2), _flat("s2", 20), _flat("s3", 9, steps=2)])
+    by = {c["slug"]: c for c in cd.build_campaigns(p, content_root=tmp_path)["campaigns"]}
+    # One sequence has no step count, so no emails goal; no audience recorded, so enterprise.
+    assert "emails" not in by["a"]["targets"] and by["a"]["targets"]["reply_rate"] == 0.018
+    assert "no audience recorded" in by["a"]["targets_derivation"]["reply_rate"]
+    assert by["b"]["targets"] == {"emails": 7} and not by["b"]["targets_auto"]
+
+
+def test_nothing_loaded_means_no_automatic_goal(tmp_path):
+    p = "acme"
+    _write_manifest(tmp_path, p, "a", 'slug="a"\ntitle="A"\n')
+    c = cd.build_campaigns(p, content_root=tmp_path)["campaigns"][0]
+    assert c["targets"] == {} and not c["targets_auto"]
+
+
+def test_a_results_note_is_carried_from_the_manifest(tmp_path):
+    p = "acme"
+    _write_manifest(tmp_path, p, "a", 'slug="a"\ntitle="A"\nresults_note="Week one was a trial."\n')
+    assert cd.build_campaigns(p, content_root=tmp_path)["campaigns"][0]["results_note"] == (
+        "Week one was a trial."
+    )

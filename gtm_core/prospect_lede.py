@@ -129,6 +129,46 @@ WARNING_PILE = (
     "fix the most common warning, or accept it for this run",
 )
 
+#: ``(what it is, the decision you make)`` per warning class that holds a batch through the
+#: warning pile. A warning is a judgment the checks will not make for you, so each one is
+#: phrased as a choice; a class with no entry falls back to :func:`refusal_copy`.
+WARNING_DECISIONS: dict[str, tuple[str, str]] = {
+    "domain-mismatch": (
+        "email address on a different domain from the company's website",
+        "often a parent, subsidiary or brand domain: accept them, or name the ones to remove",
+    ),
+    "domain-unverifiable": (
+        "no company website on file, so the address could not be checked",
+        "accept them as they are, or remove them",
+    ),
+    "relation-adjacent": (
+        "company makes something close to what we sell",
+        "send the general email anyway, or hold them for a personal one",
+    ),
+    "leadership-freshness": (
+        "leadership not re-checked recently",
+        "accept, or ask Claude to re-check who holds the role",
+    ),
+    "no-source-capture": (
+        "research note whose source page was never saved",
+        "the general email does not use it: clear the note, or accept it",
+    ),
+    "signal-subject-absent-from-evidence": (
+        "research note whose quote does not name the company",
+        "the general email does not use it: clear the note, or accept it",
+    ),
+    "signal-subject-short-form": (
+        "research note naming the company in a shorter form",
+        "confirm it is the same company, or clear the note",
+    ),
+}
+
+
+def warning_decision(rule: str) -> tuple[str, str]:
+    """The operator's choice for one warning class — exact, else the refusal sentence."""
+    return WARNING_DECISIONS.get(rule) or refusal_copy(rule)
+
+
 #: How many reason lines one refused batch shows before pointing at the report.
 _MAX_REASONS = 3
 
@@ -154,6 +194,7 @@ GO_LIVE_WORDS: dict[str, str] = {
     "active": "🟢 Sending now — emails going out",
     "started": "🟢 Live — people have been contacted",
     "unknown": "⚠️ Status unknown — check sending tool",
+    "completed": "✅ Finished — no more sending",
 }
 
 #: Snapshot statuses meaning a sequence is sending now — one set for every caller (PS20).
@@ -201,7 +242,11 @@ def _reason_lines(classes: Sequence[tuple[str, int, str]]) -> list[str]:
         copy = WARNING_PILE if unit == "warning" else refusal_copy(rule)
         groups.setdefault(copy, []).append((count, unit))
     out = []
-    for (what, unlock), hits in list(groups.items())[:_MAX_REASONS]:
+    # The warning pile is always shown: each reason fails the whole batch on its own.
+    items = list(groups.items())
+    pile = [g for g in items if g[0] == WARNING_PILE]
+    shown = [g for g in items if g[0] != WARNING_PILE][: _MAX_REASONS - len(pile)] + pile
+    for (what, unlock), hits in shown:
         count, unit = max(hits)
         noun = _count(count, unit, unit + "s")
         prefix = "at least " if len(hits) > 1 else ""
@@ -210,9 +255,12 @@ def _reason_lines(classes: Sequence[tuple[str, int, str]]) -> list[str]:
     if not classes:
         what, unlock = UNKNOWN_REFUSAL
         out.append(f"    rows {what}. To fix: {unlock}.")
-    elif len(groups) > _MAX_REASONS:
+    elif len(groups) > len(shown):
+        out.append(f"    and {len(groups) - len(shown)} more — the check report has the full list.")
+    if len(groups) > 1:
         out.append(
-            f"    and {len(groups) - _MAX_REASONS} more — the check report has the full list."
+            "    Each of these holds back the whole batch on its own, so all of them have to be "
+            "cleared before any of its rows can go."
         )
     return out
 
@@ -301,6 +349,21 @@ def _risk_lines(loaded: dict) -> list[str]:
     ]
 
 
+def sending_line(loaded: int, split: dict | None) -> str | None:
+    """ "In the sending tool" said as sending now vs loaded but paused, from each person's own
+    sequence; ``None`` when there is no split to say (the caller keeps its own line)."""
+    if not split:
+        return None
+    sending, paused, unknown = (split.get(k, 0) for k in ("sending", "paused", "unknown"))
+    line = (
+        f"In the sending tool: {loaded:,} — {sending:,} sending now, {paused:,} loaded but paused"
+    )
+    if unknown:
+        line += f", {unknown:,} status unknown"
+    tail = " (nothing goes out until you start them)" if paused and not (sending or unknown) else ""
+    return line + tail + "."
+
+
 def compose_lede(
     readiness: Readiness,
     *,
@@ -309,6 +372,7 @@ def compose_lede(
     sheet: str | None,
     now: str,
     go_live: str | None = None,
+    sending: dict | None = None,
 ) -> list[str]:
     """The lines above the tables. Pure: every value is passed in; nothing is opened.
 
@@ -353,7 +417,9 @@ def compose_lede(
     lines.append("Automated: " + (", ".join(parts) + "." if parts else "nothing queued."))
 
     loaded = counts.get("in_sending_tool", 0)
-    if go_live in GO_LIVE_WORDS:
+    if line := sending_line(loaded, sending if loaded else None):
+        lines.append(line)
+    elif go_live in GO_LIVE_WORDS:
         lines.append(f"In the sending tool: {loaded:,} — {GO_LIVE_WORDS[go_live]}.")
     else:
         lines.append(

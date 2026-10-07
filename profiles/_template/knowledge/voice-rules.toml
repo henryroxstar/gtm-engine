@@ -53,10 +53,12 @@ bad = ["Solutions for your business", "Quick question", "Anything in Title Case"
 # --------------------------------------------------------------------------------------------
 
 [hedge]
-# CLOSED VOCABULARY, deliberately. The rule matches a body against this list and nothing else, so a
-# hedge that reads as plain English but is not listed FAILS. Inferring "is this hedging?" is a
-# judgement call and a fail-open one, which is worse than a list that surprises an author loudly.
-# To hedge in a new shape, ADD IT HERE in the same commit as the copy, with a negative control.
+# The words a hedge may use. Since 2026-10-06 a hedge goes only inside a sentence that guesses
+# about the reader's setup: at most one per email, never as a separate line, and never reworded
+# across a batch to avoid repeating yourself (the rotation is the tell). An email that guesses
+# nothing about their setup carries none. No check fails an unlisted hedge any more (`hedge-missing`
+# retired 2026-09-24); this list is what the drafter picks from, so add a new shape here with the copy.
+#
 # Stored case-folded; matching is case-insensitive.
 cues = [
   "usually",
@@ -69,7 +71,6 @@ cues = [
   "if this is already covered",
 ]
 max_accounts_per_phrasing = 3
-required_per_touch = 1
 
 
 # A LABELLED hedge ("My read:", "My hunch:") reads as constructed, and an INVITATION TO CORRECT

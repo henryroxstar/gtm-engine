@@ -205,6 +205,23 @@ that refuses a row. A high judge score on a row flagged `untraceable=` is the in
 model liked copy whose proof point has no source, which is exactly the defect a reading pass alone
 kept missing.
 
+**Every scored record also carries `staged` — the judge's voice check.** It lists the phrases that
+read as written by a template or a chatbot, each with a kind from the closed list
+`VOICE_KINDS` in `agent/mcp/judge/rubric.py`, and every phrase is checked to be in the email, as
+whole words, before it is kept.
+`rank` prints them under the row as `voice: <kind> "<phrase>"`, and the run result carries a
+`voice` summary (`rows_checked`, `rows_flagged`, `by_kind`).
+
+| `staged` | means |
+|---|---|
+| `[]` | the check ran and found nothing |
+| a list | those phrases; fix them in the copy (or leave them, if they read fine to you) |
+| `null` | no readable answer (unscored row, malformed reply, a record from before 2026-10-06) — **not** "clean" |
+
+Like `grounding`, it **ranks and never gates**: it never moves the verdict or the score, and
+nothing refuses a row on it. It is advisory until the operator has looked at about 20 flagged rows
+and agreed with most of them. Never drop or re-angle a row because of `staged` alone.
+
 **Then write the verdicts and let the deterministic gate use them:**
 
 ```bash

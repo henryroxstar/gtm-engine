@@ -19,6 +19,7 @@ disagreeing for three weeks.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -307,7 +308,10 @@ def test_a_changed_rubric_yields_a_different_version(monkeypatch):
     module patched after import must not be able to make the two disagree.
     """
     before = rubric.rubric_version("signal")
-    assert before == card.fingerprint(k for k, _ in rubric.rubric_for("signal"))
+    # Since 2026-10-06 the id also covers the voice check in the same prompt
+    # (tests/test_judge_voice_check.py pins that half); the items are still what it hashes.
+    items = card.fingerprint(k for k, _ in rubric.rubric_for("signal"))
+    assert before == hashlib.sha256(f"{items}\n{rubric.VOICE_TEXT}".encode()).hexdigest()[:12]
 
     monkeypatch.setattr(rubric, "RUBRIC_ITEMS", card.questions_for(("frame_fits_seat",)))
     assert rubric.rubric_version("signal") != before, "rubric_version ignored the change"

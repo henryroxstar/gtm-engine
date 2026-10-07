@@ -415,13 +415,27 @@ def lint_html(html: str) -> list[Finding]:
     """Structural a11y checks readable from the rendered file. Colour-contrast is measured in
     the browser (see references/quality-gates.md) — it cannot be computed from markup alone."""
     out: list[Finding] = []
-    # Script and style bodies are not markup. The house companion template carries its whole
-    # source inside a <script type="text/markdown"> block and builds the DOM at runtime, so
-    # linting the raw file would measure the loader, not the document.
+    # Script and style bodies are not markup. A page made from the earlier house template carries
+    # its whole source inside a <script type="text/markdown"> block and builds the DOM at runtime,
+    # so linting the raw file would measure the loader, not the document. The current template
+    # holds the rendered document between two design_render markers instead; empty, it was never
+    # rendered and there is nothing to lint.
     stripped = re.sub(r"<script\b.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
     stripped = re.sub(r"<style\b.*?</style>", "", stripped, flags=re.DOTALL | re.IGNORECASE)
     # Detect client-rendering by its marker, not by absence of headings — a fragment legitimately
     # has no headings and must still be checked.
+    if re.search(
+        r"<!--\s*design_render:start\s*-->\s*<!--\s*design_render:end\s*-->", html, re.IGNORECASE
+    ):
+        out.append(
+            Finding(
+                "ERROR",
+                "not-rendered",
+                0,
+                "the page holds no document yet — run gtm_core.design_render on the .md",
+            )
+        )
+        return out
     client_rendered = bool(
         re.search(r'type=["\']text/markdown["\']', html, re.IGNORECASE)
         or re.search(r'<div\s+id=["\']content["\']\s*>\s*</div>', html, re.IGNORECASE)

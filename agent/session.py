@@ -32,6 +32,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from gtm_core.ledgers import Ledgers
 from gtm_core.metering import brain_cost_usd, resolve_rates
 from gtm_core.models import resolve_model
 
@@ -329,7 +330,6 @@ class AgentSession:
         this closes the gap for the orchestrator). Best-effort: any error is silently
         ignored so a logging failure never breaks the response stream.
         """
-        import json
         import time
 
         input_tokens = usage.get("input_tokens", 0) or 0
@@ -366,8 +366,8 @@ class AgentSession:
                 pass  # nosec B110 — intentional best-effort swallow
             return
 
-        # VPS / cockpit default: append the cache-aware record to costs.jsonl (unchanged).
-        ledger = self._cfg.content_root / self._profile / "costs.jsonl"
+        # VPS / cockpit default: append the cache-aware record to costs.jsonl via Ledgers, so
+        # the row is hash-chained like every other ledger write (gtm_core.ledger_verify).
         entry = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "profile": self._profile,
@@ -380,10 +380,8 @@ class AgentSession:
             "cost_usd": cost_usd,
         }
         try:
-            ledger.parent.mkdir(parents=True, exist_ok=True)
-            with ledger.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
-        except OSError:
+            Ledgers(self._cfg, self._profile).append_cost(entry)
+        except (OSError, ValueError):  # ValueError: Ledgers refuses an unsafe profile segment
             pass
 
     async def close(self) -> None:

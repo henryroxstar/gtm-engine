@@ -17,7 +17,19 @@ from ..prospect_status import (
     UNRECOGNISED_NEXT_STEP,
 )
 from .aggregate import _scope_figures, campaign_contacted
-from .format import _e, _i, _pool_scope_note, _rate_of, _stat, figure_span, scope_label, section
+from .delivery import unsub_sub
+from .format import (
+    _e,
+    _i,
+    _pool_scope_note,
+    _rate_of,
+    _stat,
+    figure_span,
+    scope_label,
+    section,
+    state_word,
+    status_label,
+)
 from .frontier import render_ready_to_send_section
 from .health import figures_date
 from .views_funnel import _attrition_funnel_block
@@ -58,7 +70,7 @@ def _contacts_block(m: dict) -> str:
         shown = [
             (
                 s,
-                LABELS[s],
+                status_label(m, s),
                 "Review drafted email and approve or skip"
                 if s == "waiting_on_you"
                 else NEXT_STEP[s],
@@ -181,7 +193,7 @@ def _campaign_snapshot(c: dict) -> str:
 
 
 def _campaign_outcome_tiles(fig: dict, c: dict) -> str:
-    """This campaign's own three headline numbers — contacted, reply rate, replies — read
+    """This campaign's own headline numbers — contacted, reply rate, replies, unsubscribed — read
     off ITS OWN ``actuals``/``targets`` via ``campaign_contacted``, never pooled across the
     scope's other campaigns. Mirrors ``views_results._outcome_tiles``, one campaign at a
     time; a refused scope figure (an unreadable snapshot) renders every value as an em
@@ -192,6 +204,7 @@ def _campaign_outcome_tiles(fig: dict, c: dict) -> str:
     own = campaign_contacted(fig, c)
     sent = None if own is None else own["current"]
     replied = None if own is None else own["replied"]
+    unsub = None if own is None else _i((c.get("actuals") or {}).get("unsubscribed"))
     targets = c.get("targets") or {}
     planned = _i(targets["emails"]) if targets.get("emails") else None
     target_rate = _rate_of(targets) or None
@@ -234,6 +247,16 @@ def _campaign_outcome_tiles(fig: dict, c: dict) -> str:
             raw={"value": replied},
             src=f"campaign:{slug}.actuals.replied",
         )
+        + _stat(
+            unsub,
+            "unsubscribed",
+            sub_html=unsub_sub(unsub, sent, figure_span(f"campaign-unsub-base-{slug}", sent)),
+            raw={"unsubscribed": unsub, "contacted": sent},
+            src={
+                "unsubscribed": f"campaign:{slug}.actuals.unsubscribed",
+                "contacted": f"campaign:{slug}.actuals.sent",
+            },
+        )
         + "</div>"
     )
 
@@ -269,7 +292,7 @@ def _campaign_lines(m: dict) -> str:
             '<div class="campaign-card-title">'
             f"<strong>{_e(c.get('title') or slug)}</strong> "
             f'<span class="pill" data-figure="{_e(f"campaign-word-{slug}")}">'
-            f"{_e(c.get('state', ''))}</span>"
+            f"{_e(state_word(c.get('state', '')))}</span>"
             "</div>"
             '<div class="campaign-card-metrics">'
             f" — {figure_span(f'campaign-contacted-{slug}', contacted)} "

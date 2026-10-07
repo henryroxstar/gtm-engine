@@ -286,6 +286,7 @@ def enrich_portfolio_metadata(
             "offer": offer_label,
             "offer_quote": offer_quote,
             "industry": norm_ind,
+            "premise": meta.get("premise", ""),  # the roll-up's argument (delivery.py)
             "contacts": enrolled,
             "spec": msg.get("spec", ""),
             "sequence_id": msg.get("sequence_id", ""),

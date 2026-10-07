@@ -8,7 +8,7 @@ from .catalog import dimensions
 from .model import ADVISORY, ERROR, Finding, Section
 from .parse import _section_suppressions, parse_sections
 from .rules_claims import _sd6, _sd7, _sd8, _sd9
-from .rules_coverage import _sd1, _sd2, _sd3, _sd4, satisfied_by
+from .rules_coverage import _sd1, _sd2, _sd4, satisfied_by
 from .rules_integrity import _sd12, _sd13, lint_skill
 
 __all__ = ["coverage_map", "lint", "lint_skill", "report"]
@@ -24,7 +24,6 @@ def lint(text: str) -> list[Finding]:
     findings: list[Finding] = []
     findings += _sd1(sections)
     findings += _sd2(sections)
-    findings += _sd3(sections)
     findings += _sd4(sections)
     findings += _sd6(sections)
     findings += _sd7(sections)

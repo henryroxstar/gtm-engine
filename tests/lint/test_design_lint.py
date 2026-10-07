@@ -116,7 +116,7 @@ def test_sd1_flags_the_appendix_before_the_customer_overview() -> None:
     assert "SD1 tier order" in rules(design(headings=swapped))
 
 
-# ── SD2 / SD3 / SD4 — coverage ────────────────────────────────────────────────────────
+# ── SD2 / SD4 — coverage ────────────────────────────────────────────────────────
 
 
 def test_sd2_quiet_when_every_dimension_has_a_section() -> None:
@@ -128,28 +128,22 @@ def test_sd2_flags_a_missing_dimension() -> None:
     assert any(r.startswith("SD2 coverage gap") for r in rules(design(headings=headings)))
 
 
-def test_sd2_does_not_double_report_the_dimensions_that_own_a_rule() -> None:
-    """Quality requirements and glossary report through SD3/SD4, never also through SD2."""
-    headings = [
-        h for h in COMPLETE_HEADINGS if "Quality requirements" not in h and "Glossary" not in h
-    ]
+def test_sd2_does_not_double_report_the_dimension_that_owns_a_rule() -> None:
+    """The glossary reports through SD4, never also through SD2."""
+    headings = [h for h in COMPLETE_HEADINGS if "Glossary" not in h]
     found = rules(design(headings=headings))
-    assert "SD3 quality requirements absent" in found
     assert "SD4 glossary absent" in found
-    assert not [r for r in found if "COV-10" in r or "COV-12" in r]
+    assert not [r for r in found if "COV-12" in r]
 
 
-def test_sd3_flags_a_design_with_no_service_levels() -> None:
+def test_a_design_without_service_levels_draws_no_finding() -> None:
+    """Quality requirements were retired (SD3 and COV-10, 2026-10-06): a solution design never
+    quotes NFRs, service levels or commercial terms, so their absence is not a gap."""
     headings = [h for h in COMPLETE_HEADINGS if "Quality requirements" not in h]
-    assert "SD3 quality requirements absent" in rules(design(headings=headings))
-
-
-def test_sd3_quiet_when_an_slo_section_exists_under_another_name() -> None:
-    headings = [
-        h.replace("A6. Quality requirements", "A6. Service levels and SLOs")
-        for h in COMPLETE_HEADINGS
-    ]
+    found = rules(design(headings=headings))
     assert "SD3" not in tiers(design(headings=headings))
+    assert not [r for r in found if "COV-10" in r]
+    assert "COV-10" not in {d.id for d in dimensions()}
 
 
 def test_sd4_flags_a_missing_glossary_as_a_warning_not_an_error() -> None:
@@ -564,7 +558,7 @@ def test_the_omit_banner_deep_in_a_document_does_not_make_it_a_fragment() -> Non
 
 
 def test_severity_is_read_from_the_taxonomy_and_not_hardcoded() -> None:
-    """SD3 once carried ERROR in its own body, so downgrading COV-10 changed nothing.
+    """The retired SD3 once carried ERROR in its own body, so downgrading COV-10 changed nothing.
 
     The instrument check comes with it: the taxonomy must declare BOTH severities, or this
     test passes against a file where every answer is the same and proves nothing.

@@ -56,7 +56,8 @@ h3 { font-size:13px; margin:24px 0 10px; color:var(--muted); text-transform:uppe
 .card.warn { background:linear-gradient(180deg, var(--warn-wash) 0%, var(--panel-glass) 30%); border-top:2px solid var(--warn); border-left:1px solid var(--warn-line); border-right:1px solid var(--warn-line); border-bottom:1px solid var(--warn-line); }
 .card.lede { border:1px solid var(--line); }
 .card.lede.warn { background:var(--panel-glass); border:1px solid var(--line); }
-.card.warn p { margin:.35em 0; }
+.card.warn p, .card.risk p { margin:.35em 0; }
+.card.risk { border-top:2px solid var(--risk); }
 .card.lede p { margin:.4em 0; }
 .card.lede .lede-detail { margin:12px 0 6px 0; padding:8px 14px; background:var(--wash); border-left:3px solid var(--warn); border-radius:0 8px 8px 0; font-weight:600; font-size:13.5px; }
 .card.lede .lede-reason { margin:4px 0 4px 18px; padding:6px 12px; background:var(--panel-glass); border-left:1px solid var(--line); font-size:13px; color:var(--muted); line-height:1.5; }

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..prospect_lede import GO_LIVE_WORDS
 from ..prospect_status import LABELS as STATUS_LABELS
-from .format import _e, scope_label
+from .format import _e, scope_label, sorted_refusals, status_label
 
 #: Login URLs for the sequencers this codebase already integrates with (the same set
 #: `capability_preflight.read_email_tool` can return). Not a per-tenant fact — every
@@ -106,6 +106,57 @@ def _lede_block(m: dict) -> str:
       </div>"""
 
 
+def _release_batch_items(m: dict) -> list[str]:
+    """One card item per sorted batch the checks refused: the decisions that release it.
+
+    Built from the stored check report's classes, never from the lede's sentences. Errors
+    are Claude's to clear and are named in one line; the warning classes are the
+    operator's, because accepting one is a decision nobody else may make for them.
+    """
+    from ..prospect_lede import BATCH_WORDS, refusal_copy, warning_decision
+
+    readiness = m.get("readiness")
+    items = []
+    for batch, refused, classes in sorted_refusals(readiness):
+        word = BATCH_WORDS.get(batch, batch)
+        errors = [(rule, n, unit) for rule, n, unit in classes if unit != "warning"]
+        budget, pile = readiness.warnings.get(batch, (0, []))
+        lines = []
+        if errors:
+            mine = "; ".join(f"{n:,} {unit}s {refusal_copy(rule)[0]}" for rule, n, unit in errors)
+            lines.append(f"<li><strong>Claude's part, not yours:</strong> {_e(mine)}.</li>")
+        for rule, n in sorted(pile, key=lambda rc: -rc[1]):
+            what, choice = warning_decision(rule)
+            lines.append(
+                f"<li><strong>{n:,}</strong> toward the limit — {_e(what)}: {_e(choice)}.</li>"
+            )
+        total = sum(n for _, n in pile)
+        ask = (
+            f"{total:,} warnings against a limit of {budget:,}, so at least "
+            f"{total - budget:,} must be accepted, fixed or removed before any of these "
+            "contacts can go."
+            if pile and total > budget
+            else "The checks held these contacts back; the check report has the detail."
+        )
+        items.append(
+            '<div class="action-item-box" data-release-batch="' + _e(batch) + '">'
+            '<div class="action-item-header">'
+            f'<div class="action-item-title">Decision: Release the {_e(word)} batch '
+            f"({refused:,} contacts held)</div>"
+            '<span class="pill">Action Waiting on You</span>'
+            "</div>"
+            '<div class="action-detail-grid">'
+            f'<div class="action-detail-col"><strong>What is being asked</strong><span>{_e(ask)}</span></div>'
+            '<div class="action-detail-col"><strong>What you need to decide</strong>'
+            f'<ul class="release-decisions">{"".join(lines)}</ul></div>'
+            '<div class="action-detail-col"><strong>Where to go</strong><span>Reply to Claude in '
+            "chat with what to accept, clear or remove; it re-runs the checks.</span></div>"
+            "</div>"
+            "</div>"
+        )
+    return items
+
+
 def _lede_meter_html(m: dict, lines: list[str]) -> str:
     """Render horizontal distribution progress bar across pipeline stages.
 
@@ -144,8 +195,14 @@ def _lede_meter_html(m: dict, lines: list[str]) -> str:
         if go_live_word
         else ""
     )
-    live_label = STATUS_LABELS["in_sending_tool"]
-    staging_label = STATUS_LABELS["ready_to_send"]
+    split = m.get("sending_split") or {}
+    live_label = STATUS_LABELS["in_sending_tool"] + (
+        f" — {split.get('sending', 0):,} sending now, {split.get('paused', 0):,} loaded but paused"
+        + (f", {split['unknown']:,} status unknown" if split.get("unknown") else "")
+        if split
+        else ""
+    )
+    staging_label = status_label(m, "ready_to_send")
     yours_label = STATUS_LABELS["waiting_on_you"]
     held_label = STATUS_LABELS["being_fixed"]
     excluded_label = STATUS_LABELS["not_emailing"]
@@ -246,6 +303,9 @@ def _actions_required_card(m: dict) -> str:
             "</div>"
             "</div>"
         )
+
+    # 2b. A sorted batch the checks refused: the decisions that would release it.
+    items.extend(_release_batch_items(m))
 
     # 3. Approval Queue (Send Cards)
     ready_accounts = m.get("ready_accounts") or []

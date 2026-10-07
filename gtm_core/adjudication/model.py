@@ -133,6 +133,18 @@ class Adjudication:
     #: it as 'bad account' would disqualify most of a healthy list" — prose the caller had
     #: not read. A property that only lives in a document a caller may skip is not a guard.
     calibrated: bool | None = None
+    #: The judge's VOICE CHECK (2026-10-06): phrases that read as written by a template or a
+    #: chatbot, each ``{"phrase": ..., "kind": ...}`` with ``kind`` from the closed list in
+    #: :data:`agent.mcp.judge.rubric.VOICE_KINDS`, and every phrase verified to be in the
+    #: email before it is recorded.
+    #:
+    #: ``None`` means no readable answer (an unscored row, a malformed reply, a record written
+    #: before the field); ``[]`` means the check ran and found nothing. The two are not the
+    #: same: an empty list is a claim that the email reads clean.
+    #:
+    #: Like ``grounding`` this RANKS and never gates: nothing reads it to refuse a row. It is
+    #: recorded so it can be compared against operator labels before anyone lets it hold one.
+    staged: list[dict] | None = None
 
     def to_dict(self) -> dict:
         """JSONL projection. ``repair_attempt`` is emitted even when None so a reader can
@@ -159,4 +171,6 @@ class Adjudication:
             # Emitted even when None, for the same reason `repair_attempt` is: a reader must
             # be able to tell "recorded as unvalidated" from "key absent, writer predates it".
             "calibrated": self.calibrated,
+            # Emitted even when None: "no answer" must stay distinct from "answered, clean".
+            "staged": self.staged,
         }

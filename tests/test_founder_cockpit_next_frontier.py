@@ -476,6 +476,8 @@ def test_calculate_angle_heatmap_sources_and_metric_label() -> None:
     heatmap_replies = calculate_angle_heatmap(cells_with_replies, sources)
     assert heatmap_replies["metric_label"] == "Replies"
     assert heatmap_replies["has_replies"] is True
+    # The cell holds what the label says: 2 replies, not the 10 planned prospects (2026-10-06).
+    assert [c["count"] for c in heatmap_replies["cells"]] == [2]
     # A genuinely empty cell (every recipient suppressed) must stay 0, never become a
     # phantom "1 planned prospect".
     zeroed = calculate_angle_heatmap(

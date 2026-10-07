@@ -98,6 +98,7 @@ OVERLAYABLE: frozenset[str] = frozenset(
         # the cohort it is testing, and `voice.md` stays REFUSED so tone itself cannot be
         # varied — but it is the reason this entry is no longer "just a cue list".
         "role-vocabulary.toml",
+        "kinetic-chains.toml",  # PRD-042: kinetic sequence cascades
     }
 )
 

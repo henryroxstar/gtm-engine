@@ -48,6 +48,28 @@ def optout_key(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+#: The ``source`` of an ``optout_detected`` row recorded from a sequencer unsubscribe link
+#: (``gtm_core.sequencer_unsubscribes``), as opposed to a reply the sweep read.
+LINK_SOURCE = "sequencer_unsubscribe"
+
+
+def link_optouts(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    """``sequence_id -> distinct addresses`` whose open opt-out row came from an unsubscribe link.
+
+    Lets a page say how many opt-outs arrived by reply and how many by the link, and how many of
+    a campaign's unsubscribes the ledger has not recorded yet. Same address key as
+    :func:`optout_sets`; an address recorded against two sequences counts once per sequence.
+    """
+    seen: dict[str, set[str]] = {}
+    for row in rows:
+        if row.get("event") != _DETECTED_EVENT or row.get("source") != LINK_SOURCE:
+            continue
+        key, seq = optout_key(row.get("email")), str(row.get("sequence_id") or "")
+        if key and seq:
+            seen.setdefault(seq, set()).add(key)
+    return {seq: len(addrs) for seq, addrs in seen.items()}
+
+
 def optout_sets(
     rows: Iterable[Mapping[str, Any]],
 ) -> tuple[set[str], set[str], set[str], int]:

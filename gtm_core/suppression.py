@@ -90,7 +90,14 @@ EVAL_DISQUALIFIED = "eval-disqualified"
 #: company may still be right, so this suppresses the address and never the account.
 EVAL_WRONG_PERSON = "eval-wrong-person"
 #: Reasons that represent an exclusion of the whole company, covering all contacts at that domain.
-COMPANY_REASONS = frozenset({"competitor", "customer", "partner", EVAL_DISQUALIFIED})
+#:
+#: NOT ``eval-disqualified``: that is the reason a hold-sheet "suppress" writes for ONE person
+#: (``lanes.decisions.apply``), and from 2026-10-04 to 2026-10-06 listing it here made every such
+#: entry block the whole domain — removing a senior duplicate also removed the junior colleague
+#: the operator chose to keep, while the tool reported no account retired. Closing a company is
+#: the account's ledger status (``prospects_state.CLOSED_TO_SENDING``) or an entry that names
+#: no person (the domain-only branch in :meth:`LedgerIndex.add`).
+COMPANY_REASONS = frozenset({"competitor", "customer", "partner"})
 
 
 @dataclass(frozen=True)

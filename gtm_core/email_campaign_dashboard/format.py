@@ -13,6 +13,29 @@ def _e(x) -> str:
     return html.escape(str(x))
 
 
+#: The batches whose rows count as sorted (``prospect_status`` ``ready_to_send``).
+SORTED_BATCHES = ("personalised", "signal", "generic")
+
+
+def sorted_refusals(readiness) -> list[tuple[str, int, list]]:
+    """The sorted batches the checks refused — only from a current answer, never a stale one."""
+    if getattr(readiness, "state", "none") != "ok":
+        return []
+    return [r for r in readiness.refusals if r[0] in SORTED_BATCHES]
+
+
+def status_label(m: dict, status: str) -> str:
+    """``LABELS[status]``, except "Sorted — not yet checked" once the checks have run and
+    refused the sorted batch: those contacts were checked, and held. One rule for the meter,
+    the tiles and every person's row, so the three never disagree."""
+    refused = sum(n for _, n, _ in sorted_refusals(m.get("readiness")))
+    if status != "ready_to_send" or not refused:
+        return LABELS[status]
+    if not m["readiness"].fates.get("admitted"):
+        return "Sorted — checks refused"
+    return f"Sorted — {refused:,} refused by the checks"
+
+
 def _row_status(m: dict, email: str) -> str:
     """The Status column cell for one roster row, joined to the router's last route
     (``model.prospect_status_model``, via ``m["prospect_status"]["by_email"]``) by address.
@@ -32,7 +55,7 @@ def _row_status(m: dict, email: str) -> str:
         return '<span class="muted">not yet routed</span>'
     if status == "unmapped":
         return '<span class="pill warn" data-warn="unmapped">status unmapped</span>'
-    base = _e(LABELS[status])
+    base = _e(status_label(m, status))
     note = (ps.get("notes_by_email") or {}).get(em)
     if note:
         return f"{base} — {_e(note)}"
@@ -98,6 +121,15 @@ def _tiles_reset() -> None:
 
 def _tiles_recorded() -> list[dict]:
     return list(_TILES)
+
+
+def state_word(state: str) -> str:
+    """A campaign's state in the operator's words: sending, paused, finished, and so on."""
+    from ..campaigns_dashboard import FINISHED_STATES
+    from ..prospect_lede import GO_LIVE_WORDS
+
+    s = str(state or "").strip().lower()
+    return GO_LIVE_WORDS.get("completed" if s in FINISHED_STATES else s, s)
 
 
 def figure_span(name: str, value) -> str:

@@ -96,3 +96,76 @@ def test_cli_json_output(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True
     assert out["total_lines"] == 1
+
+
+# --- accepted gaps: a documented, pinned historical unchained row ---------------------------------
+
+
+def _with_gap(tmp_path, name="history.jsonl"):
+    """A chain whose line 2 was hand-appended with no prev_sha256; line 3 chains onto it."""
+    first = _chain([{"e": 1}])[0]
+    gap = '{"e": "hand-written"}'
+    third = json.dumps({"e": 3, "prev_sha256": _line_sha256(gap)})
+    p = tmp_path / name
+    p.write_text("\n".join([first, gap, third]) + "\n", encoding="utf-8")
+    return p, gap
+
+
+def _accept(p, entries):
+    side = p.with_name(p.name + ".accepted-gaps.json")
+    side.write_text(json.dumps({"accepted": entries}), encoding="utf-8")
+    return side
+
+
+def test_unaccepted_gap_is_a_break(tmp_path):
+    p, _ = _with_gap(tmp_path)
+    result = verify_chain(p)
+    assert result.breaks == [(2, "missing prev_sha256 after chain started")]
+
+
+def test_pinned_gap_is_accepted_and_reported(tmp_path, capsys):
+    p, gap = _with_gap(tmp_path)
+    _accept(p, [{"line": 2, "sha256": _line_sha256(gap), "reason": "one-off session append"}])
+    result = verify_chain(p)
+    assert result.ok, result.breaks
+    assert result.accepted == [(2, "one-off session append")]
+    assert main([str(p)]) == 0
+    assert "1 accepted gap" in capsys.readouterr().out  # never silent
+
+
+def test_an_edited_accepted_row_is_a_break(tmp_path):
+    p, gap = _with_gap(tmp_path)
+    _accept(p, [{"line": 2, "sha256": _line_sha256(gap), "reason": "r"}])
+    lines = p.read_text(encoding="utf-8").splitlines()
+    lines[1] = '{"e": "edited later"}'
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    reasons = [r for _, r in verify_chain(p).breaks]
+    assert "missing prev_sha256 after chain started" in reasons  # its hash no longer matches
+    assert any("accepted gap no longer matches" in r for r in reasons)
+
+
+def test_an_accepted_entry_cannot_cover_a_different_line(tmp_path):
+    p, gap = _with_gap(tmp_path)
+    _accept(p, [{"line": 3, "sha256": _line_sha256(gap), "reason": "r"}])  # wrong line
+    result = verify_chain(p)
+    assert (2, "missing prev_sha256 after chain started") in result.breaks
+    assert any(n == 3 and "no longer matches" in r for n, r in result.breaks)
+
+
+def test_an_accepted_entry_never_excuses_a_hash_mismatch(tmp_path):
+    lines = _chain([{"e": 1}, {"e": 2}])
+    lines[1] = json.dumps({"e": 2, "prev_sha256": "0" * 64})
+    p = tmp_path / "history.jsonl"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _accept(p, [{"line": 2, "sha256": _line_sha256(lines[1]), "reason": "r"}])
+    reasons = [r for _, r in verify_chain(p).breaks]
+    assert any(r.startswith("prev_sha256 mismatch") for r in reasons)
+
+
+@pytest.mark.parametrize("body", ["not json", '{"accepted": [{"line": "2"}]}', "[]"])
+def test_unreadable_accepted_file_fails_closed(tmp_path, body):
+    p, _ = _with_gap(tmp_path)
+    p.with_name(p.name + ".accepted-gaps.json").write_text(body, encoding="utf-8")
+    result = verify_chain(p)
+    assert not result.ok
+    assert any("accepted-gaps file" in r for _, r in result.breaks)

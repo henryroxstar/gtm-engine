@@ -81,6 +81,13 @@ LEDGER_STATUSES = frozenset(
 #: reply arriving afterward does not undo it.
 RETIRED_STATUSES = frozenset({"disqualified", "do-not-contact", "closed-lost"})
 
+#: Statuses that close an account to sending: the retired ones plus the opt-out spellings and
+#: the underscore variant of closed-lost. One set for the send-list build
+#: (``prospects_consolidate``) and the send gate (``enrollment_gate``), which until 2026-10-06
+#: disagreed — the gate refused a batch over colleagues of an opted-out account that the build
+#: kept putting back on the list.
+CLOSED_TO_SENDING = RETIRED_STATUSES | frozenset({"opt-out", "optout", "closed_lost"})
+
 #: The account's durable, opaque identity, stamped here and carried by every derived
 #: view. Sticky by the same rule as an operator's status edit — an incoming item never
 #: overwrites one, so the id an account was first given is the id it keeps.

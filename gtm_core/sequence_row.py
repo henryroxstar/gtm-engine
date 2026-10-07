@@ -53,6 +53,13 @@ def _text(v) -> str:
     return v if isinstance(v, str) else ""
 
 
+def _steps(v) -> int:
+    """The sequence's email-step count from the sending tool's list, or ``0`` when it is
+    absent or unreadable. ``0`` means "not known", never "no emails": a goal built on it is
+    left out (``campaigns_dashboard._auto_targets``), so it cannot plan zero emails."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 50 else 0
+
+
 def normalize_seq(d: dict) -> dict:
     """Flatten a sequence's live stats into the curated set the page shows.
 
@@ -99,6 +106,7 @@ def normalize_seq(d: dict) -> dict:
             "id": row_id(d),
             "name": _text(d.get("sequenceName", "")),
             "status": _text(d.get("status", "")),
+            "steps": _steps(d.get("steps")),
             "loaded": n("loaded", p.get("total")),
             "sent": n("sent", p.get("contacted")),
             "pending": n("pending", p.get("upcoming")) + n("pending", p.get("waiting")),
@@ -142,6 +150,7 @@ def normalize_seq(d: dict) -> dict:
         "id": row_id(d),
         "name": _text(d.get("name") or d.get("sequenceName")),
         "status": _text(d.get("status")),
+        "steps": _steps(d.get("steps")),
     }
     flat.update({k: n(k, d.get(k)) for k in keys})
     # A payload row with no ``prospects`` list still carries ``emails.status``; the writer reads

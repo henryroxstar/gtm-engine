@@ -17,7 +17,7 @@ import re
 import xml.sax.saxutils as saxutils  # nosec B406  # nosemgrep: use-defused-xml
 from pathlib import Path
 
-from .ir import DiagramEdge, DiagramIR, DiagramNode
+from .ir import DiagramEdge, DiagramGroup, DiagramIR, DiagramNode
 
 
 def _escape(text: str) -> str:
@@ -39,6 +39,19 @@ _DEFAULT_THEME: dict[str, str] = {
 }
 
 
+def _is_dark_hex(sec: str) -> bool:
+    if sec.startswith("#") and len(sec) == 7:
+        try:
+            r = int(sec[1:3], 16)
+            g = int(sec[3:5], 16)
+            b = int(sec[5:7], 16)
+            lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            return lum < 0.65
+        except ValueError:
+            return False
+    return True
+
+
 def resolve_diagram_theme(
     profiles_root: Path | None = None,
     profile: str | None = None,
@@ -56,31 +69,23 @@ def resolve_diagram_theme(
         kit = load_brand_kit(root, profile, product)
         palette = kit.get("palette", {}) if isinstance(kit, dict) else {}
         if isinstance(palette, dict):
-            if "canvas_light" in palette:
-                theme["paper"] = str(palette["canvas_light"])
-            elif "canvas" in palette:
-                theme["paper"] = str(palette["canvas"])
-
-            if "surface_light" in palette:
-                theme["surface"] = str(palette["surface_light"])
-            elif "surface" in palette:
-                theme["surface"] = str(palette["surface"])
-
-            if "ink_light" in palette:
-                theme["ink"] = str(palette["ink_light"])
-            elif "ink" in palette:
-                theme["ink"] = str(palette["ink"])
-
-            if "primary" in palette:
-                theme["primary"] = str(palette["primary"])
-            if "accent" in palette:
-                theme["accent"] = str(palette["accent"])
+            key_map = [
+                ("paper", ("canvas_light", "canvas")),
+                ("surface", ("surface_light", "surface")),
+                ("ink", ("ink_light", "ink")),
+                ("primary", ("primary",)),
+                ("accent", ("accent",)),
+                ("rule", ("rule_light", "rule")),
+            ]
+            for target, sources in key_map:
+                for src in sources:
+                    if src in palette:
+                        theme[target] = str(palette[src])
+                        break
             if "secondary" in palette:
-                theme["muted"] = str(palette["secondary"])
-            if "rule_light" in palette:
-                theme["rule"] = str(palette["rule_light"])
-            elif "rule" in palette:
-                theme["rule"] = str(palette["rule"])
+                sec = str(palette["secondary"])
+                if _is_dark_hex(sec):
+                    theme["muted"] = sec
     except Exception:  # nosec B110
         # Fall back gracefully to base defaults
         pass
@@ -159,6 +164,213 @@ def _compute_orthogonal_elbow(x1: float, y1: float, x2: float, y2: float, r: flo
     )
 
 
+_NODE_KIND_STYLES: dict[str, tuple[str, str, str, str, str, str]] = {
+    "external": ("#F0F9FF", "#0284C7", "rgba(2, 132, 199, 0.12)", "#0284C7", "#0369A1", "#0C4A6E"),
+    "client": ("#F0F9FF", "#0284C7", "rgba(2, 132, 199, 0.12)", "#0284C7", "#0369A1", "#0C4A6E"),
+    "stream": ("#F5F3FF", "#7C3AED", "rgba(124, 58, 237, 0.12)", "#7C3AED", "#6D28D9", "#4C1D95"),
+    "security": ("#F5F3FF", "#7C3AED", "rgba(124, 58, 237, 0.12)", "#7C3AED", "#6D28D9", "#4C1D95"),
+    "datastore": ("#FFFBEB", "#D97706", "rgba(217, 119, 6, 0.12)", "#D97706", "#B45309", "#78350F"),
+    "store": ("#FFFBEB", "#D97706", "rgba(217, 119, 6, 0.12)", "#D97706", "#B45309", "#78350F"),
+    "target": ("#FFFBEB", "#D97706", "rgba(217, 119, 6, 0.12)", "#D97706", "#B45309", "#78350F"),
+    "model": ("#ECFDF5", "#059669", "rgba(5, 150, 105, 0.12)", "#059669", "#047857", "#064E3B"),
+    "ai": ("#ECFDF5", "#059669", "rgba(5, 150, 105, 0.12)", "#059669", "#047857", "#064E3B"),
+    "gateway": ("#EFF6FF", "#2563EB", "rgba(37, 99, 235, 0.12)", "#2563EB", "#1D4ED8", "#1E3A8A"),
+    "surface": ("#EFF6FF", "#2563EB", "rgba(37, 99, 235, 0.12)", "#2563EB", "#1D4ED8", "#1E3A8A"),
+    "step": ("#EFF6FF", "#2563EB", "rgba(37, 99, 235, 0.12)", "#2563EB", "#1D4ED8", "#1E3A8A"),
+}
+
+
+def _get_node_colors(
+    node: DiagramNode, theme: dict[str, str]
+) -> tuple[str, str, str, str, str, str]:
+    if node.kind == "focal":
+        primary = theme.get("primary", "#3464FD")
+        ink = theme.get("ink", "#0F172A")
+        return (
+            "rgba(52, 100, 253, 0.05)",
+            primary,
+            "rgba(52, 100, 253, 0.12)",
+            primary,
+            primary,
+            ink,
+        )
+    if node.kind in _NODE_KIND_STYLES:
+        return _NODE_KIND_STYLES[node.kind]
+    ink = theme["ink"]
+    return (theme["surface"], ink, "transparent", ink, ink, ink)
+
+
+def _compute_edge_endpoints(
+    src: DiagramNode, tgt: DiagramNode, edge: DiagramEdge
+) -> tuple[float, float, float, float]:
+    src_port = getattr(edge, "attach_source", "right") or "right"
+    tgt_port = getattr(edge, "attach_target", "left") or "left"
+
+    if src_port == "bottom":
+        x1, y1 = src.x + (src.width / 2.0), src.y + src.height
+    elif src_port == "top":
+        x1, y1 = src.x + (src.width / 2.0), src.y
+    elif src_port == "left":
+        x1, y1 = src.x, src.y + (src.height / 2.0)
+    else:
+        x1, y1 = src.x + src.width, src.y + (src.height / 2.0)
+
+    if tgt_port == "top":
+        x2, y2 = tgt.x + (tgt.width / 2.0), tgt.y
+    elif tgt_port == "bottom":
+        x2, y2 = tgt.x + (tgt.width / 2.0), tgt.y + tgt.height
+    elif tgt_port == "right":
+        x2, y2 = tgt.x + tgt.width, tgt.y + (tgt.height / 2.0)
+    else:
+        x2, y2 = tgt.x, tgt.y + (tgt.height / 2.0)
+
+    return x1, y1, x2, y2
+
+
+def _render_svg_groups(groups: list[DiagramGroup], theme: dict[str, str]) -> list[str]:
+    parts: list[str] = []
+    for grp in groups:
+        gx = float(int(round(grp.x / 4.0)) * 4)
+        gy = float(int(round(grp.y / 4.0)) * 4)
+        gw = float(max(100, int(round(grp.width / 4.0)) * 4))
+        gh = float(max(60, int(round(grp.height / 4.0)) * 4))
+
+        grp_stroke = theme.get("primary", "#3464FD")
+        grp_fill = "rgba(52, 100, 253, 0.03)"
+
+        parts.append(
+            f'  <rect data-group-id="{_escape(grp.id)}" x="{gx:.1f}" y="{gy:.1f}" '
+            f'width="{gw:.1f}" height="{gh:.1f}" rx="12" '
+            f'fill="{grp_fill}" stroke="{grp_stroke}" stroke-width="1.5" stroke-dasharray="6,4"/>'
+        )
+
+        if grp.label:
+            escaped_grp_label = _escape(grp.label)
+            lbl_w = max(80.0, len(grp.label.strip()) * 6.6 + 24.0)
+            lbl_h = 20.0
+            lbl_x = gx + 16.0
+            lbl_y = gy - 10.0 if gy >= 10 else gy + 6.0
+
+            parts.append(
+                f'  <rect x="{lbl_x:.1f}" y="{lbl_y:.1f}" width="{lbl_w:.1f}" height="{lbl_h:.1f}" rx="4" '
+                f'fill="{theme["surface"]}" stroke="{grp_stroke}" stroke-width="1.2"/>'
+            )
+            parts.append(
+                f'  <text x="{(lbl_x + lbl_w / 2.0):.1f}" y="{(lbl_y + 13.5):.1f}" fill="{grp_stroke}" '
+                f'font-size="8.5" font-weight="700" font-family="\'Geist Mono\', monospace" '
+                f'text-anchor="middle" letter-spacing="0.08em">{escaped_grp_label.upper()}</text>'
+            )
+    return parts
+
+
+def _render_svg_edges(
+    edges: list[DiagramEdge], node_map: dict[str, DiagramNode], theme: dict[str, str]
+) -> list[str]:
+    parts: list[str] = []
+    for edge in edges:
+        src = node_map.get(edge.source)
+        tgt = node_map.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        x1, y1, x2, y2 = _compute_edge_endpoints(src, tgt, edge)
+        path_d = _compute_orthogonal_elbow(x1, y1, x2, y2, r=8.0)
+        marker = (
+            "url(#arrow-accent)"
+            if edge.kind == "accent"
+            else ("url(#arrow-primary)" if edge.kind == "primary" else "url(#arrow)")
+        )
+        stroke_color = (
+            theme["accent"]
+            if edge.kind == "accent"
+            else (theme.get("primary", "#3464FD") if edge.kind == "primary" else theme["muted"])
+        )
+
+        parts.append(
+            f'  <path d="{path_d}" data-edge="{_escape(edge.source)}->{_escape(edge.target)}" '
+            f'fill="none" stroke="{stroke_color}" stroke-width="1.5" marker-end="{marker}"/>'
+        )
+
+        if edge.label:
+            mid_x = (x1 + x2) / 2.0
+            mid_y = (y1 + y2) / 2.0
+            clean_edge_label = edge.label.replace("\r", "").replace("\n", " ")
+            escaped_edge_label = _escape(clean_edge_label)
+            lbl_w = max(40.0, len(clean_edge_label) * 6.6 + 16.0)
+            lbl_h = 16.0
+            rect_y = mid_y - (lbl_h / 2.0)
+            text_y = mid_y + 3.5
+
+            parts.append(
+                f'  <rect x="{mid_x - (lbl_w / 2.0):.1f}" y="{rect_y:.1f}" '
+                f'width="{lbl_w:.1f}" height="{lbl_h:.1f}" rx="3" '
+                f'fill="{theme["surface"]}" stroke="{theme["rule"]}" stroke-width="0.8"/>'
+            )
+            parts.append(
+                f'  <text x="{mid_x:.1f}" y="{text_y:.1f}" fill="{theme["ink"]}" '
+                f'font-size="8" font-weight="500" font-family="\'Geist Mono\', monospace" text-anchor="middle" '
+                f'letter-spacing="0.04em">{escaped_edge_label}</text>'
+            )
+    return parts
+
+
+def _render_svg_nodes(nodes: list[DiagramNode], theme: dict[str, str]) -> list[str]:
+    parts: list[str] = []
+    for node in nodes:
+        escaped_label = _escape(node.label)
+        escaped_sublabel = _escape(node.sublabel)
+        fill_color, stroke_color, chip_bg, chip_stroke, chip_text, text_color = _get_node_colors(
+            node, theme
+        )
+
+        # 1. Base styled box
+        parts.append(
+            f'  <rect data-node-id="{_escape(node.id)}" x="{node.x:.1f}" y="{node.y:.1f}" '
+            f'width="{node.width:.1f}" height="{node.height:.1f}" rx="8" '
+            f'fill="{fill_color}" stroke="{stroke_color}" stroke-width="1.4"/>'
+        )
+
+        # 2. Tag chip
+        has_chip = node.kind not in ("step", "") and node.height >= 56
+        if has_chip:
+            tag_text = _escape(node.kind.upper())
+            chip_w = max(34.0, len(tag_text) * 5.5 + 10.0)
+            parts.append(
+                f'  <rect x="{(node.x + 10.0):.1f}" y="{(node.y + 8.0):.1f}" width="{chip_w:.1f}" height="13" rx="3" '
+                f'fill="{chip_bg}" stroke="{chip_stroke}" stroke-width="0.8"/>'
+            )
+            parts.append(
+                f'  <text x="{(node.x + 10.0 + chip_w / 2.0):.1f}" y="{(node.y + 17.5):.1f}" fill="{chip_text}" '
+                f'font-size="7" font-weight="600" font-family="\'Geist Mono\', monospace" text-anchor="middle" '
+                f'letter-spacing="0.08em">{tag_text}</text>'
+            )
+
+        # 3. Label text
+        cx = node.x + (node.width / 2.0)
+        cy = node.y + (node.height / 2.0)
+        label_y = (
+            (cy + 2.0 if not node.sublabel else cy - 1.0)
+            if has_chip
+            else (cy + 3.0 if not node.sublabel else cy - 4.0)
+        )
+        sub_y = (cy + 14.0) if has_chip else (cy + 11.0)
+
+        parts.append(
+            f'  <text x="{cx:.1f}" y="{label_y:.1f}" fill="{text_color}" '
+            f'font-size="11.5" font-weight="600" font-family="\'Geist\', sans-serif" '
+            f'text-anchor="middle">{escaped_label}</text>'
+        )
+
+        # 4. Sublabel text
+        if node.sublabel:
+            parts.append(
+                f'  <text x="{cx:.1f}" y="{sub_y:.1f}" fill="{theme["muted"]}" '
+                f'font-size="8.5" font-family="\'Geist Mono\', monospace" '
+                f'text-anchor="middle">{escaped_sublabel}</text>'
+            )
+    return parts
+
+
 def render_svg(
     ir: DiagramIR,
     profiles_root: Path | None = None,
@@ -174,9 +386,11 @@ def render_svg(
 
     _layout_nodes_4px_grid(nodes, edges, ir.direction)
 
-    # Calculate bounding box
-    max_x = max([n.x + n.width for n in nodes] + [800.0])
-    max_y = max([n.y + n.height for n in nodes] + [400.0])
+    # Calculate bounding box (including groups)
+    group_max_x = [g.x + g.width for g in ir.groups] if ir.groups else []
+    group_max_y = [g.y + g.height for g in ir.groups] if ir.groups else []
+    max_x = max([n.x + n.width for n in nodes] + group_max_x + [800.0])
+    max_y = max([n.y + n.height for n in nodes] + group_max_y + [400.0])
     vb_w = int(math.ceil((max_x + 60.0) / 4.0) * 4)
     vb_h = int(math.ceil((max_y + 80.0) / 4.0) * 4)
 
@@ -199,6 +413,9 @@ def render_svg(
         '    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">',
         f'      <polygon points="0 0, 8 3, 0 6" fill="{theme["accent"]}"/>',
         "    </marker>",
+        '    <marker id="arrow-primary" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">',
+        f'      <polygon points="0 0, 8 3, 0 6" fill="{theme.get("primary", "#3464FD")}"/>',
+        "    </marker>",
         '    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">',
         f'      <polygon points="0 0, 8 3, 0 6" fill="{theme["link"]}"/>',
         "    </marker>",
@@ -206,96 +423,9 @@ def render_svg(
         f'  <rect width="100%" height="100%" fill="{theme["paper"]}"/>',
     ]
 
-    # Render Connectors before nodes (z-order: lines behind boxes)
-    for edge in edges:
-        src = node_map.get(edge.source)
-        tgt = node_map.get(edge.target)
-        if not src or not tgt:
-            continue
-
-        x1 = src.x + src.width
-        y1 = src.y + (src.height / 2.0)
-        x2 = tgt.x
-        y2 = tgt.y + (tgt.height / 2.0)
-
-        path_d = _compute_orthogonal_elbow(x1, y1, x2, y2, r=8.0)
-        marker = "url(#arrow-accent)" if edge.kind == "accent" else "url(#arrow)"
-        stroke_color = theme["accent"] if edge.kind == "accent" else theme["muted"]
-
-        svg_parts.append(
-            f'  <path d="{path_d}" data-edge="{_escape(edge.source)}->{_escape(edge.target)}" '
-            f'fill="none" stroke="{stroke_color}" stroke-width="1.5" marker-end="{marker}"/>'
-        )
-
-        if edge.label:
-            mid_x = (x1 + x2) / 2.0
-            mid_y = (y1 + y2) / 2.0
-            clean_edge_label = edge.label.replace("\r", "").replace("\n", " ")
-            escaped_edge_label = _escape(clean_edge_label)
-            lbl_w = max(40.0, len(clean_edge_label) * 7.0 + 12.0)
-            lbl_h = 14.0
-            # 6-10px visible margin above connector stroke
-            rect_y = mid_y - 20.0
-            text_y = rect_y + 10.0
-
-            svg_parts.append(
-                f'  <rect x="{mid_x - (lbl_w / 2.0):.1f}" y="{rect_y:.1f}" '
-                f'width="{lbl_w:.1f}" height="{lbl_h:.1f}" rx="2" fill="{theme["paper"]}"/>'
-            )
-            svg_parts.append(
-                f'  <text x="{mid_x:.1f}" y="{text_y:.1f}" fill="{theme["soft"]}" '
-                f'font-size="8" font-family="\'Geist Mono\', monospace" text-anchor="middle" '
-                f'letter-spacing="0.06em">{escaped_edge_label}</text>'
-            )
-
-    # Render Nodes
-    for node in nodes:
-        escaped_label = _escape(node.label)
-        escaped_sublabel = _escape(node.sublabel)
-        is_focal = node.kind == "focal"
-
-        fill_color = theme["surface"]
-        stroke_color = theme["accent"] if is_focal else theme["ink"]
-        text_color = theme["accent"] if is_focal else theme["ink"]
-
-        # 1. Base styled box
-        svg_parts.append(
-            f'  <rect data-node-id="{_escape(node.id)}" x="{node.x:.1f}" y="{node.y:.1f}" '
-            f'width="{node.width:.1f}" height="{node.height:.1f}" rx="6" '
-            f'fill="{fill_color}" stroke="{stroke_color}" stroke-width="1.2"/>'
-        )
-
-        # 2. Tag chip
-        tag_text = _escape(node.kind.upper())
-        svg_parts.append(
-            f'  <rect x="{(node.x + 8.0):.1f}" y="{(node.y + 6.0):.1f}" width="34" height="12" rx="2" '
-            f'fill="transparent" stroke="{stroke_color}" stroke-width="0.8" opacity="0.6"/>'
-        )
-        svg_parts.append(
-            f'  <text x="{(node.x + 25.0):.1f}" y="{(node.y + 15.0):.1f}" fill="{stroke_color}" '
-            f'font-size="7" font-family="\'Geist Mono\', monospace" text-anchor="middle" '
-            f'letter-spacing="0.08em">{tag_text}</text>'
-        )
-
-        # 3. Label text
-        cx = node.x + (node.width / 2.0)
-        cy = node.y + (node.height / 2.0)
-        label_y = cy + 2.0 if not node.sublabel else cy - 4.0
-
-        svg_parts.append(
-            f'  <text x="{cx:.1f}" y="{label_y:.1f}" fill="{text_color}" '
-            f'font-size="12" font-weight="600" font-family="\'Geist\', sans-serif" '
-            f'text-anchor="middle">{escaped_label}</text>'
-        )
-
-        # 4. Sublabel text
-        if node.sublabel:
-            svg_parts.append(
-                f'  <text x="{cx:.1f}" y="{(cy + 14.0):.1f}" fill="{theme["muted"]}" '
-                f'font-size="9" font-family="\'Geist Mono\', monospace" '
-                f'text-anchor="middle">{escaped_sublabel}</text>'
-            )
-
+    svg_parts.extend(_render_svg_groups(ir.groups, theme))
+    svg_parts.extend(_render_svg_edges(edges, node_map, theme))
+    svg_parts.extend(_render_svg_nodes(nodes, theme))
     svg_parts.append("</svg>")
     return "\n".join(svg_parts)
 
