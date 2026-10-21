@@ -1,0 +1,7 @@
+[[claim]]
+id = "alpha-claim"
+group = "observability"
+status = "verified"
+statement = "The alpha product records each action. alphaonly"
+source = "knowledge/references/alpha-notes.md:1"
+do_not_say = ["tamper-proof"]

@@ -1,0 +1,19 @@
+[
+  {"id": "text-clean", "format": "text", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-01", "brief": {"audience": "CISO"}},
+  {"id": "text-bad", "format": "text", "platform": "tiktok", "pillar": "nope", "hook_id": "widget-99", "brief": {"audience": "Zorvane buyer"}},
+  {"id": "text-broken", "format": "text", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-01", "brief": {"audience": "CISO"}},
+  {"id": "text-nohook", "format": "text", "platform": "linkedin", "pillar": "agent-identity", "brief": {"audience": "CISO"}},
+  {"id": "person-hook", "format": "text", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "henry-zz-tripwire", "brief": {"audience": "CISO"}},
+  {"id": "reel-ok", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "reel-bad", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "reel-lowres", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "reel-badfinish", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "reel-strident", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "reel-nofinish", "format": "reel", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02", "brief": {"audience": "CISO"}},
+  {"id": "script-nokey", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"},
+  {"id": "script-unparsed", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"},
+  {"id": "script-overcount", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"},
+  {"id": "script-partial", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"},
+  {"id": "script-zero", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"},
+  {"id": "script-recited", "format": "clip", "platform": "linkedin", "pillar": "agent-identity", "hook_id": "widget-02"}
+]

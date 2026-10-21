@@ -1,0 +1,9 @@
+# Deliberate exceptions to tests/lint/provider_rate_check.py (§R17).
+#
+# Format: <repo-relative path>   # YYYY-MM-DD why this surface must restate a rate
+#
+# An entry here says "this file states a provider rate on purpose, and someone owns keeping it
+# true". Prefer pointing at the owning module (see RATE_HOMES in the checker) over adding a line
+# here — the whole rule exists because a second copy is a second thing to get wrong.
+#
+# Empty by design.

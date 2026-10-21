@@ -1,0 +1,44 @@
+usage: python -m gtm_core.video_finish [-h]
+                                       {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,overlays,overlay-scene,find-transient,mix-sfx,music-fade,room-tone,voice-polish,narration-track,contact-sheet,reframe} ...
+
+positional arguments:
+  {run,predictor-trim,grade,frames-to-video,mux,split,stitch,burn-captions,overlays,overlay-scene,find-transient,mix-sfx,music-fade,room-tone,voice-polish,narration-track,contact-sheet,reframe}
+    grade               apply ONE eq grade to one shot, audio stream-copied
+                        (per-shot assembly path)
+    frames-to-video     encode a numbered PNG frame sequence
+                        (gtm_core.screen_ui output) into a silent mp4
+    mux                 attach one VO track to one silent rendered shot
+                        (multi-shot render, per shot)
+    split               cut one continuous take into its per-beat files (the
+                        inverse of stitch)
+    stitch              concatenate finished per-shot files into one asset
+                        (hard cut by default)
+    burn-captions       burn each shot's caption into that shot's own file,
+                        BEFORE the stitch
+    overlays            draw each shot's production.overlay chat bubble beside
+                        the phone and composite it into that shot's own file,
+                        BEFORE the stitch
+    overlay-scene       composite an RGBA PNG sequence (a gtm_core.screen_ui
+                        overlay scene) over one shot at 1:1, keeping the
+                        shot's own audio
+    find-transient      where a cue file's sound actually starts (relative
+                        level sweep, not silencedetect)
+    mix-sfx             mix N timed SFX cues onto a shot's existing audio
+                        (normalize=0, verified by measurement)
+    music-fade          where a music track's own fade-out starts (the
+                        body_end_s for a looped bed)
+    room-tone           synthesize a low room-tone bed (.m4a) — the noise
+                        floor, never a score
+    voice-polish        clean up one narration take: highpass, de-mud,
+                        presence lift, de-ess, gentle compression — lossless
+                        WAV, duration-preserving
+    narration-track     place a shot list's `narration` read onto one voice-
+                        only master (.m4a). Refuses if the lane fails its
+                        lint, or if a line's `len_s` disagrees with its audio.
+    contact-sheet       evenly spaced frames as one image, for looking at a
+                        finished asset
+    reframe             crop OS chrome off a raw screen recording, then pad it
+                        to an exact platform ratio
+
+options:
+  -h, --help            show this help message and exit

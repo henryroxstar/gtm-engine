@@ -1,0 +1,14 @@
+default_persona = "ai-platform"
+segments = ["enterprise", "unspecified"]
+
+[[persona]]
+name = "ai-platform"
+cues = ["head of ai platform", "platform lead"]
+
+[[seat]]
+name = "platform"
+personas = ["ai-platform"]
+stakes = ["outage", "audit"]
+lead_pain = "You can run it in a demo; you cannot run it in production."
+gain = "Ship to production without the risk team stopping you."
+forbidden_pains = []

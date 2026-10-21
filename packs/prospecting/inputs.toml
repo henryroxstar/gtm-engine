@@ -1,0 +1,5 @@
+# packs/prospecting/inputs.toml — information and integration requirements for prospecting.
+
+[[integrations]]
+provider = "saleshandy"
+required = true

@@ -1,0 +1,47 @@
+# GTM MCP server — Phase E
+# Build context: repo root (same as Dockerfile.backend)
+#
+# Usage:
+#   docker build -f deploy/Dockerfile.mcp -t gtm-mcp-server .
+#   docker run -e DATABASE_URL=... -e DEEPSEEK_API_KEY=... gtm-mcp-server
+
+# 3.13, not newer: CI, local dev and uv.lock are all 3.13, and the lock pins wheels (e.g.
+# onnxruntime 1.20.1) that ship no cp314 build. Dependabot moved this to 3.14 (#200) — keep it in
+# step with the CI python-version and .python-version, never ahead of them.
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install uv for fast dependency resolution. It must read uv.lock's format (revision 3),
+# which the old 0.5.x line cannot — keep this at the version that writes the lock.
+RUN pip install --no-cache-dir uv==0.10.10
+
+# Copy dependency spec first (layer cache)
+COPY pyproject.toml ./
+COPY uv.lock        ./
+COPY README.md      ./
+
+# Copy all packages the MCP server needs
+# pyproject.toml lists all packages explicitly; setuptools errors if any are absent
+COPY gtm_core/   gtm_core/
+COPY mcp_server/ mcp_server/
+COPY agent/      agent/
+COPY cockpit/    cockpit/
+COPY backend/    backend/
+COPY packs/      packs/
+# profiles/ and content/ are mounted at runtime (see docker-compose.yml).
+
+# Install exactly what uv.lock pins, then the project itself with no re-resolution (a bare
+# install resolved every `>=` floor to the newest release at build time — client issue #337).
+# Non-editable; mcp_server + gtm_core only needed at runtime.
+RUN uv export --frozen --no-emit-project --no-hashes -o /tmp/requirements.txt && \
+    uv pip install --system --no-cache -r /tmp/requirements.txt && \
+    uv pip install --system --no-cache --no-deps . && \
+    rm /tmp/requirements.txt
+
+EXPOSE 8001
+
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8001
+
+CMD ["python", "-m", "mcp_server"]

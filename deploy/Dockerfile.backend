@@ -1,0 +1,84 @@
+# 3.13, not newer: CI, local dev and uv.lock are all 3.13, and the lock pins wheels (e.g.
+# onnxruntime 1.20.1) that ship no cp314 build. Dependabot moved this to 3.14 (#200) — keep it in
+# step with the CI python-version and .python-version, never ahead of them.
+FROM python:3.13-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_NO_SYNC=1 \
+    UV_NO_MANAGED_PYTHON=1 \
+    UV_PYTHON_DOWNLOADS=never
+
+# Install uv for fast dependency resolution. It must read uv.lock's format (revision 3),
+# which the old 0.5.x line cannot — keep this at the version that writes the lock.
+RUN pip install --no-cache-dir uv==0.10.10
+
+# Install system dependencies for asyncpg + bcrypt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libffi-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml ./
+COPY uv.lock        ./
+COPY README.md      ./
+COPY agent/       agent/
+COPY backend/     backend/
+COPY cockpit/     cockpit/
+COPY gtm_core/    gtm_core/
+COPY mcp_server/  mcp_server/
+COPY packs/       packs/
+COPY plugin/      plugin/
+COPY profiles/    profiles/
+COPY schemas/     schemas/
+# gtm_core's outreach quality checks import the linter's `outreach` package from tests/linter on purpose (one home for the
+# seat map and merge-tag renderer); without it a pack run's checks raise ModuleNotFoundError on the box (issue #337).
+COPY tests/linter/ tests/linter/
+
+# Install exactly what uv.lock pins, then the project itself with no re-resolution. A bare
+# `pip install .` resolved every `>=` floor to the newest release at build time, so the
+# deployed Agent SDK (and the Claude CLI it bundles) drifted to versions no test had run
+# against (client issue #337 found staging on SDK 0.2.164 while the lock held 0.2.101).
+RUN uv export --frozen --no-emit-project --no-hashes -o /tmp/requirements.txt && \
+    uv pip install --system --no-cache -r /tmp/requirements.txt && \
+    uv pip install --system --no-cache --no-deps . && \
+    rm /tmp/requirements.txt
+
+# ----- Non-root user (MM10) --------------------------------------------------
+# Every workspace's tree lives in this one container, so a process here that is root can read and
+# chown all of them. Run unprivileged, with the same fixed uid as the agent image (Dockerfile) so the
+# `content`/`profiles` volumes they share are owned by one user. The per-workspace tree and the content
+# root are created and owned in the image so a FRESH named volume inherits that ownership. The application
+# code stays root-owned on purpose: the unprivileged user cannot rewrite what every tenant's run executes. A volume left
+# behind by an earlier root-owned deploy must be chowned once — backend/state_dirs.py refuses to boot
+# and prints the exact command rather than failing later on the first write.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin gtm \
+    && mkdir -p /app/data/workspaces /app/content \
+    && chown -R gtm:gtm /app/data /app/content /app/profiles
+# ----- Per-workspace OS user launcher (MM9 second layer) ---------------------------------------------
+# The one privileged binary: it holds CAP_SETUID/CAP_SETGID (to drop to the workspace's user) and CAP_KILL (so the
+# backend can still stop that run), plus CAP_CHOWN/CAP_FOWNER for its `--provision` mode only (hand one workspace
+# tree to its identity, keeping the backend's access through ACLs; a launch drops both first), and nothing else. It is
+# executable only by the backend's own user (never by a run it starts) and accepts only an id inside the pool.
+# Inert until GTM_TENANT_LAUNCHER=1. BACKEND_UID is the useradd uid above; a test pins the two together.
+# CLI_PREFIX is where pip puts the Agent SDK's bundled CLI; a test pins that the binary resolves under it.
+COPY deploy/launcher/gtm_launch.c /tmp/gtm_launch.c
+RUN apt-get update && apt-get install -y --no-install-recommends libcap2-bin \
+    && rm -rf /var/lib/apt/lists/* \
+    && gcc -O2 -Wall -Werror \
+        -DCLI_PREFIX='"/usr/local/lib/python3.13/site-packages/claude_agent_sdk/"' \
+        -DARGS_PREFIX='"/app/data/workspaces/.launch/"' \
+        -DWORKSPACES_PREFIX='"/app/data/workspaces/"' -DBACKEND_UID=10001 \
+        -o /usr/local/sbin/gtm-launch /tmp/gtm_launch.c \
+    && rm /tmp/gtm_launch.c \
+    && chown root:gtm /usr/local/sbin/gtm-launch && chmod 0750 /usr/local/sbin/gtm-launch \
+    && setcap cap_chown,cap_fowner,cap_kill,cap_setuid,cap_setgid+ep /usr/local/sbin/gtm-launch
+
+USER gtm
+ENV HOME=/home/gtm
+
+EXPOSE 8000
+
+CMD ["python", "-m", "backend.main"]

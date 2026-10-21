@@ -1,0 +1,6 @@
+schema = 1
+
+[premise.north-premise]
+claim = "the reader runs more than one system northonly"
+min_distinct = 2
+terms = ["relay", "mesh"]

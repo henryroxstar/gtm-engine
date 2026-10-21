@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="1000" height="420" role="img" aria-labelledby="va-title va-desc" font-family="Nunito, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title id="va-title">The three artefacts you inspect before you spend or publish</title>
+  <desc id="va-desc">Three side-by-side artefact cards corresponding to the three human gates. Left: Gate 1 Shot Script (.shots.json) and Phone Shot-List (.shotlist.md) checked by shots_lint at $0 spend. Middle: Gate 1.5 Storyboard Composite Card (storyboard.json) with start/end keyframes, scratch animatic timing, and an explicit credit quote waiting on Amber Gate 1.5 approval. Right: Gate 2 Final Cut and video_lint audit showing 9:16 platform UI dead zones, safe-zone captions, -14 LUFS loudness, and Art. 50 disclosure waiting on Amber Gate 2 publish approval.</desc>
+  <defs>
+    <marker id="va-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="420" rx="16" fill="#ffffff"/>
+
+  <!-- Heading -->
+  <text x="30" y="38" font-size="20" font-weight="700" fill="#0f172a">What you inspect at each gate before a single render credit burns.</text>
+  <text x="30" y="60" font-size="13.5" fill="#475569">Every stage writes a human-readable artefact on disk and runs a deterministic lint check before asking for your approval.</text>
+
+  <!-- ARTEFACT 1: Gate 1 Script & Shotlist -->
+  <rect x="30" y="82" width="296" height="296" rx="12" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="48" y="108" font-size="14" font-weight="700" fill="#0f172a">1. Script &amp; Shot-List ($0 spent)</text>
+  <text x="48" y="126" font-size="12" fill="#475569">.shots.json · .shotlist.md · shots_lint</text>
+
+  <!-- Mini beat rows -->
+  <rect x="48" y="140" width="260" height="34" rx="5" fill="#e2e8f0" stroke="#475569" stroke-width="1"/>
+  <text x="58" y="155" font-size="11" font-weight="700" fill="#0f172a">0–3s · HOOK (scroll-stopper)</text>
+  <text x="58" y="168" font-size="10.5" fill="#475569">Spoken line + visual contrast cue</text>
+
+  <rect x="48" y="180" width="260" height="34" rx="5" fill="#e2e8f0" stroke="#475569" stroke-width="1"/>
+  <text x="58" y="195" font-size="11" font-weight="700" fill="#0f172a">3–12s · PAIN &amp; MECHANISM</text>
+  <text x="58" y="208" font-size="10.5" fill="#475569">UI motion scene or cutaway still</text>
+
+  <rect x="48" y="220" width="260" height="34" rx="5" fill="#e2e8f0" stroke="#475569" stroke-width="1"/>
+  <text x="58" y="235" font-size="11" font-weight="700" fill="#0f172a">12–28s · VERIFIED PROOF &amp; CTA</text>
+  <text x="58" y="248" font-size="10.5" fill="#475569">Checked against claims.toml + proof.toml</text>
+
+  <text x="48" y="274" font-size="11.5" font-weight="700" fill="#1e293b">shots_lint: 145 WPM · beats &lt;= 4s · PASS</text>
+
+  <!-- Amber Gate 1 bar -->
+  <rect x="48" y="290" width="260" height="70" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <text x="178" y="315" font-size="13.5" font-weight="700" fill="#1e293b" text-anchor="middle">Gate 1: Approve Script</text>
+  <text x="178" y="335" font-size="12" fill="#475569" text-anchor="middle">Edit words for free before</text>
+  <text x="178" y="350" font-size="12" fill="#475569" text-anchor="middle">generating any media</text>
+
+  <path d="M326,230 H350" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#va-head)"/>
+
+  <!-- ARTEFACT 2: Gate 1.5 Storyboard & Credit Quote -->
+  <rect x="352" y="82" width="296" height="296" rx="12" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+  <text x="370" y="108" font-size="14" font-weight="700" fill="#0f172a">2. Storyboard &amp; Credit Quote</text>
+  <text x="370" y="126" font-size="12" fill="#475569">storyboard.json · hero stills · animatic</text>
+
+  <!-- 2x2 contact sheet grid -->
+  <rect x="370" y="140" width="124" height="52" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1.2"/>
+  <text x="432" y="162" font-size="10.5" font-weight="700" fill="#0f172a" text-anchor="middle">Shot 1 Keyframes</text>
+  <text x="432" y="178" font-size="9.5" fill="#475569" text-anchor="middle">[Start] -&gt; [End]</text>
+
+  <rect x="506" y="140" width="124" height="52" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1.2"/>
+  <text x="568" y="162" font-size="10.5" font-weight="700" fill="#0f172a" text-anchor="middle">Shot 2 UI Card</text>
+  <text x="568" y="178" font-size="9.5" fill="#475569" text-anchor="middle">HTML preview ($0)</text>
+
+  <rect x="370" y="200" width="124" height="52" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1.2"/>
+  <text x="432" y="222" font-size="10.5" font-weight="700" fill="#0f172a" text-anchor="middle">Shot 3 Cutaway</text>
+  <text x="432" y="238" font-size="9.5" fill="#475569" text-anchor="middle">Brand palette lock</text>
+
+  <rect x="506" y="200" width="124" height="52" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1.2"/>
+  <text x="568" y="222" font-size="10.5" font-weight="700" fill="#0f172a" text-anchor="middle">Scratch Animatic</text>
+  <text x="568" y="238" font-size="9.5" fill="#475569" text-anchor="middle">Timed MP4 preview</text>
+
+  <text x="370" y="274" font-size="11.5" font-weight="700" fill="#0f172a">Quote: exact credits itemised per shot</text>
+
+  <!-- Amber Gate 1.5 bar -->
+  <rect x="370" y="290" width="260" height="70" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <text x="500" y="315" font-size="13.5" font-weight="700" fill="#1e293b" text-anchor="middle">Gate 1.5: Approve Spend</text>
+  <text x="500" y="335" font-size="12" fill="#475569" text-anchor="middle">Swap a weak frame cheaply before</text>
+  <text x="500" y="350" font-size="12" fill="#475569" text-anchor="middle">paying for full video diffusion</text>
+
+  <path d="M648,230 H672" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#va-head)"/>
+
+  <!-- ARTEFACT 3: Gate 2 Safe-Zone & Loudness Audit -->
+  <rect x="674" y="82" width="296" height="296" rx="12" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="692" y="108" font-size="14" font-weight="700" fill="#0f172a">3. Final Cut &amp; Safe-Zone Audit</text>
+  <text x="692" y="126" font-size="12" fill="#475569">final.mp4 · video_lint · virality score</text>
+
+  <!-- Mini 9:16 Safe-Zone diagram alongside checklist -->
+  <rect x="692" y="140" width="88" height="136" rx="6" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <!-- Top dead zone -->
+  <rect x="694" y="142" width="84" height="16" fill="#cbd5e1"/>
+  <text x="736" y="153" font-size="8" font-weight="700" fill="#475569" text-anchor="middle">TOP UI ZONE</text>
+  <!-- Right icon rail dead zone -->
+  <rect x="762" y="158" width="16" height="86" fill="#cbd5e1"/>
+  <!-- Bottom dead zone -->
+  <rect x="694" y="244" width="84" height="30" fill="#cbd5e1"/>
+  <text x="736" y="262" font-size="8" font-weight="700" fill="#475569" text-anchor="middle">BOTTOM UI ZONE</text>
+  <!-- Safe centre box -->
+  <rect x="700" y="164" width="58" height="74" rx="3" fill="#f8fafc" stroke="#0f172a" stroke-width="1" stroke-dasharray="3 2"/>
+  <text x="729" y="198" font-size="8.5" font-weight="700" fill="#0f172a" text-anchor="middle">SAFE</text>
+  <text x="729" y="210" font-size="8.5" font-weight="700" fill="#0f172a" text-anchor="middle">CAPTION</text>
+  <text x="729" y="222" font-size="8.5" font-weight="700" fill="#0f172a" text-anchor="middle">BOX</text>
+
+  <!-- Right side audit checks -->
+  <text x="794" y="158" font-size="11.5" font-weight="700" fill="#0f172a">video_lint checks:</text>
+  <text x="794" y="178" font-size="11" fill="#1e293b">• -14 LUFS audio level</text>
+  <text x="794" y="196" font-size="11" fill="#1e293b">• Safe-zone margins</text>
+  <text x="794" y="214" font-size="11" fill="#1e293b">• Art. 50 AI disclosure</text>
+  <text x="794" y="232" font-size="11" fill="#1e293b">• Brand font &amp; hex lock</text>
+  <text x="794" y="250" font-size="11" fill="#1e293b">• No dead air &gt; 0.5s</text>
+  <text x="794" y="270" font-size="11" font-weight="700" fill="#475569">Optional: score variants</text>
+
+  <!-- Amber Gate 2 bar -->
+  <rect x="692" y="290" width="260" height="70" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <text x="822" y="315" font-size="13.5" font-weight="700" fill="#1e293b" text-anchor="middle">Gate 2: Approve Publish</text>
+  <text x="822" y="335" font-size="12" fill="#475569" text-anchor="middle">Inspect stitched MP4 before</text>
+  <text x="822" y="350" font-size="12" fill="#475569" text-anchor="middle">scheduling or exporting</text>
+
+  <!-- Legend -->
+  <rect x="30" y="392" width="14" height="14" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="52" y="399" font-size="13" fill="#475569" dominant-baseline="central">Amber = human approval gate. You can edit the script at Gate 1 or swap a single frame at Gate 1.5 before committing budget.</text>
+</svg>

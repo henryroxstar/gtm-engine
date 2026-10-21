@@ -1,0 +1,27 @@
+# Typed counts in rendered prose that are allowed to stay typed.
+#
+# One `<file>:<line>  # YYYY-MM-DD <why this number cannot go stale>` per line. The reason is
+# the point: an entry without one is itself a failure, because the whole defect this gate
+# exists for is a number nobody could tell was old. See tests/lint/rendered_prose_check.py.
+#
+# NOT the place for "I'll derive it later" — that is the state the gate was written to end.
+
+# views_who.py:398's entry was removed 2026-09-11: the branch now renders `f['n']:,` in both
+# arms instead of a typed `0` literal, so the exemption no longer describes a real finding.
+# views_learn.py:259's entry (the PRIOR campaign's "sent 24 emails" hypothesis card) was removed
+# 2026-09-25 with the card itself (PS20 P1.7 Rule B): one campaign's story, hard-coded in the engine.
+# views_who.py:259's entry ("Two different verdicts sit in this table") was removed 2026-09-25
+# (PS20 Task 2.6a): the verdicts note moves to Operator notes, where no table sits beside it.
+#
+# PS20 P1.7 Rule A widened this gate to number words ("two" to "twenty", "dozen"). The entries
+# below are DEFINITIONAL: the word names a rule, a hypothetical or the page's own structure, and
+# counts nothing on disk. Every word that counted data was derived or deleted instead.
+gtm_core/email_campaign_dashboard/views_segments.py:69  # 2026-09-25 "an account two campaigns both work counts once" states the de-duplication rule with a hypothetical account; it counts nothing.
+gtm_core/email_campaign_dashboard/views_who.py:99  # 2026-09-25 "two different queues, not two shades of the same one": the judge routes to a closed set of two destinations (roster._DESTINATION_GLOSS), re-target and re-argue — the vocabulary, not a count of rows — and the sentence renders only when both are present.
+
+gtm_core/email_campaign_dashboard/frontier.py:272  # 2026-09-26 empty state copy, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:423  # 2026-09-26 terminology, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:309  # 2026-09-26 SVG coordinate, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:319  # 2026-09-26 CSS font weight, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:327  # 2026-09-26 CSS font weight, not a metric
+gtm_core/email_campaign_dashboard/frontier.py:340  # 2026-09-26 SVG coordinate, not a metric

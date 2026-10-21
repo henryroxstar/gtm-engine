@@ -1,0 +1,7 @@
+[[claim]]
+id = "beta-claim"
+group = "observability"
+status = "verified"
+statement = "The beta product records each action. zqbeta"
+source = "knowledge/references/beta-notes.md:1"
+do_not_say = ["tamper-proof"]

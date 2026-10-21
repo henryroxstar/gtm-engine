@@ -1,0 +1,59 @@
+/* ────────────────────────────────────────────────────────────────────────
+   ANIMATIONS — Hardware-composited transforms and opacity for HTML Motion Scenes
+   Adheres to D2: clean typography, no glow/particles/gradient text slop.
+   ──────────────────────────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slideUpEnter {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDownExit {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-40px);
+    opacity: 0;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.anim-fade-in {
+  animation: fadeIn var(--tempo-normal) var(--ease-out) forwards;
+}
+
+.anim-slide-up {
+  animation: slideUpEnter var(--tempo-normal) var(--ease-spring) forwards;
+}
+
+.anim-scale-in {
+  animation: scaleIn var(--tempo-normal) var(--ease-spring) forwards;
+}

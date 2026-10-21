@@ -1,0 +1,20 @@
+{
+  "source_item": "item-live",
+  "total_duration_s": 5,
+  "capture_mode": "live_action",
+  "synthetic_disclosure": "Declared on real footage, which is a false provenance claim.",
+  "style_scaffold": {"look": "natural window light, handheld", "provider_model": "camera"},
+  "identity_bindings": [],
+  "shots": [
+    "nope",
+    {
+      "n": 2,
+      "duration_s": 5,
+      "role": "presenter",
+      "camera": "static, eye level",
+      "visual": "kitchen table, morning light",
+      "motion_prompt": "he speaks to camera, articulating each word, and sets the mug down",
+      "spoken": "Every agent you run already carries a credential, and nobody wrote down which one."
+    }
+  ]
+}

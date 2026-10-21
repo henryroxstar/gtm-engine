@@ -1,0 +1,41 @@
+{
+  "_why": "Shared by tests/js/filter.test.js and tests/contracts/test_dashboard_filter_payload.py so the two implementations are held to the SAME expectations rather than each to its own. Deliberately contains a shared account: ci 0 is worked by both campaigns, which is the only case where counting rows and counting accounts differ — and the case the live roster does not currently contain, so nothing else would exercise it. No names: the real payload carries none either.",
+  "rows": [
+    {"i": 0, "ci": 0, "group": "staged",    "campaign": "alpha", "product": "P1", "country_key": "singapore",     "segment_key": "builder", "co_has_email": true,  "co_no_email": false, "co_named": true,  "co_role_inbox": false, "co_signal": true,  "co_signal_sourced": true},
+    {"i": 1, "ci": 1, "group": "staged",    "campaign": "alpha", "product": "P1", "country_key": "singapore",     "segment_key": "startup", "co_has_email": true,  "co_no_email": false, "co_named": false, "co_role_inbox": true,  "co_signal": false, "co_signal_sourced": false},
+    {"i": 2, "ci": 2, "group": "nocontact", "campaign": "alpha", "product": "P1", "country_key": "united states", "segment_key": "builder", "co_has_email": false, "co_no_email": true,  "co_named": false, "co_role_inbox": false, "co_signal": true,  "co_signal_sourced": false},
+    {"i": 3, "ci": 0, "group": "excluded",  "campaign": "beta",  "product": "P2", "country_key": "united states", "segment_key": "builder", "co_has_email": true,  "co_no_email": false, "co_named": true,  "co_role_inbox": false, "co_signal": true,  "co_signal_sourced": true}
+  ],
+  "cases": [
+    {"name": "no filter — 4 rows, 3 accounts",
+     "filters": [],
+     "rows_shown": 4,
+     "groups": {"staged": 2, "nocontact": 1, "excluded": 1},
+     "counts": {"all": 3, "co_has_email": 2, "co_no_email": 1, "co_named": 1, "co_role_inbox": 1, "co_signal": 2, "co_signal_sourced": 1}},
+    {"name": "country=singapore",
+     "filters": [["country_key", "singapore"]],
+     "rows_shown": 2,
+     "groups": {"staged": 2},
+     "counts": {"all": 2, "co_has_email": 2, "co_no_email": 0, "co_named": 1, "co_role_inbox": 1, "co_signal": 1, "co_signal_sourced": 1}},
+    {"name": "country=united states — the shared account and a second one",
+     "filters": [["country_key", "united states"]],
+     "rows_shown": 2,
+     "groups": {"nocontact": 1, "excluded": 1},
+     "counts": {"all": 2, "co_has_email": 1, "co_no_email": 1, "co_named": 1, "co_role_inbox": 0, "co_signal": 2, "co_signal_sourced": 1}},
+    {"name": "campaign=beta — one row of the shared account",
+     "filters": [["campaign", "beta"]],
+     "rows_shown": 1,
+     "groups": {"excluded": 1},
+     "counts": {"all": 1, "co_has_email": 1, "co_no_email": 0, "co_named": 1, "co_role_inbox": 0, "co_signal": 1, "co_signal_sourced": 1}},
+    {"name": "two facets at once",
+     "filters": [["country_key", "singapore"], ["segment_key", "builder"]],
+     "rows_shown": 1,
+     "groups": {"staged": 1},
+     "counts": {"all": 1, "co_has_email": 1, "co_no_email": 0, "co_named": 1, "co_role_inbox": 0, "co_signal": 1, "co_signal_sourced": 1}},
+    {"name": "a selection nothing matches",
+     "filters": [["country_key", "singapore"], ["campaign", "beta"]],
+     "rows_shown": 0,
+     "groups": {},
+     "counts": {"all": 0, "co_has_email": 0, "co_no_email": 0, "co_named": 0, "co_role_inbox": 0, "co_signal": 0, "co_signal_sourced": 0}}
+  ]
+}

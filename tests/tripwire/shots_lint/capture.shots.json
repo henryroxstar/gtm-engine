@@ -1,0 +1,39 @@
+{
+  "source_item": "item-capture",
+  "total_duration_s": 12,
+  "capture_mode": "live_action",
+  "style_scaffold": {
+    "look": "warm workshop daylight, handheld feel",
+    "provider_model": "n/a",
+    "negative": "text artifacts, logos"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "handheld, medium",
+      "visual": "the monitor on the bench, screen comped in later",
+      "motion_prompt": "a hand moves across the desk toward the dial",
+      "audio_bed": "room tone with a faint workshop hum"
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "screen",
+      "camera": "static, close",
+      "visual": "the field being filled in, keyed over the placeholder",
+      "motion_prompt": "the cursor moves down the form",
+      "audio_bed": "room tone with a faint workshop hum"
+    },
+    {
+      "n": 3,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "locked-off wide",
+      "visual": "the bench from across the room",
+      "motion_prompt": "the light shifts as a cloud passes",
+      "audio_bed": "room tone with a faint workshop hum"
+    }
+  ]
+}

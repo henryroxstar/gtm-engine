@@ -1,0 +1,34 @@
+[[sequence]]
+id = "SEQ-personalised"
+csv = "SEQ-personalised-enrolled.csv"
+spec = "SEQ-personalised.md"
+lane = "personalised"
+title = "personalised fixture"
+
+[[sequence]]
+id = "SEQ-generic"
+csv = "SEQ-generic-enrolled.csv"
+spec = "SEQ-generic.md"
+lane = "generic"
+title = "generic fixture"
+
+[[sequence]]
+id = "SEQ-repair"
+csv = "SEQ-repair-enrolled.csv"
+spec = "SEQ-repair.md"
+lane = "repair"
+title = "repair fixture"
+
+[[sequence]]
+id = "SEQ-hold"
+csv = "SEQ-hold-enrolled.csv"
+spec = "SEQ-hold.md"
+lane = "hold"
+title = "hold fixture"
+
+[[sequence]]
+id = "SEQ-excluded"
+csv = "SEQ-excluded-enrolled.csv"
+spec = "SEQ-excluded.md"
+lane = "excluded"
+title = "excluded fixture"

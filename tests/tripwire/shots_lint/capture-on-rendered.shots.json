@@ -1,0 +1,23 @@
+{
+  "source_item": "item-capture-on-rendered",
+  "total_duration_s": 4,
+  "style_scaffold": {
+    "look": "product studio, soft key",
+    "provider_model": "wan2_7",
+    "negative": "text artifacts, logos"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "locked-off wide",
+      "visual": "a machined brass dial on a walnut bench",
+      "motion_prompt": "the dial turns a quarter clockwise",
+      "lockoff": true,
+      "dead_zone": "lower third, captions",
+      "frame_margin": "10%",
+      "audio_bed": "room tone with a faint workshop hum"
+    }
+  ]
+}

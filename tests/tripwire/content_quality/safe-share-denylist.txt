@@ -1,0 +1,3 @@
+# Tripwire-only denylist (fictional tenant token). Wired in via GTM_SAFE_SHARE_DENYLIST_FILE so
+# the safe-to-share family trips without naming a real company anywhere in tests/.
+token: zorvane

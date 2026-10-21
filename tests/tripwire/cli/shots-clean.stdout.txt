@@ -1,0 +1,11 @@
+{
+  "path": "clean.shots.json",
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "not_checked": [
+    "craft (this list has no picture plan)"
+  ],
+  "schema": "shots.schema.json",
+  "schema_errors": []
+}

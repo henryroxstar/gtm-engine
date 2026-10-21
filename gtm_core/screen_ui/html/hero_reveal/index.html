@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920, initial-scale=1" />
+    <link rel="stylesheet" href="../_shared/tokens.css" />
+    <link rel="stylesheet" href="../_shared/animations.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--brand-canvas, #0B0B0F);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--brand-canvas, #0B0B0F);
+        padding-top: var(--safe-top, 80px);
+        padding-bottom: var(--safe-bottom, 140px);
+        max-height: var(--caption-band-top, 100%);
+      }
+      .layer { position: absolute; inset: 0; transform-origin: 0 0; }
+      #idle { transform-origin: 50% 50%; }
+      #still {
+        position: absolute;
+        display: block;
+        max-width: 90%;
+        max-height: 85%;
+        object-fit: contain;
+        border-radius: var(--radius-md, 12px);
+      }
+      #dim { position: absolute; opacity: 0; }
+      #ring { position: absolute; overflow: visible; }
+    </style>
+    <script src="../_shared/motion.js"></script>
+  </head>
+  <body>
+    <div id="root" data-composition-id="hero-reveal" data-no-timeline="true" data-start="0" data-duration="5" data-width="1080" data-height="1920">
+      <div id="exitMove" class="layer"><div id="exitFade" class="layer">
+        <div id="enterMove" class="layer"><div id="enterFade" class="layer">
+          <div id="cam" class="layer"><div id="idle" class="layer">
+            <img id="still" src="assets/hero.png" alt="" />
+            <div id="dim"></div>
+            <svg id="ring"><rect pathLength="1" fill="none" /></svg>
+          </div></div>
+        </div></div>
+      </div></div>
+    </div>
+    <script>
+      (function() {
+        const { spring, easeOut, easeInOut, win, track, stage } = window.GtmMotion || {};
+        if (!stage) return;
+        const { W, H } = stage("root");
+
+        const still = document.getElementById("still");
+        if (still) {
+          // Centered contain without distortion
+          Object.assign(still.style, {
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)"
+          });
+        }
+
+        const travel = 0.5 * H;
+        const enterMove = document.getElementById("enterMove");
+        const enterFade = document.getElementById("enterFade");
+        const exitMove = document.getElementById("exitMove");
+        const exitFade = document.getElementById("exitFade");
+        const idle = document.getElementById("idle");
+
+        if (enterMove) {
+          track(enterMove, 0, 0.85, (p) => ({
+            transform: `translateY(${travel * (1 - spring(p))}px)`
+          }));
+        }
+        if (enterFade) {
+          track(enterFade, 0, 0.85, (p) => ({
+            opacity: easeOut(win(p, 0, 0.6))
+          }));
+        }
+        if (idle) {
+          track(idle, 0.85, 4.2, (p) => {
+            const k = 1 + 0.012 * Math.sin(Math.PI * p);
+            const dy = -0.005 * H * Math.sin(2 * Math.PI * p);
+            return { transform: `translateY(${dy}px) scale(${k})` };
+          });
+        }
+        if (exitMove) {
+          track(exitMove, 4.2, 5.0, (p) => ({
+            transform: `translateY(${-travel * (1 - spring(1 - p))}px)`
+          }));
+        }
+        if (exitFade) {
+          track(exitFade, 4.2, 5.0, (p) => ({
+            opacity: 1 - easeInOut(win(p, 0.25, 1))
+          }));
+        }
+      })();
+    </script>
+  </body>
+</html>

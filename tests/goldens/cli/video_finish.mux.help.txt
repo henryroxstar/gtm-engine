@@ -1,0 +1,22 @@
+usage: python -m gtm_core.video_finish mux [-h] --video VIDEO --audio AUDIO
+                                           --out OUT [--workdir WORKDIR]
+                                           [--lip-synced]
+                                           [--atempo-max ATEMPO_MAX]
+                                           [--content-root CONTENT_ROOT]
+                                           [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --video VIDEO
+  --audio AUDIO
+  --out OUT
+  --workdir WORKDIR
+  --lip-synced          this shot's mouth was animated against this VO; clamps
+                        atempo to 1.02 because rescaling the audio desyncs the
+                        lips
+  --atempo-max ATEMPO_MAX
+                        max VO speed-up allowed to fit the shot (default
+                        1.15); past this the mismatch is refused as a script-
+                        length problem
+  --content-root CONTENT_ROOT
+  --json

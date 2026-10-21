@@ -1,0 +1,47 @@
+<style>
+  .box { padding: 4px; }
+  .sub { margin-top: 4px; }
+  .dseg { display: flex; height: 9px; }
+  .dseg i { display: block; height: 100%; }
+  .gloss dt { font-weight: bold; }
+  .note { padding: 8px; }
+  .cl { font-weight: bold; }
+</style>
+<script src="https://cdn.example.com/app.js"></script>
+<link rel="stylesheet" href="https://cdn.example.com/site.css">
+<nav><a href="#s1">What buyers say</a> · <a href="#s3">Later</a></nav>
+<div class="box">
+<section id="s1" data-audience="all">
+  <h2>What buyers say</h2>
+  <table>
+    <tr><th>Claim</th><th>Backing</th></tr>
+    <tr><td>agents need their own identity</td><td><b>5</b></td></tr>
+  </table>
+  <p>The <a href="#s2">evidence table</a> has no customer evidence for this claim.</p>
+  <p>See <a href="#nowhere">the missing anchor</a> for the rest.</p>
+  <p><b>8</b><span class="sub">8 companies</span></p>
+  <span class="dseg" style="width:52%"></span>
+  <div class="gloss"><b>Term</b><span>Definition</span></div>
+  <p class="ghost">This paragraph names a class the stylesheet never defines.</p>
+</section>
+<section id="s2" data-audience="everyone">
+  <h2>Evidence table</h2>
+  <table><tr><td>agents need their own identity</td><td><b>6</b></td></tr></table>
+</section>
+<section id="s2" data-audience="operator">
+  <h2>Operator</h2>
+  <p>Operator content that sits before a reader section.</p>
+</section>
+<section id="s3" data-audience="sales">
+  <h2>Later reader section</h2>
+  <p>A reader section after the operator one.</p>
+</section>
+<section>
+  <h2>What this means for each team</h2>
+  <h3>Marketing</h3>
+  <p>Only one team block.</p>
+</section>
+<div class="note"><span class="cl">Before quoting any number</span> read this callout, which opens with method instead of meaning and runs past sixty words on purpose: the count was taken over sixty-five tasks and eight hundred criteria, then filtered by the register that says which section a claim belongs in, then reconciled against last issue by hand, and only then written up, so the takeaway is nowhere near the top.</div>
+</div>
+<div>
+{{MONTH YEAR}} — Copy this file, then: 1. Replace every {{PLACEHOLDER}} with this issue's content.

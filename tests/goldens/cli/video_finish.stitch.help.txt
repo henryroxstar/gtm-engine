@@ -1,0 +1,37 @@
+usage: python -m gtm_core.video_finish stitch [-h] --segments SEGMENTS
+                                              --ratio {16:9,1:1,4:5,9:16}
+                                              --out OUT [--workdir WORKDIR]
+                                              [--video-bitrate VIDEO_BITRATE]
+                                              [--normalize]
+                                              [--crossfade-s CROSSFADE_S]
+                                              [--transitions-from-shots TRANSITIONS_FROM_SHOTS]
+                                              [--content-root CONTENT_ROOT]
+                                              [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --segments SEGMENTS   JSON: {"segments":[{"path":"...","reframed":false},
+                        ...]} in shot order
+  --ratio {16:9,1:1,4:5,9:16}
+  --out OUT
+  --workdir WORKDIR
+  --video-bitrate VIDEO_BITRATE
+                        e.g. "8M" — encode to a bitrate target instead of CRF;
+                        for a final deliverable that must clear video_lint's
+                        1080p bitrate floor
+  --normalize           re-encode every segment to uniform settings before
+                        joining; needed when segments come from different
+                        encoders (a provider render beside a local one)
+  --crossfade-s CROSSFADE_S
+                        0 (default) = hard cut via concat demuxer + stream
+                        copy; >0 re-encodes with xfade
+  --transitions-from-shots TRANSITIONS_FROM_SHOTS
+                        a shot list whose per-shot production.transition_in
+                        says how each shot is cut into (dissolve/fade/push,
+                        absent = hard cut); its shots must be the --segments,
+                        in order. Not combinable with --crossfade-s, which
+                        dissolves every join alike. Also silences each
+                        role=broll shot with no sfx and no spoken line (the
+                        engine's own audio is never wanted)
+  --content-root CONTENT_ROOT
+  --json

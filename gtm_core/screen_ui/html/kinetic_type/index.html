@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920, initial-scale=1" />
+    <link rel="stylesheet" href="../_shared/tokens.css" />
+    <link rel="stylesheet" href="../_shared/animations.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--brand-canvas, #0B0B0F);
+        font-family: var(--brand-font-headline, sans-serif);
+        color: var(--brand-text, #FFFFFF);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: var(--safe-top, 80px);
+        padding-bottom: var(--safe-bottom, 140px);
+        padding-left: max(var(--safe-left, 65px), 8%);
+        padding-right: max(var(--safe-right, 65px), 12%);
+        max-height: var(--caption-band-top, 100%);
+      }
+      .badge {
+        font-family: var(--brand-font-body, sans-serif);
+        font-size: var(--text-sm, 1.25rem);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        background: var(--brand-primary);
+        color: var(--brand-text-on-primary, var(--text-on-primary));
+        padding: 8px 16px;
+        border-radius: var(--radius-sm, 6px);
+        margin-bottom: var(--space-6, 24px);
+        opacity: 0;
+      }
+      .headline {
+        font-size: var(--text-3xl, 3.5rem);
+        font-weight: 800;
+        line-height: 1.08;
+        letter-spacing: -0.03em;
+        color: var(--brand-text, #FFFFFF);
+        margin-bottom: var(--space-4, 16px);
+        max-width: 90%;
+        opacity: 1;
+      }
+      .subline {
+        font-family: var(--brand-font-body, sans-serif);
+        font-size: var(--text-lg, 1.5rem);
+        font-weight: 400;
+        line-height: 1.45;
+        color: var(--brand-text-dim, #D4D4D4);
+        max-width: 85%;
+        opacity: 0;
+      }
+    </style>
+    <script src="../_shared/motion.js"></script>
+  </head>
+  <body>
+    <div id="root" data-composition-id="kinetic-type" data-no-timeline="true" data-start="0" data-duration="5" data-width="1080" data-height="1920">
+      <div id="badge" class="badge">Performance</div>
+      <h1 id="headline" class="headline">Instant Verification</h1>
+      <p id="subline" class="subline">Provably deterministic output across every run.</p>
+    </div>
+    <script>
+      (function() {
+        const { spring, easeOut, win, track, stage, splitText } = window.GtmMotion || {};
+        if (!stage) return;
+        stage("root");
+
+        const badge = document.getElementById("badge");
+        const headline = document.getElementById("headline");
+        const subline = document.getElementById("subline");
+
+        // Entrance choreography: badge (0.15s), headline words (0.35s + stagger), subline (0.65s)
+        if (badge) {
+          track(badge, 0.15, 0.75, (p) => ({
+            opacity: easeOut(win(p, 0, 0.8)),
+            transform: `translateY(${24 * (1 - spring(p))}px)`
+          }));
+        }
+        if (headline) {
+          if (splitText) {
+            const words = splitText(headline, { by: "words" });
+            const count = words.length;
+            const staggerStep = Math.min(0.045, count > 1 ? 0.5 / (count - 1) : 0);
+            words.forEach((wordEl, idx) => {
+              const startS = 0.35 + idx * staggerStep;
+              track(wordEl, startS, startS + 0.8, (p) => ({
+                opacity: easeOut(win(p, 0, 0.8)),
+                transform: `translateY(${40 * (1 - spring(p))}px)`
+              }));
+            });
+          } else {
+            track(headline, 0.35, 1.15, (p) => ({
+              opacity: easeOut(win(p, 0, 0.8)),
+              transform: `translateY(${40 * (1 - spring(p))}px)`
+            }));
+          }
+        }
+        if (subline) {
+          track(subline, 0.65, 1.45, (p) => ({
+            opacity: easeOut(win(p, 0, 0.8)),
+            transform: `translateY(${32 * (1 - spring(p))}px)`
+          }));
+        }
+      })();
+    </script>
+  </body>
+</html>

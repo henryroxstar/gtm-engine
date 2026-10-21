@@ -1,0 +1,11 @@
+[[angle]]
+id = "enterprise-platform-north"
+seat = "platform"
+premise = "north-premise"
+claim = "north-claim"
+proof = "north-proof"
+opener_kind = "account-event"
+stakes = "an outage nobody can reconstruct"
+summary = "One record per action for north. northonly"
+status = "draft"
+segments = ["enterprise"]

@@ -1,0 +1,13 @@
+{
+  "id": "11111111-1111-1111-1111-111111111111",
+  "title": "Regulators signal agent-identity rules for autonomous AI",
+  "url": "https://example.com/agent-identity-rules",
+  "source": "Example Wire",
+  "published_at": "2026-06-13T09:00:00Z",
+  "created_at": "2026-06-13T09:05:00Z",
+  "summary": "A short summary of the item.",
+  "topics": ["ai-policy", "agentic-ai"],
+  "trending_score": 72,
+  "is_active": true,
+  "is_stale": false
+}

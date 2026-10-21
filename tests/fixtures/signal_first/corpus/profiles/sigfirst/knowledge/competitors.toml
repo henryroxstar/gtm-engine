@@ -1,0 +1,6 @@
+[[competitor]]
+name = "Rivalworks"
+tier = "direct"
+aliases = ["Rival Works"]
+domains = ["rivalworks.example"]
+note = "fixture competitor"

@@ -1,0 +1,34 @@
+{
+  "source_item": "item-bindings",
+  "total_duration_s": 8,
+  "style_scaffold": {
+    "look": "painterly storybook illustration, warm cream ground",
+    "provider_model": "model-fictional-1"
+  },
+  "deliverable_ratios": ["9:16"],
+  "identity_bindings": {
+    "dumpling": "11111111-2222-3333-4444-555555555555",
+    "narrator": {"engine": "engine-fictional-1", "source_px": "1080x1920 portrait"},
+    "notes": "the casting note that used to masquerade as a binding"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static shot",
+      "visual": "a dumpling on a chipped plate",
+      "motion_prompt": "the dumpling wobbles once and settles on the plate",
+      "audio_bed": "room tone with a faint kitchen hum"
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "screen",
+      "camera": "screen capture, locked",
+      "visual": "an empty drafts folder",
+      "motion_prompt": "the cursor scrolls the empty list and stops",
+      "audio_bed": "room tone with one soft interface click"
+    }
+  ]
+}

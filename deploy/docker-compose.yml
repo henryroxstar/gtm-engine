@@ -1,0 +1,362 @@
+# GTM backend stack: Postgres + Redis + API + queue worker + MCP server.
+#
+# Nothing is published to a host port. To reach the stack from outside, pick ONE ingress:
+#   - docker-compose.loopback.yml  publishes the API and MCP server on 127.0.0.1 for a reverse
+#                                  proxy (Caddy, nginx, Traefik) running on the same host.
+#   - `--profile tunnel`           starts the Cloudflare Tunnel sidecar below.
+# Full walkthrough: docs/DEPLOY-BACKEND.md.
+#
+# Usage:
+#   cp deploy/.env.example deploy/.env       # then fill in every CHANGE_ME value
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.loopback.yml up -d --build
+#
+# docker compose reads deploy/.env for ${...} interpolation, because deploy/ is the project directory.
+#
+# Migrations: nothing to run by hand. The api applies pending ones itself at startup (the
+# backend/main.py lifespan calls backend/database.py migrate()) before /health returns 200.
+#
+# Apply any config or env change with `docker compose up -d --force-recreate`:
+# `docker compose restart` does NOT re-read the compose file or the env.
+
+services:
+
+  # ── Postgres ────────────────────────────────────────────────────────────────
+  postgres:
+    # The postgres:18 image keeps its data directory under /var/lib/postgresql/18/docker and
+    # declares the volume one level up, so the volume mounts at /var/lib/postgresql. A Postgres
+    # major upgrade is a dump and restore, never a tag change on a volume that already holds data.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-gtm_backend}
+      POSTGRES_USER:     ${POSTGRES_USER:-gtm_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gtm_app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend API ──────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # The runtime pool connects as the NON-OWNER gtm_api role so FORCE ROW LEVEL SECURITY
+      # actually applies (a superuser or table owner bypasses even FORCE). Migrations run
+      # separately on the owner role via POSTGRES_MIGRATION_URL, and backend/main.py sets
+      # gtm_api's password at startup from POSTGRES_GTMAPI_PASSWORD.
+      DATABASE_URL:               postgres://gtm_api:${POSTGRES_GTMAPI_PASSWORD:?set POSTGRES_GTMAPI_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-gtm_backend}
+      POSTGRES_MIGRATION_URL:     postgres://${POSTGRES_USER:-gtm_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gtm_backend}
+      POSTGRES_GTMAPI_PASSWORD:   ${POSTGRES_GTMAPI_PASSWORD}
+      BACKEND_JWT_SECRET:         ${BACKEND_JWT_SECRET:?set BACKEND_JWT_SECRET in deploy/.env}
+      BACKEND_JWT_EXPIRE_MINUTES: ${BACKEND_JWT_EXPIRE_MINUTES:-60}
+      BACKEND_REFRESH_EXPIRE_DAYS: ${BACKEND_REFRESH_EXPIRE_DAYS:-30}
+      BACKEND_PORT:               ${BACKEND_PORT:-8000}
+      # POST /v1/auth/register creates a user plus a workspace. It is open by default so the first
+      # account can be created; set false once your accounts exist (or when you sign users in
+      # through TRUSTED_ISSUERS) so an internet-reachable API does not accept strangers.
+      ALLOW_NATIVE_REGISTRATION:  ${ALLOW_NATIVE_REGISTRATION:-true}
+      # Comma-separated browser origins. With ENV=production an unset or wildcard value
+      # fails the boot rather than serving a permissive policy.
+      CORS_ORIGINS:               ${CORS_ORIGINS:-*}
+      # Service secret for an external billing system's entitlement-sync call
+      # (PUT /v1/entitlement/{workspace_id}). Never a user token.
+      BILLING_SYNC_SECRET:        ${BILLING_SYNC_SECRET:-}
+      # 32-byte hex key for the BYOK credential vault (backend/vault.py). Unset means the vault
+      # fails closed: PUT /v1/integrations/{provider} returns 503, never a plaintext fallback.
+      VAULT_KEK:                  ${VAULT_KEK:-}
+      REPO_ROOT:                  /app
+      ENV:                        ${ENV:-production}
+      RATELIMIT_ENABLED:          ${RATELIMIT_ENABLED:-true}
+      RATELIMIT_PROXY_SECRET:     ${RATELIMIT_PROXY_SECRET:-}
+      # Shared rate-limit and SSE/gate pub-sub state. RATELIMIT_STORAGE_URI wins where set and
+      # REDIS_URL is the fallback, so the two can never point at different instances.
+      REDIS_URL:                  ${REDIS_URL:-redis://redis:6379/0}
+      RATELIMIT_STORAGE_URI:      ${RATELIMIT_STORAGE_URI:-}
+      # uvicorn worker count. More than 1 needs a reachable Redis, or the container refuses to boot.
+      BACKEND_WORKERS:            ${BACKEND_WORKERS:-1}
+      # External identity-provider federation: JSON array of trusted issuers. Unset means
+      # POST /v1/auth/exchange returns 503. Validated at boot.
+      TRUSTED_ISSUERS:            ${TRUSTED_ISSUERS:-}
+      # Push notifications (FCM HTTP v1): the service-account JSON, or a path to it. Unset means
+      # push is a no-op and clients poll.
+      PUSH_PROVIDER:              ${PUSH_PROVIDER:-}
+      PUSH_FCM_SERVICE_ACCOUNT_JSON: ${PUSH_FCM_SERVICE_ACCOUNT_JSON:-}
+      PUSH_TITLE:                 ${PUSH_TITLE:-}
+      ANTHROPIC_API_KEY:          ${ANTHROPIC_API_KEY:-}
+      ACTIVE_PROFILE:             ${ACTIVE_PROFILE:-template}
+      GTM_CONTENT_ROOT:           /app/content
+      GTM_PROFILES_ROOT:          /app/profiles
+      # Per-workspace tenant trees, pinned to the `workspaces` volume so they survive a recreate.
+      GTM_WORKSPACES_ROOT:        /app/data/workspaces
+      # Optional connectors. Each is empty (off) unless you set it.
+      NEWS_DB_DSN:                ${NEWS_DB_DSN:-}
+      HERMES_PUBLISH_URL:         ${HERMES_PUBLISH_URL:-}
+      HERMES_PUBLISH_SECRET:      ${HERMES_PUBLISH_SECRET:-}
+      HERMES_PUBLISH_ENABLED:     ${HERMES_PUBLISH_ENABLED:-false}
+      HERMES_PUBLISH_MAX_PER_HOUR: ${HERMES_PUBLISH_MAX_PER_HOUR:-}
+      HERMES_PUBLISH_MAX_CHARS:   ${HERMES_PUBLISH_MAX_CHARS:-}
+      # Its own opt-in on top of HERMES_PUBLISH_ENABLED, closed by default.
+      HERMES_SCHEDULE_ENABLED:    ${HERMES_SCHEDULE_ENABLED:-false}
+      HERMES_SCHEDULE_MAX_HORIZON_DAYS: ${HERMES_SCHEDULE_MAX_HORIZON_DAYS:-90}
+      PUBLISH_LINKEDIN_WEBHOOK_URL: ${PUBLISH_LINKEDIN_WEBHOOK_URL:-}
+      PUBLISH_LINKEDIN_WEBHOOK_SECRET: ${PUBLISH_LINKEDIN_WEBHOOK_SECRET:-}
+      REPLY_SEND_URL:             ${REPLY_SEND_URL:-}
+      REPLY_SEND_SECRET:          ${REPLY_SEND_SECRET:-}
+      REPLY_SEND_ENABLED:         ${REPLY_SEND_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN:         ${TELEGRAM_BOT_TOKEN:-}
+      ELEVENLABS_API_KEY:         ${ELEVENLABS_API_KEY:-}
+      HIGGSFIELD_API_KEY:         ${HIGGSFIELD_API_KEY:-}
+      HIGGSFIELD_API_SECRET:      ${HIGGSFIELD_API_SECRET:-}
+      GEMINI_API_KEY:             ${GEMINI_API_KEY:-}
+      FIRECRAWL_API_KEY:          ${FIRECRAWL_API_KEY:-}
+      ROCKETREACH_API_KEY:        ${ROCKETREACH_API_KEY:-}
+      SALESHANDY_API_KEY:         ${SALESHANDY_API_KEY:-}
+      GTM_DNC_ADD_ENABLED:        ${GTM_DNC_ADD_ENABLED:-}
+      GTM_CAPABILITY_AUTOSET_ENABLED: ${GTM_CAPABILITY_AUTOSET_ENABLED:-}
+      SALESHANDY_DNC_LIST_ID:     ${SALESHANDY_DNC_LIST_ID:-}
+      SYFTEN_API_KEY:             ${SYFTEN_API_KEY:-}
+      # Vibe Prospecting is an OAuth MCP connector with no API key; set to "true" once authorized
+      # so gtm_core/capabilities.py stops reporting prospect-via-web as inactive.
+      VIBE_PROSPECTING_CONNECTED: ${VIBE_PROSPECTING_CONNECTED:-false}
+      GTM_ONBOARDING_CAP_USD:     ${GTM_ONBOARDING_CAP_USD:-}
+      # Per-provider house-pooling switches, default OFF (a tenant must bring its own key). An exact
+      # yes turns one on; a switch naming an identity provider (Saleshandy, Syften) is refused outright.
+      GTM_POOL_ROCKETREACH:       ${GTM_POOL_ROCKETREACH:-}
+      GTM_POOL_APOLLO:            ${GTM_POOL_APOLLO:-}
+      APOLLO_API_KEY:             ${APOLLO_API_KEY:-}
+      # npm package name that POST /v1/agents/provision prints in its MCP client snippet. The default is
+      # the same placeholder the code prints when unset; set your own once you publish a bridge.
+      GTM_MCP_BRIDGE_PACKAGE:     ${GTM_MCP_BRIDGE_PACKAGE:-<the MCP bridge package>}
+      # Start a tenant run's CLI as the workspace's own OS user (gtm-launch). Off unless an exact 1,
+      # and the backend refuses to boot with it on when the box cannot launch tenant runs.
+      GTM_TENANT_LAUNCHER:        ${GTM_TENANT_LAUNCHER:-}
+      # POST /v1/agents/provision (one-call agent setup). Shut (404) unless an unambiguous on.
+      GTM_AGENT_PROVISION_ENABLED: ${GTM_AGENT_PROVISION_ENABLED:-}
+      # Which payment channel credits wallets. Unset leaves the code default.
+      BILLING_SERVICE_ENABLED:    ${BILLING_SERVICE_ENABLED:-}
+      # Where a payment-required refusal sends the caller. Unset means the refusal names no link.
+      BILLING_URL:                ${BILLING_URL:-}
+      PRICING_URL:                ${PRICING_URL:-}
+      # Set false on the api when the separate worker service below handles runs.
+      QUEUE_WORKER_ENABLED:       ${QUEUE_WORKER_ENABLED:-false}
+      GTM_WORKER_MAX_CONCURRENT_RUNS: ${GTM_WORKER_MAX_CONCURRENT_RUNS:-4}
+      GTM_MAX_WARM_SESSIONS:      ${GTM_MAX_WARM_SESSIONS:-8}
+      GTM_WORKER_DRAIN_TIMEOUT_S: ${GTM_WORKER_DRAIN_TIMEOUT_S:-30}
+      RESERVATION_TTL_SECONDS:    ${RESERVATION_TTL_SECONDS:-90000}
+      GTM_RUN_ISOLATION:          ${GTM_RUN_ISOLATION:-process}
+      GTM_DOCKER_HOST:            ${GTM_DOCKER_HOST:-}
+      # Optional S3-compatible object storage (Cloudflare R2) for artifact downloads.
+      R2_ACCOUNT_ID:              ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID:           ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY:       ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME:             ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BUCKET:           ${R2_PUBLIC_BUCKET:-gtm-public-prd}
+      R2_PUBLIC_BASE_URL:         ${R2_PUBLIC_BASE_URL:-}
+    volumes:
+      - content:/app/content
+      - profiles:/app/profiles
+      - workspaces:/app/data/workspaces
+    networks:
+      - backend
+    # /health returns 200 only AFTER the lifespan completes, and the lifespan applies the
+    # migrations. The mcp service gates its start on this, so it never serves before the
+    # database bootstrap functions it relies on exist.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    # No host port here: see the ingress options at the top of this file.
+    expose:
+      - "8000"
+
+  # ── Queue worker ─────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    restart: unless-stopped
+    # Long enough for an in-flight run to reach a safe point on `docker compose stop`.
+    stop_grace_period: 180s
+    command: ["python", "-m", "backend.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:               postgres://gtm_api:${POSTGRES_GTMAPI_PASSWORD}@postgres:5432/${POSTGRES_DB:-gtm_backend}
+      REDIS_URL:                  ${REDIS_URL:-redis://redis:6379/0}
+      VAULT_KEK:                  ${VAULT_KEK:-}
+      REPO_ROOT:                  /app
+      ENV:                        ${ENV:-production}
+      ACTIVE_PROFILE:             ${ACTIVE_PROFILE:-template}
+      GTM_CONTENT_ROOT:           /app/content
+      GTM_PROFILES_ROOT:          /app/profiles
+      GTM_WORKSPACES_ROOT:        /app/data/workspaces
+      QUEUE_WORKER_ENABLED: "true"
+      GTM_WORKER_MAX_CONCURRENT_RUNS: ${GTM_WORKER_MAX_CONCURRENT_RUNS:-4}
+      GTM_MAX_WARM_SESSIONS:      ${GTM_MAX_WARM_SESSIONS:-8}
+      GTM_WORKER_DRAIN_TIMEOUT_S: ${GTM_WORKER_DRAIN_TIMEOUT_S:-170}
+      RESERVATION_TTL_SECONDS:    ${RESERVATION_TTL_SECONDS:-90000}
+      GTM_RUN_ISOLATION:          ${GTM_RUN_ISOLATION:-process}
+      GTM_DOCKER_HOST:            ${GTM_DOCKER_HOST:-}
+      GTM_CONTAINER_MEMORY:       ${GTM_CONTAINER_MEMORY:-1024m}
+      GTM_CONTAINER_CPUS:         ${GTM_CONTAINER_CPUS:-1.0}
+      GTM_CONTAINER_PIDS_LIMIT:   ${GTM_CONTAINER_PIDS_LIMIT:-256}
+      GTM_RUNNER_IMAGE:           ${GTM_RUNNER_IMAGE:-gtm-backend:latest}
+      GTM_RLIMIT_NPROC:           ${GTM_RLIMIT_NPROC:-1024}
+      GTM_RLIMIT_FSIZE:           ${GTM_RLIMIT_FSIZE:-536870912}
+      GTM_RLIMIT_CPU:             ${GTM_RLIMIT_CPU:-1800}
+      ANTHROPIC_API_KEY:          ${ANTHROPIC_API_KEY:-}
+      ELEVENLABS_API_KEY:         ${ELEVENLABS_API_KEY:-}
+      HIGGSFIELD_API_KEY:         ${HIGGSFIELD_API_KEY:-}
+      HIGGSFIELD_API_SECRET:      ${HIGGSFIELD_API_SECRET:-}
+      GEMINI_API_KEY:             ${GEMINI_API_KEY:-}
+      FIRECRAWL_API_KEY:          ${FIRECRAWL_API_KEY:-}
+      ROCKETREACH_API_KEY:        ${ROCKETREACH_API_KEY:-}
+      # A run starts here too, so it reads the same pooling and launcher switches as the api.
+      GTM_POOL_ROCKETREACH:       ${GTM_POOL_ROCKETREACH:-}
+      GTM_POOL_APOLLO:            ${GTM_POOL_APOLLO:-}
+      APOLLO_API_KEY:             ${APOLLO_API_KEY:-}
+      GTM_TENANT_LAUNCHER:        ${GTM_TENANT_LAUNCHER:-}
+      BILLING_URL:                ${BILLING_URL:-}
+      PRICING_URL:                ${PRICING_URL:-}
+      SALESHANDY_API_KEY:         ${SALESHANDY_API_KEY:-}
+      GTM_DNC_ADD_ENABLED:        ${GTM_DNC_ADD_ENABLED:-}
+      GTM_CAPABILITY_AUTOSET_ENABLED: ${GTM_CAPABILITY_AUTOSET_ENABLED:-}
+      SALESHANDY_DNC_LIST_ID:     ${SALESHANDY_DNC_LIST_ID:-}
+      SYFTEN_API_KEY:             ${SYFTEN_API_KEY:-}
+      VIBE_PROSPECTING_CONNECTED: ${VIBE_PROSPECTING_CONNECTED:-false}
+      HERMES_PUBLISH_URL:         ${HERMES_PUBLISH_URL:-}
+      HERMES_PUBLISH_SECRET:      ${HERMES_PUBLISH_SECRET:-}
+      HERMES_PUBLISH_ENABLED:     ${HERMES_PUBLISH_ENABLED:-false}
+      HERMES_SCHEDULE_ENABLED:    ${HERMES_SCHEDULE_ENABLED:-false}
+      HERMES_PUBLISH_MAX_PER_HOUR: ${HERMES_PUBLISH_MAX_PER_HOUR:-}
+      HERMES_PUBLISH_MAX_CHARS:   ${HERMES_PUBLISH_MAX_CHARS:-}
+      HERMES_SCHEDULE_MAX_HORIZON_DAYS: ${HERMES_SCHEDULE_MAX_HORIZON_DAYS:-90}
+      PUBLISH_LINKEDIN_WEBHOOK_URL: ${PUBLISH_LINKEDIN_WEBHOOK_URL:-}
+      PUBLISH_LINKEDIN_WEBHOOK_SECRET: ${PUBLISH_LINKEDIN_WEBHOOK_SECRET:-}
+      R2_ACCOUNT_ID:              ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID:           ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY:       ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME:             ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BUCKET:           ${R2_PUBLIC_BUCKET:-gtm-public-prd}
+      R2_PUBLIC_BASE_URL:         ${R2_PUBLIC_BASE_URL:-}
+    volumes:
+      - content:/app/content
+      - profiles:/app/profiles
+      - workspaces:/app/data/workspaces
+    networks:
+      - backend
+
+  # ── Redis (shared rate-limit + pub/sub state) ────────────────────────────────
+  # Required before running more than one uvicorn worker: the rate limiter and the run-stream
+  # subscriber registry are otherwise per-process, so N workers keep N independent counters.
+  # Cache only: no persistence, nothing to back up. Reachable only on the compose network.
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+    expose:
+      - "6379"
+
+  # ── MCP server ───────────────────────────────────────────────────────────────
+  mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.mcp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Gate on the api being healthy: it applies the migrations the MCP runtime needs.
+      api:
+        condition: service_healthy
+    environment:
+      # Connects as the NON-OWNER gtm_api role so FORCE ROW LEVEL SECURITY applies to the MCP
+      # surface too. The pre-tenant api_keys lookup goes through the resolve_api_key()
+      # SECURITY DEFINER function; every post-auth query runs inside workspace_scope.
+      DATABASE_URL:              postgres://gtm_api:${POSTGRES_GTMAPI_PASSWORD}@postgres:5432/${POSTGRES_DB:-gtm_backend}
+      MCP_PORT:                  ${MCP_PORT:-8001}
+      MCP_HOST:                  0.0.0.0
+      # Shared secret an authenticating proxy in front of this server sends in X-Gateway-Secret.
+      MCP_GATEWAY_SECRET:        ${MCP_GATEWAY_SECRET:-}
+      # Where the "finish setup" error sends a developer whose workspace has no profile yet.
+      # Unset means the error carries no link.
+      SETUP_URL:                 ${SETUP_URL:-}
+      BILLING_URL:               ${BILLING_URL:-}
+      PRICING_URL:               ${PRICING_URL:-}
+      DEEPSEEK_API_KEY:          ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_INPUT_USD_PER_1K: ${DEEPSEEK_INPUT_USD_PER_1K:-0.00027}
+      DEEPSEEK_OUTPUT_USD_PER_1K: ${DEEPSEEK_OUTPUT_USD_PER_1K:-0.00110}
+      VAULT_KEK:                 ${VAULT_KEK:-}
+      GTM_CONTENT_ROOT:          /app/content
+      GTM_PROFILES_ROOT:         /app/profiles
+      GTM_WORKSPACES_ROOT:       /app/data/workspaces
+    volumes:
+      - content:/app/content
+      - profiles:/app/profiles
+      - workspaces:/app/data/workspaces:ro
+      - ../packs:/app/packs:ro
+    networks:
+      - backend
+    expose:
+      - "8001"
+
+  # ── Cloudflare Tunnel (optional ingress) ─────────────────────────────────────
+  # Off unless you pass `--profile tunnel`; it restart-loops without a tunnel token. Create the
+  # tunnel in the Cloudflare dashboard and point its public hostname at http://api:8000.
+  cloudflared:
+    profiles: ["tunnel"]
+    # Pinned, not `:latest`: this would be the only inbound path to the stack, and a floating tag
+    # makes the running version unknowable afterwards. `--no-autoupdate` refuses in-container
+    # self-update, so the tag IS the version.
+    image: cloudflare/cloudflared:2026.10.0
+    restart: unless-stopped
+    depends_on:
+      - api
+      - mcp
+    command: tunnel --no-autoupdate run
+    networks:
+      - backend
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+
+volumes:
+  pgdata:
+  content:
+  profiles:
+  # Per-workspace trees (GTM_WORKSPACES_ROOT): without a volume every --force-recreate would erase them.
+  workspaces:
+
+networks:
+  backend:
+    driver: bridge

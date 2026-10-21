@@ -1,0 +1,23 @@
+usage: deck-lint [-h] [--theme THEME] [--dossier DOSSIER] [--inputs INPUTS]
+                 [--minutes MINUTES] [--template TEMPLATE] [--allow-appendix]
+                 [--strict] [--json]
+                 [paths ...]
+
+positional arguments:
+  paths                one or more slides.md
+
+options:
+  -h, --help           show this help message and exit
+  --theme THEME        deck-theme dir (e.g. .engine/deck-theme) — runs the D9
+                       render-weight audit. May be passed with or without
+                       slides.md paths.
+  --dossier DOSSIER    account dossier (questions + DON'Ts). Repeatable — pass
+                       the dossier spec AND the deck's approved-questions
+                       file, which is where an extension to the bank is
+                       recorded.
+  --inputs INPUTS      deck inputs/ dir — the quote corpus
+  --minutes MINUTES
+  --template TEMPLATE  A1–A10 · sets D7 severity
+  --allow-appendix
+  --strict             warnings fail too
+  --json

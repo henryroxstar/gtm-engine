@@ -1,0 +1,10 @@
+# Case-study company names the outreach linter flags (named-case-study rule).
+# Cite proof by company TYPE ("a regulated-FI compliance team cut verification 90 percent"),
+# never the logo — an unknown name confuses more than it credits, and unproven claims invite
+# verification they may not survive.
+#
+# One name per line; matched case-insensitively as a whole word. Lines starting with `#` are
+# ignored. Leave empty to disable the check. Passed to the linter via:
+#   --case-study-file profiles/<active>/knowledge/outreach-case-studies.txt
+#
+# (Add your own case-study company names below.)

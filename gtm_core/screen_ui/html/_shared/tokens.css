@@ -1,0 +1,90 @@
+/* ────────────────────────────────────────────────────────────────────────
+   DESIGN TOKENS — brand-neutral CORE for HTML Motion Scenes
+   ──────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Neutral grey scale ─ */
+  --neutral-50: #F8FAFC;
+  --neutral-100: #F1F5F9;
+  --neutral-200: #E2E8F0;
+  --neutral-300: #CBD5E1;
+  --neutral-400: #94A3B8;
+  --neutral-500: #64748B;
+  --neutral-600: #475569;
+  --neutral-700: #334155;
+  --neutral-800: #1E293B;
+  --neutral-900: #0F172A;
+  --neutral-950: #020617;
+
+  /* ── Brand contract fallbacks (overridden by per-render injected :root) ─ */
+  --brand-canvas: #0B0B0F;
+  --brand-surface: #14141E;
+  --brand-primary: #3B82F6;
+  --brand-secondary: #22D3EE;
+  --brand-accent: #3B82F6;
+  --brand-text: #FFFFFF;
+  --brand-text-dim: #94A3B8;
+  --brand-text-muted: #64748B;
+  --brand-text-on-primary: #FFFFFF;
+  --brand-text-on-accent: #000000;
+  --text-on-primary: var(--brand-text-on-primary);
+  --text-on-accent: var(--brand-text-on-accent);
+  --brand-warn: #F2A93B;
+  --brand-good: #3BD68A;
+
+  /* ── Typography fallbacks ─ */
+  --brand-font-headline: system-ui, -apple-system, sans-serif;
+  --brand-font-body: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* ── Type scale ─ */
+  --text-xs: clamp(0.75rem, 1.2vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 1.5vw, 1rem);
+  --text-base: clamp(1rem, 2vw, 1.25rem);
+  --text-lg: clamp(1.25rem, 2.5vw, 1.5rem);
+  --text-xl: clamp(1.5rem, 3.2vw, 2rem);
+  --text-2xl: clamp(2rem, 4.2vw, 2.75rem);
+  --text-3xl: clamp(2.75rem, 5.5vw, 3.75rem);
+  --text-4xl: clamp(3.75rem, 7vw, 5rem);
+
+  /* ── Spacing ─ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+
+  /* ── Radii ─ */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* ── Motion & timing defaults ─ */
+  --tempo-fast: 0.25s;
+  --tempo-normal: 0.45s;
+  --tempo-slow: 0.85s;
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Shot viewport stamped variables ─ */
+  --shot-width: 1080px;
+  --shot-height: 1920px;
+  --shot-fps: 30;
+  --shot-duration-s: 5s;
+  --shot-total-frames: 150;
+}
+
+/* ── Split text kinetic unit ─ */
+.gtm-split-unit {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+

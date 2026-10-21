@@ -1,0 +1,10 @@
+usage: python -m gtm_core.video_finish music-fade [-h] --in SRC
+                                                  [--window-s WINDOW_S]
+                                                  [--drop-db DROP_DB] [--json]
+
+options:
+  -h, --help           show this help message and exit
+  --in SRC
+  --window-s WINDOW_S
+  --drop-db DROP_DB
+  --json

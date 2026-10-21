@@ -1,0 +1,6 @@
+usage: python -m gtm_core.video_finish predictor-trim [-h] --in SRC --out DST
+
+options:
+  -h, --help  show this help message and exit
+  --in SRC
+  --out DST

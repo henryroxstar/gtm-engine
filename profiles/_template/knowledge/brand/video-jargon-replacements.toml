@@ -1,0 +1,14 @@
+# Plain-language jargon replacements for video scripts (TEMPLATE).
+# Advisory replacements suggesting audience-friendly phrasing for dense technical terms.
+# Customise per tenant in profiles/<active>/knowledge/brand/video-jargon-replacements.toml.
+
+[replacements]
+"zero-trust" = "verify every step"
+"oauth" = "login handoff"
+"jwt" = "access pass"
+"spiffe" = "workload ID"
+"mtls" = "mutual encrypted connection"
+"blast radius" = "damage reach"
+"mcp" = "tool protocol"
+"prompt injection" = "instruction hijacking"
+"fail-closed" = "default-deny"

@@ -1,0 +1,267 @@
+# Sequencer capability registry — the single source of truth for WHAT A PROVIDER CAN DO.
+#
+# Committed, NON-SECRET config-as-code (co-located with gtm_core/sequencers.py, the
+# resolver). Mirrors gtm_core/models.toml: reference a capability by logical name and
+# resolve it through committed config instead of assuming it in prose.
+#
+# ── THE ONE DISTINCTION THIS FILE EXISTS TO ENFORCE ──────────────────────────────
+#
+#   CAPABILITY  = "Saleshandy HAS out-of-office auto-pause."
+#                 A property of the vendor's product. Same for every tenant.
+#                 Changes only when the vendor ships. → LIVES HERE.
+#
+#   CONFIGURATION = "THIS workspace has out-of-office turned ON."
+#                 Per-tenant, per-sequence, mutable by any human in the vendor UI at
+#                 any moment. → LIVES NOWHERE. Read live at every preflight.
+#
+# Writing a configuration value into a file is what let three real opt-outs sit
+# unmirrored for six weeks: a boolean that was true once. This registry says only what
+# the product supports; gtm_core/email_compliance.py asserts what is actually on.
+#
+# ── RULES (enforced by gtm_core/sequencers.py, not by convention) ────────────────
+#
+#  1. ONLY the literal boolean `true` grants. `false`, `"unknown"`, a missing key, an
+#     empty string, the STRING "true", or any unrecognised value REFUSES. A closed list
+#     of granting values means an unknown word blocks instead of passing.
+#  2. Every capability MUST carry `supported`, `source` (an https URL) and `verified_on`
+#     (ISO date). An uncited capability claim is exactly the failure this registry
+#     replaces, so it fails to LOAD rather than failing a lint later — and a registry that
+#     fails to load refuses every capability.
+#     A ROW EXISTS IF AND ONLY IF A VENDOR SOURCE WAS READ. An unverified provider has a
+#     provider table and no capability rows: an absent capability refuses exactly as
+#     "unknown" does, and a claim of ignorance needs no citation.
+#  3. This file is NOT tenant-writable and must never be resolved from under profiles/.
+#     A tenant asserting its own safety property is self-assertion — the same thing the
+#     backend refuses for entitlement and publish settings.
+#  4. A tenant override may only TIGHTEN (true → false: rely on the provider less, use
+#     our own fallback). Never false/unknown → true. See `apply_tenant_override`.
+#  5. `readable_via_api` says whether the LIVE SETTING can be read back, and drives the
+#     assertion ladder in gtm_core/email_compliance.py: `true` → read it; `false` → the
+#     only honest check is a per-run operator attestation; "unknown"/absent → BLOCK with
+#     `ui_path` until somebody reads the API and dates the row. Same closed-list rule.
+#  6. NON-SECRET. No keys, no tokens. Provider auth continues to resolve by env-var name
+#     through the existing connector; the resolver raises on a secret-shaped value.
+
+[providers.saleshandy]
+display_name = "Saleshandy"
+docs_url = "https://developer.saleshandy.com/api-reference/introduction"
+
+# Verified 2026-09-21 by reading the vendor's own help centre + API reference.
+# Each `verified_on` is the date the SOURCE was read, not the date the row was written.
+
+[providers.saleshandy.capabilities.stop_on_reply]
+supported = true
+readable_via_api = true        # setting code 3; established by live toggle-and-diff, see `notes`
+settable_via_api = "unknown"   # the UI write was verified; an API write was NOT attempted
+source = "https://docs.saleshandy.com/en/articles/7055488-sequence-settings-what-why-and-how-to-set-it-up"
+verified_on = "2026-09-22"
+ui_path = "Sequence → Settings → Safety Settings → Stop sending follow-ups, if the reply is received"
+notes = """Vendor: "Disabling this option will let the system send follow-ups to prospects even after
+they reply to your emails."
+RESOLVED 2026-09-22 BY LIVE TOGGLE-AND-DIFF: finish-on-reply is SETTING CODE 3.
+Method, because the method is the evidence. Read the full 13-code payload on a sequence that had
+never sent (progress Draft, active false, emails.total 0, scheduled 0, contacted 0) and recorded it;
+flipped the named UI toggle off; re-read; diffed. EXACTLY ONE code moved, 3 from "1" to "0". Flipped
+it back and re-read: the canonical payload hashed identical to the pre-flip baseline, which is the
+check that matters because `modifiedAt` does not move on update here, so a timestamp would have
+lied. The whole experiment touched no sequence carrying live prospects: the code-to-name mapping is
+a product fact, so the inert sequence answers it exactly as well.
+THE UI LABEL IS NOT WHAT THE DOCS SAY. The v3 app reads "Stop sending follow-ups, if the reply is
+received"; the help-centre article above still says "Consider the Prospect as Finished if a Reply is
+Received". `ui_path` follows the app, since that is what an operator is looking at. Note also that
+the app asks for confirmation before disabling it ("Disabling it, will send follow-up emails even
+after the recipient replies") — the vendor treats this as a safety setting too.
+TWO ID SPACES, a trap worth recording next to the reply_categories one: the API's sequence id is an
+opaque string and the v3 web app's is an integer. Feeding the API id to a UI route returns
+"sequenceId must be an integer number". They are not interchangeable anywhere.
+COUNTING ARGUMENT RETRACTED, same date. A paragraph here used to reason: the vendor documents three
+boolean toggles that default ON (finish-on-reply, Track Email Opens, Track Link Clicks); the live
+payload has exactly three booleans set to "1" (codes 3, 9, 10); therefore finish-on-reply is one of
+those three. Both premises true, conclusion invalid — track-link-clicks is code 4 and
+track-email-opens is code 5, and BOTH READ "0", confirmed on screen in the Safety Settings panel:
+this workspace runs with tracking off. The two counts of three matched by coincidence. It is
+recorded rather than deleted because the candidate set happened to contain the right answer, which
+is the dangerous kind of wrong — it would have survived the check it passed.
+Code 3 read "1" before and after, so the SAFE state is live: follow-ups do stop on reply.
+NOT AUTO-SETTABLE. Code 3 is deliberately absent from `AUTOSET_ALLOWLIST`: it governs whether a
+follow-up goes out, which is a human's switch whatever the env says."""
+
+[providers.saleshandy.capabilities.ooo_auto_pause]
+supported = true
+readable_via_api = false       # no API or CLI read path is documented (API + CLI reference, read 2026-09-21)
+settable_via_api = false       # account-level user setting, not a sequence setting
+source = "https://docs.saleshandy.com/en/articles/8535613-out-of-office-detection-auto-pause-and-resume"
+verified_on = "2026-09-21"
+ui_path = "Settings → User Settings → Out of Office"
+notes = """AI detects the OOO reply, marks the prospect Out of Office, pauses them in ALL active
+sequences, extracts the return date and auto-resumes. Default ON, 1–100 days.
+OFF IS NOT NEUTRAL: with the setting off the vendor marks an OOO reply as "Replied", which — with
+stop_on_reply on — finishes the prospect and ends follow-up. Silent lead loss with no local trace.
+This is why the preflight asserts it rather than trusting the default — and, because nothing can
+read it back, why that assertion is a per-run operator ATTESTATION rather than a read.
+UI READ 2026-09-22 (read-only; `verified_on` unchanged — the vendor source was not re-read, and
+`readable_via_api` stays false because none of this is reachable from the API). Three things
+confirmed by looking at the panel:
+  - `ui_path` above is exactly right, and resolves to /settings/out-of-office.
+  - CURRENT STATE IS ON, mode "pause as per the return date found in the out-of-office email; if
+    no date is found, pause for 14 days". So the attestation an operator would sign today is
+    true, and that is now a dated observation rather than an assumption.
+  - IT IS ACCOUNT-WIDE, under USER SETTINGS — confirming `settable_via_api = false` and the
+    "account-level, not a sequence setting" note.
+THAT LAST POINT CHANGES HOW SC4 MUST BE RUN. The test plan says "with the OOO setting off, send to
+an address with a vacation responder". There is no per-mailbox or per-sequence OOO switch to turn
+off — the only switch is this one, and disabling it removes OOO handling from EVERY sequence in the
+account at once, including any that are live. The reproduction therefore has a blast radius the
+plan does not mention: for its duration, a real prospect's genuine out-of-office reply would be
+marked Replied and (with code 3 on) finish them. Run it in a window with no live sequence sending,
+or accept and time-box that exposure deliberately."""
+
+[providers.saleshandy.capabilities.reply_categories]
+supported = true
+settable_via_api = false       # categories are read-only; custom ones are created in the UI
+source = "https://developer.saleshandy.com/api-reference/unibox/categories"
+verified_on = "2026-09-21"
+notes = """GET /v1/unibox/categories → key, name, isDefault, sentiment ("1" Positive / "2" Negative /
+"3" Neutral). System keys: uncategorized, interested, not_interested, meeting_booked, out_of_office,
+closed, not_now, do_not_contact. Custom categories supported.
+SC10 VERIFIED LIVE 2026-09-22. Filter membership WORKS and is the read this repo uses: filtering
+POST /v1/unified-inbox/emails by `categoryIds=[<outcome id>]` returned exactly the thread carrying
+that category and nothing for the others. The ids the filter takes are the `id`s from
+GET /v1/unified-inbox/outcome — opaque STRINGS such as "edlPy0wLq0", not integers — joined to these
+category keys on `name`. That endpoint takes NO parameters; passing page/limit is an HTTP 400.
+A live thread item DOES carry an inline `categoryId`, which the earlier doc read said no response
+published. It is NOT a substitute: its value is a small integer ("8") from a DIFFERENT id space than
+the outcome ids, and nothing documents the mapping. Filter membership is therefore not merely the
+safer read, it is the only reliable one — and it keeps the property the injection case rests on.
+The category is a VENDOR-AI LABEL OVER UNTRUSTED TEXT (§R5): consume it as a data field to pick a
+draft variant. It may never suppress a person, select a destination, or skip a gate — opt-out
+detection stays with our own deterministic matcher precisely so a crafted reply cannot evade it."""
+
+[providers.saleshandy.capabilities.webhooks]
+supported = true
+settable_via_api = true
+source = "https://developer.saleshandy.com/api-reference/webhook/create"
+verified_on = "2026-09-21"
+notes = """POST /v1/webhook/create. Events: email-sent, email-opened, email-link-clicked,
+reply-received, email-bounced, prospect-unsubscribed, prospect-finished, prospect-outcome-updated,
+sequence-paused, email-account-disconnected, plus the task-* family. Custom headers (≤5), retries,
+delivery logs, replay, 50 active webhooks per account. A created webhook starts `paused` and carries
+a testDelivery result.
+SC7 APPROVED 2026-09-21 — receiver scoped to the existing backend + Cloudflare Tunnel, with polling
+RETAINED as fallback. `email-account-disconnected` was the deciding event: a deliverability incident
+this system has no other detection path for."""
+
+[providers.saleshandy.capabilities.dnc_read]
+supported = true
+settable_via_api = true
+source = "https://developer.saleshandy.com/api-reference/cli"
+verified_on = "2026-09-21"
+notes = "list_dnc_lists → get_dnc_items_by_id. Already exposed read-only by agent/mcp/saleshandy."
+
+[providers.saleshandy.capabilities.dnc_write_add]
+supported = true
+settable_via_api = true
+source = "https://developer.saleshandy.com/api-reference/cli"
+verified_on = "2026-09-21"
+notes = """CLI `saleshandy dnc add --dnc-list-id ID --items …`; subcommands are list, items, add, search.
+DELIBERATELY ABSENT from the brain's tool surface. SC9 APPROVED 2026-09-21 as a third
+external_effect (`dnc_add`), ADD ONLY — removal is never represented: no remove/delete path is
+documented in the CLI reference or exposed on the MCP surface, so the direction is already one-way."""
+
+[providers.saleshandy.capabilities.prospect_pause]
+supported = true
+settable_via_api = true
+source = "https://docs.saleshandy.com/en/articles/11130890-understanding-prospect-status-how-it-helps-you-work-smarter"
+verified_on = "2026-09-21"
+notes = """Statuses: Active, Inactive, Completed, Bounced, Replied, Unsubscribed, Paused, Waiting,
+Finished. Pause/resume are first-class; Update Prospect Outcome exists under Sequences.
+Supported by the PROVIDER, deliberately OUT OF SCOPE for us — SC9 was narrowed to DNC-add only.
+Recorded as `true` because this table states what the product does, never what we permit ourselves;
+what we permit is agent/permissions.py's job."""
+
+[providers.saleshandy.capabilities.reply_send]
+supported = true
+settable_via_api = true
+source = "https://developer.saleshandy.com/api-reference/unified-inbox/emails-reply"
+verified_on = "2026-09-21"
+notes = """POST /v1/unified-inbox/emails/reply ("Reply to Email Thread"). Same note as prospect_pause: the
+provider has it; the brain does not and must not. agent/reply.py stays gated and inert-by-default.
+Recorded so a future session does not "discover" it and treat its absence as an oversight."""
+
+[providers.saleshandy.capabilities.behaviour_branching]
+supported = true
+settable_via_api = true
+source = "https://developer.saleshandy.com/api-reference/subsequences/sequences-subsequences"
+verified_on = "2026-09-21"
+notes = """Subsequences — a branch under a parent sequence triggered automatically by prospect
+behaviour; progress 1=Active, 2=Paused, 3=Finished. The native answer to "does the second email
+adapt": it branches on BEHAVIOUR (opened/clicked/replied), not on the content of a reply.
+SC13 evaluates adoption; not used today."""
+
+[providers.saleshandy.capabilities.reply_text_unsubscribe]
+supported = "unknown"
+source = "https://docs.saleshandy.com/en/articles/7055488-sequence-settings-what-why-and-how-to-set-it-up"
+verified_on = "2026-09-21"
+ui_path = "Sequence → Settings → Unsubscribe → Unsubscribe as Text"
+notes = """UNRESOLVED CONTRADICTION — SC3 settles it, and it must be settled by a live send.
+Vendor docs (read 2026-09-21) say "Unsubscribe as Text" is ON by default and lets leads "reply with
+a simple text (e.g. 'Stop' or 'Remove') to opt out".
+This repo holds a dated first-party observation to the contrary (2026-08-11, gtm_core/optout_watch.py):
+a reply of "Unsubscribe" left `Unsubscribed: No`. Most likely the text match keys on the specific
+configured phrase.
+`unknown` — which REFUSES — is the correct state: vendor prose does not overturn a dated live
+observation, and assuming the provider suppresses reply-based opt-outs when it may not is the one
+error here with a legal deadline attached. Our own matcher carries the load until SC3 resolves it.
+WHY THIS IS URGENT, NOT ACADEMIC — live read 2026-09-22 (setting code 2, all seven sequences; no
+row re-dated, because nothing here settles `supported`). Code 2 is the opt-out instruction printed
+to every recipient, and BOTH live variants tell them to opt out by REPLYING one word:
+"If this isn'''t relevant, just reply '''stop''' and I won'''t follow up." (2 sequences) and
+"Reply '''Stop''' if you'''d prefer not to receive messages at this time." (5 sequences).
+So the path this row calls "unknown" is the ONLY path our own copy offers anyone. If the provider
+does not honour it, every one of those opt-outs rests entirely on our matcher — which is exactly
+where the 2026-08-11 observation says the provider left `Unsubscribed: No`.
+That reading also found a defect in the matcher and fixed it the same day: the bare-stop branch
+only fires when "stop" is essentially the whole message, and a phone signature or a quoted original
+pushes the body past the cap, so six of eight realistic shapes of the very reply we ask for were
+read as ordinary prose. See `optout_watch._reply_head`.
+
+NARROWED 2026-09-22 BY READING THE PRODUCT UI (read-only; `supported` and `verified_on`
+deliberately UNCHANGED, because this does not settle the question and only a live send can).
+The v3 Unsubscribe panel presents Text and Link as MUTUALLY EXCLUSIVE radios under "Choose Your
+\"Unsubscribe\" Format:", which the API payload corroborates — code 1 (link) is empty and code 2
+(text) holds the message, i.e. the text format is the selected one. So the feature is ON; the
+earlier hope that it was simply switched off does not explain the 2026-08-11 observation.
+What the UI actually CLAIMS each format does is the interesting part, and the two differ in kind:
+  - "Unsubscribe as Text"  -> "Adds a plain-text unsubscribe message in your email footer."
+  - "Unsubscribe as Link"  -> "Adds a clickable \"Unsubscribe\" link in your email."
+The link description names a mechanism the provider necessarily handles (a click it receives).
+The text description describes INSERTION ONLY and claims no reply detection whatsoever. That is
+a third independent source, and it agrees with the first-party observation rather than with the
+help-centre prose, which is the only place "reply with a simple text ... to opt out" appears.
+Weight of evidence is now two-to-one that the provider does NOT watch for a reply and merely
+prints the sentence — which would mean every opt-out our copy invites rests entirely on our own
+matcher. Still "unknown", still REFUSING, because UI helper text not mentioning a behaviour is
+evidence of absence only in the weak sense, and this is the one row with a legal deadline
+attached. SC3 (a live reply from a mailbox the operator controls) remains the settling test."""
+
+# ── Providers documented but NOT verified ────────────────────────────────────────
+# apollo and gmass adapters are marked "documented, not yet verified" in
+# plugin/skills/email-sequence/references/providers/. No vendor source was read for either on
+# 2026-09-21, so they carry NO capability rows (rule 2) and every capability therefore REFUSES.
+# That is not a gap to backfill from memory — it is the honest state, and it means selecting one
+# of these providers makes the preflight demand a live verification pass first.
+# Do NOT add a row here without reading the vendor's docs and dating it.
+#
+# One thing worth knowing before that pass: our gmass adapter describes follow-ups as sent "to
+# non-repliers", which implies stop-on-reply structurally. That adapter marks ITSELF unverified,
+# so it is a reason to expect `true`, never a substitute for reading the vendor's docs.
+
+[providers.apollo]
+display_name = "Apollo.io"
+docs_url = "https://docs.apollo.io/reference"
+
+[providers.gmass]
+display_name = "GMass"
+# No docs_url yet: the vendor's domain is not in tests/lint/pii_allowlist.txt
+# [fixture-url-domains], and adding one is a human confirmation (§R9), not a drive-by.
+# Add both together with the first verified row.

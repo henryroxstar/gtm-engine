@@ -1,0 +1,63 @@
+{
+  "_about": "W5 step 0 (P5-0). What a real session sends when the model launches a subagent. Recorded 2026-10-20 with claude-agent-sdk 0.2.168, model claude-haiku-4-5, empty cwd, no MCP, permission_mode=default, a can_use_tool callback that allows everything and a PreToolUse hook that records. Re-run to refresh; do not hand-edit the observations.",
+  "prompt": "Launch exactly one subagent using your subagent tool (the general-purpose type) and have it reply with the single word OK. Do nothing else; after it returns, say DONE.",
+  "runs": {
+    "bundled_2.1.301": {
+      "status": "observed",
+      "cli_version": "2.1.301 (Claude Code)",
+      "init_tools_subagent_like": ["Task", "TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate"],
+      "assistant_tool_use_names": ["Agent"],
+      "pre_tool_use_hook_tool_names": ["Agent"],
+      "can_use_tool_calls": [],
+      "subagent_input_keys": ["description", "prompt", "run_in_background", "subagent_type"],
+      "reached_can_use_tool": false,
+      "runs_observed": "3 sessions: all 3 had an empty can_use_tool list; the tool name 'Agent' was captured in 1 (the first two ran before tool_use/hook capture was added)"
+    },
+    "pinned_2.1.76": {
+      "status": "observed",
+      "cli_version": "2.1.76 (Claude Code)",
+      "source": "npm registry tarball claude-code-2.1.76.tgz, installed by the operator with --ignore-scripts into the scratchpad; lockfile resolved URL checked",
+      "init_tools_subagent_like": ["Task", "TaskOutput", "TaskStop"],
+      "assistant_tool_use_names": ["ToolSearch", "Agent"],
+      "pre_tool_use_hook_tool_names": ["ToolSearch", "Agent"],
+      "can_use_tool_calls": [],
+      "subagent_input_keys": ["description", "prompt", "subagent_type"],
+      "reached_can_use_tool": false,
+      "runs_observed": "1 session"
+    }
+  },
+  "repo_options": {
+    "_about": "2026-10-20, step 5. The same question under the repo's REAL options: agent.session.build_agent_options (setting_sources=['project'], deny floor, local plugin, permission_mode=default, can_use_tool = make_headless_can_use_tool), model claude-haiku-4-5 via HERMES_MODEL. Bundled CLI 2.1.301 only; the pinned 2.1.76 was not re-run under the repo's options.",
+    "unscoped_vps_cockpit_pack_path": {
+      "status": "observed",
+      "assistant_tool_use_names": ["Agent"],
+      "pre_tool_use_hook_tool_names": ["Agent"],
+      "can_use_tool_calls": [],
+      "reached_can_use_tool": false
+    },
+    "tenant_confined_path": {
+      "status": "observed",
+      "assistant_tool_use_names": ["Agent"],
+      "pre_tool_use_hook_tool_names": ["Agent"],
+      "can_use_tool_calls": [],
+      "reached_can_use_tool": false,
+      "note": "workspace-scoped Config (persist_sessions=False) and a Confinement-carrying callback"
+    },
+    "cap_enforced_by_the_real_cli": {
+      "status": "observed",
+      "setup": "limit 1; the prompt asks for three helpers one after another",
+      "launch_attempts": 2,
+      "first_launch": "ran, returned its result",
+      "second_launch": "blocked: the tool_result was an error reading 'PreToolUse:Agent hook error: Helper limit reached (1 per run). Do the remaining work yourself, or return what you have; do not start more helpers.'",
+      "model_behaviour": "stopped after the denial and reported which launches ran",
+      "counter": {"started": 1, "denied": 1},
+      "denials_jsonl": "one row: tool Agent, decision deny, detail 'subagent_cap (limit 1)', source subagent-limit"
+    }
+  },
+  "findings": [
+    "On BOTH the pinned 2.1.76 and the bundled 2.1.301 CLI the model-facing subagent tool is named 'Agent'. 'Task' appears only in the init tool list (a legacy alias) and was never what the model called. No CLI observed sends 'Task'.",
+    "On both CLIs a subagent launch did NOT reach can_use_tool (callback list empty) in permission_mode=default with no repo settings, but DID reach a PreToolUse hook. A cap implemented only in the can_use_tool callback would never fire.",
+    "Under the repo's real options (project settings, deny floor, plugin, headless callback, unscoped and tenant paths) the launch still never reaches can_use_tool and still reaches a PreToolUse hook. The cap is therefore a hook (agent/subagent_limit.py), and a real CLI honours its deny.",
+    "agent/permissions.py _ALWAYS_ALLOW lists 'Task' and not 'Agent'. That is harmless while the CLI never asks about the launch (a launch the callback is asked about is denied by default, the closed direction). permissions.py and its golden are deliberately unchanged."
+  ]
+}

@@ -1,0 +1,12 @@
+usage: python -m gtm_core.video_finish find-transient [-h] --in SRC
+                                                      [--search-s SEARCH_S]
+                                                      [--window-s WINDOW_S]
+                                                      [--hop-s HOP_S] [--json]
+
+options:
+  -h, --help           show this help message and exit
+  --in SRC
+  --search-s SEARCH_S
+  --window-s WINDOW_S
+  --hop-s HOP_S
+  --json

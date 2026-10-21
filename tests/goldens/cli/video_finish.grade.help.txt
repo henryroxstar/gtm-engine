@@ -1,0 +1,15 @@
+usage: python -m gtm_core.video_finish grade [-h] --source SOURCE --out OUT
+                                             --eq KEY=VALUE [--crf CRF]
+                                             [--force]
+
+options:
+  -h, --help       show this help message and exit
+  --source SOURCE
+  --out OUT
+  --eq KEY=VALUE   an ffmpeg eq term, repeatable: brightness / contrast /
+                   saturation / gamma_r / gamma_b. Grade the PICTURE only; the
+                   shot's audio is stream-copied.
+  --crf CRF
+  --force          re-grade a file that already carries a .grade.json sidecar.
+                   Almost always wrong: grade from the ungraded source instead
+                   of stacking a second eq on a moved picture.

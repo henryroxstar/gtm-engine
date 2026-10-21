@@ -1,0 +1,138 @@
+{
+  "_comment": "MM7/MM8 cross-repo contract: the ordered calls the self-serve portal makes to take a developer from sign-in to a first MCP call. Every value is fictional. Validated against the live request/response models by tests/contracts/test_self_serve_billing_contract.py; the human-readable version is the 'Self-serve MCP' section of the client API integration guide.",
+  "workspace_id": "3f2b8c1e-9a4d-4e7b-8c2a-5d6e7f8a9b0c",
+  "steps": [
+    {
+      "name": "sign_in",
+      "method": "POST",
+      "path": "/v1/auth/exchange",
+      "auth": "none",
+      "request_model": "backend.schemas:ExchangeRequest",
+      "request": {"token": "<identity-provider JWT>"},
+      "response_status": 200,
+      "response_model": "backend.schemas:TokenResponse",
+      "response": {
+        "access_token": "<gtm access JWT carrying workspace_id 3f2b8c1e-9a4d-4e7b-8c2a-5d6e7f8a9b0c>",
+        "refresh_token": "<gtm refresh JWT>",
+        "token_type": "bearer"
+      }
+    },
+    {
+      "name": "onboard_submit",
+      "method": "POST",
+      "path": "/v1/onboard",
+      "auth": "user_jwt",
+      "request_model": "backend.schemas:OnboardIngestRequest",
+      "request": {"source_type": "url", "source": "https://example.com"},
+      "response_status": 202,
+      "response_model": "backend.schemas:OnboardJobResponse",
+      "response": {
+        "job_id": "job_7d1c",
+        "kind": "ingest",
+        "status": "pending",
+        "result": null,
+        "error": null,
+        "created_at": "2026-10-14T09:00:00Z",
+        "updated_at": "2026-10-14T09:00:00Z"
+      }
+    },
+    {
+      "name": "onboard_poll",
+      "method": "GET",
+      "path": "/v1/onboard/jobs/job_7d1c",
+      "auth": "user_jwt",
+      "response_status": 200,
+      "response_model": "backend.schemas:OnboardJobResponse",
+      "response": {
+        "job_id": "job_7d1c",
+        "kind": "ingest",
+        "status": "succeeded",
+        "result": {
+          "draft_id": "draft_42aa",
+          "slug": "example-co",
+          "staged_files": ["PROFILE.md"],
+          "confidence": "medium",
+          "gaps": [],
+          "flags": {}
+        },
+        "error": null,
+        "created_at": "2026-10-14T09:00:00Z",
+        "updated_at": "2026-10-14T09:02:00Z"
+      }
+    },
+    {
+      "name": "onboard_promote",
+      "method": "POST",
+      "path": "/v1/onboard/draft_42aa/promote",
+      "auth": "user_jwt",
+      "request_model": "backend.schemas:OnboardPromoteRequest",
+      "request": {"confirmed_company_name": "Example Co"},
+      "response_status": 200
+    },
+    {
+      "name": "payment_top_up",
+      "method": "POST",
+      "path": "/v1/wallet/3f2b8c1e-9a4d-4e7b-8c2a-5d6e7f8a9b0c/top-ups",
+      "auth": "billing_sync_secret",
+      "_note": "Sent by the external billing service after it has taken and priced a payment; this service holds no price. Service-secret auth, never a user token. Idempotent on order_id. Shut (409) until the billing-service payment channel is switched on, because the RevenueCat webhook is the live one until then.",
+      "request_model": "backend.schemas:WalletTopUpRequest",
+      "request": {"amount_usd": 25.0, "order_id": "rc_evt_0001"},
+      "response_status": 200,
+      "response_model": "backend.schemas:WalletTopUpResponse",
+      "response": {"applied": true, "outcome": "new"}
+    },
+    {
+      "name": "entitlement_sync",
+      "method": "PUT",
+      "path": "/v1/entitlement/3f2b8c1e-9a4d-4e7b-8c2a-5d6e7f8a9b0c",
+      "auth": "billing_sync_secret",
+      "_note": "Existing contract (the entitlement-sync runbook). Without it the workspace stays free and mint_key caps the key at 'free'.",
+      "request_model": "backend.schemas:EntitlementSyncRequest",
+      "request": {"entitlement": "pro", "cap_usd": 25.0, "sync_id": "rc_evt_0001", "version": 1},
+      "response_status": 200,
+      "response_model": "backend.schemas:EntitlementSyncResponse",
+      "response": {"applied": true, "outcome": "new"}
+    },
+    {
+      "name": "mint_key",
+      "method": "POST",
+      "path": "/v1/api-keys",
+      "auth": "user_jwt",
+      "request_model": "backend.schemas:ApiKeyCreateRequest",
+      "request": {"label": "IDE"},
+      "response_status": 201,
+      "response_model": "backend.schemas:ApiKeyCreateResponse",
+      "response": {
+        "id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "prefix": "sk-AbCdE",
+        "label": "IDE",
+        "entitlement": "pro",
+        "last_used_at": null,
+        "created_at": "2026-10-14T09:03:00Z",
+        "is_revoked": false,
+        "agent_id": null,
+        "principal_kind": "tool",
+        "raw_key": "sk-<shown once, never stored>"
+      }
+    },
+    {
+      "name": "edge_verify",
+      "method": "POST",
+      "path": "/v1/api-keys/verify",
+      "auth": "api_key",
+      "_note": "Called by the edge gateway on the developer's first MCP call, not by the portal.",
+      "response_status": 200,
+      "response_model": "backend.routers.api_keys:ApiKeyVerifyResponse",
+      "response": {
+        "valid": true,
+        "workspace_id": "3f2b8c1e-9a4d-4e7b-8c2a-5d6e7f8a9b0c",
+        "tier": "pro",
+        "active": true,
+        "expires_at": null,
+        "has_credits": true,
+        "balance_usd": 25.0,
+        "balance_credits": 25000.0
+      }
+    }
+  ]
+}

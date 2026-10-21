@@ -1,0 +1,61 @@
+# de-brand lint allowlist — KNOWN-LEGIT matches the RELEASE scan should not flag.
+# One fixed-string pattern per line (substring of the offending grep hit line).
+# '#' comments and blank lines are ignored. Keep entries SPECIFIC (a full phrase or
+# path) so a real company/host leak is never masked. Empty by default.
+#
+# Example (illustrative — not active):
+#   docs/RULES.md:    example.com is the canonical placeholder host
+
+# END-USER-ONBOARDING.md tells a new user where to clone the engine from — the public
+# repo's own URL, not a private-tenant leak. This is the maintainer's public publish
+# identity, intentionally named as the clone source.
+github.com/henryroxstar/gtm-engine
+henryroxstar/gtm-engine
+
+# The tenant denylist IS the token source — it names every tenant by design, and the
+# export's rsync excludes it from the carve (scripts/oss-export.sh §2), so it never
+# ships. Filtered by path so a copy of it anywhere else still flags.
+tests/linter/safe_share_denylist.txt:
+
+# Deck-theme contract test asserts a tenant slug maps to its own CSS file
+# (docker/deck-renderer/deck-theme/styles/brands/<tenant>.css) — the tenant names ARE
+# the fixture data under test, not a leak. Filtered by path so a copy elsewhere still flags.
+tests/contracts/test_deck_theme_matches_brand_kit.py:
+
+# The cross-tenant allowlist IS a tenant-derived list — every entry is a path under
+# profiles/<tenant>/, so it names every tenant by design, exactly like the denylist above.
+# The export's rsync excludes it from the carve (scripts/oss-export.sh §2), so it never
+# ships; in the public cut cross_tenant_check.py simply loads an empty allowlist, which is
+# correct there (only profiles/_template/ exists). Filtered by path so a copy elsewhere
+# still flags.
+tests/lint/cross_tenant_allow.txt:
+
+# Roster-identity regression test pins LIVE tenant figures (accounts/contact_verified/
+# named_seat/signal counts) against the real profile on disk, same reasoning as the
+# deck-theme test above — the tenant name IS the fixture under test, not a leak. This
+# test has no fictional-profile equivalent: it exists to catch a fold-key regression in
+# the real numbers a human would otherwise have to re-derive by hand. Filtered by path
+# so a copy elsewhere still flags.
+tests/contracts/test_dashboard_roster_identity.py:
+
+# The outbound fact registry's TENANT-DATA contracts (2026-09-24). Each asserts against the
+# real profile on disk — the claim statuses settled that day, the anchors that exist and the
+# markets that deliberately have none, the seats' lead pains, the AP2/UCP roadmap corrections,
+# and the voice.md split. Same reasoning as the two above: the tenant name IS the fixture, and
+# none of these has a fictional-profile equivalent, because what they check is that a specific
+# tenant's facts say what a human decided they say. The fictional-fixture halves of the same
+# work live in tests/unit/test_messaging_*.py and test_role_vocabulary_seat_fields.py, which
+# carry no tenant token at all — the split is deliberate and is what keeps this list short.
+# Filtered by path, so a copy elsewhere still flags.
+
+# The two bridge tests pin the npm scope the operator chose for packages/mcp-bridge (MM14), so they
+# spell it. Both are withheld from the carve (scripts/oss-export.sh excludes them before its token
+# sweep), so the name never reaches the public tree; the private tree's release-scope gate must
+# not fail on the very literal they exist to pin.
+tests/contracts/test_mcp_bridge_cli_contract.py:
+tests/integration/test_mcp_bridge_e2e.py:
+
+# The backend-deploy overlay drift guard checks the generic deploy/ files for tenant tokens, so its
+# own forbidden-identifier pattern names them by design. The export's rsync excludes it from the
+# carve (scripts/oss-export.sh §2). Filtered by path so a copy elsewhere still flags.
+tests/contracts/test_oss_deploy_overlay.py:

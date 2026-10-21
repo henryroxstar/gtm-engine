@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 604" role="img" aria-labelledby="td-title td-desc">
+  <title id="td-title">Top down</title>
+  <desc id="td-desc">Auto layout</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+    </marker>
+    <marker id="arrow-primary" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2d3142"/>
+    </marker>
+    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#f5f5f5"/>
+  <path d="M 180.0 100.0 L 168.0 100.0 A 8 8 0 0 0 160.0 108.0 L 160.0 220.0 A 8 8 0 0 1 152.0 228.0 L 140.0 228.0" data-edge="s0->s1" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 280.0 228.0 L 168.0 228.0 A 8 8 0 0 0 160.0 236.0 L 160.0 348.0 A 8 8 0 0 1 152.0 356.0 L 40.0 356.0" data-edge="s1->s2" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 180.0 356.0 L 168.0 356.0 A 8 8 0 0 0 160.0 364.0 L 160.0 476.0 A 8 8 0 0 1 152.0 484.0 L 140.0 484.0" data-edge="s2->s3" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect data-node-id="s0" x="40.0" y="60.0" width="140.0" height="80.0" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.4"/>
+  <text x="110.0" y="103.0" fill="#1E3A8A" font-size="11.5" font-weight="600" font-family="&apos;Tenon&apos;, &apos;Inter&apos;, -apple-system, sans-serif" text-anchor="middle">Step 0</text>
+  <rect data-node-id="s1" x="140.0" y="188.0" width="140.0" height="80.0" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.4"/>
+  <text x="210.0" y="231.0" fill="#1E3A8A" font-size="11.5" font-weight="600" font-family="&apos;Tenon&apos;, &apos;Inter&apos;, -apple-system, sans-serif" text-anchor="middle">Step 1</text>
+  <rect data-node-id="s2" x="40.0" y="316.0" width="140.0" height="80.0" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.4"/>
+  <text x="110.0" y="359.0" fill="#1E3A8A" font-size="11.5" font-weight="600" font-family="&apos;Tenon&apos;, &apos;Inter&apos;, -apple-system, sans-serif" text-anchor="middle">Step 2</text>
+  <rect data-node-id="s3" x="140.0" y="444.0" width="140.0" height="80.0" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.4"/>
+  <text x="210.0" y="487.0" fill="#1E3A8A" font-size="11.5" font-weight="600" font-family="&apos;Tenon&apos;, &apos;Inter&apos;, -apple-system, sans-serif" text-anchor="middle">Step 3</text>
+</svg>

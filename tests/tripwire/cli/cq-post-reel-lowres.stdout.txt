@@ -1,0 +1,17 @@
+{
+  "proceed": false,
+  "blocking": [
+    "video lint V1/resolution: 720x1280 — below the 1080x1920 floor for 9:16"
+  ],
+  "warnings": [],
+  "checks": {
+    "finish_manifest_valid": true,
+    "render_manifest_valid": true,
+    "identity_recorded": true,
+    "disclosure_configured": true,
+    "captions_inside_safe_area": true,
+    "loudness_target_met": true,
+    "video_lint_v1_v4_pass": false,
+    "predictor_band_recorded": true
+  }
+}

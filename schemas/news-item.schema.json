@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/news-item.schema.json",
+  "title": "NewsItem",
+  "description": "A single news/source item. Maps onto a PROD Supabase `discovery_items` row: title = COALESCE(item_name, name); trending_score/is_active/is_stale/published_at/created_at carried through for the radar to reuse (spec §7.1, §12). Read-only via the News (Postgres) MCP.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "url", "source", "published_at"],
+  "properties": {
+    "id": { "type": "string", "description": "Stable id (discovery_items.id)." },
+    "title": { "type": "string", "description": "COALESCE(item_name, name)." },
+    "url": { "type": "string", "format": "uri" },
+    "source": { "type": "string", "description": "Origin/source name." },
+    "published_at": { "type": "string", "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "summary": { "type": "string" },
+    "topics": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "raw_excerpt": { "type": "string" },
+    "trending_score": { "type": "number", "description": "discovery_items.trending_score — blended (not recomputed) by the radar." },
+    "is_active": { "type": "boolean" },
+    "is_stale": { "type": "boolean" }
+  }
+}

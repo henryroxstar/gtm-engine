@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 410" width="1000" height="410" role="img" aria-labelledby="vlt-title vlt-desc" font-family="Nunito, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title id="vlt-title">What each video lane looks like on screen</title>
+  <desc id="vlt-desc">Five visual wireframes comparing the video formats the engine produces: 1. Animated UI Film (deterministic HTML browser window, cursor callout, crisp kinetic text, $0 credits); 2. Faceless Visual Short (9:16 b-roll visuals, voiceover waveform, burned captions in safe zone); 3. Presenter on Camera (lip-synced talking head avatar, cutaway proof card, face-safe captions, Art. 50 disclosure); 4. Live-Action Camera Shoot (real phone camera take guided by shotlist.md, intercut with b-roll); 5. Clipped and Restyled Footage (long webinar or screen recording sliced into 9:16 vertical highlights).</desc>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="410" rx="16" fill="#ffffff"/>
+
+  <!-- Heading -->
+  <text x="30" y="38" font-size="20" font-weight="700" fill="#0f172a">Five visual formats. One brand contract.</text>
+  <text x="30" y="60" font-size="13.5" fill="#475569">Tell video-router what you have and what you want the viewer to see; it routes to the matching production lane.</text>
+
+  <!-- Group Headers -->
+  <rect x="26" y="78" width="756" height="312" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="42" y="98" font-size="12" font-weight="700" fill="#475569">STARTING FROM AN IDEA OR TOPIC</text>
+
+  <rect x="796" y="78" width="178" height="312" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="812" y="98" font-size="12" font-weight="700" fill="#475569">FROM EXISTING FOOTAGE</text>
+
+  <!-- CARD 1: Animated UI Film (Emphasis - $0 local HTML) -->
+  <rect x="42" y="112" width="172" height="262" rx="10" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+  <text x="128" y="134" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">1. Animated UI Film</text>
+  <text x="128" y="151" font-size="11.5" fill="#475569" text-anchor="middle">mc_product_film ($0 credits)</text>
+  <!-- Mini wireframe screen -->
+  <rect x="58" y="164" width="140" height="126" rx="6" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <!-- Browser bar -->
+  <line x1="58" y1="180" x2="198" y2="180" stroke="#cbd5e1" stroke-width="1.5"/>
+  <circle cx="67" cy="172" r="2.5" fill="#475569"/>
+  <circle cx="75" cy="172" r="2.5" fill="#475569"/>
+  <circle cx="83" cy="172" r="2.5" fill="#475569"/>
+  <!-- UI cards inside -->
+  <rect x="68" y="190" width="76" height="44" rx="4" fill="#e2e8f0" stroke="#475569" stroke-width="1"/>
+  <text x="106" y="215" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">Crisp UI DOM</text>
+  <!-- Callout pill -->
+  <rect x="102" y="224" width="86" height="24" rx="4" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="145" y="239" font-size="9.5" font-weight="700" fill="#0f172a" text-anchor="middle">Zoom &amp; Callout</text>
+  <!-- Kinetic lower bar -->
+  <rect x="68" y="258" width="120" height="20" rx="3" fill="#e2e8f0"/>
+  <text x="128" y="272" font-size="9.5" font-weight="700" fill="#1e293b" text-anchor="middle">Kinetic Headline</text>
+  <!-- Footer notes -->
+  <text x="128" y="312" font-size="11.5" font-weight="700" fill="#1e293b" text-anchor="middle">Local HTML / WAAPI</text>
+  <text x="128" y="330" font-size="11" fill="#475569" text-anchor="middle">Zero diffusion blur</text>
+  <text x="128" y="347" font-size="11" fill="#475569" text-anchor="middle">16:9 · 1:1 · 9:16</text>
+
+  <!-- CARD 2: Faceless Visual Short -->
+  <rect x="226" y="112" width="172" height="262" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="312" y="134" font-size="14" font-weight="700" fill="#1e293b" text-anchor="middle">2. Faceless Short</text>
+  <text x="312" y="151" font-size="11.5" fill="#475569" text-anchor="middle">short-form-video</text>
+  <!-- Mini 9:16 frame -->
+  <rect x="266" y="164" width="92" height="126" rx="6" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <text x="312" y="196" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">Generated</text>
+  <text x="312" y="210" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">B-Roll Cut</text>
+  <text x="312" y="226" font-size="9" fill="#475569" text-anchor="middle">(new beat &lt;= 4s)</text>
+  <!-- VO wave + safe caption -->
+  <line x1="278" y1="244" x2="346" y2="244" stroke="#475569" stroke-width="2" stroke-dasharray="3 2"/>
+  <rect x="274" y="254" width="76" height="22" rx="3" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+  <text x="312" y="268" font-size="9" font-weight="700" fill="#0f172a" text-anchor="middle">Burned Captions</text>
+  <!-- Footer notes -->
+  <text x="312" y="312" font-size="11.5" font-weight="700" fill="#1e293b" text-anchor="middle">B-Roll + Voiceover</text>
+  <text x="312" y="330" font-size="11" fill="#475569" text-anchor="middle">Higgsfield + Reap</text>
+  <text x="312" y="347" font-size="11" fill="#475569" text-anchor="middle">15–60s hooks &amp; explainers</text>
+
+  <!-- CARD 3: Presenter on Camera -->
+  <rect x="410" y="112" width="172" height="262" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="496" y="134" font-size="14" font-weight="700" fill="#1e293b" text-anchor="middle">3. Presenter Avatar</text>
+  <text x="496" y="151" font-size="11.5" fill="#475569" text-anchor="middle">presenter-video</text>
+  <!-- Mini 9:16 frame -->
+  <rect x="450" y="164" width="92" height="126" rx="6" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <!-- Art 50 pill -->
+  <rect x="456" y="170" width="44" height="14" rx="2" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+  <text x="478" y="180" font-size="7.5" font-weight="700" fill="#475569" text-anchor="middle">AI · Art.50</text>
+  <!-- Avatar silhouette (head + shoulders) -->
+  <circle cx="496" cy="202" r="12" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+  <path d="M474,234 Q496,216 518,234" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+  <!-- Face-safe caption bar -->
+  <rect x="458" y="254" width="76" height="22" rx="3" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+  <text x="496" y="268" font-size="9" font-weight="700" fill="#0f172a" text-anchor="middle">Face-Safe Sub</text>
+  <!-- Footer notes -->
+  <text x="496" y="312" font-size="11.5" font-weight="700" fill="#1e293b" text-anchor="middle">Digital Twin + Cutaways</text>
+  <text x="496" y="330" font-size="11" fill="#475569" text-anchor="middle">HeyGen + Higgsfield</text>
+  <text x="496" y="347" font-size="11" fill="#475569" text-anchor="middle">Founder POVs &amp; updates</text>
+
+  <!-- CARD 4: Live-Action Camera Shoot -->
+  <rect x="594" y="112" width="172" height="262" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="680" y="134" font-size="14" font-weight="700" fill="#1e293b" text-anchor="middle">4. Live-Action Shoot</text>
+  <text x="680" y="151" font-size="11.5" fill="#475569" text-anchor="middle">live-action-video</text>
+  <!-- Mini frame: Shotlist -> Camera -> Edit -->
+  <rect x="614" y="164" width="132" height="52" rx="6" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <text x="680" y="184" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">1. Phone .shotlist.md</text>
+  <text x="680" y="200" font-size="9.5" fill="#475569" text-anchor="middle">Framing + spoken lines</text>
+  <rect x="614" y="226" width="132" height="64" rx="6" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <text x="680" y="248" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">2. Real Camera Take</text>
+  <text x="680" y="264" font-size="9.5" fill="#475569" text-anchor="middle">+ auto-cut b-roll &amp; subs</text>
+  <!-- Footer notes -->
+  <text x="680" y="312" font-size="11.5" font-weight="700" fill="#1e293b" text-anchor="middle">You on a Real Camera</text>
+  <text x="680" y="330" font-size="11" fill="#475569" text-anchor="middle">$0 script · Reap auto-edit</text>
+  <text x="680" y="347" font-size="11" fill="#475569" text-anchor="middle">Authentic founder takes</text>
+
+  <!-- CARD 5: Clipped & Restyled Footage -->
+  <rect x="808" y="112" width="154" height="262" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="885" y="134" font-size="14" font-weight="700" fill="#1e293b" text-anchor="middle">5. Clip &amp; Restyle</text>
+  <text x="885" y="151" font-size="11.5" fill="#475569" text-anchor="middle">demo / repurpose / restyle</text>
+  <!-- Source wide frame -> 2 vertical clips -->
+  <rect x="824" y="164" width="122" height="44" rx="5" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <text x="885" y="184" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">16:9 Source MP4</text>
+  <text x="885" y="198" font-size="9" fill="#475569" text-anchor="middle">Demo / Webinar / Raw</text>
+  <!-- Two vertical slices -->
+  <rect x="828" y="220" width="52" height="70" rx="4" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="854" y="252" font-size="9" font-weight="700" fill="#0f172a" text-anchor="middle">9:16</text>
+  <text x="854" y="266" font-size="8.5" fill="#475569" text-anchor="middle">Clip #1</text>
+  <rect x="890" y="220" width="52" height="70" rx="4" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="916" y="252" font-size="9" font-weight="700" fill="#0f172a" text-anchor="middle">9:16</text>
+  <text x="916" y="266" font-size="8.5" fill="#475569" text-anchor="middle">Restyled</text>
+  <!-- Footer notes -->
+  <text x="885" y="312" font-size="11.5" font-weight="700" fill="#1e293b" text-anchor="middle">Slice or Style Transfer</text>
+  <text x="885" y="330" font-size="11" fill="#475569" text-anchor="middle">Reap or Shorts Studio</text>
+  <text x="885" y="347" font-size="11" fill="#475569" text-anchor="middle">3–10 shorts per source</text>
+</svg>

@@ -1,0 +1,19 @@
+# Ingress for a reverse proxy on the SAME host: publish the API and the MCP server on the
+# loopback interface only, so nothing is reachable from the network until your proxy (Caddy,
+# nginx, Traefik) terminates TLS and forwards to 127.0.0.1.
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.loopback.yml up -d --build
+#
+# Proxy only what you mean to expose; the MCP server authenticates callers with API keys, the
+# API with JWTs. Never change a mapping here to 0.0.0.0 to "make it work" without a proxy in
+# front: the services speak plain HTTP. See docs/DEPLOY-BACKEND.md.
+
+services:
+
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  mcp:
+    ports:
+      - "127.0.0.1:8001:8001"

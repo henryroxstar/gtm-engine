@@ -1,0 +1,962 @@
+"""Pack-mode run lifecycle (``_execute_pack_run``): drive the graph runner with gates held
+OUTSIDE it (return-and-resume), durable gate rows, per-node persistence + events, artifact
+attribution, and the Gate-2 dispatch — A10 for publish, A11 for email enrollment."""
+
+from __future__ import annotations
+
+import dataclasses
+import json
+import os
+from typing import Any
+
+from gtm_core.capabilities import Entitlement
+from gtm_core.metering import acheck_budget
+
+from ...database import workspace_scope
+from ...dnc_dispatch import dispatch_backend_dnc_add
+from ...email_dispatch import dispatch_backend_email_enroll
+from ...publish_dispatch import dispatch_backend_publish
+from ...services.integrations import get_workspace_credentials
+from .budget import _reserve_or_deny
+from .decisions import run_status
+from .events import _utc_now, publish_run_event
+from .gate_kinds import _GATE_PLAN_SENTINEL, _GATE_PUBLISH_SENTINEL, dispatch_target, pack_gate_kind
+from .lifecycle import (
+    CANCELLED,
+    TIMED_OUT,
+    approved,
+    complete_run,
+    hold_gate,
+    reject_run,
+    resume_run,
+    rewrite_pending_content,
+    start_run,
+)
+from .persistence import (
+    _CAP_REACHED,
+    RunFailure,
+    _fail_run,
+    _file_block,
+    _persist_node,
+    _upsert_block,
+    dnc_refusal,
+    enroll_refusal,
+    publish_refusal,
+)
+from .state import _cancelled_runs
+
+# The per-workspace concurrency slot is freed by the task done-callback set in
+# create_run (_track_run) — guaranteed on success, error, or cancellation.
+
+
+def _budget_guard(
+    pool, workspace_id: str, run_id: str, agent_id: str | None, agent_budget_usd: float | None
+):
+    """The §R2 per-batch predicate the runner calls before EVERY dispatch batch, the list
+    of its verdicts so far (a run the guard stopped is not reported as a node failure), and
+    a PARALLEL list recording which of those ``False`` verdicts were RL-02's cancel check
+    rather than a real budget exhaustion — ``agent/pipeline.py``'s runner treats every
+    ``False`` identically (fail the batch's first node with "cost cap reached"), so the
+    caller needs this to avoid mislabeling a cancelled run as a cost-cap failure.
+
+    RL-02: a run cancelled while the runner is mid-dispatch (not parked at a gate) has no
+    other seam to stop it — the graph runner (``agent/pipeline.py``, never modified here)
+    only exposes ``budget_ok()`` as a per-batch checkpoint. Deliberately narrow: this reads
+    THIS run's own ``runs.status`` for exactly ``"canceled"``, never a generic "any
+    terminal status stops dispatch" rule — every other terminal status already means the
+    runner returned before ``_budget_guard`` could be called again.
+    """
+    verdicts: list[bool] = []
+    cancelled: list[bool] = []
+
+    async def _budget_ok() -> bool:
+        # Guard against the backend's ledger of record (Postgres cost_records) — the
+        # runner's default JSONL read would see $0 here. A4: the per-agent budget can only
+        # NARROW the workspace verdict (effective cap = min(workspace cap, agent budget)),
+        # re-derived at every spend check so an entitlement downgrade bites immediately.
+        from ...agents import acheck_agent_budget
+
+        async with workspace_scope(pool, workspace_id) as conn:
+            row = await conn.fetchrow(
+                "SELECT status FROM runs WHERE id = $1::uuid AND workspace_id = $2::uuid",
+                run_id,
+                workspace_id,
+            )
+            if row is not None and row["status"] == "canceled":
+                verdicts.append(False)
+                cancelled.append(True)
+                return False
+            ok = await acheck_budget(
+                pool, workspace_id, table="cost_records", conn=conn, fail_closed=True
+            ) and await acheck_agent_budget(conn, workspace_id, agent_id, agent_budget_usd)
+        verdicts.append(ok)
+        cancelled.append(False)
+        return ok
+
+    return _budget_ok, verdicts, cancelled
+
+
+def _node_observer(pool, workspace_id: str, run_id: str, profile_name: str, profile_root):
+    """A2 protocol-1 observer: a run_nodes row + a `node` event at every transition; on a
+    terminal state the stage's text becomes a markdown block and an artifact rescan
+    registers new files as run_artifacts rows + `file` blocks (A11 tree-diff attribution —
+    sound under the profile lock, PRD §2.1)."""
+    from ... import artifacts as artifacts_mod
+
+    tree_before = artifacts_mod.snapshot_tree(profile_root)
+
+    async def _on_node(node_id: str, state: str, entry: dict) -> None:
+        nonlocal tree_before
+        wire_state = await _persist_node(pool, workspace_id, run_id, node_id, entry)
+        node_data = {"run_id": run_id, "node_id": node_id, "state": wire_state, "ts": _utc_now()}
+        # ST-09: run_nodes.error was persisted but never surfaced on the wire — a client
+        # could show the run-level error but not attribute a failure to its node.
+        error = entry.get("error")
+        if wire_state == "failed" and error:
+            node_data["error"] = error
+        publish_run_event(workspace_id, run_id, "node", node_data)
+        if wire_state not in ("completed", "failed", "skipped"):
+            return
+        text = entry.get("text") or ""
+        if text:
+            block = {
+                "id": f"node-{node_id}",
+                "type": "markdown",
+                "props": {"text": text},
+                "fallback_text": text[:2000],
+            }
+            await _upsert_block(pool, workspace_id, run_id, block["id"], node_id, block)
+            publish_run_event(
+                workspace_id,
+                run_id,
+                "content",
+                {"run_id": run_id, "node_id": node_id, "mode": "replace", "block": block},
+            )
+        tree_after = artifacts_mod.snapshot_tree(profile_root)
+        found = artifacts_mod.diff_new_artifacts(
+            profile_root, profile_name, tree_before, tree_after
+        )
+        tree_before = tree_after
+        for art in found:
+            async with workspace_scope(pool, workspace_id) as conn:
+                artifact_id = await conn.fetchval(
+                    """INSERT INTO run_artifacts(run_id, workspace_id, rel_path, name,
+                                                 size_bytes, media_type, sha256, node_id)
+                       VALUES($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)
+                       ON CONFLICT (run_id, rel_path) DO UPDATE
+                         SET size_bytes = EXCLUDED.size_bytes,
+                             sha256 = EXCLUDED.sha256,
+                             node_id = EXCLUDED.node_id
+                       RETURNING id::text""",
+                    run_id,
+                    workspace_id,
+                    art.rel_path,
+                    art.name,
+                    art.size_bytes,
+                    art.media_type,
+                    art.sha256,
+                    node_id,
+                )
+            block = _file_block(artifact_id, art)
+            await _upsert_block(pool, workspace_id, run_id, block["id"], node_id, block)
+            publish_run_event(
+                workspace_id,
+                run_id,
+                "content",
+                {"run_id": run_id, "node_id": node_id, "mode": "replace", "block": block},
+            )
+
+    return _on_node
+
+
+def _gate_draft_content(
+    gate_actions,
+    cfg,
+    profile_name: str,
+    gated: dict,
+    *,
+    run_id: str | None = None,
+    enroll: bool = False,
+    dnc: bool = False,
+    publish: bool = False,
+) -> tuple[str, Any, str | None]:
+    """Resolve the draft content to present at this gate, which mechanism (if
+    any) produced it, and that draft's path.
+
+    Returns ``(pending_content, draft_path, draft_kind)`` — ``draft_kind`` is ``"plan"``,
+    ``"enroll"``, ``"publish"``, or ``None`` (a gate with no draft mechanism of its own — outreach,
+    reply/triage, format-plan, capture, ...; A11 makes these pause too, so a stub is
+    expected here, not an error). An enrollment gate (``enroll``) reads only THIS run's
+    draft (client issue #245) and raises if it is missing or malformed: a PII-egress gate
+    with nothing valid to approve fails the run at the pause instead of showing a stub.
+    """
+    if publish:
+        assets_dir = cfg.content_root / profile_name / "assets"
+        assets = (
+            sorted(
+                assets_dir.glob("*.asset.json"),
+                key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            )
+            if assets_dir.is_dir()
+            else []
+        )
+        if assets:
+            newest = assets[-1]
+            try:
+                data = json.loads(newest.read_text(encoding="utf-8"))
+                body = data.get("body") or ""
+                hook = data.get("hook") or ""
+                if hook and body and not body.startswith(hook):
+                    post_text = f"{hook}\n\n{body}"
+                else:
+                    post_text = body or hook
+                if not post_text and "tweets" in data and isinstance(data["tweets"], list):
+                    post_text = "\n\n".join(data["tweets"])
+                if post_text:
+                    pending_content = f"⟦GATE:publish⟧\n⟦POST⟧\n{post_text}\n⟦/POST⟧"
+                    return pending_content, newest, "publish"
+            except (json.JSONDecodeError, OSError, TypeError, KeyError):
+                pass
+        return json.dumps({"node": gated.get("name"), "note": "awaiting approval"}), None, "publish"
+
+    text = gated.get("text") or ""
+
+    if "⟦GATE:reply⟧" in text or gated.get("skill") == "inbound-triage":
+        if "⟦GATE:reply⟧" not in text:
+            raise ValueError(
+                f"{gated.get('name')!r} produced no ⟦GATE:reply⟧ block for this run ({run_id})"
+            )
+        from agent.reply import parse_reply_block
+
+        draft = parse_reply_block(text)
+        if draft:
+            pending_content = f"⟦GATE:reply⟧\n⟦REPLY⟧\n{draft.body}\n⟦/REPLY⟧"
+            if getattr(draft, "thread_id", None):
+                pending_content += f"\n⟦THREAD⟧{draft.thread_id}⟦/THREAD⟧"
+            if getattr(draft, "to", None):
+                pending_content += f"\n⟦TO⟧{draft.to}⟦/TO⟧"
+            return pending_content, None, "review"
+        return text, None, "review"
+
+    found = gate_actions.gate_draft(cfg, profile_name, run_id=run_id, enroll=enroll, dnc=dnc)
+    if enroll and found is None:
+        raise gate_actions.EnrollDraftError(
+            f"{gated.get('name')!r} wrote no enrollment draft for this run ({run_id})"
+        )
+    if dnc and found is None:
+        raise gate_actions.DncDraftError(
+            f"{gated.get('name')!r} wrote no DNC draft for this run ({run_id})"
+        )
+    draft_path, draft_kind = found if found is not None else (None, None)
+    pending_content = (
+        draft_path.read_text(encoding="utf-8")
+        if draft_path is not None
+        else json.dumps({"node": gated.get("name"), "note": "awaiting approval"})
+    )
+    if draft_kind == "enroll":
+        gate_actions.parse_enroll_draft(pending_content, source=draft_path.name)
+        from gtm_core.send_cards import check_gate2_preview
+
+        try:
+            draft_dict = json.loads(pending_content)
+        except Exception:
+            draft_dict = {}
+        ok, reason = check_gate2_preview(
+            draft_dict, profile_name, content_root=getattr(cfg, "content_root", None)
+        )
+        if not ok:
+            raise gate_actions.EnrollDraftError(reason)
+    if draft_kind == "dnc":
+        gate_actions.parse_dnc_draft(pending_content, source=draft_path.name)
+    return pending_content, draft_path, draft_kind
+
+
+def _promote_gate_draft(
+    gate_actions,
+    cfg,
+    profile_name: str,
+    draft_kind: str | None,
+    edited: str | None,
+    pending_content: str,
+    *,
+    draft_path=None,
+    raw_edit_allowed: bool = False,
+) -> tuple[dict | None, str | None]:
+    """Promote the approved draft, if this gate's kind has one to promote.
+
+    Thin wrapper over :func:`agent.gate_actions.promote_gate_draft` (shared with
+    ``agent/__main__.py``'s CLI gate-decision verb so both callers resolve a gate
+    identically); kept here so callers that already hold a ``gate_actions`` reference
+    (the module is imported locally in ``_execute_pack_run``) don't need a second import.
+
+    An enroll gate promotes the bytes the operator APPROVED (``pending_content``, or their
+    edit) — never a re-read of "newest draft in the profile". The profile lock is released
+    while a run waits at its gate, so another run in the same profile can write a newer
+    draft meanwhile; re-reading would enroll that run's list under this approval (client
+    issue #240).
+
+    Edited bytes at a gate with no draft — and no own ``publish`` effect, which consumes
+    them directly — have nowhere to go, so they fail the run rather than being dropped.
+    ``POST /gate`` refuses these up front (``decisions.refuses_edit``); this is the backstop
+    for a decision recorded before the durable gate row existed.
+    """
+    if edited is not None and draft_kind is None and not raw_edit_allowed:
+        return None, (
+            "this gate has no editable draft — edited content was not applied; "
+            "approve or reject it instead"
+        )
+    # Both JSON draft kinds promote the bytes the operator APPROVED, never a re-read of
+    # "newest draft in the profile" — the profile lock is released while a run waits at
+    # its gate, so another run can write a newer one meanwhile (client issue #240).
+    approved_bytes = (
+        edited if edited is not None or draft_kind not in ("enroll", "dnc") else pending_content
+    )
+    return gate_actions.promote_gate_draft(
+        cfg, profile_name, draft_kind, approved_bytes, draft_path=draft_path
+    )
+
+
+def _dispatch_target(runner, gated_node_id: str) -> tuple[str | None, str]:
+    """:func:`.gate_kinds.dispatch_target` over this runner's graph — the fake executor
+    resolves its gates through the same rule."""
+    return dispatch_target(runner.graph.nodes, gated_node_id)
+
+
+async def _dispatch_gate2(
+    runner,
+    cfg,
+    profile_name: str,
+    *,
+    pool,
+    workspace_id: str,
+    gated_node_id: str,
+    edited: str | None,
+    pending_content: str,
+    has_draft: bool,
+    draft_path=None,
+    enroll_draft: dict | None,
+    dry_run: bool,
+) -> tuple[RunFailure | None, tuple[str, str] | None]:
+    """Gate 2: if the approval dispatches a DECLARED external effect (see
+    :func:`_dispatch_target`), dispatch it — in Python, to a destination/API pinned
+    server-side. Driven off the DECLARATION, not the node's name, and off the declared
+    VALUE too — A10's publish and A11's email_enroll are both dispatch-only effects, but
+    they route to different Python dispatchers, so a plain truthy check (as before A11)
+    would wrongly send an approved enrollment through the LinkedIn publisher or vice
+    versa. dry_run never dispatches either kind.
+
+    Returns ``(failure, dispatched)``: ``failure`` is set when the run must fail;
+    ``dispatched`` is ``(successor_node_id, operator_line)`` when a SUCCESSOR node was
+    actually dispatched, so the caller can mark it completed rather than let the runner
+    skip it.
+    """
+    effect, target_id = _dispatch_target(runner, gated_node_id)
+    if effect is None:
+        return None, None
+
+    if effect == "email_enroll":
+        if enroll_draft is None:
+            # No enroll draft was promoted at this gate (the brain never wrote one, or it
+            # did not parse — that path already fails the run on its own). Enrolling nothing
+            # while reporting success would be a false-success; fail closed instead.
+            return RunFailure(
+                "draft_invalid",
+                f"{target_id!r} needs an approved enrollment draft, found none — "
+                "the sequence node's enroll-draft could not be promoted",
+            ), None
+        outcome = await dispatch_backend_email_enroll(
+            cfg,
+            profile_name,
+            pool=pool,
+            workspace_id=workspace_id,
+            draft=enroll_draft,
+            dry_run=dry_run,
+        )
+        failure = enroll_refusal(outcome)
+        if failure is not None or not outcome.ok:
+            return failure, None  # dry_run: nothing sent, the runner skips the node as before
+        from agent import gate_actions
+
+        gate_actions.clear_enroll_draft(draft_path)
+        if target_id == gated_node_id:
+            return None, None
+        return None, (target_id, outcome.operator_line())
+
+    if effect == "dnc_add":
+        # SC9, the third effect. Same shape as the enrollment branch above: the approved
+        # draft names ADDRESSES, the shared dispatcher narrows them against this profile's
+        # own opt-out ledger, writes inside `dnc_context()`, and reads back before
+        # recording anything. The brain never runs this node and holds no tool for it.
+        if enroll_draft is None:
+            return RunFailure(
+                "draft_invalid",
+                f"{target_id!r} needs an approved DNC draft, found none — the review "
+                "node's dnc-draft could not be promoted",
+            ), None
+        outcome = await dispatch_backend_dnc_add(
+            cfg,
+            profile_name,
+            pool=pool,
+            workspace_id=workspace_id,
+            draft=enroll_draft,
+            dry_run=dry_run,
+        )
+        failure = dnc_refusal(outcome)
+        if failure is not None or outcome is None or not outcome.ok:
+            return failure, None  # dry_run / disabled: nothing written, node skipped
+        from agent import gate_actions
+
+        gate_actions.discard_dnc_draft(cfg, profile_name, path=draft_path)
+        if target_id == gated_node_id:
+            return None, None
+        return None, (target_id, outcome.operator_line())
+
+    if effect != "publish":
+        # loader.validate_node_semantics's unsafe_gate rule refuses any external_effect
+        # outside _ALLOWED_EXTERNAL_EFFECTS at load time — reaching here means the loaded
+        # graph disagrees with that validation. Fail loudly rather than silently skip a
+        # real dispatch for a kind nobody wrote a branch for.
+        return RunFailure(
+            "internal_error",
+            f"gated node {gated_node_id!r} declares unrecognized external_effect {effect!r}",
+        ), None
+
+    if edited is None and not has_draft:
+        # No plan draft exists for this node (it isn't a "plan" gate) and the operator
+        # approved without submitting edited_content — the only content of record is the
+        # `{"node": ..., "note": "awaiting approval"}` JSON stub. Dispatching THAT would
+        # publish stub bytes, not a real post. Refuse rather than post placeholder text.
+        return RunFailure(
+            "publish_draft_missing",
+            "publish gate has no draft content to approve — "
+            "submit edited_content with the post text",
+        ), None
+    approved_bytes = edited if edited is not None else pending_content
+    outcome = await dispatch_backend_publish(
+        cfg,
+        profile_name,
+        pool=pool,
+        workspace_id=workspace_id,
+        content=approved_bytes,
+        dry_run=dry_run,
+    )
+    refusal = publish_refusal(outcome)
+    if refusal is not None:
+        return refusal, None
+    if not outcome.ok or target_id == gated_node_id:
+        return None, None
+    return None, (target_id, outcome.operator_line())
+
+
+async def _complete_approved_gate(
+    pool,
+    workspace_id: str,
+    run_id: str,
+    runner,
+    manifest: dict,
+    gated: dict,
+    dispatched: tuple[str, str] | None,
+) -> None:
+    """Flip the approved node — and a successor Gate 2 dispatched inline, if any — to ok,
+    then mirror each flip into run_nodes + a node event (the runner's observer never sees
+    these transitions — they happened outside the runner). A dispatched successor also gets
+    a markdown block carrying the dispatch outcome line, so a client has evidence of it."""
+    gated["status"] = "ok"
+    flipped = [(gated.get("name", ""), gated)]
+    if dispatched is not None:
+        # Marked ok so the resumed runner treats it as complete instead of skipping it.
+        succ_id, _line = dispatched
+        succ = next((s for s in manifest["stages"] if s.get("name") == succ_id), None)
+        if succ is None:
+            succ = {"name": succ_id, "status": "ok"}
+            manifest["stages"].append(succ)
+        else:
+            succ["status"] = "ok"
+        flipped.append((succ_id, succ))
+    runner.ledgers.write_run_manifest(manifest)
+    for node_id, entry in flipped:
+        await _persist_node(pool, workspace_id, run_id, node_id, entry)
+        publish_run_event(
+            workspace_id,
+            run_id,
+            "node",
+            {"run_id": run_id, "node_id": node_id, "state": "completed", "ts": _utc_now()},
+        )
+    if dispatched is not None:
+        succ_id, line = dispatched
+        block = {
+            "id": f"node-{succ_id}",
+            "type": "markdown",
+            "props": {"text": line},
+            "fallback_text": line,
+        }
+        await _upsert_block(pool, workspace_id, run_id, block["id"], succ_id, block)
+        publish_run_event(
+            workspace_id,
+            run_id,
+            "content",
+            {"run_id": run_id, "node_id": succ_id, "mode": "replace", "block": block},
+        )
+
+
+async def _fail_from_outcome(
+    pool,
+    workspace_id: str,
+    run_id: str,
+    manifest: dict,
+    verdicts: list[bool],
+    cancelled: list[bool],
+) -> None:
+    """The runner returned ``FAILED`` — distinguish RL-02's cancel-triggered stop from a
+    genuine node/budget failure before deciding whether to write one.
+
+    ``cancelled[-1:] == [True]`` means ``_budget_guard``'s predicate returned ``False``
+    because THIS run went ``canceled`` mid-dispatch, not because a node genuinely failed
+    or the cost cap was exhausted. ``decisions.cancel()`` already wrote the terminal row
+    (and closed any open gate) — calling :func:`_fail_run` here would try to record the
+    WRONG story (``cost_cap_reached``) even though the RL-03 terminal guard would silently
+    absorb the write. Leave the row exactly as ``cancel()`` left it.
+    """
+    if cancelled[-1:] == [True]:
+        _cancelled_runs.discard(run_id)
+        return
+    failed = next((s for s in manifest["stages"] if s.get("status") == "failed"), None)
+    first_error = (
+        (failed.get("error") or f"stage {failed.get('name')} failed")
+        if failed
+        else "pack run failed"
+    )
+    asked = bool(failed and failed.get("needs_input"))
+    contacts_down = bool(failed and failed.get("error_code") == "contacts_unavailable")
+    code = (
+        "cost_cap_reached"
+        if verdicts[-1:] == [False]
+        else "contacts_unavailable"
+        if contacts_down
+        else "input_required"
+        if asked
+        else "node_failed"
+    )
+    await _fail_run(pool, workspace_id, run_id, first_error, error_code=code)
+
+
+async def _mark_gated_node_failed(
+    pool, workspace_id: str, run_id: str, gated: dict, error: str
+) -> str:
+    """Mark the gate-paused node ``failed`` — wire row and event — with the reason on it.
+
+    A gate failure (no draft, an unusable draft, a refused dispatch) used to end the RUN as
+    ``failed`` while the node that caused it still read ``running`` with no reason, so a client
+    could not name the failing step (client issue #337 rerun). The runner's observer never sees
+    this transition — it happens here, outside the runner — so it is mirrored like
+    :func:`_complete_approved_gate`'s flip. Returns ``error`` so a call site can hand it straight
+    to ``_fail_run`` as one statement."""
+    node_id = gated.get("name", "")
+    gated["status"] = "failed"
+    gated["error"] = error
+    await _persist_node(pool, workspace_id, run_id, node_id, gated)
+    publish_run_event(
+        workspace_id,
+        run_id,
+        "node",
+        {
+            "run_id": run_id,
+            "node_id": node_id,
+            "state": "failed",
+            "error": error,
+            "ts": _utc_now(),
+        },
+    )
+    return error
+
+
+def _apply_pack_inputs_and_context(
+    pack_graph: Any,
+    inputs: dict[str, str] | None,
+    context: dict[str, str] | None,
+) -> Any:
+    """Append operator-supplied inputs and §R5 untrusted caller data envelopes to prompt nodes."""
+    if inputs:
+        suffix = "\n\nRun inputs (operator-provided): " + json.dumps(inputs, sort_keys=True)
+        pack_graph = dataclasses.replace(
+            pack_graph,
+            nodes=tuple(
+                dataclasses.replace(n, prompt=n.prompt + suffix) if n.prompt else n
+                for n in pack_graph.nodes
+            ),
+        )
+    if context:
+        from ...callers.inlet_guard import DefaultInletGuard
+
+        guard = DefaultInletGuard()
+        context_blocks = [
+            guard.render_context_envelope(k, context[k]) for k in sorted(context.keys())
+        ]
+        context_suffix = "\n\n" + "\n\n".join(context_blocks)
+        pack_graph = dataclasses.replace(
+            pack_graph,
+            nodes=tuple(
+                dataclasses.replace(n, prompt=n.prompt + context_suffix) if n.prompt else n
+                for n in pack_graph.nodes
+            ),
+        )
+    return pack_graph
+
+
+def _check_pack_integrations_preflight(pack_graph: Any, cfg: Any) -> RunFailure | None:
+    """Preflight check: fail fast with $0 spend if the graph declares external effects
+    that require integration credentials missing in this workspace (Issue #314, Issue #337)."""
+    effects = {getattr(n, "external_effect", None) for n in pack_graph.nodes}
+    skills = {getattr(n, "skill", None) for n in pack_graph.nodes}
+    if "email_enroll" in effects and not getattr(cfg, "saleshandy_api_key", None):
+        return RunFailure(
+            "email_not_configured",
+            "no Saleshandy API key configured for this workspace — not enrolled. "
+            "Next step: Connect your Saleshandy account in Settings → Integrations",
+        )
+    if "dnc_add" in effects and not getattr(cfg, "saleshandy_api_key", None):
+        return RunFailure(
+            "dnc_not_configured",
+            "no Saleshandy API key configured for this workspace — not suppressed. "
+            "Next step: Connect your Saleshandy account in Settings → Integrations",
+        )
+    if "email_enroll" in effects and "prospect" in skills:
+        has_contacts = bool(
+            getattr(cfg, "rocketreach_api_key", None)
+            or getattr(cfg, "apollo_api_key", None)
+            or getattr(cfg, "vibe_api_key", None)
+            or os.environ.get("VIBE_PROSPECTING_CONNECTED") == "true"
+        )
+        if not has_contacts:
+            return RunFailure(
+                "contacts_not_configured",
+                "no contact provider (RocketReach or Apollo) configured for this workspace — "
+                "cannot resolve contacts for outreach. "
+                "Next step: Connect a contact provider in Settings → Integrations",
+            )
+    return None
+
+
+def _resolve_gate_draft_content(
+    gate_actions: Any,
+    cfg: Any,
+    profile_name: str,
+    gated: dict,
+    *,
+    run_id: str,
+    effect: str | None,
+    is_publish: bool,
+) -> tuple[RunFailure | None, tuple[Any, Any, str] | None]:
+    """Resolve draft content at a gate, returning a RunFailure if unconfigured or invalid."""
+    try:
+        content = _gate_draft_content(
+            gate_actions,
+            cfg,
+            profile_name,
+            gated,
+            run_id=run_id,
+            enroll=effect == "email_enroll",
+            dnc=effect == "dnc_add",
+            publish=is_publish,
+        )
+        return None, content
+    except gate_actions.EnrollDraftError as exc:
+        if not getattr(cfg, "saleshandy_api_key", None):
+            return (
+                RunFailure(
+                    "email_not_configured",
+                    "no Saleshandy API key configured for this workspace — not enrolled",
+                ),
+                None,
+            )
+        return RunFailure("draft_invalid", str(exc)), None
+    except gate_actions.DncDraftError as exc:
+        if not getattr(cfg, "saleshandy_api_key", None):
+            return (
+                RunFailure(
+                    "dnc_not_configured",
+                    "no Saleshandy API key configured for this workspace — not suppressed",
+                ),
+                None,
+            )
+        return RunFailure("draft_invalid", str(exc)), None
+
+
+async def _reserve_and_start_run(pool: Any, workspace_id: str, run_id: str) -> bool:
+    """Reserve budget cap and mark run started. Returns False if denied or aborted."""
+    if not await _reserve_or_deny(pool, workspace_id, run_id):
+        await _fail_run(pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached")
+        return False
+    return bool(await start_run(pool, workspace_id, run_id))
+
+
+async def _handle_rejected_gate(
+    pool: Any,
+    workspace_id: str,
+    run_id: str,
+    gate_actions: Any,
+    cfg: Any,
+    profile_name: str,
+    draft_kind: str,
+    draft_path: Any,
+) -> None:
+    """Discard unapproved draft and mark the run rejected."""
+    if draft_kind == "plan":
+        gate_actions.discard_plan_draft(cfg, profile_name)
+    elif draft_kind == "enroll":
+        gate_actions.discard_enroll_draft(cfg, profile_name, path=draft_path)
+    await reject_run(pool, workspace_id, run_id)
+
+
+async def _execute_pack_run(
+    pool,
+    repo_root,
+    workspace_id: str,
+    run_id: str,
+    profile_name: str,
+    pack: str,
+    variant: str,
+    inputs: dict[str, str],
+    *,
+    entitlement: Entitlement | str,
+    agent_id: str | None = None,
+    agent_budget_usd: float | None = None,
+    language: str | None = None,
+    dry_run: bool = False,
+    context: dict[str, str] | None = None,
+) -> None:
+    """Background task for pack mode: drive the graph runner with gates held OUTSIDE it.
+
+    Composition (the backend twin of agent/__main__.py's VPS root): workspace-scoped
+    Config → resolve_variant (loader + tenant merge, re-validated) → engine graph →
+    pack executor (Postgres cost sink + pack-reachability ∩ entitlement skill scope,
+    gtm_core.packs.reachability.entitled_skills_for_profile) → PipelineRunner with a
+    Postgres §R2 per-batch budget predicate.
+
+    Gate 1 is return-and-resume: the runner RETURNS on awaiting_approval (profile
+    lock released — never held across a human wait), the operator decides via
+    POST /gate exactly as in prompt mode, and approval promotes the plan draft
+    deterministically (agent/gate_actions.py) before flipping the gated node and
+    re-entering the runner — the frontier continues downstream. This shape is the
+    A5 durable-gate shape; A5 swaps the in-memory event for a run_gates row.
+    """
+    try:
+        if run_id in _cancelled_runs:
+            _cancelled_runs.discard(run_id)
+            return
+
+        from agent import gate_actions
+        from agent.config import Config
+        from agent.packs import make_executor_from_pack, pack_graph_to_engine_graph
+        from agent.path_confinement import Confinement
+        from agent.pipeline import AWAITING_APPROVAL, PipelineRunner, terminal_status
+        from gtm_core.packs.reachability import entitled_skills_for_profile
+
+        from ...pack_catalog import resolve_variant
+        from ...session import make_pg_usage_sink, tenant_run_config
+
+        base_cfg = Config.from_env(repo_root=repo_root)
+        creds = await get_workspace_credentials(pool, workspace_id)
+        cfg = await tenant_run_config(pool, base_cfg, workspace_id, repo_root, credentials=creds)
+        resolved = resolve_variant(repo_root, cfg.profiles_root, profile_name, pack, variant)
+        pack_graph = _apply_pack_inputs_and_context(resolved.graph, inputs, context)
+
+        # RL-13/ST-06: a boot reconcile or lease reclaim resuming a gate wait skips admission.
+        resuming = await run_status(pool, workspace_id, run_id) == "awaiting_approval"
+        if not resuming:
+            preflight_failure = _check_pack_integrations_preflight(pack_graph, cfg)
+            if preflight_failure is not None:
+                await _fail_run(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    preflight_failure.error,
+                    error_code=preflight_failure.code,
+                )
+                return
+            if not await _reserve_and_start_run(pool, workspace_id, run_id):
+                return
+
+        allowed_skills = entitled_skills_for_profile(
+            cfg.profiles_root, profile_name, repo_root / "packs", entitlement
+        )
+        executor = make_executor_from_pack(
+            cfg,
+            profile_name,
+            pack_graph,
+            usage_sink=make_pg_usage_sink(pool, workspace_id, run_id, agent_id=agent_id),
+            allowed_skills=allowed_skills,
+            language=language,
+            # MM9: this run's tools may touch THIS workspace's tree and nothing else of the container.
+            confine=Confinement.for_workspace(workspace_id, repo_root),
+        )
+
+        # The observer needs the profile's file tree to attribute new artifacts.
+        from gtm_core.paths import _safe_segment
+
+        _safe_segment(profile_name, "profile")  # B1 defense-in-depth (also at create_run)
+        budget_ok, verdicts, cancelled = _budget_guard(
+            pool, workspace_id, run_id, agent_id, agent_budget_usd
+        )
+        runner = PipelineRunner(
+            cfg,
+            profile_name,
+            graph=pack_graph_to_engine_graph(pack_graph),
+            budget_ok=budget_ok,
+            on_node=_node_observer(
+                pool, workspace_id, run_id, profile_name, cfg.content_root / profile_name
+            ),
+        )
+
+        manifest: dict | None = None
+        while True:
+            manifest = await runner.run(run_id, "backend", executor, manifest=manifest)
+            outcome = terminal_status(manifest)
+
+            if outcome == "failed":
+                await _fail_from_outcome(pool, workspace_id, run_id, manifest, verdicts, cancelled)
+                return
+
+            if outcome == "ok":
+                if run_id in _cancelled_runs:
+                    _cancelled_runs.discard(run_id)
+                    return
+                output = json.dumps(
+                    {"pack": pack, "variant": variant, "stages": manifest["stages"]},
+                    ensure_ascii=False,
+                )
+                await complete_run(pool, workspace_id, run_id, output)
+                return
+
+            # awaiting_approval — Gate 1 (or A11's second kind). The content of record is
+            # whichever draft this gate produced — a plan draft, an enroll draft, or (a
+            # gate with neither, e.g. outreach/reply/format-plan/capture) a JSON stub. A11:
+            # since agent/pipeline_executor.py now pauses on ANY pack-declared gate=true
+            # node (not only ones that emit ⟦GATE:plan⟧), most gates reaching this branch
+            # carry no draft file at all — that is expected, not an error; approve simply
+            # unblocks them.
+            gated = next(s for s in manifest["stages"] if s.get("status") == AWAITING_APPROVAL)
+            gated_node_id = gated.get("name", "")
+            effect = _dispatch_target(runner, gated_node_id)[0]
+            is_publish = effect == "publish" or gated_node_id == "publish"
+            draft_err, draft_res = _resolve_gate_draft_content(
+                gate_actions,
+                cfg,
+                profile_name,
+                gated,
+                run_id=run_id,
+                effect=effect,
+                is_publish=is_publish,
+            )
+            if draft_err is not None:
+                await _fail_run(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    await _mark_gated_node_failed(
+                        pool, workspace_id, run_id, gated, draft_err.error
+                    ),
+                    error_code=draft_err.code,
+                )
+                return
+            assert draft_res is not None
+            pending_content, draft_path, draft_kind = draft_res
+            has_draft = draft_path is not None
+            gate_kind = pack_gate_kind(draft_kind)
+            sentinel = _GATE_PUBLISH_SENTINEL if gate_kind == "publish" else _GATE_PLAN_SENTINEL
+
+            # Durable: the run_gates row persists BOTH the wait and the decision, so a
+            # decision posted while this runner was down is claimed on resume (and, being
+            # already recorded, does not re-notify). See lifecycle.hold_gate.
+            decision = await hold_gate(
+                pool,
+                workspace_id,
+                run_id,
+                sentinel=sentinel,
+                gate=gate_kind,
+                pending_content=pending_content,
+                node_id=gated_node_id,
+                durable=True,
+            )
+            if decision in (CANCELLED, TIMED_OUT):
+                return
+            if not approved(decision):
+                await _handle_rejected_gate(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    gate_actions,
+                    cfg,
+                    profile_name,
+                    draft_kind,
+                    draft_path,
+                )
+                return
+
+            # Approved — re-gate before spending more (H6), same as prompt mode.
+            if not await _reserve_or_deny(pool, workspace_id, run_id):
+                await _fail_run(
+                    pool, workspace_id, run_id, _CAP_REACHED, error_code="cost_cap_reached"
+                )
+                return
+
+            edited = decision.get("edited_content")
+            enroll_draft, promote_error = _promote_gate_draft(
+                gate_actions,
+                cfg,
+                profile_name,
+                draft_kind,
+                edited,
+                pending_content,
+                draft_path=draft_path,
+                raw_edit_allowed=effect == "publish",
+            )
+            if promote_error is not None:
+                await _fail_run(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    await _mark_gated_node_failed(pool, workspace_id, run_id, gated, promote_error),
+                    error_code="draft_invalid",
+                )
+                return
+            if edited is not None:
+                await rewrite_pending_content(pool, workspace_id, run_id, edited)
+
+            failure, dispatched = await _dispatch_gate2(
+                runner,
+                cfg,
+                profile_name,
+                pool=pool,
+                workspace_id=workspace_id,
+                gated_node_id=gated_node_id,
+                edited=edited,
+                pending_content=pending_content,
+                has_draft=has_draft,
+                draft_path=draft_path,
+                enroll_draft=enroll_draft,
+                dry_run=dry_run,
+            )
+            if failure is not None:
+                await _fail_run(
+                    pool,
+                    workspace_id,
+                    run_id,
+                    await _mark_gated_node_failed(pool, workspace_id, run_id, gated, failure.error),
+                    error_code=failure.code,
+                )
+                return
+
+            # Flip the gated node to complete and resume — the runner recomputes the
+            # frontier from the mutated manifest and continues downstream. Mirror the
+            # flip into run_nodes + a node event (the runner's observer never sees this
+            # transition — it happened here, outside the runner).
+            await _complete_approved_gate(
+                pool, workspace_id, run_id, runner, manifest, gated, dispatched
+            )
+            await resume_run(pool, workspace_id, run_id)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await _fail_run(pool, workspace_id, run_id, str(exc), error_code="internal_error")
+        except Exception:  # noqa: BLE001
+            pass  # nosec B110

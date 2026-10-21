@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="sequence-title sequence-desc">
+  <title id="sequence-title">One request end to end — resolved live or escalated to a human</title>
+  <desc id="sequence-desc">Sequence diagram: the caller describes an issue to the agent planner; an ALT fragment shows either the planner answering directly as the headline success, or escalating so a human agent takes over the call.</desc>
+  <defs>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)"/>
+    </pattern>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+    </marker>
+    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#f5f5f5"/>
+  <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+  <!-- =================================================================
+       LIFELINES — Caller 160 · Agent planner 480 · Human agent 800
+       ================================================================= -->
+  <line x1="160" y1="128" x2="160" y2="480" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="480" y1="128" x2="480" y2="480" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="800" y1="128" x2="800" y2="480" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- =================================================================
+       ACTIVATION BARS
+       ================================================================= -->
+  <!-- Agent planner stays engaged from the initial call through either branch -->
+  <rect x="476" y="176" width="8" height="200" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+  <!-- Human agent activates only once escalated -->
+  <rect x="796" y="368" width="8" height="56" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+
+  <!-- =================================================================
+       M1: Caller → Agent planner  describes issue (before the fragment)
+       ================================================================= -->
+  <line x1="160" y1="176" x2="476" y2="176" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+  <rect x="256" y="160" width="128" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="320" y="170" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DESCRIBES ISSUE</text>
+
+  <!-- =================================================================
+       ALT COMBINED FRAGMENT — spans Caller · Agent planner · Human agent
+       Frame: x=88 y=208 w=752 h=240
+       ================================================================= -->
+  <rect x="88" y="208" width="752" height="240" rx="4"
+        fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+  <!-- Operator tab: ALT -->
+  <rect x="88" y="208" width="40" height="16" rx="2"
+        fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+  <text x="108" y="220" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">ALT</text>
+
+  <!-- Region 1 guard -->
+  <text x="100" y="244" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.04em">[confidence high]</text>
+
+  <!-- M2: Agent planner → Caller  answer (coral headline success) -->
+  <line x1="476" y1="272" x2="168" y2="272" stroke="#eb6c36" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+  <rect x="272" y="256" width="96" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="320" y="266" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ANSWER + FIX</text>
+
+  <!-- alt region divider -->
+  <line x1="96" y1="312" x2="832" y2="312"
+        stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Region 2 guard -->
+  <text x="100" y="336" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.04em">[else · escalate]</text>
+
+  <!-- M3: Agent planner → Human agent  escalates (call, link-blue) -->
+  <line x1="484" y1="368" x2="796" y2="368" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+  <rect x="576" y="352" width="128" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="640" y="362" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ESCALATES ISSUE</text>
+
+  <!-- M4: Human agent → Caller  takes over and resolves (plain call, muted) -->
+  <line x1="796" y1="416" x2="168" y2="416" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <rect x="404" y="400" width="152" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="480" y="410" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TAKES OVER, RESOLVES</text>
+
+  <!-- =================================================================
+       ACTOR BOXES — drawn after arrows
+       ================================================================= -->
+  <!-- Caller (input / soft) -->
+  <rect x="88" y="72" width="144" height="56" rx="6" fill="#f5f5f5"/>
+  <rect x="88" y="72" width="144" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+  <rect x="96" y="80" width="32" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.40)" stroke-width="0.8"/>
+  <text x="112" y="89" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CALLER</text>
+  <text x="160" y="104" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Caller</text>
+  <text x="160" y="119" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">phone · web</text>
+
+  <!-- Agent planner (focal) -->
+  <rect x="408" y="72" width="144" height="56" rx="6" fill="#f5f5f5"/>
+  <rect x="408" y="72" width="144" height="56" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+  <rect x="416" y="80" width="32" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.50)" stroke-width="0.8"/>
+  <text x="432" y="89" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+  <text x="480" y="104" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent planner</text>
+  <text x="480" y="119" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">planner · LLM</text>
+
+  <!-- Human agent (backend) -->
+  <rect x="728" y="72" width="144" height="56" rx="6" fill="#f5f5f5"/>
+  <rect x="728" y="72" width="144" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+  <rect x="736" y="80" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+  <text x="754" y="89" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HUMAN</text>
+  <text x="800" y="104" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Human agent</text>
+  <text x="800" y="119" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">support queue</text>
+
+  <!-- =================================================================
+       LEGEND
+       ================================================================= -->
+  <line x1="56" y1="520" x2="904" y2="520" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+  <text x="56" y="536" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+
+  <rect x="56" y="552" width="14" height="10" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+  <text x="76" y="560" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Focal / success</text>
+
+  <rect x="200" y="548" width="28" height="18" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+  <text x="208" y="560" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">ALT</text>
+  <text x="236" y="560" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Fragment</text>
+
+  <line x1="336" y1="556" x2="364" y2="556" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+  <text x="372" y="560" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Call</text>
+
+  <line x1="440" y1="556" x2="468" y2="556" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="476" y="560" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Human handoff</text>
+
+  <line x1="596" y1="556" x2="624" y2="556" stroke="#eb6c36" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+  <text x="632" y="560" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif" font-style="italic">Coral once — only the automatic resolution is the headline outcome.</text>
+</svg>

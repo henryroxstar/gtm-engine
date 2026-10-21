@@ -1,0 +1,11 @@
+contact_id,first,last,company,company_domain,email,segment,why_now,signal_clause,signal_evidence,signal_source_url,signal_observed,signal_subject,signal_agent_kind,category_relation,verdict,verdict_reason
+c1,admin,smith,Acme,acme.example,alice@acme.example,enterprise,We saw the news,announced expansion,Acme announced expansion across Europe today,https://example.com/c1,2026-09-01,Acme,none,prospect,send,
+c2,John,Doe,Acme,acme.example,john.doe,enterprise,We saw the news,announced expansion,Acme announced expansion across Europe today,https://example.com/c2,2026-09-01,Acme,none,prospect,send,
+c3,Bob,Jones,NotaryCompetitor,notarycompetitor.example,bob@notarycompetitor.example,enterprise,We saw the news,announced expansion,NotaryCompetitor announced expansion across Europe today,https://example.com/c3,2026-09-01,NotaryCompetitor,none,competitor,send,
+c4,Carol,White,Apex,apex.example,carol@apex.example,enterprise,We saw the news,announced expansion,Apex announced expansion across Europe today,https://example.com/c4,2026-09-01,Apex,none,prospect,,
+c5,Dave,Miller,Summit,summit.example,dave@summit.example,enterprise,We saw the news,announced expansion,Summit announced expansion across Europe today,https://example.com/c5,2024-01-01,Summit,none,prospect,send,
+c6,Eve,Davis,Vertex,vertex.example,eve@vertex.example,enterprise,We saw the news,announced expansion,Vertex announced expansion across Europe today,https://example.com/c6,2030-01-01,Vertex,none,prospect,send,
+c7,Frank,Wilson,Nexus,nexus.example,frank@nexus.example,enterprise,We saw the news,announced expansion,too short,https://example.com/c7,2026-09-01,Nexus,none,prospect,send,
+c8,Grace,Taylor,Pinnacle,pinnacle.example,grace@pinnacle.example,enterprise,Raised $50M in Series B,raised $50M,Pinnacle closed new financing round today in London,https://example.com/c8,2026-09-01,Pinnacle,none,prospect,send,
+c9,Heidi,Brown,Horizon,horizon.example,heidi@horizon.example,enterprise,We saw the news,announced expansion,Horizon announced expansion across Europe today,https://example.com/c9,2026-09-01,Horizon,invalid_agent_xyz,prospect,send,
+c10,Ivan,Clark,Nova,nova.example,ivan@nova.example,enterprise,We saw the news,announced expansion,Nova announced expansion across Europe today,https://example.com/c10,2026-09-01,Nova,none,prospect,re-angle,

@@ -1,0 +1,79 @@
+# Local dev override, layered on deploy/docker-compose.yml.
+#
+# The base compose gives `api` only `expose: ["8000"]`, so http://127.0.0.1:8000 is dead by
+# default. This publishes it, bound to loopback only (the local stack runs with deliberately
+# public dev secrets).
+#
+# Bring up (the example's values are public and local-only; copying to .env.dev, not .env,
+# keeps any real deploy/.env you hold from being overwritten):
+#   cp deploy/.env.dev.example deploy/.env.dev
+#   docker compose --env-file deploy/.env.dev \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
+#     -p gtm_dev up -d --build
+#
+# `scripts/stack.sh start` does exactly this.
+#
+# cloudflared sits behind the `tunnel` profile, so a plain `up` never starts it (it restart-loops
+# without a tunnel token). Add `--profile tunnel` only if you have one.
+#
+# `docker compose restart` does NOT re-read compose/env. Use `up -d --force-recreate`.
+
+services:
+
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+      # Testing from a physical device on your LAN? Use this line instead. It exposes the
+      # dev API (public secrets, rate limiting off) to every host on that network.
+      # - "0.0.0.0:8000:8000"
+    environment:
+      # Dev-only fake run executor; it refuses to boot outside ENV=development. Set it
+      # here ONLY, never in the base compose.
+      GTM_FAKE_RUNS: ${GTM_FAKE_RUNS:-}
+      # Total scripted delay across a fake run's nodes, in seconds. Empty by default
+      # (backend/services/runs/fake.py treats empty or unset as the 1.0s default). A slow
+      # fake run is useful for exercising mid-run cancellation locally, but must not be the default.
+      GTM_FAKE_RUN_DELAY_S: ${GTM_FAKE_RUN_DELAY_S:-}
+      # Node id at which a fake run fails (e.g. `draft` for a prompt run), so a client can
+      # exercise its failed-run UI locally. Empty and unset both mean no failure; a node id
+      # the run does not have is ignored with a warning in the api log.
+      GTM_FAKE_RUN_FAIL_NODE: ${GTM_FAKE_RUN_FAIL_NODE:-}
+      # Seconds a scripted onboarding job (POST /v1/onboard, product re-extract) waits
+      # before its draft is ready, so the polling flow is visible. Empty or unset means the
+      # 1.0s default (backend/services/onboard_fake.py).
+      GTM_FAKE_ONBOARD_DELAY_S: ${GTM_FAKE_ONBOARD_DELAY_S:-}
+      # Dev CORS origins: React (3000), Vite (5173), Expo (8081, 19006) on localhost and
+      # 127.0.0.1 by default if CORS_ORIGINS is unset in the dev env.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:8081,http://localhost:19006,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8081,http://127.0.0.1:19006}
+    volumes:
+      # deploy/Dockerfile.backend COPYs packs/ into the image too, so this mount is a dev
+      # convenience, not a correctness fix: bind it read-only so a pack/graph edit is visible
+      # on the next request without a rebuild.
+      - ../packs:/app/packs:ro
+      # scripts/dev_seed.py writes pack-mode profile fixtures (packs.toml, PROFILE.md,
+      # knowledge/*) straight to disk under gtm_core.paths.workspace_profiles_root(), which
+      # resolves under the HOST's ../data/workspaces. The base compose pins this same target
+      # to the `workspaces` NAMED volume, so those fixtures would never reach the container
+      # and a local pack-mode run would be refused with pack_not_activated. Bind the seed's
+      # own write root here; compose merges volumes by container target, so this replaces
+      # the named volume for the dev stack only.
+      - ../data/workspaces:/app/data/workspaces
+
+  worker:
+    environment:
+      GTM_FAKE_RUNS: ${GTM_FAKE_RUNS:-}
+      GTM_FAKE_RUN_DELAY_S: ${GTM_FAKE_RUN_DELAY_S:-}
+      GTM_FAKE_RUN_FAIL_NODE: ${GTM_FAKE_RUN_FAIL_NODE:-}
+    volumes:
+      - ../packs:/app/packs:ro
+      - ../data/workspaces:/app/data/workspaces
+
+  mcp:
+    ports:
+      - "127.0.0.1:8080:8001"
+    volumes:
+      - ../packs:/app/packs:ro
+      - ../data/workspaces:/app/data/workspaces:ro
+
+  cloudflared:
+    profiles: ["tunnel"]

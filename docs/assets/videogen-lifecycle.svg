@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 450" width="1000" height="450" role="img" aria-labelledby="vl-title vl-desc" font-family="Nunito, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title id="vl-title">The video production loop: one front door, two starting paths, and human gates before any render spend or publish</title>
+  <desc id="vl-desc">Your brand profile and video-router preflight route your request into one of two paths. Path A builds from an idea: brief and shot script, then Amber Gate 1 where you approve the script at zero spend, then storyboard and credit quote, then Amber Gate 1.5 where you approve the exact credit spend before rendering avatar, b-roll, or local HTML motion scenes. Path B starts from existing footage or a screen capture: Amber Capture Gate approves any external upload before clipping, reframing, or restyling. Both paths meet at finish and video_lint checks, followed by Amber Gate 2 where you approve the final cut before publishing or scoring.</desc>
+  <style>
+    @media (prefers-reduced-motion: reduce) { .motion { display: none; } }
+  </style>
+  <defs>
+    <marker id="vl-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="450" rx="16" fill="#ffffff"/>
+
+  <!-- Heading -->
+  <text x="30" y="38" font-size="20" font-weight="700" fill="#0f172a">One front door. Zero surprise spend. You approve before credits burn.</text>
+  <text x="30" y="60" font-size="13.5" fill="#475569">Ask video-router for any video or clip. Planning and linting cost $0; every paid render and external upload waits at an amber gate.</text>
+
+  <!-- Group frames (dashed #cbd5e1) -->
+  <rect x="200" y="78" width="586" height="156" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="214" y="96" font-size="12" font-weight="700" fill="#475569">PATH A · FROM AN IDEA (SHORT-FORM, PRESENTER, ANIMATED UI FILM, LIVE-ACTION SHOOT)</text>
+
+  <rect x="200" y="252" width="586" height="142" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="214" y="270" font-size="12" font-weight="700" fill="#475569">PATH B · FROM FOOTAGE YOU HAVE (DEMO CLIPS, WEBINAR REPURPOSE, RESTYLE SHORTS)</text>
+
+  <!-- Connector arrows (#94a3b8) -->
+  <g fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" marker-end="url(#vl-head)">
+    <!-- Router to Path A and Path B -->
+    <path d="M176,205 V156 H212"/>
+    <path d="M176,265 V328 H212"/>
+    <!-- Path A internal arrows -->
+    <path d="M338,156 H356"/>
+    <path d="M482,156 H500"/>
+    <path d="M626,156 H644"/>
+    <!-- Path A to Finish -->
+    <path d="M770,156 H802 V198"/>
+    <!-- Path B internal arrows -->
+    <path d="M356,328 H384"/>
+    <path d="M536,328 H564"/>
+    <!-- Path B to Finish -->
+    <path d="M746,328 H802 V276"/>
+    <!-- Finish to Gate 2 -->
+    <path d="M888,274 V308"/>
+  </g>
+
+  <!-- Animated work item on Path A -->
+  <g transform="translate(103,235)">
+    <circle class="motion" r="5.5" fill="#0f172a">
+      <animateMotion dur="11s" repeatCount="indefinite" calcMode="linear"
+        path="M0,0 V-79 H172 H316 H460 H604 H699 V2 V110"
+        keyTimes="0;0.12;0.24;0.38;0.52;0.66;0.80;0.90;1"
+        keyPoints="0;0.10;0.34;0.34;0.68;0.68;0.86;0.92;1"/>
+    </circle>
+  </g>
+
+  <!-- Left Entry: Emphasis node (video-router + preflight) -->
+  <rect x="26" y="196" width="150" height="78" rx="10" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="101" y="216" font-size="15" font-weight="700" fill="#0f172a">video-router</text>
+    <text x="101" y="236" font-size="12.5" fill="#1e293b">preflight + BRAND.toml</text>
+    <text x="101" y="253" font-size="12" fill="#475569">picks lane in 1 question</text>
+  </g>
+
+  <!-- Path A Nodes -->
+  <!-- A1: Brief & Script -->
+  <rect x="214" y="114" width="124" height="84" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="276" y="136" font-size="14" font-weight="700" fill="#1e293b">Brief &amp; Script</text>
+    <text x="276" y="156" font-size="12" fill="#475569">.shots.json + lint</text>
+    <text x="276" y="174" font-size="12" font-weight="700" fill="#475569">$0 spend</text>
+  </g>
+
+  <!-- A2: Amber Gate 1 -->
+  <rect x="358" y="114" width="124" height="84" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="420" y="136" font-size="14" font-weight="700" fill="#1e293b">Gate 1: Plan</text>
+    <text x="420" y="156" font-size="12" fill="#1e293b">You approve hook,</text>
+    <text x="420" y="174" font-size="12" fill="#475569">claims &amp; beats</text>
+  </g>
+
+  <!-- A3: Storyboard & Quote -->
+  <rect x="502" y="114" width="124" height="84" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="564" y="136" font-size="14" font-weight="700" fill="#1e293b">Storyboard</text>
+    <text x="564" y="156" font-size="12" fill="#475569">hero stills, animatic</text>
+    <text x="564" y="174" font-size="12" font-weight="700" fill="#475569">+ credit quote</text>
+  </g>
+
+  <!-- A4: Amber Gate 1.5 -->
+  <rect x="646" y="114" width="124" height="84" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="708" y="136" font-size="14" font-weight="700" fill="#1e293b">Gate 1.5: Spend</text>
+    <text x="708" y="156" font-size="12" fill="#1e293b">You approve stills</text>
+    <text x="708" y="174" font-size="12" fill="#475569">&amp; credit quote</text>
+  </g>
+
+  <!-- Path B Nodes -->
+  <!-- B1: Local Capture / Source File -->
+  <rect x="214" y="286" width="142" height="84" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="285" y="308" font-size="14" font-weight="700" fill="#1e293b">Local Capture</text>
+    <text x="285" y="328" font-size="12" fill="#475569">screen recording</text>
+    <text x="285" y="346" font-size="12" fill="#475569">or camera MP4</text>
+  </g>
+
+  <!-- B2: Amber Capture Gate -->
+  <rect x="386" y="286" width="150" height="84" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="461" y="308" font-size="14" font-weight="700" fill="#1e293b">Capture Gate</text>
+    <text x="461" y="328" font-size="12" fill="#1e293b">You approve file</text>
+    <text x="461" y="346" font-size="12" fill="#475569">before upload egress</text>
+  </g>
+
+  <!-- B3: Clip, Reframe & Restyle -->
+  <rect x="566" y="286" width="180" height="84" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="656" y="308" font-size="14" font-weight="700" fill="#1e293b">Render / Clip / Restyle</text>
+    <text x="656" y="328" font-size="12" fill="#475569">HTML UI · Avatar · B-roll</text>
+    <text x="656" y="346" font-size="12" fill="#475569">Reap clips · Shorts studio</text>
+  </g>
+
+  <!-- Right Merge Column: Finish + Gate 2 -->
+  <rect x="804" y="198" width="170" height="76" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="889" y="218" font-size="14" font-weight="700" fill="#1e293b">Stitch &amp; video_lint</text>
+    <text x="889" y="238" font-size="12" fill="#475569">-14 LUFS · safe zones</text>
+    <text x="889" y="255" font-size="12" fill="#475569">Art. 50 badge · captions</text>
+  </g>
+
+  <!-- Gate 2: Final Cut & Publish -->
+  <rect x="804" y="310" width="170" height="84" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <g text-anchor="middle" dominant-baseline="central">
+    <text x="889" y="332" font-size="14" font-weight="700" fill="#1e293b">Gate 2: Publish</text>
+    <text x="889" y="352" font-size="12" fill="#1e293b">You inspect final MP4</text>
+    <text x="889" y="370" font-size="12" fill="#475569">before anything posts</text>
+  </g>
+
+  <!-- Legend -->
+  <rect x="30" y="418" width="14" height="14" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="52" y="425" font-size="13" fill="#475569" dominant-baseline="central">Amber = only a person can approve this step (no silent credit burn, no silent egress, no auto-posting).</text>
+</svg>

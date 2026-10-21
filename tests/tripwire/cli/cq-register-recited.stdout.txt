@@ -1,0 +1,18 @@
+{
+  "proceed": true,
+  "blocking": [],
+  "warnings": [
+    "4 parallel construction(s) — consecutive sentences opening on the same word, which is a copywriter's cadence a listener hears as an ad: \"That's a gym problem.\" / \"That's every system.\". Break the mirror and use the connective a person would actually say.",
+    "only 0/4 sentences after the cold open (0%) open with a connective (and/so/but/look/…), under the 25% floor — written prose drops these because a reader sees the paragraph break; a listener cannot, so this reads as disconnected aphorisms",
+    "sentence length is metronomic (mean 3.4 words, stdev 0.49 < 2.5) — real speech varies hard; a run of same-length lines sounds recited"
+  ],
+  "checks": {
+    "script": "2026-09-01-recited.md",
+    "spoken_lines": 1,
+    "sentences": 5,
+    "parallel_openings": 4,
+    "connective_share": 0.0,
+    "sentence_len_mean": 3.4,
+    "sentence_len_stdev": 0.49
+  }
+}

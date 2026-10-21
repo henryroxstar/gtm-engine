@@ -1,0 +1,12 @@
+# Code owners — GitHub auto-requests these reviewers on matching paths.
+# Destination in the public repo: /.github/CODEOWNERS
+# Maintainer of record.
+
+# Default owner for everything in the repo.
+* @henryroxstar
+
+# Security-sensitive surfaces — keep a tight reviewer set.
+/agent/         @henryroxstar
+/backend/       @henryroxstar
+/SECURITY.md    @henryroxstar
+/LICENSE        @henryroxstar

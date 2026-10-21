@@ -1,0 +1,6 @@
+[[claim]]
+id = "relay-claim"
+group = "observability"
+status = "verified"
+statement = "The product records each action."
+source = "knowledge/references/relay-notes.md:1"

@@ -1,0 +1,48 @@
+{
+  "source_item": "item-clean",
+  "total_duration_s": 17,
+  "style_scaffold": {
+    "look": "editorial monochrome, fine grain, shallow depth of field",
+    "provider_model": "wan2_7",
+    "negative": "text artifacts, logos"
+  },
+  "synthetic_disclosure": "Presenter rendered with a consented digital likeness.",
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 5,
+      "role": "presenter",
+      "camera": "static, slow push-in",
+      "visual": "office at dusk, laptop glow on her face",
+      "motion_prompt": "she speaks directly to camera, articulating each word, and sets the phone down",
+      "spoken": "Every agent you run already carries a credential, and nobody wrote down which one."
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "screen",
+      "camera": "screen capture, locked",
+      "visual": "the gateway console listing one agent credential",
+      "motion_prompt": "the cursor opens the credential row and the status flips to verified",
+      "audio_bed": "soft interface click and room tone"
+    },
+    {
+      "n": 3,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "handheld, medium",
+      "visual": "hands placing a badge on a desk",
+      "motion_prompt": "the hand sets the badge down and slides it toward the lens",
+      "audio_bed": "room tone with a paper rustle"
+    },
+    {
+      "n": 4,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "static, eye level",
+      "visual": "office, she looks up from the laptop",
+      "motion_prompt": "she speaks to camera, articulating each word, and closes the laptop",
+      "spoken": "So ask who owns it before the next review starts."
+    }
+  ]
+}

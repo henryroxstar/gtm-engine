@@ -1,0 +1,16 @@
+# packs/headless-content/inputs.toml
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = true
+
+[[knowledge]]
+topic = "voice"
+required = true
+freshness = "evergreen"
+
+[[knowledge]]
+topic = "icp-personas"
+required = true
+freshness = "evergreen"

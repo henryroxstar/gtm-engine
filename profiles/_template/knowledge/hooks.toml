@@ -1,0 +1,128 @@
+# Hook bank — replace the example below with your proven angles.
+#
+# Rules:
+#   - `id` is permanent. Once an outcome row references hook:<id>, the id is immutable.
+#   - `status` is candidate | test | proven | banned. Candidates never enter rotation.
+#   - `opening_beats` holds one variant per format you want this hook to render.
+#   - `max_impressions` + `fatigue_window_days` auto-exclude a hook from rotation when hit.
+#   - Add banned stems/angles under [banned] and hooks_lint will enforce them.
+
+[[hook]]
+id = "example-augmentation"
+angle = "AI that replaces judgment is a bad trade"
+payoff_promise = "AI that hands you back your time to use your judgment"
+proof_required = ["example", "reframe", "number"]
+formats = ["linkedin-text", "carousel", "reel", "short"]
+tone = "hostile-expert"
+max_impressions = 50000
+fatigue_window_days = 45
+created_at = "2026-08-16"
+status = "test"
+pillar = "product"
+goal = "reach"
+
+[[hook.opening_beats]]
+format = "linkedin-text"
+variant = "A"
+text = "AI that replaces judgment is a bad trade."
+
+[[hook.opening_beats]]
+format = "reel"
+variant = "A"
+video = "cold open: founder at desk, phone down, looks at camera"
+text = "AI that replaces judgment is a bad trade."
+
+[[hook.opening_beats]]
+format = "carousel"
+variant = "A"
+image = "cover card: split headline + face, teal accent"
+
+[[hook.opening_beats]]
+format = "short"
+variant = "A"
+video = "cold open: founder at desk, phone down, looks at camera"
+text = "AI that replaces judgment is a bad trade."
+
+[banned]
+stems = ["just use AI", "game-changer"]
+angles = ["AI will replace you"]
+
+[[hook]]
+id = "f7-odd-precision-money-ledger"
+angle = "Odd-Precision Money Ledger"
+payoff_promise = "Provide empirical detail that drives saves/bookmarks"
+proof_required = ["number", "odd-precision", "financial"]
+formats = ["linkedin-text", "carousel"]
+tone = "pragmatic"
+max_impressions = 50000
+fatigue_window_days = 45
+created_at = "2026-09-20"
+status = "proven"
+pillar = "product"
+goal = "saves"
+
+[[hook.opening_beats]]
+format = "linkedin-text"
+variant = "A"
+text = "How we saved $4,730 in 90 days."
+
+[[hook.opening_beats]]
+format = "carousel"
+variant = "A"
+image = "cover card: the figure set large over a plain ledger rule"
+
+[[hook]]
+id = "f18-false-binary-dissolve"
+angle = "False-Binary Dissolve"
+payoff_promise = "Challenge conventional wisdom to drive comments"
+proof_required = ["reframe", "dichotomy"]
+formats = ["linkedin-text", "reel", "short"]
+tone = "hostile-expert"
+max_impressions = 50000
+fatigue_window_days = 45
+created_at = "2026-09-20"
+status = "proven"
+pillar = "industry"
+goal = "comments"
+
+[[hook.opening_beats]]
+format = "linkedin-text"
+variant = "A"
+text = "The choice isn't X or Y. It's neither."
+
+[[hook.opening_beats]]
+format = "reel"
+variant = "A"
+video = "cold open: speaker holds up two fingers, then drops both"
+text = "The choice isn't X or Y. It's neither."
+
+[[hook.opening_beats]]
+format = "short"
+variant = "A"
+video = "cold open: speaker holds up two fingers, then drops both"
+text = "The choice isn't X or Y. It's neither."
+
+[[hook]]
+id = "f4-time-anchor-confession"
+angle = "Time-Anchor Confession"
+payoff_promise = "Provide hard lessons learned over time"
+proof_required = ["time", "lesson"]
+formats = ["linkedin-text", "carousel"]
+tone = "vulnerable"
+max_impressions = 50000
+fatigue_window_days = 45
+created_at = "2026-09-20"
+status = "proven"
+pillar = "company"
+goal = "engagement"
+
+[[hook.opening_beats]]
+format = "linkedin-text"
+variant = "A"
+text = "3 years ago, we made a crucial mistake."
+
+[[hook.opening_beats]]
+format = "carousel"
+variant = "A"
+image = "cover card: a dated calendar page, corner turned"
+

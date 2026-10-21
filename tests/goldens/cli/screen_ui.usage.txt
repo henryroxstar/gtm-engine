@@ -1,0 +1,20 @@
+usage: gtm_core.screen_ui [-h] [--backend {pillow,html}]
+                          [--composition COMPOSITION] [--preview-frame]
+                          [--headline HEADLINE] [--subline SUBLINE]
+                          [--eyebrow EYEBROW] [--badge BADGE]
+                          [--kicker KICKER] --kit-json KIT_JSON
+                          --ratio {16:9,1:1,4:5,9:16} [--fps FPS]
+                          [--duration-s DURATION_S] [--out-dir OUT_DIR]
+                          [--font-role FONT_ROLE] [--image IMAGE]
+                          [--crop-frac CROP_FRAC] [--words-json WORDS_JSON]
+                          [--timing-json TIMING_JSON] [--label KEY=VALUE]
+                          [--logo] [--still PNG] [--actions ACTIONS]
+                          [--cta-text CTA_TEXT] [--logo-variant LOGO_VARIANT]
+                          [--title KEY=VALUE] [--message KEY=VALUE]
+                          [--bubble KEY=VALUE] [--speak-from-s SPEAK_FROM_S]
+                          [--repo-root REPO_ROOT]
+                          [--min-tolerance MIN_TOLERANCE]
+                          [--for-scene {hero-reveal,phone-walkthrough}]
+                          [--caption-lines {1,2}] [--margin-px MARGIN_PX]
+                          {budgets,call-ui-bank,call-ui-clinic,call-ui-hotel,call-ui-telco,caller-row-bank,caller-row-clinic,caller-row-hotel,caller-row-telco,chat-bubble,checkpoint-flow,class-booking,endcard,gate,hero-reveal,hook-constellation,hook-traffic,idcard,intro,log,mc-budgets,mc-endcard,mc-gate,mc-hook-constellation,mc-hook-traffic,mc-idcard,mc-intro,mc-log,mc-outcome,mc-reviewers,mc-traffic-gate,message-card,outcome,phone-walkthrough,record-agent-identity,record-bank,record-clean,record-clinic,record-grid,record-hotel,record-telco,request-inspector,reviewers,rows-claim,rows-evidence,rows-identity,rows-layers,rows-scope,still-push,title-claim,title-close,traffic-gate,diagram-reveal,hero-reveal,kinetic-type,phone-walkthrough,audit-fit,fit-layout}
+gtm_core.screen_ui: error: the following arguments are required: scene, --kit-json, --ratio

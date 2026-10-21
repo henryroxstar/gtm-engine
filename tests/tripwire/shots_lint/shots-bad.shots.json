@@ -1,0 +1,77 @@
+{
+  "source_item": "item-bad",
+  "total_duration_s": 100,
+  "style_scaffold": {
+    "look": "no logos, clean grain",
+    "negative": "logos"
+  },
+  "synthetic_disclosure": "",
+  "identity_bindings": {
+    "look_a": {"source_px": "608x1080", "look_id": "look-fictional-1"}
+  },
+  "deliverable_ratios": ["16:9", "9:16"],
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": "five",
+      "role": "narrator",
+      "camera": "dolly in while zooming and panning left",
+      "visual": "a sign that reads OPEN above the door",
+      "motion_prompt": "dolly in while zooming and panning left",
+      "lighting": "no harsh shadows",
+      "audio_bed": "silent"
+    },
+    {
+      "n": 2,
+      "duration_s": 20,
+      "role": "presenter",
+      "camera": "swoosh",
+      "visual": "office",
+      "motion_prompt": "waves",
+      "spoken": "One credential, one owner, done."
+    },
+    {
+      "n": 3,
+      "duration_s": 2,
+      "role": "presenter",
+      "camera": "static",
+      "visual": "office",
+      "motion_prompt": "two fingers raised to show two layers while he speaks to camera",
+      "spoken": "Every agent you run already carries a credential and nobody wrote down which one it is or who owns it."
+    },
+    {
+      "n": 4,
+      "duration_s": 4.5,
+      "role": "broll",
+      "camera": "static wide",
+      "motion_prompt": "the badge slides across the desk toward the lens",
+      "spoken": "The badge is the credential here, and the desk is the boundary."
+    },
+    {
+      "n": 5,
+      "duration_s": 5,
+      "role": "presenter",
+      "visual": "office",
+      "motion_prompt": "he speaks to camera, articulating each word, and taps the desk",
+      "spoken": "The badge is the credential here, and the desk is the boundary.",
+      "vo_seconds": 3.0
+    },
+    {
+      "n": 6,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "static",
+      "visual": "office",
+      "motion_prompt": "he speaks to camera, articulating each word, and nods",
+      "spoken": "The badge is the credential here, and the desk is the boundary.",
+      "vo_seconds": 5.0
+    },
+    {
+      "n": 7,
+      "duration_s": 4,
+      "role": "presenter",
+      "camera": "handheld",
+      "visual": "desk"
+    }
+  ]
+}

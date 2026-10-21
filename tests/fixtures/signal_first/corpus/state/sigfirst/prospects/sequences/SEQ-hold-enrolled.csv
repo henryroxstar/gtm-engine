@@ -1,0 +1,4 @@
+email,Email,first,First Name,last,Last Name,company,Company,cell_id,segment,seat,title,country,signal_clause,suppression
+dana.renner@copperline-systems.example,dana.renner@copperline-systems.example,Dana,Dana,Renner,Renner,Copperline Systems,Copperline Systems,cell-hold,enterprise,platform,Solutions Architect,hong kong,,
+dana.renner@lantern-systems.example,dana.renner@lantern-systems.example,Dana,Dana,Renner,Renner,Lantern Systems,Lantern Systems,cell-hold,enterprise,platform,Head of AI Platform,singapore,,
+alex.halvorsen@wideloop-partners.example,alex.halvorsen@wideloop-partners.example,Alex,Alex,Halvorsen,Halvorsen,Wideloop Partners,Wideloop Partners,cell-hold,startup,platform,Platform Lead,australia,leadership said supervised generative models now handle first-line triage.,

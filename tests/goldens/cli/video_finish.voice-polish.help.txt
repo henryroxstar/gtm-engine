@@ -1,0 +1,10 @@
+usage: python -m gtm_core.video_finish voice-polish [-h] --in SRC --out OUT
+                                                    [--content-root CONTENT_ROOT]
+                                                    [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --in SRC
+  --out OUT
+  --content-root CONTENT_ROOT
+  --json

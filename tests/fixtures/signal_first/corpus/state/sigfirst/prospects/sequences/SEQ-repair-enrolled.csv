@@ -1,0 +1,4 @@
+email,Email,first,First Name,last,Last Name,company,Company,cell_id,segment,seat,title,country,signal_clause,suppression
+quinn.renner@tidewater-analytics-group.example,quinn.renner@tidewater-analytics-group.example,Quinn,Quinn,Renner,Renner,Tidewater Analytics Group,Tidewater Analytics Group,cell-repair,enterprise,platform,Software Engineer,singapore,the team now runs relay and mesh agents across three regions,
+jordan.bello@quarry-systems.example,jordan.bello@quarry-systems.example,Jordan,Jordan,Bello,Bello,Quarry Systems,Quarry Systems,cell-repair,startup,platform,Head of AI Platform,australia,,
+casey.renner@riverbend-logistics.example,casey.renner@riverbend-logistics.example,Casey,Casey,Renner,Renner,Riverbend Logistics,Riverbend Logistics,cell-repair,unspecified,platform,Chief Executive Officer,singapore,the company described its agents handing work between two separate firms.,

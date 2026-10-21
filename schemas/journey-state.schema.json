@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/journey-state.schema.json",
+  "title": "JourneyState",
+  "description": "Watermark + spine for the builder radar. Written to content/<profile>/journey/state.json by builder-radar (formerly journey-radar) after each successful run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["last_processed_sha", "backfill_done"],
+  "properties": {
+    "last_processed_sha": {
+      "type": ["string", "null"],
+      "description": "HEAD SHA at the end of the last successful builder-radar run. null = backfill not yet run."
+    },
+    "backfill_done": {
+      "type": "boolean",
+      "description": "True after the first backfill run completes."
+    },
+    "series_spine": {
+      "type": "array",
+      "items": { "type": "string", "description": "StoryCluster.id, in intended publication order." },
+      "default": [],
+      "description": "Ordered list of cluster IDs forming the backfill starter series."
+    }
+  }
+}

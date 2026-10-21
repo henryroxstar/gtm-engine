@@ -1,0 +1,24 @@
+usage: design-lint [-h] [--skill SKILL] [--calibrate GLOB] [--dimensions]
+                   [--strict] [--json]
+                   [paths ...]
+
+positional arguments:
+  paths             one or more solution-design markdown files
+
+options:
+  -h, --help        show this help message and exit
+  --skill SKILL     a skill body (body_template.md) — runs the SD11
+                    contradictory-guardrail audit. Repeatable. May be passed
+                    with or without design paths.
+  --calibrate GLOB  measure the whole rule set against a corpus of real
+                    designs, stratified by provenance. Prints counts per
+                    stratum and the conformant-stratum error count that is the
+                    ERROR bar. Never prints a filename.
+  --dimensions      print the coverage taxonomy — the question each dimension
+                    asks and the section of our structure that answers it.
+                    Read-only; exits 0 and lints nothing. This is what an
+                    upstream skill (solution-discovery) checks its question
+                    bank against, so the questions a design must answer are
+                    sourced before the design is written.
+  --strict          warnings fail too
+  --json

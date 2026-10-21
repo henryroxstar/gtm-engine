@@ -1,0 +1,54 @@
+# Provider unit-price registry — what ONE unit of a metered provider costs the caller's wallet.
+#
+# Committed, NON-SECRET config-as-code, co-located with gtm_core/provider_registry.py (the
+# loader), the same shape as models.toml. A provider that is absent here, or whose price is
+# zero, negative or malformed, is UNPRICED: the worker refuses the call before any HTTP request
+# rather than recording $0.00 (an unknown price is an absence default and must fail closed).
+#
+# There is deliberately NO environment override. RocketReach and Apollo used to read
+# ROCKETREACH_USD_PER_LOOKUP / APOLLO_USD_PER_CREDIT with a default of 0, and nothing set them,
+# so every lookup contributed $0.00 to every cap. An override that can be 0 reintroduces that.
+#
+# Fields (every key below is required except `class`; an unknown key fails the load):
+#   class         "data" | "identity". `data` providers may be pooled on a house account
+#                 (MM5, behind its own switch); `identity` providers are BYOK-mandatory.
+#                 The loader treats an ABSENT class as "identity" (restrictive); this file
+#                 declares it anyway so the schema does not depend on that default.
+#   unit          the unit the price is per ("lookup", "credit"). A price is only ever
+#                 returned for its own unit.
+#   usd_per_unit  a finite number > 0.
+#   status        "estimate" | "reconciled". Only "reconciled" has been compared with the
+#                 vendor's own dashboard.
+#   source        one honest line saying where the number came from.
+#   default_share optional table: the monthly share of the POOLED key (in this provider's units) a
+#                 workspace gets per entitlement (free | pro | pro_plus). An entitlement not named
+#                 here gets ZERO, and a share is only ever granted from a pool the operator has
+#                 sized (backend/schema V045); with no pool, every share is zero. The figures below
+#                 are PLACEHOLDERS (2026-10-15), like the prices: they spend nothing until pooling
+#                 is switched on, and are to be replaced once the operator sizes the real pool.
+#
+# A tenant on its OWN vendor key (KEY_SOURCE=byok) is never billed from this file: the worker
+# records the unit count at cost_usd = 0 (see agent/mcp/*/server.py).
+
+[provider.rocketreach]
+class = "data"
+unit = "lookup"
+usd_per_unit = 0.50
+status = "estimate"
+source = "PLACEHOLDER (2026-10-15, plan D4): an invented non-zero figure, NOT derived from the operator's RocketReach plan. It bills nothing to a tenant until pooling is switched on, but it DOES count against the single-tenant VPS's own monthly cost cap; reconcile against the vendor dashboard before either matters."
+
+[provider.apollo]
+class = "data"
+unit = "credit"
+usd_per_unit = 0.05
+status = "estimate"
+source = "PLACEHOLDER (2026-10-15, plan D4): an invented non-zero figure, NOT derived from the operator's Apollo plan. It bills nothing to a tenant until pooling is switched on, but it DOES count against the single-tenant VPS's own monthly cost cap; reconcile against the vendor dashboard before either matters."
+[provider.rocketreach.default_share]
+free = 0
+pro = 50
+pro_plus = 200
+
+[provider.apollo.default_share]
+free = 0
+pro = 100
+pro_plus = 400

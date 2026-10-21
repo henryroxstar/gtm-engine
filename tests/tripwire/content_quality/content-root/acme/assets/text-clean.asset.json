@@ -1,0 +1,7 @@
+{
+  "platform": "linkedin",
+  "format": "text",
+  "hook": "3 questions a security review asks before an agent crosses an entity boundary",
+  "body": "Every agent you run already carries a credential. Nobody wrote down which one it is, and that is the whole problem in one sentence. When the security review asks, the answer is usually a shared service account, a rotation date from the pilot, and a shrug.\n\nThe first question is who owns the credential the agent presents when it calls another entity. Not which team built the agent, and not which team pays for the platform. Who owns the thing it hands over at the door.\n\nThe second question is what evidence the review will accept before the agent crosses the boundary. A dashboard is not evidence. A screenshot of a dashboard is not evidence either. What the reviewer wants is a record of what the agent was allowed to do and what it actually did, in a format an auditor already reads.\n\nThe third question is what happens when the answer to the first two is nobody and nothing. In practice the review descopes the crossing, the agent ships smaller than planned, and the same question comes back next quarter from a second team with a second agent and a second shared account.\n\nAsk the three questions before the review does. The team that owns the credential is the sponsor for the next meeting, and the evidence trail is the thing that makes the crossing survive the review instead of shrinking under it. That is the whole pitch, and it fits on one slide.",
+  "hashtags": ["#agents"]
+}

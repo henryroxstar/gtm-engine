@@ -1,0 +1,20 @@
+[[angle]]
+id = "enterprise-platform-relay"
+seat = "platform"
+premise = "relay-premise"
+claim = "relay-claim"
+proof = "relay-proof"
+opener_kind = "account-event"
+summary = "One record per action."
+status = "draft"
+segments = ["enterprise"]
+[[angle]]
+id = "public-platform-relay"
+seat = "platform"
+premise = "seat-premise"
+claim = "relay-claim"
+proof = "relay-proof"
+opener_kind = "public-event"
+summary = "One record per action, for any platform owner."
+status = "draft"
+segments = ["enterprise", "startup", "unspecified"]

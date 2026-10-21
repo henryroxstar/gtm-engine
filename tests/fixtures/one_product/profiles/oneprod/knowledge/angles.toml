@@ -1,0 +1,11 @@
+[[angle]]
+id = "enterprise-platform-solo"
+seat = "platform"
+premise = "solo-premise"
+claim = "solo-claim"
+proof = "solo-proof"
+opener_kind = "account-event"
+stakes = "an outage nobody can reconstruct"
+summary = "One record per action for solo. soloonly"
+status = "draft"
+segments = ["enterprise"]

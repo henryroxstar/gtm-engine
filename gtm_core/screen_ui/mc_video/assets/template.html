@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__TITLE__</title>
+  <!--__TYPEKIT_LINK__-->
+  <link rel="stylesheet" href="tokens.css">                            <!-- Brand tokens incl. --video-* -->
+  <link rel="stylesheet" href="mc-video.css">                          <!-- video frame + transport -->
+  <style>
+    @font-face {
+      font-family: 'Standin Sans';
+      font-weight: 400;
+      src: url('fonts/standin-sans-400.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'Standin Sans';
+      font-weight: 500;
+      src: url('fonts/standin-sans-500.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'Standin Sans';
+      font-weight: 600;
+      src: url('fonts/standin-sans-600.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'Standin Sans';
+      font-weight: 700;
+      src: url('fonts/standin-sans-600.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'Standin Mono';
+      font-weight: 400;
+      src: url('fonts/standin-mono-500.ttf') format('truetype');
+    }
+    @font-face {
+      font-family: 'Standin Mono';
+      font-weight: 500;
+      src: url('fonts/standin-mono-500.ttf') format('truetype');
+    }
+    html, body { margin: 0; background: var(--surface-canvas); color: var(--text-primary); font-family: var(--font-family-display); }
+    body { padding: var(--space-8) 0; }
+    .artboard { margin: 0 auto; background: var(--surface-canvas); }
+    .mono { font-family: var(--font-family-mono); letter-spacing: var(--letter-spacing-mono-label); text-transform: uppercase; color: var(--text-secondary); }
+    .chip { font-family: var(--font-family-mono); text-transform: uppercase; letter-spacing: var(--letter-spacing-mono-label);
+            background: transparent; color: var(--text-secondary); border: 1px solid var(--border-hairline-strong);
+            border-radius: var(--radius-xs, 4px); padding: var(--space-1) var(--space-3); cursor: pointer; }
+    .accent { background: var(--accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="artboard mcv" style="--aw:1920px; --ah:1080px;">
+    <!-- Poster frame: reads without scripts; reduced motion opens paused on the poster time. -->
+    <div class="mcv-poster">
+      <img src="__POSTER_LOGO__" alt="">
+      <h1>__POSTER_LINE__</h1>
+      <p class="mono">__URL__</p>
+    </div>
+    <canvas id="mcv-canvas" role="img" aria-label="__TITLE__"></canvas>
+  </div>
+  <div id="mcv-transport" class="mcv-transport">
+    <button class="chip" type="button" data-play>Play</button>
+    <input type="range" data-scrub min="0" value="0" aria-label="Scrub">
+    <span class="mono" data-time></span>
+  </div>
+  <script type="application/json" id="mcv-script">
+__SCRIPT_JSON__
+  </script>
+  <script src="mc-video.js"></script>
+</body>
+</html>

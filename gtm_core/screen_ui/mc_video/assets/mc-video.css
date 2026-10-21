@@ -1,0 +1,44 @@
+/*
+ * mc-video.css — page frame for Mission Control video artboards.
+ * Load after tokens.css and _shared/artboard.css. Tokens only.
+ */
+.artboard.mcv {
+  position: relative;
+  padding: 0;
+  width: min(var(--aw), calc(100vw - 2 * var(--space-8)));
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: var(--space-hairline) solid var(--border-hairline);
+}
+.mcv canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* Poster: the static frame. It reads without scripts and is what reduced motion shows first. */
+.mcv-poster {
+  position: absolute; inset: 0;
+  display: grid; place-content: center; justify-items: center; gap: var(--space-6);
+  text-align: center;
+}
+.mcv-poster img { width: min(40%, 760px); height: auto; }
+.mcv-poster h1 {
+  margin: 0;
+  font-family: var(--font-family-display);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-display-md);
+  letter-spacing: var(--letter-spacing-display);
+}
+.mcv-ready .mcv-poster { display: none; }
+
+/* Transport (preview only) */
+.mcv-transport {
+  display: flex; align-items: center; gap: var(--space-4);
+  width: min(1920px, calc(100vw - 2 * var(--space-8)));
+  margin: var(--space-4) auto var(--space-8);
+}
+.mcv-transport input[type='range'] { flex: 1; accent-color: var(--highlight-secondary); }
+.mcv-transport button { font: inherit; }
+
+/* Render mode (?render): native size, no chrome — the renderer screenshots the canvas */
+.mcv-render body { margin: 0; padding: 0; }
+.mcv-render .artboard.mcv { width: var(--aw); height: var(--ah); aspect-ratio: auto; border: 0; margin: 0; }
+.mcv-render .mcv-transport { display: none; }

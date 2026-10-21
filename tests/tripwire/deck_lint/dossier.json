@@ -1,0 +1,28 @@
+{
+  "account": "Acme Logistics (fictional)",
+  "blocks": [
+    {
+      "type": "questions",
+      "groups": [
+        {
+          "title": "Qualification",
+          "items": [
+            "Of the agent work you have shipped, how many are in production versus pilot?",
+            "Which team owns the credential an agent presents when it calls another entity?",
+            "What evidence does your security review ask for before an agent crosses an entity boundary?"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "two_col",
+      "leftTitle": "DO",
+      "left": ["Do ask who owns the credential"],
+      "rightTitle": "DON'T",
+      "right": [
+        "Don't congratulate them on the Zorvane award — a rival won it",
+        "Don't mention the Tallow migration timeline"
+      ]
+    }
+  ]
+}

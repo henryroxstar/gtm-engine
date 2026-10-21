@@ -1,0 +1,30 @@
+schema = 1
+reviewed = "2026-07-29"
+
+# Template competitor registry.
+# Replace the fictional rows below with real competitors for the active tenant.
+# Real competitor data lives only in tenant profiles, never in _template.
+
+[[competitor]]
+name = "Contoso Agent Broker"
+tier = "direct"
+aliases = ["Contoso"]
+watch_urls = ["https://contoso.example/blog/", "https://contoso.example/changelog/"]
+domains = ["contoso.example"]
+syften_filter = ""
+first_seen = "2026-07-29"
+last_reviewed = "2026-07-29"
+status = "active"
+note = "Fictional direct rival used as a template placeholder."
+
+[[competitor]]
+name = "Northwind NHI"
+tier = "nhi-native"
+aliases = ["Northwind"]
+watch_urls = ["https://northwind.example/newsroom/"]
+domains = ["northwind.example"]
+syften_filter = ""
+first_seen = "2026-07-29"
+last_reviewed = "2026-07-29"
+status = "watch"
+note = "Fictional NHI-native peer placeholder."

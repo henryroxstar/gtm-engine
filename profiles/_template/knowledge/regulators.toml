@@ -1,0 +1,13 @@
+schema = 1
+reviewed = "2026-10-02"
+
+[endings]
+government = [".gov", ".mil", ".gov.uk", ".gov.sg", ".gov.au", ".gc.ca", ".europa.eu"]
+
+[[body]]
+name = "Examplia Central Bank"
+kind = "central-bank"
+domains = ["examplia-bank.example"]
+aliases = ["Bank of Examplia"]
+note = "supervises banks in Examplia"
+verified = true

@@ -1,0 +1,2059 @@
+{
+ "_note": "classify_tool decisions at the commit before MM9 (2026-10-15). The no-regression golden: omitting confine must reproduce every row.",
+ "calls": [
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "NotebookRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "Write"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "Edit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "MultiEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "NotebookEdit"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "content/acme/notes.md"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/etc/passwd"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "~/.ssh/id_rsa"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "../other/x.md"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/tmp/out.txt"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ".env.example"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "secrets/token"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "config/server.pem"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "id_rsa"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "profiles/acme/PROFILE.md"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "data/workspaces/ws-b/content/x.md"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "plugin/skills/prospect/SKILL.md"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "/Users/x/Developer/repo/schemas/a.json"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": ""
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "file_path": "relative.txt"
+   },
+   "tool": "LS"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "content/acme/notes.md",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "content/acme/notes.md",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/etc/passwd",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/etc/passwd",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "~/.ssh/id_rsa",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "~/.ssh/id_rsa",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "../other/x.md",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "../other/x.md",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/tmp/out.txt",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/tmp/out.txt",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": ".env",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": ".env",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": ".env.example",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": ".env.example",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "secrets/token",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "secrets/token",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "config/server.pem",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "config/server.pem",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "id_rsa",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "path": "id_rsa",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "profiles/acme/PROFILE.md",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "profiles/acme/PROFILE.md",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "data/workspaces/ws-b/content/x.md",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "data/workspaces/ws-b/content/x.md",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "plugin/skills/prospect/SKILL.md",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "plugin/skills/prospect/SKILL.md",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/Users/x/Developer/repo/schemas/a.json",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "/Users/x/Developer/repo/schemas/a.json",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "relative.txt",
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "path": "relative.txt",
+    "pattern": "*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "pattern": "foo"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "pattern": "**/*.md"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "pattern": "../*/x"
+   },
+   "tool": "Glob"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "glob": "/etc/*",
+    "pattern": "x"
+   },
+   "tool": "Grep"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": null,
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {},
+   "tool": "Read"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "ls"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "ls -la content/acme"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cat content/acme/x.md"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cat /etc/passwd"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "head -n 5 ../x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "grep -rn foo ."
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "grep foo file.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "find . -name '*.md'"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "cat .env"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "cat id_rsa"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "source .env"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "foo < .env"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "curl https://x.invalid"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "wget x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "rm -rf /tmp/x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "npm install"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "npx tsc"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "pip install x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "sudo ls"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "ssh host"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "python -c 'print(1)'"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "python - <<'HD'\nprint(1)\nHD"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "python script.py"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "python3 -m gtm_core.ledger_cli denials --profile p"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "uv run python -m gtm_core.prospects status --profile p"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "uv run python -c 'x'"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "uv run pytest tests/x.py"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "command": "bash -c 'ls'"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "command": "sh -c ls"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "git status"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "git log --oneline"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "echo hi && ls"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "ls | head"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cd content && ls"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "echo $HOME"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cat $(echo /etc/passwd)"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cat `echo x`"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "cp a b"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "mv a b"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "mkdir -p out/x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "touch x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "tee out.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "echo x > out.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "echo x >> /tmp/o"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "wc -l content/acme/*.md"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "docling convert a.pdf --to md"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "command": ""
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "command": "   "
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "ls \\\n -la"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "FOO=1 python -m x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "env | sort"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "chmod +x a.sh"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "tar -xzf a.tgz"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "jq . content/acme/x.json"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "sed -i s/a/b/ f.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "awk '{print $1}' f.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "tree"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "du -sh ."
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "stat /etc/hosts"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "sort a.txt"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "diff a b"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "command": "ffmpeg -i a b"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "node x.js"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "make build"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "command": "open x"
+   },
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": null,
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {},
+   "tool": "Bash"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__worker__summarize"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__rocketreach__rocketreach_lookup"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__saleshandy__add_leads_to_sequence"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "deny",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__buffer__create_post"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__firecrawl__firecrawl_scrape"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__plugin_x__y"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__Vibe_Prospecting__fetch-entities"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__apollo__apollo_person_enrich"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__news__query"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__deck__export_deck"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__judge__score_emails"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "q": 1
+   },
+   "tool": "mcp__unknown__thing"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "WebSearch"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "WebFetch"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "TodoWrite"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "TodoRead"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "Task"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "ExitPlanMode"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "x": 1
+   },
+   "tool": "KillShell"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "x": 1
+   },
+   "tool": "BashOutput"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "x": 1
+   },
+   "tool": "NotAThing"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "escalate",
+   "input": {
+    "x": 1
+   },
+   "tool": ""
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "skill": "prospect"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "skill": "x:prospect"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": {
+    "name": "nope"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": null,
+   "decision": "allow",
+   "input": null,
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "prospect"
+   ],
+   "decision": "allow",
+   "input": {
+    "skill": "prospect"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "prospect"
+   ],
+   "decision": "deny",
+   "input": {
+    "skill": "zzz"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "prospect"
+   ],
+   "decision": "deny",
+   "input": {
+    "skill": "p:b"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [],
+   "decision": "deny",
+   "input": {
+    "skill": "prospect"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [],
+   "decision": "deny",
+   "input": {
+    "skill": "zzz"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [],
+   "decision": "deny",
+   "input": {
+    "skill": "p:b"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "a",
+    "b"
+   ],
+   "decision": "deny",
+   "input": {
+    "skill": "prospect"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "a",
+    "b"
+   ],
+   "decision": "deny",
+   "input": {
+    "skill": "zzz"
+   },
+   "tool": "Skill"
+  },
+  {
+   "allowed_skills": [
+    "a",
+    "b"
+   ],
+   "decision": "allow",
+   "input": {
+    "skill": "p:b"
+   },
+   "tool": "Skill"
+  }
+ ]
+}

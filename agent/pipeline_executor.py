@@ -1,0 +1,422 @@
+"""pipeline_executor — maps stage names to skill prompts and drives each via the SDK.
+
+Each stage drives one ``ClaudeSDKClient`` turn with the appropriate skill prompt. The executor returns
+a :class:`~agent.pipeline.StageOutcome` — including ``AWAITING_APPROVAL`` when the brain emits the
+plan gate sentinel **or** the stage's node is pack-declared ``gate=true`` — so
+:class:`~agent.pipeline.PipelineRunner` can stop cleanly and wait for an operator action from the
+cockpit (or, for a pack run, the backend's ``POST /gate`` / the VPS CLI's gate-decision verb).
+
+This is intentionally thin: prompts are strings, detection is string-search plus a declared-gate
+lookup, and failure is any unhandled exception. The real gate logic (resume, cockpit routing) lives
+in ``cockpit/bot.py``; this file just drives the LLM steps.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from gtm_core.models import breaker_for, call_with_fallback, resolve_model
+
+from . import mcp_config, permissions
+from .config import Config
+from .pipeline import AWAITING_APPROVAL, FAILED, OK, SKIPPED, StageOutcome
+from .session import RequiredMcpServersUnavailable, build_agent_options, stream_brain_messages
+from .subagent_limit import SubagentCounter, resolve_max, with_note
+
+# The gate sentinel the content-plan skill emits when it wants human approval.
+_GATE_PLAN_SENTINEL = "⟦GATE:plan⟧"
+
+# Stage → model role (P4 hybrid brain). Mechanical, no-PII upstream stages run on the
+# cheap worker brain (brain_radar → DeepSeek); judgment + gate-critical + PII-bearing
+# stages stay on Claude (brain_plan). This split keeps the publish gate and customer
+# PII on Claude by construction — see CLAUDE.md "Model discipline". Unknown stages
+# default to the Claude brain.
+_STAGE_ROLES: dict[str, str] = {
+    "radar": "brain_radar",
+    "research": "brain_radar",
+    "plan": "brain_plan",
+    "studio": "brain_plan",
+    "publish": "brain_plan",
+}
+
+# Per-stage prompts. Kept as module-level constants so bot.py can reference them if needed.
+STAGE_PROMPTS: dict[str, str] = {
+    "radar": "Run the content-radar skill for the active profile.",
+    "plan": (
+        "Run the content-plan skill. Propose this week's content plan for the active profile "
+        "and present it for approval."
+    ),
+    "research": (
+        "Run the content-research skill for all planned items in the approved plan for the "
+        "active profile."
+    ),
+    "studio": (
+        "Run the content-studio skill for all researched items in the approved plan for the "
+        "active profile. For each item, produce and lint the asset for its platform (LinkedIn, X, "
+        "or Instagram) and locale. Copy/brief only — do NOT generate any paid visuals in this "
+        "automated stage. Report any item that fails to lint rather than skipping it."
+    ),
+    "publish": "Phase 1 publish is manual — log this stage as skipped.",
+}
+
+# Journey-pipeline stage prompts — substituted when source="journey"
+JOURNEY_STAGE_PROMPTS: dict[str, str] = {
+    "radar": (
+        "Run the builder-radar skill for the active profile. "
+        "Read the repo's git history and docs to surface build moments as story clusters. "
+        "Use the watermark from content/<active>/journey/state.json for incremental runs."
+    ),
+    "plan": (
+        "Run the content-plan skill. The radar clusters are in "
+        "content/<active>/journey/radar/ (not the usual radar/ path). "
+        "Propose this week's journey content plan for the active profile "
+        "and present it for Gate 1 approval."
+    ),
+    "research": (
+        "Run the builder-evidence skill for all planned journey items in the approved plan. "
+        "Gather primary-source git and PRD evidence for each item."
+    ),
+    "studio": (
+        "Run the builder-studio skill for all researched journey items in the approved plan. "
+        "For each item, produce the LinkedIn post, article, and podcast script. "
+        "Run the content linter and safe-to-share lint before surfacing for review."
+    ),
+    "publish": (
+        "Run the content-publish skill for any journey items ready for Gate 2. "
+        "The LinkedIn asset.json is at content/<active>/journey/assets/<item-id>.asset.json."
+    ),
+}
+
+
+def _log_deny(tool_name: str, tool_input: dict, decision: str) -> None:  # noqa: ARG001
+    print(f"[pipeline_executor] permission policy {decision}: tool={tool_name}", file=sys.stderr)
+
+
+def _emit_stage_cost(usage_sink, spec, profile: str, stage_name: str, usage: dict) -> None:
+    """Route one SDK usage report to the injected cost sink as a CostRecord.
+
+    Rates follow the spec the stage ACTUALLY ran on (a brain_radar stage bills its
+    own model's rates, not brain_plan's). Best-effort: metering must never fail a
+    stage. The sink owns runtime/workspace/run scoping (backend replaces those);
+    ``stage`` carries the node id so per-node cost rollups are possible.
+    """
+    try:
+        from gtm_core.metering import CostRecord, brain_cost_usd, resolve_rates
+
+        r_in, r_out = resolve_rates(
+            spec, env_input="BRAIN_INPUT_USD_PER_1K", env_output="BRAIN_OUTPUT_USD_PER_1K"
+        )
+        rec = CostRecord(
+            runtime="vps",  # sink may replace() with its own runtime/scope
+            source="brain",
+            cost_usd=brain_cost_usd(usage, input_usd_per_1k=r_in, output_usd_per_1k=r_out),
+            model_or_sku=spec.model,
+            profile=profile,
+            stage=stage_name,
+            input_tokens=usage.get("input_tokens", 0) or 0,
+            output_tokens=usage.get("output_tokens", 0) or 0,
+            cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0) or 0,
+            cache_read_input_tokens=usage.get("cache_read_input_tokens", 0) or 0,
+        )
+        usage_sink(rec)
+    except Exception:  # noqa: BLE001 — metering must never break a stage
+        pass  # nosec B110 — intentional best-effort swallow
+
+
+class BrainTurnError(RuntimeError):
+    """The brain's turn did not finish cleanly — it errored, or ended with no result."""
+
+
+def _raise_if_turn_failed(last) -> None:
+    """Refuse a turn whose last message is not a clean ``ResultMessage``.
+
+    Without this, a turn the API rejected (bad key, no credit, a 4xx/5xx) or a CLI that
+    exited after its init message streamed no text and no error, so the stage returned OK
+    and the graph ran on: every node "completed" at $0 until an enrollment gate found no
+    draft and blamed the wrong node (client issue #337). A turn always ends with a
+    ``ResultMessage``; its absence is itself the failure.
+    """
+    from claude_agent_sdk import ResultMessage
+
+    result = last if isinstance(last, ResultMessage) else None
+    if result is None:
+        raise BrainTurnError("the brain turn ended without a result (no answer and no error)")
+    if result.is_error:
+        detail = "; ".join(
+            str(part)
+            for part in (
+                result.subtype,
+                f"HTTP {result.api_error_status}" if result.api_error_status else None,
+                "; ".join(result.errors or []) or (result.result or "")[:300] or None,
+            )
+            if part
+        )
+        raise BrainTurnError(f"the brain turn failed: {detail}")
+
+
+#: What the ``prospect`` skill reports when its unattended default stops the run instead of
+#: asking the founder to accept a free-web-search floor (plugin/skills/prospect/SKILL.md, Step 2).
+_UNATTENDED_STOP_MARKER = "web-floor-offered"
+
+
+def _question_text(tool_input: object) -> str:
+    """The first question an ``AskUserQuestion`` call put to the user, for the failure reason.
+
+    The input is model output (untrusted, §R5): read it defensively and never raise."""
+    questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
+    first = questions[0] if isinstance(questions, list) and questions else None
+    text = first.get("question") if isinstance(first, dict) else None
+    return text.strip()[:300] if isinstance(text, str) and text.strip() else "(no question text)"
+
+
+def _questions_asked(content: list) -> list[str]:
+    """Every ``AskUserQuestion`` call in one assistant message, as its question text."""
+    return [
+        _question_text(getattr(block, "input", None))
+        for block in content
+        if getattr(block, "name", None) == "AskUserQuestion"
+    ]
+
+
+class NeedsInputError(RuntimeError):
+    """The stage ended waiting on an answer a pack run cannot get (an unattended run has nobody).
+
+    Raised, not returned, so it takes the same road as any failed turn: ``call_with_fallback``
+    re-raises it at once (the class name is not retryable-shaped, so no model fallback, and the
+    breaker is not charged) and ``execute_stage`` turns it into a FAILED outcome flagged
+    ``needs_input``."""
+
+
+def _raise_if_needs_input(stage_name: str, asked: list[str], text: str) -> None:
+    """Fail the stage when its turn ended on a question.
+
+    A turn that ended on a question used to be recorded OK and the graph ran on over an empty
+    result (client issue #337 rerun: `prospect` asked about free web search, then `dossier`,
+    `outreach` and `quality` spent $7.91 on nothing)."""
+    if not asked and _UNATTENDED_STOP_MARKER not in text:
+        return
+    reason = asked[0] if asked else f"stopped with {_UNATTENDED_STOP_MARKER!r}"
+    raise NeedsInputError(f"{stage_name} needs an answer an unattended run cannot give: {reason}")
+
+
+def _run_note_suffix(run_note: str | None) -> str:
+    """An operator run input the node's prompt refers to (today: a capture run's manifest id,
+    which is NOT the pack run id)."""
+    return f"\n\n{run_note}" if run_note else ""
+
+
+async def execute_stage(
+    cfg: Config,
+    profile: str,
+    stage_name: str,
+    manifest: dict,
+    prompts: dict[str, str] | None = None,
+    stage_roles: dict[str, str] | None = None,
+    usage_sink=None,
+    allowed_skills: frozenset[str] | None = None,
+    external_effects: dict[str, str | None] | None = None,
+    gates: dict[str, bool] | None = None,
+    run_id_stages: frozenset[str] | None = None,
+    language: str | None = None,
+    capture_gate=None,
+    run_note: str | None = None,
+    confine=None,
+    contact_stages: frozenset[str] | None = None,
+) -> StageOutcome:
+    """Run one pipeline stage by querying the brain with the stage's skill prompt.
+
+    ``prompts``/``stage_roles`` default to the hardcoded news-pipeline
+    ``STAGE_PROMPTS``/``_STAGE_ROLES`` — unchanged behavior for the existing cron path. A
+    pack-driven executor (``agent.packs.make_executor_from_pack``) passes a pack graph's own
+    per-node prompt + ``model_role`` here instead, generalizing the two hardcoded dicts into pack
+    data without changing this function's behavior for callers that omit them.
+
+    Returns ``StageOutcome(AWAITING_APPROVAL)`` if the plan gate sentinel appears in the output OR
+    ``gates`` declares this stage ``gate=true`` (A11: a pack node's ``gate=true`` is a structural
+    pause, not merely a hint the skill may or may not honour with a sentinel — see
+    ``agent.packs.make_executor_from_pack``, which is the only caller that ever passes ``gates``).
+    ``gates=None`` (every caller over ``DEFAULT_GRAPH``, i.e. the non-pack news/journey cron path)
+    preserves the historical marker-only behavior exactly — that path carries no pack `gate`
+    declarations to enforce. Returns ``StageOutcome(SKIPPED)`` for a node with a declared
+    ``external_effect`` (the publish/email-enrollment dispatch stages), and ``StageOutcome(OK)`` on
+    a clean, non-gated run. Any exception becomes ``StageOutcome(FAILED)``.
+
+    ``run_note`` is one sentence appended to every stage prompt of a scoped run.
+
+    ``confine`` (an :class:`agent.path_confinement.Confinement`) confines this stage's file tools and
+    shell to one tenant workspace (MM9). Only the backend passes one; ``None`` is today's policy.
+
+    ``contact_stages`` names the stages that resolve contacts. Such a stage does not send its prompt
+    until every contact server the run holds a key for has connected, and fails with
+    ``error_code="contacts_unavailable"`` (before any model spend) if one does not — rather than let
+    the brain conclude the tool is absent and stop to ask (client issue #337, run 82e84540).
+
+    ``capture_gate`` (a pack graph's declared ``egress_scope``, built by the pack executor) scopes
+    Firecrawl for this stage. It is enforced by ``build_agent_options``' own default callback, which
+    refuses to share the call with a caller-supplied ``can_use_tool``, so a gated stage passes the
+    gate and no callback: the ``pipeline:<stage>`` denial label then reads ``headless-default``.
+    """
+    # A node with a declared external effect is a DISPATCH point, not brain work:
+    # short-circuit it to SKIPPED so the brain never performs the effect itself —
+    # the operator-approved dispatch happens in Python, outside this executor
+    # (cockpit/gates.py on the VPS, backend/publish_dispatch.py on the backend).
+    # Recognised by DECLARATION when the caller supplies pack metadata (A10);
+    # callers that don't (the VPS news/journey path over DEFAULT_GRAPH) keep the
+    # historical name check, so that trajectory stays byte-identical.
+    # Short-circuit BEFORE importing the SDK so this path is genuinely
+    # SDK-independent (it never selects a model and works even if
+    # claude_agent_sdk is absent/broken); it also keeps ``--help`` fast.
+    is_dispatch_node = (
+        bool(external_effects.get(stage_name))
+        if external_effects is not None
+        else stage_name == "publish"
+    )
+    if is_dispatch_node:
+        return StageOutcome(status=SKIPPED, outputs=("publish-manual",))
+
+    from claude_agent_sdk import (  # local import; SDK is only needed for model stages
+        AssistantMessage,
+        TextBlock,
+    )
+
+    _prompts = prompts if prompts is not None else STAGE_PROMPTS
+    prompt = _prompts.get(stage_name)
+    if prompt is None:
+        return StageOutcome(status=FAILED, error=f"unknown stage: {stage_name!r}")
+    node_declared_gate = gates is not None and bool(gates.get(stage_name))
+    if stage_name in (run_id_stages or ()) and manifest.get("run_id"):
+        # An enrollment gate's draft is named after its run so the gate reads this run's draft
+        # and never another's (client issue #245) — which the model can only do if it is told.
+        prompt += (
+            f"\n\nPack run id: {manifest['run_id']}. Wherever a skill names a file after "
+            "<run-id>, use exactly this value."
+        )
+
+    prompt += _run_note_suffix(run_note)
+
+    _roles = stage_roles if stage_roles is not None else _STAGE_ROLES
+    role = _roles.get(stage_name, "brain_plan")
+
+    # Denials go to stderr (journal) AND the profile's denials.jsonl (P0-1) so a
+    # blocked pipeline step is a queryable record with the stage context intact.
+    from .denial_log import make_denial_sink
+
+    _ledger_sink = make_denial_sink(cfg, profile, f"pipeline:{stage_name}")
+
+    def _deny_and_ledger(tool_name: str, tool_input: dict, decision: str) -> None:
+        _log_deny(tool_name, tool_input, decision)
+        _ledger_sink(tool_name, tool_input, decision)
+
+    asked: list[str] = []
+    # W5: one window per node dispatch. Built here, not per attempt, so a fallback model retry shares the
+    # node's helper budget instead of getting a second one.
+    helpers = SubagentCounter(resolve_max(cfg, profile))
+    require_mcp = (
+        mcp_config.configured_contact_servers(cfg) if stage_name in (contact_stages or ()) else ()
+    )
+
+    async def _attempt(spec) -> str:
+        """Run the stage once on ``spec``'s model; return the accumulated brain text.
+
+        Used by :func:`gtm_core.models.call_with_fallback`, which retries on the next
+        spec in the chain when this one raises a retryable error (deprecation 404,
+        429, 5xx, timeout). ``spec.role`` may be the primary (brain_radar/brain_plan)
+        or a fallback (brain_cheap) — build_agent_options resolves whichever, so a
+        DeepSeek failure transparently falls through to Claude Haiku.
+        """
+        permission_kw: dict = (
+            {"capture_gate": capture_gate}
+            if capture_gate is not None
+            else {
+                "can_use_tool": permissions.make_headless_can_use_tool(
+                    on_deny=_deny_and_ledger, allowed_skills=allowed_skills, confine=confine
+                )
+            }
+        )
+        options = build_agent_options(
+            cfg,
+            profile,
+            role=spec.role,
+            allowed_skills=allowed_skills,
+            language=language,
+            run_id=manifest.get("run_id"),
+            subagent_counter=helpers,
+            **permission_kw,
+        )
+        chunks: list[str] = []
+        last = None
+        asked.clear()  # a fallback attempt starts from a clean slate
+        print(f"[stage:{stage_name}] running on {spec.provider}/{spec.model} …", flush=True)
+        stream = (
+            stream_brain_messages(options, prompt, require_mcp=require_mcp)
+            if require_mcp
+            else stream_brain_messages(options, prompt)
+        )
+        async for msg in stream:
+            last = msg
+            if isinstance(msg, AssistantMessage):
+                if getattr(msg, "usage", None) and usage_sink is not None:
+                    _emit_stage_cost(usage_sink, spec, profile, stage_name, msg.usage)
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(block.text, end="", flush=True)
+                        chunks.append(block.text)
+                asked.extend(_questions_asked(msg.content))
+        _raise_if_turn_failed(last)
+        text = "".join(chunks)
+        _raise_if_needs_input(stage_name, asked, text)
+        return with_note(text, helpers)
+
+    try:
+        full_output = await call_with_fallback(
+            resolve_model(role), _attempt, breaker=breaker_for(role)
+        )
+    except Exception as exc:  # noqa: BLE001 — chain exhausted (or a non-retryable error) → failed stage
+        return StageOutcome(
+            status=FAILED,
+            error=f"{type(exc).__name__}: {exc}",
+            needs_input=isinstance(exc, NeedsInputError),
+            error_code=(
+                "contacts_unavailable" if isinstance(exc, RequiredMcpServersUnavailable) else None
+            ),
+        )
+
+    if _GATE_PLAN_SENTINEL in full_output or node_declared_gate:
+        # Defence-in-depth: the plan brain occasionally emits the gate marker but skips the durable
+        # draft write — hallucinating a "lock"/permission block when there is none (the dir is
+        # writable, Write is allowed). A Gate-1 pause with no persisted draft is a silent dead end
+        # (the cockpit approve path has nothing to promote), so treat it as a stage
+        # failure the runner surfaces, not a clean gate. The content-plan skill Step 2 steers the
+        # brain to the Write tool; this is the backstop. Applies to both the news and journey
+        # plan stages (both reuse content-plan → content/<profile>/plans/.pending/).
+        if stage_name == "plan":
+            pending_dir = cfg.content_root / profile / "plans" / ".pending"
+            if not any(pending_dir.glob("*.draft.json")):
+                return StageOutcome(
+                    status=FAILED,
+                    error=(
+                        "plan stage emitted Gate 1 but persisted no .pending/*.draft.json "
+                        "(draft was not saved to disk)"
+                    ),
+                )
+        # A11: a node declared gate=true pauses REGARDLESS of what the skill did or didn't emit —
+        # the sentinel check above is a second, independent way to reach the same pause, kept for
+        # the marker-only callers (gates=None). Neither condition alone is trusted over the other;
+        # either is sufficient.
+        return StageOutcome(status=AWAITING_APPROVAL, outputs=(stage_name,), text=full_output)
+
+    return StageOutcome(status=OK, outputs=(stage_name,), text=full_output)
+
+
+def make_executor(cfg: Config, profile: str, source: str = "news"):
+    """Return a bound :data:`~agent.pipeline.StageExecutor` for ``(cfg, profile, source)``.
+
+    source="news" uses STAGE_PROMPTS (existing news pipeline — unchanged).
+    source="journey" uses JOURNEY_STAGE_PROMPTS.
+    """
+    prompts = JOURNEY_STAGE_PROMPTS if source == "journey" else STAGE_PROMPTS
+
+    async def _executor(stage_name: str, manifest: dict) -> StageOutcome:
+        return await execute_stage(cfg, profile, stage_name, manifest, prompts=prompts)
+
+    return _executor

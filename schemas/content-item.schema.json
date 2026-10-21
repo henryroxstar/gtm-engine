@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/content-item.schema.json",
+  "title": "ContentItem",
+  "description": "A single planned content unit from content-plan; carried through research → studio → review (spec §7.2-§7.4, §12).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "pillar", "story_id", "platform", "format", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "pillar": { "type": "string" },
+    "journey_stage": {
+      "type": "string",
+      "enum": ["awareness", "consideration", "conversion"],
+      "description": "Where the reader is. Engine-fixed vocabulary; which stages a profile works, and in what mix, is tenant config in knowledge/content-priority.md. Optional — items planned before this axis existed simply omit it."
+    },
+    "goal": {
+      "type": "string",
+      "enum": ["reach", "engagement", "conversion"],
+      "description": "What this item optimizes for — deliberately NOT the same axis as journey_stage (a conversion-stage item may still be planned for reach). The per-week quota lives in knowledge/content-priority.md. Optional."
+    },
+    "story_id": { "type": "string", "description": "StoryCluster.id" },
+    "hook_id": {
+      "type": "string",
+      "description": "Stable id from the hook BANK, knowledge/hooks.toml, which owns the hook_id namespace — NOT hook-matrix.md, which holds 1:1 outreach openers and in some tenants has no id column at all. Used as the attribution key in outcomes.jsonl (tag hook:<id>). Optional — assigned at Gate 1 when the item matches a bank hook whose formats declare this item's format, omitted otherwise."
+    },
+    "platform": { "type": "string", "enum": ["linkedin", "x", "facebook", "instagram", "podcast"] },
+    "format": { "type": "string", "enum": ["carousel", "text", "infographic", "infographic-handwritten", "thread", "single", "reel", "episode", "clip"] },
+    "slot": { "type": "string", "description": "Calendar slot, e.g. 'Mon AM'." },
+    "locale": { "type": "string", "description": "BCP-47-ish locale tag; primary if omitted." },
+    "status": { "type": "string", "enum": ["planned", "researched", "drafted", "review", "approved", "published", "rejected"] },
+    "research_ref": { "type": "string", "description": "Path to the content-research output." },
+    "asset_refs": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "brief": {
+      "type": "object",
+      "description": "Pre-generation steering written at Gate 1. Consumed by content-studio.",
+      "additionalProperties": false,
+      "properties": {
+        "angle":          { "type": "string", "description": "The specific take or argument for this piece." },
+        "hook_direction": { "type": "string", "description": "How to open (stat-first, failure-story, question, etc.)." },
+        "key_points":     { "type": "array", "items": { "type": "string" }, "description": "3-5 bullets the asset must land." },
+        "tone":           { "type": "string", "description": "Voice/style note, e.g. 'strategic informality, peer not vendor'." },
+        "avoid":          { "type": "array", "items": { "type": "string" }, "description": "Phrases, claims, or framings to exclude." },
+        "audience":       { "type": "string", "description": "Who this piece is for — a segment name from icp-personas.md or a short free-form description. Optional; operator-steerable at Gate 1." },
+        "trigger_stack":  { "type": "string", "description": "Named psychological triggers this item leans on (see virality-engineering.md), e.g. 'T5 curiosity gap + T4 productive discomfort'. Optional; operator-steerable at Gate 1." },
+        "core_value":     { "type": "string", "description": "The human value this piece is about, in one word (innovation -> perseverance). Derived from the pillar at Gate 1; what the script's story-washing check holds the payoff to. Optional; operator-steerable at Gate 1." },
+        "opposite":       { "type": "string", "description": "That value's opposite (perseverance -> giving up), taken from the persona's believed-but-never-said line in audience-psychology.md. Optional; operator-steerable at Gate 1." },
+        "protagonist":    { "type": "string", "description": "Who the journey from opposite to core_value costs most — someone expected to embody the value and privately living its opposite. Its presence marks the item as story-format downstream. Optional; operator-steerable at Gate 1." }
+      }
+    }
+  }
+}

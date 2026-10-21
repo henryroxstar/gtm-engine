@@ -1,0 +1,6 @@
+deny activate_
+deny resume_
+deny update_sequence_status
+ask add_leads_
+ask import_prospects_
+ask-exact add_dnc_items

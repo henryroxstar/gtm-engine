@@ -1,0 +1,24 @@
+# gitleaks configuration — extends default ruleset with project-specific allowlist.
+# Real secrets must be rotated and scrubbed from history; never allowlisted.
+
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "False-positive suppression"
+
+  # .env.example initial commit: empty placeholder lines HIGGSFIELD_API_KEY= and
+  # ELEVENLABS_API_KEY= (no value) triggered the generic-api-key rule.
+  commits = ["ffe4d9799dc785b59e7401197363264d5d28564e"]
+
+  # VTA how-to docs: "p256-key-derivation" is a PUBLIC HMAC domain-separation
+  # label documented in an algorithm — HMAC-SHA512(key="p256-key-derivation", …).
+  # It is not a credential; the generic-api-key rule matches the key="…" shape.
+  #
+  # "test-secret-key-32-bytes-long-xx" is the backend suites' BACKEND_JWT_SECRET
+  # bootstrap: a self-describing fake, 32 bytes because HS256 requires it, set via
+  # os.environ.setdefault at import so importing backend.main does not raise. It has
+  # never been a live secret and appears nowhere outside tests/backend/. Allowlisted
+  # rather than hoisted to conftest because gitleaks scans HISTORY — the literal is in
+  # 5 past commits, so removing it from the working tree does not clear the gate.
+  regexes = ['''p256-key-derivation''', '''test-secret-key-32-bytes-long-xx''']

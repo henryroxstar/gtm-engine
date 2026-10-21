@@ -1,0 +1,29 @@
+{
+  "ratio": "9:16",
+  "ffprobe": {
+    "streams": [
+      {"codec_type": "video", "width": 1080, "height": 1920, "r_frame_rate": "30/1", "bit_rate": "8000000", "pix_fmt": "yuv420p"},
+      {"codec_type": "audio", "bit_rate": "128000"}
+    ],
+    "format": {"duration": "100.700000", "bit_rate": "8128000"}
+  },
+  "context": {
+    "audio_context": {
+      "has_music_bed": true,
+      "has_voice": true,
+      "ducking_applied": true,
+      "music_lufs": -18.0,
+      "voice_lufs": -20.0,
+      "silent_runs": [
+        {"start": 10.0, "end": 20.4, "duration": 10.4},
+        {"start": 40.0, "end": 65.1, "duration": 25.1},
+        {"start": 90.0, "end": 94.1, "duration": 4.1}
+      ],
+      "silent_total_s": 39.6,
+      "silent_fraction": 0.3932,
+      "integrated_lufs": -21.0,
+      "true_peak_dbfs": -2.0
+    },
+    "scene_changes": [10.0, 10.5, 11.0]
+  }
+}

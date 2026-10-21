@@ -1,0 +1,234 @@
+"""cockpit.commands — the simple slash commands: /start /help /profile /reset /radar /gate.
+
+Session and profile housekeeping plus the manual radar trigger and the Gate-1
+keyboard wiring test. The multi-step flows live elsewhere: /voice in
+:mod:`cockpit.voice_mode`, /wizard + /onboard in :mod:`cockpit.onboarding`.
+"""
+
+from __future__ import annotations
+
+import html
+import logging
+
+from telegram.constants import ChatAction, ParseMode
+from telegram.ext import ContextTypes
+
+import telegram
+from agent import inflight
+from cockpit import copy
+from cockpit.base import CockpitComponent
+from cockpit.gates import _plan_gate_keyboard
+from telegram import Update
+
+logger = logging.getLogger("cockpit.bot")
+
+
+_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "start": "show status + active profile",
+    "help": "show all available commands and usage tips",
+    "profile": "show current profile, or <code>/profile &lt;name&gt;</code> to switch",
+    "reset": "drop the current session and start fresh (profile kept)",
+    "gate": "render the plan gate keyboard on demand (wiring test)",
+    "voice": "toggle voice-only ⇄ text-only (<code>/voice both|text|voice</code>)",
+    "radar": "trigger a manual market scan for this week's signals",
+    "hooks": "hook library status, fatigue, and promotion/demotion candidates",
+    "wizard": "guided interactive profile setup",
+    "wizard_cancel": "cancel the active setup wizard",
+    "onboard": "extract a profile draft from a website URL or text",
+    "onboard_confirm": "confirm and save the staged profile draft",
+    "onboard_cancel": "discard the staged profile draft",
+    "cost": "show current tool budget and monthly spend",
+    "stop": "stop what I'm doing now and drop anything waiting behind it",
+}
+
+
+class CommandHandlers(CockpitComponent):
+    """One-shot slash commands over the shared session store."""
+
+    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/start`` — greet and show the active profile for this chat."""
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        profile = self.store.active_profile(chat_id)
+        text = (
+            "👋 <b>GTM Engine online.</b>\n"
+            f"Active profile: <b>{html.escape(profile)}</b>\n\n"
+            "Just type to talk to the brain, or use a command:\n"
+            "• <code>/help</code> — show all commands\n"
+            "• <code>/profile &lt;name&gt;</code> — switch company profile\n"
+            "• <code>/reset</code> — start a fresh session\n"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)  # type: ignore[union-attr]
+
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/help`` — show all available commands and usage tips."""
+        if not self._is_allowed(update):
+            return
+        profile = self.store.active_profile(update.effective_chat.id)  # type: ignore[union-attr]
+
+        if hasattr(self._root, "registered_commands"):
+            cmds = [c for c, _ in self._root.registered_commands()]
+        else:
+            cmds = list(_COMMAND_DESCRIPTIONS.keys())
+
+        cmd_lines = "\n".join(
+            f"• <code>/{cmd}</code> — {_COMMAND_DESCRIPTIONS.get(cmd, 'run command')}"
+            for cmd in cmds
+        )
+        text = (
+            "🤖 <b>GTM Engine — Command Reference</b>\n\n"
+            "<b>Commands</b>\n"
+            f"{cmd_lines}\n\n"
+            "<b>Brain</b>\n"
+            "• Just type any message to run the brain against the active profile.\n"
+            "• 🎙️ Send a voice note to talk to the brain — it transcribes and replies\n"
+            "  in whatever <code>/voice</code> mode you've set.\n"
+            "• Skills the brain knows: market-scan, content-radar, content-plan,\n"
+            "  content-research, content-studio, build-deck, draft-outreach, and more.\n"
+            '• Example: <i>"Run market-scan for this week"</i>\n'
+            '• Example: <i>"Generate a LinkedIn carousel idea on AI agents"</i>\n\n'
+            "<b>Approvals</b>\n"
+            "• <b>Gate 1 (plan):</b> when content-plan proposes a plan, <b>Approve / Edit / Reject</b>\n"
+            "  buttons appear. Approve writes the plan; Edit sends notes to revise; Reject discards.\n"
+            "• <b>Gate 2 (publish):</b> when content-publish stages a LinkedIn post, the <b>exact</b>\n"
+            "  text is shown with <b>Approve &amp; publish / Cancel</b>. Approving posts it to the one\n"
+            "  pre-authorized account; nothing else is ever sent.\n\n"
+            "Publishing and scheduling are switched off unless the server operator turns them on.\n\n"
+            f"Active profile: <b>{html.escape(profile)}</b>"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)  # type: ignore[union-attr]
+
+    async def cmd_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/profile <name>`` — switch the active profile for this chat.
+
+        Validation (does the profile dir exist?) happens inside
+        ``store.switch_profile`` → ``profiles.profile_dir``, which raises
+        ``ValueError`` on an unknown profile. We surface that to the operator
+        rather than silently no-op'ing.
+        """
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+
+        # context.args is the whitespace-split tail after the command.
+        if not context.args:
+            current = self.store.active_profile(chat_id)
+            await update.message.reply_text(  # type: ignore[union-attr]
+                "Usage: <code>/profile &lt;name&gt;</code>\n"
+                f"Current: <b>{html.escape(current)}</b>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        name = context.args[0].strip()
+        try:
+            # switch_profile validates via profiles.profile_dir, closes/drops any
+            # existing session for this chat, and binds the new profile.
+            await self.store.switch_profile(chat_id, name)
+        except ValueError as exc:
+            logger.info("Profile switch rejected for chat_id=%s: %s", chat_id, exc)
+            await update.message.reply_text(  # type: ignore[union-attr]
+                f"❌ Unknown profile: <b>{html.escape(name)}</b>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        await update.message.reply_text(  # type: ignore[union-attr]
+            f"✅ Active profile: <b>{html.escape(name)}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/reset`` — drop this chat's agent session (profile binding kept)."""
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        await self.store.reset(chat_id)
+        profile = self.store.active_profile(chat_id)
+        await update.message.reply_text(  # type: ignore[union-attr]
+            f"🔄 Session reset. Active profile: <b>{html.escape(profile)}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    async def cmd_radar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/radar`` — trigger a manual radar scan for the active profile.
+
+        Streams the result of the radar skill back into chat so the operator can
+        see which items are above threshold without waiting for the Monday cron.
+        """
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        profile = self.store.active_profile(chat_id)
+        header = f"[{profile}] "
+        prompt = (
+            "Run the radar skill for the active profile. Surface the top items above "
+            "threshold with a brief signal summary and relevance score for each. "
+            "If no items are above threshold, say so clearly and suggest adjusting "
+            "the radar config or trying again after new content is available."
+        )
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except telegram.error.TelegramError:
+            pass
+        placeholder = await update.message.reply_text(f"{header}Scanning radar…")  # type: ignore[union-attr]
+        accumulated = await self._root._delivery._stream_into(placeholder, header, chat_id, prompt)
+        if accumulated is None:
+            return
+        await self._root._delivery._finalize(placeholder, header, accumulated)
+
+    async def cmd_gate_demo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/gate`` — render the real Gate-1 keyboard to test the callback round-trip.
+
+        In normal use these buttons appear automatically under a proposed content
+        plan (the content-plan skill emits the gate sentinel). This command renders
+        the same Approve/Edit/Reject keyboard on demand; pressing a button runs the
+        real directive against the chat's session (if there is no pending draft, the
+        brain simply says so).
+        """
+        if not self._is_allowed(update):
+            return
+        await update.message.reply_text(  # type: ignore[union-attr]
+            "Gate-1 test — Approve / Edit / Reject the (pending) content plan.",
+            reply_markup=_plan_gate_keyboard(),
+        )
+
+    async def cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/stop`` — interrupt this chat's running turn and drop the messages waiting behind it (F3).
+
+        It never reaches the publish/enroll dispatchers: a send that is mid-flight cannot be taken back, so
+        the reply says plainly that it continues. Handled outside the chat's ordering lock (see
+        :mod:`cockpit.chatqueue`), so it works while a turn is running.
+        """
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        dropped = self._root._queue.discard(chat_id)
+        interrupted = await self.store.interrupt(chat_id)
+        running = sorted(inflight.kinds())
+        if not (interrupted or dropped or running):
+            text = copy.STOP_NOTHING
+        else:
+            parts = [copy.STOP_STOPPED] if (interrupted or dropped) else []
+            if dropped:
+                parts.append(copy.stop_dropped(dropped))
+            parts.extend(
+                copy.SEND_STILL_RUNNING.get(kind, copy.SEND_STILL_RUNNING_DEFAULT)
+                for kind in running
+            )
+            text = "; ".join(parts)
+        profile = self.store.active_profile(chat_id)
+        await update.message.reply_text(f"[{profile}] {text}")  # type: ignore[union-attr]
+
+    async def cmd_cost(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """``/cost`` — show tool spend and monthly cap for the active profile."""
+        if not self._is_allowed(update):
+            return
+        chat_id = update.effective_chat.id  # type: ignore[union-attr]
+        profile = self.store.active_profile(chat_id)
+        from gtm_core import budget_status
+
+        status = budget_status.status(profile)
+        line = budget_status.render(status)
+        await update.message.reply_text(line)  # type: ignore[union-attr]

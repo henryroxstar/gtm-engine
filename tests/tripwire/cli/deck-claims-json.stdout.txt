@@ -1,0 +1,60 @@
+{
+  "claims.slides.md": [
+    {
+      "tier": "D3",
+      "rule": "guardrail",
+      "severity": "error",
+      "slide": 3,
+      "excerpt": "SOC 2",
+      "fix": "ISO 27001 only \u2014 we do not hold SOC 2 Type II"
+    },
+    {
+      "tier": "D3",
+      "rule": "guardrail",
+      "severity": "error",
+      "slide": 4,
+      "excerpt": "congratulate them on the Zorvane",
+      "fix": "dossier DON'T \u2014 Don't congratulate them on the Zorvane award \u2014 a rival won it"
+    },
+    {
+      "tier": "D4",
+      "rule": "outcome claim",
+      "severity": "error",
+      "slide": 1,
+      "excerpt": "Shorter security review and more margin",
+      "fix": "an outcome claim needs a precedent in the notes (PRECEDENT: \u2026 or a source link), or it must be reworded as a question the buyer answers"
+    },
+    {
+      "tier": "D4",
+      "rule": "overstated outcome",
+      "severity": "error",
+      "slide": 2,
+      "excerpt": "security review kills",
+      "fix": "review rarely kills an agent \u2014 it descopes it. Say what actually happens: the cross-entity scope is cut and the agent ships smaller"
+    },
+    {
+      "tier": "D4",
+      "rule": "regulatory status",
+      "severity": "error",
+      "slide": 3,
+      "excerpt": "MAS",
+      "fix": "a slide citing a framework must carry its binding status in the notes (voluntary / non-binding / no deadline) so the room is never oversold"
+    },
+    {
+      "tier": "D4",
+      "rule": "unattributed term",
+      "severity": "error",
+      "slide": 3,
+      "excerpt": "lethal trifecta",
+      "fix": "credit Simon Willison on the slide \u2014 his term, and his name is the one their architects know"
+    },
+    {
+      "tier": "D4",
+      "rule": "quote not in sources",
+      "severity": "error",
+      "slide": 4,
+      "excerpt": "the review team told us the pilot was the easy part of the y\u2026",
+      "fix": "this exact string is not in the deck's inputs \u2014 a paraphrase in quotation marks is a fabricated quote"
+    }
+  ]
+}

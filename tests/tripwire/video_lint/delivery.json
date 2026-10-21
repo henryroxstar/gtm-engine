@@ -1,0 +1,11 @@
+{
+  "ratio": "4:5",
+  "ffprobe": {
+    "streams": [
+      {"codec_type": "video", "width": 1080, "height": 1440, "r_frame_rate": "20/1", "bit_rate": "2000000", "pix_fmt": "yuv420p"},
+      {"codec_type": "audio", "bit_rate": "128000"}
+    ],
+    "format": {"duration": "12.000000", "bit_rate": "2128000"}
+  },
+  "context": {}
+}

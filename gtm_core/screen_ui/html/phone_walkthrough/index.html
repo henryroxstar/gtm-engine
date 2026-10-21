@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920, initial-scale=1" />
+    <link rel="stylesheet" href="../_shared/tokens.css" />
+    <link rel="stylesheet" href="../_shared/animations.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--brand-canvas, #0B0B0F);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding-top: var(--safe-top, 80px);
+        padding-bottom: var(--safe-bottom, 140px);
+        max-height: var(--caption-band-top, 100%);
+      }
+      .phone-frame {
+        position: relative;
+        width: min(85vw, 420px);
+        height: min(80vh, 860px);
+        border: 12px solid #222222;
+        border-radius: 44px;
+        background: var(--brand-surface, #14141E);
+        box-shadow: 0 20px 24px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+      }
+      .screen-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+    </style>
+    <script src="../_shared/motion.js"></script>
+  </head>
+  <body>
+    <div id="root" data-composition-id="phone-walkthrough" data-no-timeline="true" data-start="0" data-duration="5" data-width="1080" data-height="1920">
+      <div id="phone" class="phone-frame">
+        <img id="screen" class="screen-image" src="assets/screen.png" alt="" />
+      </div>
+    </div>
+    <script>
+      (function() {
+        const { spring, easeOut, easeInOut, win, sequence, stage } = window.GtmMotion || {};
+        if (!stage) return;
+        stage("root");
+
+        const phone = document.getElementById("phone");
+        if (phone && sequence) {
+          sequence(phone, [
+            {
+              startS: 0,
+              endS: 0.9,
+              fn: (p) => ({
+                transform: `translateY(${120 * (1 - spring(p))}px) scale(${0.9 + 0.1 * spring(p)})`,
+                opacity: easeOut(win(p, 0, 0.7))
+              })
+            },
+            {
+              startS: 4.2,
+              endS: 5.0,
+              fn: (p) => ({
+                transform: `translateY(${-80 * (1 - spring(1 - p))}px)`,
+                opacity: 1 - easeInOut(win(p, 0.2, 1))
+              })
+            }
+          ], 5.0);
+        }
+      })();
+    </script>
+  </body>
+</html>

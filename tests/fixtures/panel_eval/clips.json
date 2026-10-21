@@ -1,0 +1,11 @@
+[
+  {"clip_id": "real-1", "condition": "real", "slot": 1},
+  {"clip_id": "avatar-1", "condition": "avatar", "slot": 2},
+  {"clip_id": "hybrid-1", "condition": "hybrid", "slot": 3},
+  {"clip_id": "real-2", "condition": "real", "slot": 4},
+  {"clip_id": "avatar-2", "condition": "avatar", "slot": 5},
+  {"clip_id": "hybrid-2", "condition": "hybrid", "slot": 6},
+  {"clip_id": "real-3", "condition": "real", "slot": 7},
+  {"clip_id": "avatar-3", "condition": "avatar", "slot": 8},
+  {"clip_id": "hybrid-3", "condition": "hybrid", "slot": 9}
+]

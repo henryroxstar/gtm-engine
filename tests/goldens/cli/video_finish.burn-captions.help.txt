@@ -1,0 +1,35 @@
+usage: python -m gtm_core.video_finish burn-captions [-h] --shots SHOTS
+                                                     --ratio {16:9,1:1,4:5,9:16}
+                                                     --profile PROFILE
+                                                     [--product PRODUCT]
+                                                     [--profiles-root PROFILES_ROOT]
+                                                     --out-dir OUT_DIR
+                                                     [--workdir WORKDIR]
+                                                     [--shot-ids SHOT_IDS]
+                                                     [--max-words MAX_WORDS]
+                                                     [--video-bitrate VIDEO_BITRATE]
+                                                     [--repo-root REPO_ROOT]
+                                                     [--content-root CONTENT_ROOT]
+                                                     [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --shots SHOTS         the shot list JSON; each shot's 'file' is resolved
+                        relative to this file's folder
+  --ratio {16:9,1:1,4:5,9:16}
+  --profile PROFILE     active profile (brand-kit lookup)
+  --product PRODUCT     active product slug (brand-kit lookup)
+  --profiles-root PROFILES_ROOT
+                        override profiles root for brand-kit lookup
+  --out-dir OUT_DIR
+  --workdir WORKDIR
+  --shot-ids SHOT_IDS   comma-separated shot ids to burn; omit for every shot
+                        that has a 'spoken' line
+  --max-words MAX_WORDS
+  --video-bitrate VIDEO_BITRATE
+                        bitrate target for the re-encode (default 16M — a
+                        caption burn re-encodes the picture, so this is the
+                        one knob that keeps it off video_lint's 1080p floor)
+  --repo-root REPO_ROOT
+  --content-root CONTENT_ROOT
+  --json

@@ -1,0 +1,4 @@
+email,Email,first,First Name,last,Last Name,company,Company,cell_id,segment,seat,title,country,signal_clause,suppression
+alex.renner@tidewater-analytics.example,alex.renner@tidewater-analytics.example,Alex,Alex,Renner,Renner,Tidewater Analytics,Tidewater Analytics,cell-generic,enterprise,platform,Head of Security,hong kong,an engineering post explains how each agent action is recorded for review.,unsubscribed
+riley.kraft@wavelet-analytics.example,riley.kraft@wavelet-analytics.example,Riley,Riley,Kraft,Kraft,Wavelet Analytics,Wavelet Analytics,cell-generic,enterprise,platform,Director of Engineering,singapore,,
+morgan.vasquez@summitline-partners.example,morgan.vasquez@summitline-partners.example,Morgan,Morgan,Vasquez,Vasquez,Summitline Partners,Summitline Partners,cell-generic,startup,platform,VP Product,australia,,

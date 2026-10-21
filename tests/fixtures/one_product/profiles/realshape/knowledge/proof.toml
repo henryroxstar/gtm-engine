@@ -1,0 +1,8 @@
+[[proof]]
+id = "alpha-proof"
+kind = "anchor"
+market = "singapore"
+figure_kind = "none"
+statement = "A regulator expects one accountable human per agent. alphaonly"
+source = "knowledge/guidance/alpha-regulator.md:1"
+binding = false

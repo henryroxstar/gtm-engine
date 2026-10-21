@@ -1,0 +1,18 @@
+usage: python -m gtm_core.content_quality [-h] [--content-root CONTENT_ROOT]
+                                          {pre,post,script,register} ...
+
+Deterministic local quality gates for content items.
+
+positional arguments:
+  {pre,post,script,register}
+    pre                 pre-generation checks
+    post                post-generation checks
+    script              script front-block checks (claims_verified) before
+                        storyboard/render spend
+    register            advisory: countable tells that a spoken script was
+                        written, not spoken
+
+options:
+  -h, --help            show this help message and exit
+  --content-root CONTENT_ROOT
+                        override content root

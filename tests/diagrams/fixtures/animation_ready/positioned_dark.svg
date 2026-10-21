@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 480" role="img" aria-labelledby="positioned-title positioned-desc">
+  <title id="positioned-title">Positioned</title>
+  <desc id="positioned-desc">Fixed layout</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#9AA7BD"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#72F5FA"/>
+    </marker>
+    <marker id="arrow-primary" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#3464FD"/>
+    </marker>
+    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#06101C"/>
+  <rect data-group-id="g1" x="380.0" y="40.0" width="200.0" height="340.0" rx="12" fill="rgba(52, 100, 253, 0.03)" stroke="#3464FD" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect x="396.0" y="30.0" width="80.0" height="20.0" rx="4" fill="#0A182A" stroke="#3464FD" stroke-width="1.2"/>
+  <text x="436.0" y="43.5" fill="#3464FD" font-size="8.5" font-weight="700" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">BACKEND</text>
+  <path d="M 116.0 144.0 L 280.0 144.0 A 8 8 0 0 1 288.0 152.0 L 288.0 292.0 A 8 8 0 0 0 296.0 300.0 L 460.0 300.0" data-edge="api->db" fill="none" stroke="#9AA7BD" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 192.0 104.0 L 294.0 104.0 A 2.0 2.0 0 0 0 296.0 102.0 L 296.0 102.0 A 2.0 2.0 0 0 1 298.0 100.0 L 404.0 100.0" data-edge="api->q" fill="none" stroke="#72F5FA" stroke-width="1.5" marker-end="url(#arrow-accent)"/>
+  <rect x="266.9" y="94.0" width="62.2" height="16.0" rx="3" fill="#0A182A" stroke="#1B2A3E" stroke-width="0.8"/>
+  <text x="298.0" y="105.5" fill="#F4F6FB" font-size="8" font-weight="500" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">enqueue</text>
+  <path d="M 100.0 300.0 L 104.0 300.0 A 4.0 4.0 0 0 0 108.0 296.0 L 108.0 148.0 A 4.0 4.0 0 0 1 112.0 144.0 L 116.0 144.0" data-edge="ui->api" fill="none" stroke="#9AA7BD" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 404.0 100.0 L 456.0 100.0 A 8 8 0 0 1 464.0 108.0 L 464.0 316.0 A 8 8 0 0 0 472.0 324.0 L 520.0 324.0" data-edge="q->db" fill="none" stroke="#9AA7BD" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect data-node-id="api" x="40.0" y="64.0" width="152.0" height="80.0" rx="8" fill="#0A182A" stroke="#3464FD" stroke-width="1.4"/>
+  <rect x="50.0" y="72.0" width="48.5" height="13" rx="3" fill="rgba(52, 100, 253, 0.16)" stroke="#3464FD" stroke-width="0.8"/>
+  <text x="74.2" y="81.5" fill="#72F5FA" font-size="7" font-weight="600" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">GATEWAY</text>
+  <text x="116.0" y="103.0" fill="#F4F6FB" font-size="11.5" font-weight="600" font-family="&apos;Example Sans&apos;, -apple-system, sans-serif" text-anchor="middle">API</text>
+  <text x="116.0" y="118.0" fill="#9AA7BD" font-size="8.5" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle">edge</text>
+  <rect data-node-id="db" x="400.0" y="300.0" width="120.0" height="48.0" rx="8" fill="#0A182A" stroke="#FF9C09" stroke-width="1.4"/>
+  <text x="460.0" y="327.0" fill="#F4F6FB" font-size="11.5" font-weight="600" font-family="&apos;Example Sans&apos;, -apple-system, sans-serif" text-anchor="middle">DB</text>
+  <rect data-node-id="q" x="404.0" y="56.0" width="140.0" height="88.0" rx="8" fill="#0A182A" stroke="#AE44D5" stroke-width="1.4"/>
+  <rect x="414.0" y="64.0" width="43.0" height="13" rx="3" fill="rgba(174, 68, 213, 0.16)" stroke="#AE44D5" stroke-width="0.8"/>
+  <text x="435.5" y="73.5" fill="#E9D5FF" font-size="7" font-weight="600" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STREAM</text>
+  <text x="474.0" y="102.0" fill="#F4F6FB" font-size="11.5" font-weight="600" font-family="&apos;Example Sans&apos;, -apple-system, sans-serif" text-anchor="middle">Queue</text>
+  <rect data-node-id="ui" x="40.0" y="300.0" width="120.0" height="80.0" rx="8" fill="#0E223B" stroke="#3464FD" stroke-width="1.4"/>
+  <rect x="50.0" y="308.0" width="37.5" height="13" rx="3" fill="rgba(52, 100, 253, 0.18)" stroke="#72F5FA" stroke-width="0.8"/>
+  <text x="68.8" y="317.5" fill="#72F5FA" font-size="7" font-weight="600" font-family="&apos;Example Mono&apos;, ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">FOCAL</text>
+  <text x="100.0" y="342.0" fill="#F4F6FB" font-size="11.5" font-weight="600" font-family="&apos;Example Sans&apos;, -apple-system, sans-serif" text-anchor="middle">UI</text>
+</svg>

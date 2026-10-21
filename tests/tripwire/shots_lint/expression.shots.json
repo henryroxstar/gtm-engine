@@ -1,0 +1,41 @@
+{
+  "source_item": "item-expression",
+  "total_duration_s": 13,
+  "style_scaffold": {
+    "look": "editorial monochrome, fine grain, shallow depth of field",
+    "provider_model": "wan2_7",
+    "negative": "text artifacts, logos"
+  },
+  "shots": [
+    {
+      "n": 1,
+      "duration_s": 5,
+      "role": "broll",
+      "camera": "static, eye level",
+      "visual": "a woman at a kitchen table, a cold cup of tea beside her",
+      "motion_prompt": "she turns the cup a quarter turn and lets go of it",
+      "expression": "beaming as she reads the message",
+      "audio_bed": "room tone with a faint street hum"
+    },
+    {
+      "n": 2,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static, medium",
+      "visual": "a man in a parked car, the engine off",
+      "motion_prompt": "he sets the keys down on the passenger seat",
+      "expression": "conversational and a little rueful",
+      "audio_bed": "room tone with a distant road"
+    },
+    {
+      "n": 3,
+      "duration_s": 4,
+      "role": "broll",
+      "camera": "static, close",
+      "visual": "a woman on a doorstep, the porch light behind her",
+      "motion_prompt": "she takes one step down and stops",
+      "expression": "inner brows lifting a fraction, mouth closed and still, jaw loose, chin steady, one shoulder dropping, gaze going down to the step",
+      "audio_bed": "room tone with a moth at the light"
+    }
+  ]
+}

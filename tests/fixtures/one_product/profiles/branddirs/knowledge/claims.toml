@@ -1,0 +1,7 @@
+[[claim]]
+id = "north-claim"
+group = "observability"
+status = "verified"
+statement = "The north product records each action. northonly"
+source = "knowledge/references/north-notes.md:1"
+do_not_say = ["tamper-proof"]

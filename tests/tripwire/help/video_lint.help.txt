@@ -1,0 +1,20 @@
+usage: python -m gtm_core.video_lint [-h] --ratio {16:9,1:1,4:5,9:16}
+                                     [--purpose {predictor}]
+                                     [--manifest MANIFEST] [--no-suppress]
+                                     [--json] [--fast]
+                                     asset
+
+positional arguments:
+  asset
+
+options:
+  -h, --help            show this help message and exit
+  --ratio {16:9,1:1,4:5,9:16}
+  --purpose {predictor}
+  --manifest MANIFEST   finish-<ratio>.json — carries captions.json's
+                        frame/screens AND lint_suppressions
+  --no-suppress         ignore the manifest's suppressions
+  --json
+  --fast                skip the measurement ffmpeg passes (V6, V9, V10's
+                        signal checks and V11 will not run; V10 still catches
+                        a missing audio stream from the probe alone)

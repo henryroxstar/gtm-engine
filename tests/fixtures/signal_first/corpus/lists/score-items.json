@@ -1,0 +1,422 @@
+[
+  {
+    "company": "Cascade Logistics",
+    "domain": "cascade-logistics.example",
+    "fit_score": 3,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": true,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-01",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Eastvale Logistics",
+    "domain": "eastvale-logistics.example",
+    "fit_score": 10,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-02",
+    "top_intent_score": 0,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Brightpath Networks",
+    "domain": "brightpath-networks.example",
+    "fit_score": 7,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "unspecified",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "drop"
+  },
+  {
+    "company": "Tidewater Analytics",
+    "domain": "tidewater-analytics.example",
+    "fit_score": 4,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-04",
+    "top_intent_score": 33,
+    "verdict": ""
+  },
+  {
+    "company": "Wavelet Analytics",
+    "domain": "wavelet-analytics.example",
+    "fit_score": 11,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Summitline Partners",
+    "domain": "summitline-partners.example",
+    "fit_score": 8,
+    "intent_feeds": [],
+    "new_in_role": true,
+    "segment": "startup",
+    "signal_observed": "2026-09-06",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Tidewater Analytics Group",
+    "domain": "tidewater-analytics-group.example",
+    "fit_score": 5,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-07",
+    "top_intent_score": 66,
+    "verdict": "send"
+  },
+  {
+    "company": "Quarry Systems",
+    "domain": "quarry-systems.example",
+    "fit_score": 12,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Riverbend Logistics",
+    "domain": "riverbend-logistics.example",
+    "fit_score": 9,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "unspecified",
+    "signal_observed": "2026-09-09",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Copperline Systems",
+    "domain": "copperline-systems.example",
+    "fit_score": 6,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-10",
+    "top_intent_score": 99,
+    "verdict": "send"
+  },
+  {
+    "company": "Lantern Systems",
+    "domain": "lantern-systems.example",
+    "fit_score": 3,
+    "intent_feeds": [],
+    "new_in_role": true,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Wideloop Partners",
+    "domain": "wideloop-partners.example",
+    "fit_score": 10,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-12",
+    "top_intent_score": 0,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Riverbend Analytics",
+    "domain": "riverbend-analytics.example",
+    "fit_score": 7,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 32,
+    "verdict": "drop"
+  },
+  {
+    "company": "Northwind Networks",
+    "domain": "northwind-networks.example",
+    "fit_score": 4,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-14",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Brightpath Networks Group",
+    "domain": "brightpath-networks-group.example",
+    "fit_score": 11,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "unspecified",
+    "signal_observed": "2026-09-15",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Summitline Analytics",
+    "domain": "summitline-analytics.example",
+    "fit_score": 8,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": true,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 65,
+    "verdict": ""
+  },
+  {
+    "company": "Copperline Analytics",
+    "domain": "copperline-analytics.example",
+    "fit_score": 5,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-17",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Northwind Systems",
+    "domain": "northwind-systems.example",
+    "fit_score": 12,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-18",
+    "top_intent_score": 0,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Copperline Networks",
+    "domain": "copperline-networks.example",
+    "fit_score": 9,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 98,
+    "verdict": ""
+  },
+  {
+    "company": "Marlowe Analytics",
+    "domain": "marlowe-analytics.example",
+    "fit_score": 6,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-02",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Cascade Partners",
+    "domain": "cascade-partners.example",
+    "fit_score": 3,
+    "intent_feeds": [],
+    "new_in_role": true,
+    "segment": "unspecified",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Lantern Holdings",
+    "domain": "lantern-holdings.example",
+    "fit_score": 10,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-04",
+    "top_intent_score": 31,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Riverbend Labs",
+    "domain": "riverbend-labs.example",
+    "fit_score": 7,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-05",
+    "top_intent_score": 0,
+    "verdict": "drop"
+  },
+  {
+    "company": "Brightpath Logistics",
+    "domain": "brightpath-logistics.example",
+    "fit_score": 4,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Lantern Analytics",
+    "domain": "lantern-analytics.example",
+    "fit_score": 11,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-07",
+    "top_intent_score": 64,
+    "verdict": "send"
+  },
+  {
+    "company": "Wideloop Partners Group",
+    "domain": "wideloop-partners-group.example",
+    "fit_score": 8,
+    "intent_feeds": [],
+    "new_in_role": true,
+    "segment": "startup",
+    "signal_observed": "2026-09-08",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Copperline Analytics Group",
+    "domain": "copperline-analytics-group.example",
+    "fit_score": 5,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "unspecified",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Lantern Logistics",
+    "domain": "lantern-logistics.example",
+    "fit_score": 12,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-10",
+    "top_intent_score": 97,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Cascade Analytics",
+    "domain": "cascade-analytics.example",
+    "fit_score": 9,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": ""
+  },
+  {
+    "company": "Riverbend Logistics Group",
+    "domain": "riverbend-logistics-group.example",
+    "fit_score": 6,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "2026-09-12",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Wideloop Analytics",
+    "domain": "wideloop-analytics.example",
+    "fit_score": 3,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": true,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-13",
+    "top_intent_score": 30,
+    "verdict": "send"
+  },
+  {
+    "company": "Quarry Analytics",
+    "domain": "quarry-analytics.example",
+    "fit_score": 10,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "startup",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "re-angle"
+  },
+  {
+    "company": "Lantern Holdings Group",
+    "domain": "lantern-holdings-group.example",
+    "fit_score": 7,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "unspecified",
+    "signal_observed": "2026-09-15",
+    "top_intent_score": 0,
+    "verdict": "drop"
+  },
+  {
+    "company": "Tidewater Systems",
+    "domain": "tidewater-systems.example",
+    "fit_score": 4,
+    "intent_feeds": [
+      "feed-a"
+    ],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "2026-09-16",
+    "top_intent_score": 63,
+    "verdict": ""
+  },
+  {
+    "company": "Fernway Logistics",
+    "domain": "fernway-logistics.example",
+    "fit_score": 11,
+    "intent_feeds": [],
+    "new_in_role": false,
+    "segment": "enterprise",
+    "signal_observed": "",
+    "top_intent_score": 0,
+    "verdict": "send"
+  },
+  {
+    "company": "Fernway Analytics",
+    "domain": "fernway-analytics.example",
+    "fit_score": 8,
+    "intent_feeds": [],
+    "new_in_role": true,
+    "segment": "startup",
+    "signal_observed": "2026-09-18",
+    "top_intent_score": 0,
+    "verdict": ""
+  }
+]

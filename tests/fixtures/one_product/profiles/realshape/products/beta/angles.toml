@@ -1,0 +1,11 @@
+[[angle]]
+id = "enterprise-platform-beta"
+seat = "platform"
+premise = "beta-premise"
+claim = "beta-claim"
+proof = "beta-proof"
+opener_kind = "account-event"
+stakes = "an outage nobody can reconstruct"
+summary = "One record per action for beta. zqbeta"
+status = "draft"
+segments = ["enterprise"]

@@ -1,0 +1,1 @@
+{"profile": "acme", "slug": "reel-bad", "ratio": "9x16", "asset_path": "tests/tripwire/content_quality/assets/missing.mp4", "stages": ["mux"], "census": {}, "captions": {"frame": [1080, 1920], "screens": [{"index": 1, "box": {"x": 0, "y": 1500, "w": 800, "h": 96}}, {"index": 2, "box": {"x": 140, "y": 1900, "w": 800, "h": 96}}]}}

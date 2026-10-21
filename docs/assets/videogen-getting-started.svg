@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 390" width="1000" height="390" role="img" aria-labelledby="vgs-title vgs-desc" font-family="Nunito, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title id="vgs-title">The 3-rung setup ladder: you only connect what your video lane actually uses</title>
+  <desc id="vgs-desc">Three columns showing progressive setup. Rung 0 requires zero external video API keys and uses your local BRAND.toml, fact sheet, and headless Chromium to render Animated UI Product Films and Live-Action Phone Shot-Lists at zero credit spend. Rung 1 adds one provider key for the job you want: Reap for clipping and captions, or Higgsfield for generative b-roll, voiceover, and restyling. Rung 2 is optional for putting a real founder on camera synthetically: an amber human gate requires recorded likeness consent before enrolling a voice clone or a HeyGen talking-head avatar.</desc>
+  <defs>
+    <marker id="vgs-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="390" rx="16" fill="#ffffff"/>
+
+  <!-- Heading -->
+  <text x="30" y="38" font-size="20" font-weight="700" fill="#0f172a">You do not need four API keys to make your first video.</text>
+  <text x="30" y="60" font-size="13.5" fill="#475569">Start at Rung 0 with zero external video keys, then connect only the provider that powers the lane you want.</text>
+
+  <!-- Column 1: Rung 0 (Emphasis frame) -->
+  <rect x="30" y="82" width="296" height="266" rx="12" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+  <text x="48" y="108" font-size="13" font-weight="700" fill="#0f172a">RUNG 0 · ZERO VIDEO API KEYS ($0 SPEND)</text>
+  <text x="48" y="128" font-size="12.5" fill="#475569">Uses local BRAND.toml + Chromium + FFmpeg</text>
+
+  <rect x="48" y="144" width="260" height="84" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="64" y="168" font-size="14" font-weight="700" fill="#1e293b">Animated UI Product Films</text>
+  <text x="64" y="188" font-size="12.5" fill="#475569">Deterministic HTML motion scenes</text>
+  <text x="64" y="206" font-size="12" fill="#475569">1080p MP4 · crisp UI typography · $0 credits</text>
+
+  <rect x="48" y="242" width="260" height="88" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="64" y="266" font-size="14" font-weight="700" fill="#1e293b">Scripts &amp; Phone Shot-Lists</text>
+  <text x="64" y="286" font-size="12.5" fill="#475569">Every .shots.json script, .shotlist.md</text>
+  <text x="64" y="304" font-size="12" fill="#475569">camera guide, and shots_lint check</text>
+
+  <!-- Arrow Rung 0 -> Rung 1 -->
+  <path d="M326,215 H350" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#vgs-head)"/>
+
+  <!-- Column 2: Rung 1 (Structure frame) -->
+  <rect x="352" y="82" width="310" height="266" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="370" y="108" font-size="13" font-weight="700" fill="#0f172a">RUNG 1 · ADD ONE PROVIDER KEY</text>
+  <text x="370" y="128" font-size="12.5" fill="#475569">Connect only the engine your lane calls</text>
+
+  <rect x="370" y="144" width="274" height="84" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="386" y="168" font-size="14" font-weight="700" fill="#1e293b">Reap (REAP_API_KEY)</text>
+  <text x="386" y="188" font-size="12.5" fill="#475569">Unlocks: Demo Clips · Repurpose Clips</text>
+  <text x="386" y="206" font-size="12" fill="#475569">Live-Action Auto-Edit · Face-Safe Captions</text>
+
+  <rect x="370" y="242" width="274" height="88" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="386" y="266" font-size="14" font-weight="700" fill="#1e293b">Higgsfield (HIGGSFIELD_API_KEY)</text>
+  <text x="386" y="286" font-size="12.5" fill="#475569">Unlocks: Short-Form B-Roll · Voice-Over TTS</text>
+  <text x="386" y="304" font-size="12" fill="#475569">Restyle Shorts · Virality Retention Score</text>
+
+  <!-- Arrow Rung 1 -> Rung 2 -->
+  <path d="M662,215 H686" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#vgs-head)"/>
+
+  <!-- Column 3: Rung 2 (Optional Identity Kit) -->
+  <rect x="688" y="82" width="282" height="266" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="706" y="108" font-size="13" font-weight="700" fill="#0f172a">RUNG 2 · OPTIONAL DIGITAL TWIN</text>
+  <text x="706" y="128" font-size="12.5" fill="#475569">Only if you want your face or voice cloned</text>
+
+  <!-- Amber Consent Gate -->
+  <rect x="706" y="144" width="246" height="72" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+  <text x="722" y="167" font-size="13.5" font-weight="700" fill="#1e293b">Gate: Recorded Consent</text>
+  <text x="722" y="186" font-size="12" fill="#1e293b">You record consent_recorded = true</text>
+  <text x="722" y="202" font-size="11.5" fill="#475569">in BRAND.toml via identity-kit</text>
+
+  <path d="M829,216 V238" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#vgs-head)"/>
+
+  <rect x="706" y="242" width="246" height="88" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="722" y="266" font-size="14" font-weight="700" fill="#1e293b">HeyGen + Cloned Voice</text>
+  <text x="722" y="286" font-size="12.5" fill="#475569">Unlocks: Presenter Video (lip-synced</text>
+  <text x="722" y="304" font-size="12" fill="#475569">talking head + cloned founder voice)</text>
+
+  <!-- Caption -->
+  <rect x="30" y="362" width="14" height="14" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="52" y="369" font-size="13" fill="#475569" dominant-baseline="central">Amber = human consent gate. The engine refuses to enrol or render a likeness without recorded consent.</text>
+</svg>

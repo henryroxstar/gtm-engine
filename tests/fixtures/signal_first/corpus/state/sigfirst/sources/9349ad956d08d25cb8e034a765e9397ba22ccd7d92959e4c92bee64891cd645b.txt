@@ -1,0 +1,5 @@
+# Notes
+
+The announcement covers a pilot where agents settle invoices between partners.
+
+More context follows on the next line.

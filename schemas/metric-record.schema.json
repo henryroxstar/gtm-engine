@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/metric-record.schema.json",
+  "title": "MetricRecord",
+  "description": "Post-performance row pulled into the history ledger by content-metrics (spec §10, §12). Phase 3+; metrics may start as manual Telegram entry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["post_id", "platform", "published_at"],
+  "properties": {
+    "post_id": { "type": "string" },
+    "platform": { "type": "string", "enum": ["linkedin", "x", "instagram", "youtube", "podcast"] },
+    "published_at": { "type": "string", "format": "date-time" },
+    "impressions": { "type": "integer", "minimum": 0 },
+    "engagements": { "type": "integer", "minimum": 0 },
+    "saves": { "type": "integer", "minimum": 0 },
+    "shares": { "type": "integer", "minimum": 0 },
+    "follows": { "type": "integer", "minimum": 0 },
+    "url": { "type": "string", "format": "uri" }
+  }
+}

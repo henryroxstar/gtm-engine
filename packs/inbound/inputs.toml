@@ -1,0 +1,15 @@
+# packs/inbound/inputs.toml — information requirements (§5's two-class inputs).
+#
+# `inbound-triage` reads its rubric through gtm_core.resolve_knowledge (product-first,
+# profile-fallback) and its signature/booking link from PROFILE.md, so the only settings
+# declared here are the ones that frame an operator-facing draft. Nothing is required:
+# a profile that has not set them still triages, it just drafts more plainly.
+
+[[knowledge]]
+topic = "inbound-triage-rubric"
+required = false
+
+[[settings]]
+key = "brand_name"
+source = "ask"
+required = false

@@ -1,0 +1,85 @@
+"""API key validation for the MCP server.
+
+The raw key (sk-...) is SHA-256 hex-hashed and resolved via resolve_api_key()
+(V012) — a SECURITY DEFINER function owned by gtm_bootstrap. It does the hash
+match + revoked/expiry filter + last_used_at bump in one round-trip and returns
+only (key_id, workspace_id, entitlement). Returns an ApiKeyCtx or None.
+
+Security:
+- Raw key is never stored; only the hash hits the DB.
+- resolve_api_key() is the pre-tenant bootstrap bypass (the lookup precedes any
+  workspace context, so it cannot run RLS-scoped); every post-auth query runs
+  RLS-subject as gtm_api inside workspace_scope(). See V012 / CLAUDE.md.
+- The lookup is enumeration-safe: it resolves only a key whose SHA-256 hash the
+  caller already presents, and exposes nothing beyond that key's own scope.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from typing import Any
+
+from gtm_core.capabilities import Entitlement
+
+from .setup_required import SetupRequiredError
+
+
+@dataclass(frozen=True)
+class ApiKeyCtx:
+    workspace_id: str
+    entitlement: Entitlement
+    key_id: str  # UUID of the api_keys row (for metering FK)
+
+
+async def validate_api_key(raw_key: str, pool) -> ApiKeyCtx | None:
+    """Validate a raw API key against the DB. Returns None if invalid."""
+    if not raw_key or not raw_key.startswith("sk-"):
+        return None
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM resolve_api_key($1)", key_hash)
+
+    if not row:
+        return None
+
+    return ApiKeyCtx(
+        workspace_id=str(row["workspace_id"]),
+        entitlement=Entitlement(row["entitlement"]),
+        key_id=str(row["key_id"]),
+    )
+
+
+async def assert_workspace_profile(workspace_id: str, profile: str, pool: Any) -> None:
+    """Ensure that the given profile is bound to the caller's workspace.
+
+    Prevents cross-tenant profile snooping and unauthorized drafting on public MCP.
+    """
+    if pool is None:
+        return
+    from backend.database import workspace_scope
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM profiles WHERE workspace_id = $1::uuid AND profile_name = $2",
+            workspace_id,
+            profile,
+        )
+    if not row:
+        # MM8: no profile AT ALL is a workspace that has not been onboarded, which is a different thing to
+        # tell a developer than "that name is not yours".
+        if not await workspace_has_any_profile(workspace_id, pool):
+            raise SetupRequiredError()
+        raise ValueError(f"Profile '{profile}' is not bound to caller workspace")
+
+
+async def workspace_has_any_profile(workspace_id: str, pool: Any) -> bool:
+    """True when the workspace has finished onboarding enough to own at least one profile."""
+    from backend.database import workspace_scope
+
+    async with workspace_scope(pool, workspace_id) as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM profiles WHERE workspace_id = $1::uuid LIMIT 1", workspace_id
+        )
+    return row is not None

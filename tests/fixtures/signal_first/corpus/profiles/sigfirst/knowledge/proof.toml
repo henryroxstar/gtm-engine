@@ -1,0 +1,8 @@
+[[proof]]
+id = "relay-proof"
+kind = "anchor"
+market = "singapore"
+figure_kind = "none"
+statement = "A regulator expects one accountable human per agent."
+source = "knowledge/guidance/relay-regulator.md:1"
+binding = false

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 416" width="1000" height="416" role="img" aria-labelledby="pl-title pl-desc" font-family="Nunito, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+  <title id="pl-title">The prospecting loop: the machine does the legwork, a person decides twice</title>
+  <desc id="pl-desc">A flow that wraps into a loop. Your profile (who you sell to, your fact sheet) feeds: find and score companies; research why now; draft from your fact sheet. Then the first amber step, which only a person can do: you approve the list. The batch is staged and paused in your sending tool. Then the second amber step: you press start. Replies are sorted into interested, not now, away and stop; results are measured per batch; the loop keeps what works and retires what does not. An arrow labelled next batch returns to finding and scoring companies, and a lighter dashed arrow returns to drafting.</desc>
+  <style>
+    @media (prefers-reduced-motion: reduce) { .motion { display: none; } }
+  </style>
+  <defs>
+    <marker id="pl-head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,1 L10,5 L0,9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background: white, rounded, so it reads on a dark page -->
+  <rect x="0" y="0" width="1000" height="416" rx="16" fill="#ffffff"/>
+
+  <!-- Heading -->
+  <text x="30" y="38" font-size="20" font-weight="700" fill="#0f172a">The machine does the legwork. You decide twice.</text>
+  <text x="30" y="60" font-size="13.5" fill="#475569">Every batch runs the same loop. A person acts at exactly two points, before anything leaves.</text>
+
+  <!-- Arrows (#94a3b8) -->
+  <g fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" marker-end="url(#pl-head)">
+    <path d="M182,116 H234"/>
+    <path d="M371,116 H423"/>
+    <path d="M544,116 H596"/>
+    <path d="M761,116 H813"/>
+    <path d="M882,152 V187"/>
+    <path d="M882,260 V295"/>
+    <path d="M814,332 H761"/>
+    <path d="M576,332 H524"/>
+    <path d="M403,332 H351"/>
+    <!-- next batch: back to Find & score -->
+    <path d="M303,296 V153"/>
+  </g>
+  <!-- lighter dashed return: back to Draft -->
+  <g opacity="0.7">
+    <path d="M335,296 V266 Q335,256 345,256 H669 Q679,256 679,246 V153" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="5 5" stroke-linecap="round" marker-end="url(#pl-head)"/>
+  </g>
+  <text x="293" y="224" font-size="13" font-weight="600" font-style="italic" fill="#475569" text-anchor="end" dominant-baseline="central">next batch</text>
+
+  <!-- The moving work item: drawn under the boxes, so it disappears inside a step and shows on the arrows.
+       It holds just before each amber gate. Path is relative to the centre of "Your profile". -->
+  <g transform="translate(106,116)">
+    <circle class="motion" r="6" fill="#0f172a">
+      <animateMotion dur="12s" repeatCount="indefinite" calcMode="linear"
+        path="M0,0 H690 H776 V163 V216 H197 V0"
+        keyTimes="0;0.2960;0.4127;0.5195;0.6362;1"
+        keyPoints="0;0.3861;0.3861;0.5255;0.5255;1"/>
+    </circle>
+  </g>
+
+  <!-- Structure nodes -->
+  <g stroke="#475569" stroke-width="1.5" fill="#f8fafc">
+    <rect x="30" y="80" width="152" height="72" rx="10"/>
+    <rect x="235" y="80" width="136" height="72" rx="10"/>
+    <rect x="424" y="80" width="120" height="72" rx="10"/>
+    <rect x="597" y="80" width="164" height="72" rx="10"/>
+    <rect x="790" y="188" width="184" height="72" rx="10"/>
+    <rect x="576" y="296" width="184" height="72" rx="10"/>
+    <rect x="403" y="296" width="120" height="72" rx="10"/>
+  </g>
+  <!-- Emphasis node: the learning step -->
+  <rect x="150" y="296" width="200" height="72" rx="10" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+  <!-- Human gates: amber, and nothing else is amber -->
+  <g stroke="#b45309" stroke-width="2" fill="#fef3c7">
+    <rect x="814" y="80" width="136" height="72" rx="10"/>
+    <rect x="814" y="296" width="136" height="72" rx="10"/>
+  </g>
+
+  <!-- Gate pulse rings, timed to when the work item is held at each gate -->
+  <rect class="motion" x="808" y="74" width="148" height="84" rx="14" fill="none" stroke="#b45309" stroke-width="2.5" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear"
+      keyTimes="0;0.2960;0.3544;0.4127;1" values="0;0;0.6;0;0"/>
+  </rect>
+  <rect class="motion" x="808" y="290" width="148" height="84" rx="14" fill="none" stroke="#b45309" stroke-width="2.5" opacity="0">
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear"
+      keyTimes="0;0.5195;0.5779;0.6362;1" values="0;0;0.6;0;0"/>
+  </rect>
+
+  <!-- Labels -->
+  <g text-anchor="middle" dominant-baseline="central">
+    <!-- 1 -->
+    <text x="106" y="98" font-size="15" font-weight="700" fill="#1e293b">Your profile</text>
+    <text x="106" y="118" font-size="13" fill="#475569">who you sell to,</text>
+    <text x="106" y="134" font-size="13" fill="#475569">your fact sheet</text>
+    <!-- 2 -->
+    <text x="303" font-size="15" font-weight="700" fill="#1e293b"><tspan x="303" y="106">Find &amp; score</tspan><tspan x="303" y="126">companies</tspan></text>
+    <!-- 3 -->
+    <text x="484" font-size="15" font-weight="700" fill="#1e293b"><tspan x="484" y="106">Research:</tspan><tspan x="484" y="126">why now?</tspan></text>
+    <!-- 4 -->
+    <text x="679" font-size="15" font-weight="700" fill="#1e293b"><tspan x="679" y="106">Draft from your</tspan><tspan x="679" y="126">fact sheet</tspan></text>
+    <!-- 5: gate -->
+    <text x="882" font-size="15" font-weight="700" fill="#1e293b"><tspan x="882" y="106">You approve</tspan><tspan x="882" y="126">the list</tspan></text>
+    <!-- 6 -->
+    <text x="882" y="215" font-size="15" font-weight="700" fill="#1e293b">Staged, paused</text>
+    <text x="882" y="235" font-size="13" fill="#475569">in your sending tool</text>
+    <!-- 7: gate -->
+    <text x="882" font-size="15" font-weight="700" fill="#1e293b"><tspan x="882" y="322">You press</tspan><tspan x="882" y="342">start</tspan></text>
+    <!-- 8 -->
+    <text x="668" y="314" font-size="15" font-weight="700" fill="#1e293b">Replies sorted</text>
+    <text x="668" y="334" font-size="13" fill="#475569">interested · not now</text>
+    <text x="668" y="350" font-size="13" fill="#475569">away · stop</text>
+    <!-- 9 -->
+    <text x="463" font-size="15" font-weight="700" fill="#1e293b"><tspan x="463" y="322">Measured</tspan><tspan x="463" y="342">per batch</tspan></text>
+    <!-- 10: emphasis -->
+    <text x="250" font-size="15" font-weight="700" fill="#1e293b"><tspan x="250" y="322">Keep what works,</tspan><tspan x="250" y="342">retire what doesn’t</tspan></text>
+  </g>
+
+  <!-- Caption -->
+  <rect x="30" y="386" width="14" height="14" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="52" y="393" font-size="13" fill="#475569" dominant-baseline="central">Amber = only a person can do this.</text>
+</svg>

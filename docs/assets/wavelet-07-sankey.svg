@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" role="img" aria-labelledby="sankey-title sankey-desc">
+  <title id="sankey-title">Support call outcomes — where a month of call volume ends up</title>
+  <desc id="sankey-desc">Sankey diagram showing 1,000 monthly support calls splitting into auto-resolved, escalated, and abandoned routing, then merging into resolved-automatically, resolved-by-human, and unresolved outcomes, with the unresolved path highlighted as the one accent flow.</desc>
+
+  <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+  <!-- Column headers -->
+  <text x="124" y="76" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CALL VOLUME</text>
+  <text x="504" y="76" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">ROUTING</text>
+  <text x="764" y="76" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">OUTCOME</text>
+
+  <!-- Ribbons: col1 -> col2 (ordinary) -->
+  <path d="M132,120 C316,120 316,120 500,120 L500,260 C316,260 316,260 132,260 Z" fill="rgba(79,93,117,0.18)"/>
+  <path d="M132,260 C316,260 316,292 500,292 L500,340 C316,340 316,308 132,308 Z" fill="rgba(79,93,117,0.18)"/>
+  <path d="M132,308 C316,308 316,372 500,372 L500,384 C316,384 316,320 132,320 Z" fill="rgba(79,93,117,0.18)"/>
+
+  <!-- Ribbons: col2 -> col3, ordinary -->
+  <path d="M512,120 C636,120 636,120 760,120 L760,260 C636,260 636,260 512,260 Z" fill="rgba(79,93,117,0.18)"/>
+  <path d="M512,292 C636,292 636,268 760,268 L760,312 C636,312 636,336 512,336 Z" fill="rgba(79,93,117,0.18)"/>
+
+  <!-- Ribbons: col2 -> col3, the unresolved path (one accent flow, two segments) -->
+  <path d="M512,336 C636,336 636,320 760,320 L760,324 C636,324 636,340 512,340 Z" fill="rgba(235,108,54,0.28)"/>
+  <path d="M512,372 C636,372 636,324 760,324 L760,336 C636,336 636,384 512,384 Z" fill="rgba(235,108,54,0.28)"/>
+
+  <!-- Nodes -->
+  <rect x="120" y="120" width="12" height="200" fill="#2d3142"/>
+  <rect x="500" y="120" width="12" height="140" fill="#2d3142"/>
+  <rect x="500" y="292" width="12" height="48" fill="#2d3142"/>
+  <rect x="500" y="372" width="12" height="12" fill="#2d3142"/>
+  <rect x="760" y="120" width="12" height="140" fill="#2d3142"/>
+  <rect x="760" y="268" width="12" height="44" fill="#2d3142"/>
+  <rect x="760" y="320" width="12" height="16" fill="#2d3142"/>
+
+  <!-- Labels: column 1, outside, anchored end -->
+  <text x="104" y="216" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="end">Calls / month</text>
+  <text x="104" y="232" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">1,000 calls</text>
+
+  <!-- Labels: column 2, centred in the gutter above each bar -->
+  <text x="504" y="94" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Auto-resolved</text>
+  <text x="504" y="110" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">700 calls</text>
+
+  <text x="504" y="272" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Escalated to human</text>
+  <text x="504" y="288" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">240 calls</text>
+
+  <text x="504" y="352" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Abandoned</text>
+  <text x="504" y="368" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">60 calls</text>
+
+  <!-- Labels: column 3, outside, anchored start -->
+  <text x="788" y="186" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start">Resolved automatically</text>
+  <text x="788" y="202" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">700 calls</text>
+
+  <text x="788" y="286" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start">Resolved by human</text>
+  <text x="788" y="302" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">220 calls</text>
+
+  <text x="788" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="start">Unresolved</text>
+  <text x="788" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">80 calls</text>
+
+  <!-- Legend -->
+  <line x1="40" y1="424" x2="960" y2="424" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+  <text x="40" y="440" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+
+  <rect x="40" y="456" width="16" height="8" fill="rgba(79,93,117,0.18)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="64" y="464" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Flow · call routing</text>
+
+  <rect x="220" y="456" width="16" height="8" fill="rgba(235,108,54,0.28)" stroke="#eb6c36" stroke-width="1"/>
+  <text x="244" y="464" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Unresolved path</text>
+
+  <rect x="400" y="456" width="16" height="8" fill="#2d3142"/>
+  <text x="424" y="464" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Node · monthly total</text>
+
+  <text x="580" y="464" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif" font-style="italic">80 of 1,000 monthly calls end unresolved — a human touch or an abandon.</text>
+</svg>

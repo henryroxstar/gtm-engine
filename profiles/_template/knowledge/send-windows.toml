@@ -1,0 +1,10 @@
+schema = 1
+default_schedule = "sched_default"
+
+[schedules]
+"sched_default" = { name = "Default Schedule", timezone = "UTC" }
+"sched_us" = { name = "US Business Hours", timezone = "America/New_York" }
+
+[countries]
+US = "sched_us"
+CA = "sched_us"

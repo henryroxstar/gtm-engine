@@ -1,0 +1,15 @@
+usage: python -m gtm_core.video_finish frames-to-video [-h]
+                                                       --frames-glob FRAMES_GLOB
+                                                       --fps FPS --out OUT
+                                                       [--content-root CONTENT_ROOT]
+                                                       [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --frames-glob FRAMES_GLOB
+                        ffmpeg-style pattern, e.g.
+                        'out/shot2-booking-%04d.png'
+  --fps FPS
+  --out OUT
+  --content-root CONTENT_ROOT
+  --json

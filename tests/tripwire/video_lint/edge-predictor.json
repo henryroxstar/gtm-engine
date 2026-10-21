@@ -1,0 +1,20 @@
+{
+  "ratio": "16:9",
+  "ffprobe": {
+    "streams": [
+      {"codec_type": "video", "width": 1920, "height": 1080, "r_frame_rate": "30/1", "bit_rate": "8000000", "pix_fmt": "yuv420p"},
+      {"codec_type": "audio", "bit_rate": "128000"}
+    ],
+    "format": {"duration": "15.041667", "bit_rate": "8128000"}
+  },
+  "context": {
+    "edge_stats": {"left_ymax": 80.0, "right_ymax": 12.0, "top_ymax": 9.0, "bottom_ymax": 71.0},
+    "purpose": "predictor",
+    "audio_context": {"has_music_bed": true, "has_voice": true, "ducking_applied": false},
+    "scene_changes": [],
+    "motion_stats": [
+      {"index": 0, "start": 0.0, "end": 7.95, "motion": 0.0003},
+      {"index": 1, "start": 7.95, "end": 15.04, "motion": 0.04}
+    ]
+  }
+}

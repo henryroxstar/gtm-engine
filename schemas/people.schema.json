@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gtm-engine/gtm-engine/schemas/people.schema.json",
+  "title": "PeopleLedger",
+  "description": "Per-profile, person-keyed engagement ledger at content/<profile>/prospects/people.json. Upserted by the LinkedIn skills via gtm_core.people: one record per person with tags, profile URL, full engagement history, an engagement count, and a lifecycle status for conversion tracking. Tenant-isolated state (never committed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "profile", "people"],
+  "properties": {
+    "kind": { "const": "people" },
+    "profile": { "type": "string" },
+    "updated_at": { "type": ["string", "null"], "format": "date-time" },
+    "people": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/person" }
+    }
+  },
+  "$defs": {
+    "person": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tags", "engagements", "engagement_count", "status"],
+      "properties": {
+        "id": { "type": "string", "description": "Normalized profile_url, else name-company slug." },
+        "name": { "type": ["string", "null"] },
+        "headline": { "type": ["string", "null"] },
+        "company": { "type": ["string", "null"] },
+        "profile_url": { "type": ["string", "null"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "engagements": { "type": "array", "items": { "$ref": "#/$defs/engagement" } },
+        "engagement_count": { "type": "integer", "minimum": 0 },
+        "status": {
+          "type": "string",
+          "enum": ["lead", "engaged", "replied", "opportunity", "account", "disqualified"]
+        },
+        "linked_account": { "type": ["string", "null"], "description": "account-slug under content/<profile>/accounts/" },
+        "first_seen": { "type": ["string", "null"], "format": "date-time" },
+        "last_seen": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "engagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["like", "celebrate", "support", "love", "insight", "funny", "comment", "reply_sent"]
+        },
+        "post_slug": { "type": "string" },
+        "post_url": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "comment_text": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

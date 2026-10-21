@@ -1,0 +1,110 @@
+# bootstrap.ps1 — one-command local bootstrap on Windows (PowerShell).
+#
+# The Windows twin of scripts/bootstrap.sh. Same three steps, same end state:
+#   1. ensures `uv` is installed (installs it if missing)
+#   2. `uv sync` — uv provisions the right Python (3.11+) and all deps
+#   3. prints the environment self-check (which capability tier is unlocked)
+#
+# Safe to re-run (idempotent). Run it from anywhere:
+#   powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
+#
+# WHY THIS FILE EXISTS AND IS NOT JUST A README NOTE. bootstrap.sh is bash, so on Windows
+# it needs Git Bash or WSL — and the onboarding guide told Windows users to say "yes" when
+# the assistant offered to install Python. On Windows that lands you on the **App Execution
+# Alias**: `C:\Users\<you>\AppData\Local\Microsoft\WindowsApps\python.exe` is a zero-byte
+# stub that opens the Microsoft Store instead of running anything. It is on PATH by default
+# and it SHADOWS a real interpreter installed later, so `winget install Python.Python.3.12`
+# on its own does not fix it.
+#
+# On 2026-09-07 a prospecting run on exactly that machine spent ~209 premium contact
+# lookups while every `python -m gtm_core.*` command — the budget guard, the merge writer,
+# the account-integrity gate — failed silently and the run degraded into hand-written
+# markdown that looked like a finished result. `uv` is the fix rather than a workaround:
+# it ships its own interpreter, so the alias never gets a vote.
+
+$ErrorActionPreference = 'Stop'
+
+# Resolve repo root from this script's location (works from any CWD).
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+Write-Host "==> gtm-engine bootstrap (repo: $RepoRoot)"
+
+# --- 1. ensure uv -----------------------------------------------------------
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Host "==> uv not found - installing (astral.sh) ..."
+    Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+    # uv installs to %USERPROFILE%\.local\bin; make it visible for THIS session so the
+    # rest of this script works without the user opening a new shell.
+    $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+}
+
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Error @"
+uv install did not land on PATH. Open a new PowerShell window, or add
+  $env:USERPROFILE\.local\bin
+to PATH, then re-run: powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
+"@
+    exit 1
+}
+Write-Host "==> uv: $(uv --version)"
+
+# --- 2. install deps (uv provisions Python 3.11+ automatically) -------------
+Write-Host "==> uv sync ..."
+uv sync
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# --- 2b. prove the interpreter is REAL, not the Store alias ------------------
+# This is the check bootstrap.sh does not need. `uv run python` uses uv's own
+# interpreter, so if this prints a path the alias has been routed around; if it fails,
+# the failure is loud HERE rather than eleven steps into a metered pipeline run.
+Write-Host "==> interpreter probe ..."
+# Out-String collapses the native command's output (which PowerShell hands back as a
+# string ARRAY when it spans lines) to one trimmed string, so the emptiness test below is
+# testing what it looks like it is testing.
+$contentRoot = (uv run python -m gtm_core.paths | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($contentRoot)) {
+    # SINGLE-quoted here-string: a backtick is PowerShell's escape character, so the
+    Write-Error @'
+The self-check could not start Python. On Windows this is usually the Store placeholder; see END-USER-ONBOARDING.md, 'If the check fails'. Do not run the engine until this ends with Ready.
+'@
+    exit 1
+}
+Write-Host "==> content root: $contentRoot"
+
+# --- 2c. ensure .claude/skills link is active for Claude Code ----------------
+$claudeDir = Join-Path $RepoRoot ".claude"
+$claudeSkills = Join-Path $claudeDir "skills"
+$targetSkills = Join-Path $RepoRoot "plugin\skills"
+
+if (-not (Test-Path -Path $claudeSkills -PathType Container)) {
+    if (Test-Path -Path $claudeSkills) {
+        Remove-Item -Force $claudeSkills
+    }
+    if (-not (Test-Path -Path $claudeDir)) {
+        New-Item -ItemType Directory -Path $claudeDir | Out-Null
+    }
+    try {
+        New-Item -ItemType Junction -Path $claudeSkills -Target $targetSkills | Out-Null
+    } catch {
+        Copy-Item -Recurse -Force $targetSkills $claudeSkills | Out-Null
+    }
+# --- 2d. system media tools probe (video pipeline) --------------------------
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    Write-Host "==> ffmpeg: detected"
+} else {
+    Write-Host "==> [Notice] ffmpeg is not installed on PATH."
+    Write-Host "    Video rendering, local captions, and clip finishing require ffmpeg."
+    Write-Host "    To install on Windows: winget install Gyan.FFmpeg"
+}
+
+# --- 3. environment self-check ----------------------------------------------
+Write-Host ""
+uv run python -m gtm_core.check_env
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "==> Not ready yet. This copy runs on the self-hosted server, which needs an API key: copy .env.example to .env and set ANTHROPIC_API_KEY, or sign in with Doppler."
+    exit 0   # not a hard failure - deps are installed; the user just needs a key
+}
+
+Write-Host ""
+Write-Host "==> Ready. Open the folder in the Claude app and say `"set me up`"."

@@ -1,0 +1,130 @@
+# Local fast static-analysis layer for gtm-engine.
+#
+# All four tools run at the pre-commit stage (commits stay fast: Ruff/Bandit run
+# only on changed files; the custom Semgrep rules are offline and tiny; gitleaks
+# scans only staged content). The heavy Semgrep *registry* deep-scan (p/python,
+# p/security-audit) is deliberately NOT here — it runs only at the `main` gate in
+# .github/workflows/static-analysis.yml.
+#
+# Setup:
+#   uv sync --extra lint
+#   uv run pre-commit install
+#
+# Pins are mirrored in pyproject.toml ([project.optional-dependencies] lint) and
+# the CI workflow — bump all three together.
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff          # lint (autofix what's safe)
+        args: [--fix]
+      - id: ruff-format   # formatter
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/semgrep/semgrep
+    rev: v1.167.0
+    hooks:
+      - id: semgrep
+        # Custom invariant rules only — offline, no registry fetch, no telemetry.
+        args:
+          - "--config"
+          - ".semgrep/"
+          - "--error"
+          - "--metrics=off"
+          - "--disable-version-check"
+          - "--skip-unknown-extensions"
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        # Scans STAGED content locally — catches a `git add -f .env` before it is
+        # committed. The CI gitleaks job (.github/workflows/ci.yml) runs `gitleaks
+        # detect` in history mode and by design never sees the gitignored working
+        # tree, so this hook closes that local gap. Same binary version as CI.
+
+  - repo: local
+    hooks:
+      # gitleaks catches OUR secrets; the de-brand lint catches OUR name. Neither can see
+      # a THIRD PARTY's identity — a real prospect kept as a test fixture because it was
+      # the actual messy row the parser had to handle. That is how real contacts reached
+      # the public repo in v0.8.0 with every gate green. Blocking at commit time means a
+      # real contact never enters the repo; the export gate is only the backstop.
+      # Stdlib-only and staged-files-only, so it stays fast.
+      # Provider rates: only scan if skills, manifests, schemas, or tenant knowledge changed
+      - id: provider-rate-check
+        name: a provider rate lives in one module
+        entry: uv run python tests/lint/provider_rate_check.py
+        language: system
+        pass_filenames: false
+        files: ^(plugin/skills/|gtm_core/skills/|profiles/|schemas/|agent/pack_prompts/)
+      - id: manifest-prose-check
+        name: withheld-skill descriptions stay an interface
+        entry: uv run python tests/lint/manifest_prose_check.py
+        language: system
+        pass_filenames: false
+        files: ^(plugin/skills/|gtm_core/skills/|gating\.toml)
+      - id: pii-check
+        name: no real contact details in source
+        entry: uv run python tests/lint/pii_check.py
+        language: system
+        pass_filenames: true
+        files: \.(py|md|json|toml|csv|ya?ml|txt|sh|service|timer)$
+        # content/ and profiles/ hold real customer PII by design and never ship.
+        exclude: ^(content|profiles)/
+
+      # Cross-tenant check: only scan if profile bundles changed
+      - id: cross-tenant-check
+        name: a profile bundle names no other tenant
+        entry: uv run python tests/lint/cross_tenant_check.py
+        language: system
+        pass_filenames: false
+        files: ^profiles/
+
+      # §R10 — production file length is a ratchet: a listed file may never grow, an
+      # unlisted file is capped at 500 lines, and a ceiling can be raised (or an entry
+      # added) only with a dated reason on the allowlist line. `--base HEAD` is what makes
+      # a silent ceiling bump impossible at commit time: the staged allowlist is compared
+      # against the committed one. Both lists are in `files:` so a commit that touches only
+      # a list still runs the guard, and every listed file is validated on every run. Stdlib-only.
+      - id: complexity-ratchet
+        name: file-length ratchet (§R10)
+        entry: uv run python tests/lint/complexity_check.py --base HEAD
+        language: system
+        pass_filenames: true
+        files: (\.py|tests/lint/(complexity_allowlist|retired_patch_paths)\.txt)$
+        exclude: ^(content|profiles)/
+
+      # §R14 — a number in rendered prose must be DERIVED, never typed.
+      - id: rendered-prose-counts
+        name: no typed counts in rendered prose (§R14)
+        entry: uv run python tests/lint/rendered_prose_check.py
+        language: system
+        pass_filenames: false
+        files: (gtm_core/email_campaign_dashboard/.*\.py|tests/lint/rendered_prose_allow\.txt)$
+
+      # PS11 operator vocabulary: status lines, skill instructions to the operator, and
+      # dashboard status cards must use operator vocabulary, not pipeline jargon.
+      - id: operator-vocabulary
+        name: refuse pipeline vocabulary in operator-facing text (PS11)
+        entry: uv run python tests/lint/operator_vocabulary.py
+        language: system
+        pass_filenames: false
+        files: ^(plugin/skills/|gtm_core/prospect_status\.py|gtm_core/lanes/)
+
+      # Multi-agent config sync: regenerate .agents/mcp_config.json and
+      # .cursor/mcp.json when the authoritative Python MCP config changes.
+      - id: generate-agent-configs
+        name: sync .agents + .cursor MCP configs from agent/mcp_config.py
+        entry: uv run python scripts/generate_agent_configs.py
+        language: system
+        pass_filenames: false
+        files: ^agent/mcp_config\.py$

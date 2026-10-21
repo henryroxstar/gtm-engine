@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import tomllib
+from datetime import date
+from pathlib import Path
+
+from gtm_core.brandkit import render_tokens_css
+
+from .knowledge import _ensure_knowledge_frontmatter, _supplement_from_template
+from .render_icp import (
+    _render_buyer_journey_md,
+    _render_competitors_md,
+    _render_icp_md,
+    _render_pillars_md,
+)
+from .render_product import (
+    _render_audience_psych_stub,
+    _render_case_studies_stub,
+    _render_gift_artifacts_txt,
+    _render_per_product_md,
+    _render_product_md,
+    _render_voice_bans_txt,
+)
+from .render_profile import (
+    _render_brand_notes_md,
+    _render_brand_toml,
+    _render_company_md,
+    _render_market_scan_config_md,
+    _render_profile_md,
+    _render_voice_md,
+)
+from .slug import slugify
+
+
+def render(
+    draft: dict,
+    *,
+    today: date | None = None,
+    template_knowledge_dir: Path | None = None,
+) -> dict[str, str]:
+    """Convert a validated ProfileDraft into a dict of relative path → file content.
+
+    Does NOT write to disk. Returns a flat mapping for stage() and diff() to consume.
+    File layout mirrors the live profiles/<slug>/ structure.
+
+    Every managed knowledge topic is stamped with lifecycle frontmatter (source/refreshed/review)
+    so the profile passes ``knowledge_meta_check`` without a manual ``knowledge_meta seed``.
+    ``today`` is injectable for deterministic tests (defaults to today's date).
+
+    When ``template_knowledge_dir`` is given (the CLI passes the live ``_template/knowledge``), the
+    ``_template`` starter topics render() doesn't derive from the draft are added too, so skills
+    that read them don't silently degrade on a new profile.
+    """
+    files: dict[str, str] = {}
+    effective_today = today or date.today()
+
+    company = draft["company"]
+    voice = draft["voice"]
+    icp = draft["icp"]
+    competitors = draft.get("competitors", [])
+    pillars = draft.get("pillars", [])
+    products = draft.get("products", [])
+    brand = draft.get("brand", {})
+
+    files["PROFILE.md"] = _render_profile_md(
+        company, voice, icp, pillars, products, brand, draft.get("settings")
+    )
+    files["knowledge/voice.md"] = _render_voice_md(voice)
+    files["knowledge/icp-personas.md"] = _render_icp_md(icp, draft.get("settings"))
+    files["knowledge/competitors.md"] = _render_competitors_md(competitors)
+    files["knowledge/buyer-journey.md"] = _render_buyer_journey_md(icp, draft.get("buyer_journey"))
+    files["knowledge/pillars.md"] = _render_pillars_md(pillars)
+    files["knowledge/company.md"] = _render_company_md(company, draft)
+    files["knowledge/brand-notes.md"] = _render_brand_notes_md(brand)
+    files["knowledge/BRAND.toml"] = _render_brand_toml(
+        company, brand, products, effective_today.isoformat()
+    )
+    files["knowledge/brand/tokens.css"] = render_tokens_css(
+        tomllib.loads(files["knowledge/BRAND.toml"])
+    )
+    files["knowledge/market-scan-config.md"] = _render_market_scan_config_md(products)
+    files["knowledge/product.md"] = _render_product_md(products)
+    extra_bans = None
+    if draft.get("offer_ladder"):
+        extra_bans = draft["offer_ladder"].get("internal_quota_bans")
+    files["knowledge/voice-bans.txt"] = _render_voice_bans_txt(voice, extra_bans=extra_bans)
+    files["knowledge/case-studies.md"] = _render_case_studies_stub(company)
+    files["knowledge/audience-psychology.md"] = _render_audience_psych_stub(icp)
+    gift_artifacts_content = _render_gift_artifacts_txt(draft.get("offer_ladder"))
+    if gift_artifacts_content:
+        files["knowledge/gift-artifacts.txt"] = gift_artifacts_content
+
+    for product in products:
+        # The brain returns this slug. It becomes a PATH SEGMENT below, so it is normalised
+        # through the one canonical slugger (which ends in _safe_segment) rather than
+        # interpolated raw — "../../etc" would otherwise walk out of the staging root.
+        # slugify() is idempotent on an already-valid slug, so this does not move the files
+        # of any product that was rendered before it landed (pinned by the characterisation
+        # test in tests/agent/test_onboard_path_containment.py).
+        slug = slugify(product["slug"])
+        files[f"products/{slug}/PRODUCT.md"] = _render_per_product_md(product)
+        # Flat under products/<slug>/ — NOT products/<slug>/knowledge/. The flat level is the only
+        # place gtm_core.paths.resolve_knowledge_file() looks for a product override, so a file one
+        # directory deeper is written, frontmatter-stamped and indexed but never actually read:
+        # every skill silently falls back to the profile-level knowledge/ copy. agent/wizard.py
+        # writes (and probes) this same flat level; the renderer was the lone outlier.
+        files[f"products/{slug}/icp-personas.md"] = _render_icp_md(icp, draft.get("settings"))
+        files[f"products/{slug}/market-scan-config.md"] = _render_market_scan_config_md([product])
+        if gift_artifacts_content:
+            files[f"products/{slug}/gift-artifacts.txt"] = gift_artifacts_content
+
+    # Bring in the _template starters this profile would otherwise be missing (skills-degrade gap),
+    # then stamp lifecycle frontmatter on every managed topic still lacking it (gate-fail gap). Order
+    # matters: supplement first (its files arrive pre-stamped), then ensure only fills the draft-
+    # derived files, never clobbering a starter's own freshness date.
+    if template_knowledge_dir is not None:
+        _supplement_from_template(files, template_knowledge_dir)
+    _ensure_knowledge_frontmatter(files, draft, effective_today)
+
+    return files
