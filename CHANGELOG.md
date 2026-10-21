@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-10-21
+
+### Security
+- **certifi 2026.10.19 and pillow 13.0.0.** Both fix published advisories (one in certifi, eight
+  in pillow) that `pip-audit` flagged on the v0.31.0 CI.
+
+### Fixed
+- **The deep semgrep scan passes again.** A container test makes its fixture directory
+  world-traversable on purpose, so the container's non-root user can read it; the line now
+  carries a justified suppression.
+
 ## [0.31.0] - 2026-10-21
 
 ### Security

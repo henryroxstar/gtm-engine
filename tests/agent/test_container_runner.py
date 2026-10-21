@@ -423,7 +423,8 @@ def test_live_the_bundled_cli_in_a_container_lists_its_mcp_servers_as_connected(
     tree.mkdir(parents=True)
     (tree / "server.py").write_text(_STDIO_PROBE, encoding="utf-8")
     os.chmod(tree / "server.py", 0o644)
-    os.chmod(tree, 0o755)
+    # The container's non-root uid must traverse this fixture tree, so it needs o+x.
+    os.chmod(tree, 0o755)  # nosemgrep: insecure-file-permissions
     plan = _launch(tmp_path, monkeypatch, docker_host=host, real_cli=cli)
     plan_env = {"ANTHROPIC_API_KEY": "sk-ant-dummy", "HOME": "/tmp/h"}
     for (
